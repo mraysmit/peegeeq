@@ -10,7 +10,12 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -25,7 +30,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -37,6 +41,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  * Tests Phase 2: Message Deduplication feature.
  */
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 @Tag(TestCategories.INTEGRATION)
 class OutboxIdempotencyKeyTest {
 
@@ -180,22 +185,22 @@ class OutboxIdempotencyKeyTest {
     }
 
     @Test
-    void testSendWithIdempotencyKey_ConcurrentDuplicates_OnlyOneInserted() throws Exception {
+    void testSendWithIdempotencyKey_ConcurrentDuplicates_OnlyOneInserted(Vertx vertx) throws Exception {
         logger.info("=== Testing concurrent duplicate sends with same idempotency key ===");
 
         String idempotencyKey = "concurrent-key-" + UUID.randomUUID();
         int threadCount = 10;
-        CountDownLatch startLatch = new CountDownLatch(1);
-        CountDownLatch doneLatch = new CountDownLatch(threadCount);
+        CompletableFuture<Void> startSignal = new CompletableFuture<>();
+        CompletableFuture<Void>[] threadFutures = new CompletableFuture[threadCount];
         AtomicInteger successCount = new AtomicInteger(0);
         AtomicInteger failureCount = new AtomicInteger(0);
 
         // Launch multiple threads trying to send with same idempotency key
         for (int i = 0; i < threadCount; i++) {
             final int index = i;
-            new Thread(() -> {
+            threadFutures[i] = CompletableFuture.runAsync(() -> {
                 try {
-                    startLatch.await(); // Wait for all threads to be ready
+                    startSignal.join(); // Wait for all threads to be ready
                     Map<String, String> headers = new HashMap<>();
                     headers.put("idempotencyKey", idempotencyKey);
                     producer.send("payload-" + index, headers).get(5, TimeUnit.SECONDS);
@@ -203,22 +208,21 @@ class OutboxIdempotencyKeyTest {
                 } catch (Exception e) {
                     failureCount.incrementAndGet();
                     logger.debug("Thread {} failed (expected for duplicates): {}", index, e.getMessage());
-                } finally {
-                    doneLatch.countDown();
                 }
-            }).start();
+            });
         }
 
         // Start all threads at once
-        startLatch.countDown();
-        assertTrue(doneLatch.await(10, TimeUnit.SECONDS), "All threads should complete");
+        startSignal.complete(null);
+        CompletableFuture.allOf(threadFutures).get(10, TimeUnit.SECONDS);
 
         // All should succeed (duplicates are silently ignored)
         assertEquals(threadCount, successCount.get(), "All sends should succeed (duplicates ignored)");
         assertEquals(0, failureCount.get(), "No failures expected");
 
         // But only one message should be in the database
-        Thread.sleep(500); // Give time for all operations to complete
+        // GC-settle: allow all operations to complete
+        vertx.timer(500).toCompletionStage().toCompletableFuture().join();
         int count = getMessageCountForIdempotencyKey(idempotencyKey);
         assertEquals(1, count, "Should have exactly 1 message despite concurrent sends");
 
@@ -226,7 +230,7 @@ class OutboxIdempotencyKeyTest {
     }
 
     @Test
-    void testSendWithIdempotencyKey_ConsumerReceivesOnlyOnce() throws Exception {
+    void testSendWithIdempotencyKey_ConsumerReceivesOnlyOnce(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing consumer receives message only once with idempotency key ===");
 
         String idempotencyKey = "consumer-test-key-" + UUID.randomUUID();
@@ -241,19 +245,19 @@ class OutboxIdempotencyKeyTest {
         // Create consumer
         MessageConsumer<String> consumer = outboxFactory.createConsumer(testTopic, String.class);
         AtomicInteger receivedCount = new AtomicInteger(0);
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint messageReceived = testContext.checkpoint();
 
         consumer.subscribe(message -> {
             receivedCount.incrementAndGet();
-            latch.countDown();
+            messageReceived.flag();
             return CompletableFuture.completedFuture(null);
         });
 
         // Wait for message
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Should receive message");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive message");
 
         // Give extra time to ensure no duplicates
-        Thread.sleep(2000);
+        vertx.timer(2000).toCompletionStage().toCompletableFuture().join();
 
         // Should receive only 1 message
         assertEquals(1, receivedCount.get(), "Consumer should receive message only once");

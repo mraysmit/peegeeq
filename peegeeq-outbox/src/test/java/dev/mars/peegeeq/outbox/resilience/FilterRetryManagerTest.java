@@ -15,6 +15,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.LockSupport;
 import java.util.function.Predicate;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -501,7 +502,7 @@ class FilterRetryManagerTest {
         CompletableFuture<Boolean> result = retryManager.executeWithRetry(message, filter, circuitBreaker);
         
         // Give it a moment to start, then shutdown scheduler while retries are in progress
-        Thread.sleep(20);
+        LockSupport.parkNanos(20_000_000L);
         scheduler.shutdown();
         
         // Should either complete with false or throw RejectedExecutionException
@@ -787,12 +788,12 @@ class FilterRetryManagerTest {
             };
 
             int messageCount = 10;
-            CountDownLatch latch = new CountDownLatch(messageCount);
+            CompletableFuture<?>[] futures = new CompletableFuture[messageCount];
             AtomicInteger successCount = new AtomicInteger(0);
 
             for (int i = 0; i < messageCount; i++) {
                 final int index = i;
-                CompletableFuture.runAsync(() -> {
+                futures[index] = CompletableFuture.runAsync(() -> {
                     try {
                         Message<String> message = createTestMessage("msg-concurrent-" + index, "payload");
                         CompletableFuture<Boolean> result = manager.executeWithRetry(message, failingFilter, localCircuitBreaker);
@@ -801,13 +802,11 @@ class FilterRetryManagerTest {
                         }
                     } catch (Exception e) {
                         // Ignore
-                    } finally {
-                        latch.countDown();
                     }
                 });
             }
 
-            assertTrue(latch.await(5, TimeUnit.SECONDS));
+            CompletableFuture.allOf(futures).get(5, TimeUnit.SECONDS);
             assertEquals(messageCount, successCount.get());
 
             // All messages should be in DLQ

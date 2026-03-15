@@ -24,10 +24,13 @@ import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
@@ -48,7 +51,7 @@ import org.slf4j.LoggerFactory;
 
 import java.math.BigDecimal;
 import java.util.Arrays;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -82,6 +85,7 @@ import static org.junit.jupiter.api.Assertions.*;
     }
 )
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 class OrderControllerTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OrderControllerTest.class);
@@ -190,7 +194,7 @@ class OrderControllerTest {
      */
     @SuppressWarnings("null")
     @Test
-    void testCreateOrderSuccess() throws Exception {
+    void testCreateOrderSuccess(Vertx vertx) throws Exception {
         logger.info("=== Testing Successful Order Creation (Real HTTP) ===");
 
         CreateOrderRequest request = createValidOrderRequest();
@@ -204,7 +208,9 @@ class OrderControllerTest {
             url, HttpMethod.POST, entity, CreateOrderResponse.class);
 
         // Wait a bit for async processing to complete
-        TimeUnit.MILLISECONDS.sleep(100);
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(100, id -> delay.complete(null));
+        delay.join();
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertNotNull(response.getBody());
@@ -246,7 +252,7 @@ class OrderControllerTest {
      */
     @SuppressWarnings("null")
     @Test
-    void testCreateOrderWithBusinessValidationRollback() throws Exception {
+    void testCreateOrderWithBusinessValidationRollback(Vertx vertx) throws Exception {
         logger.info("=== Testing Business Validation Rollback Scenario (Real HTTP) ===");
 
         // Create request that will trigger business validation failure
@@ -267,7 +273,9 @@ class OrderControllerTest {
             url, HttpMethod.POST, entity, CreateOrderResponse.class);
 
         // Wait a bit for async processing to complete
-        TimeUnit.MILLISECONDS.sleep(100);
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(100, id -> delay.complete(null));
+        delay.join();
 
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
         assertNotNull(response.getBody());
@@ -284,7 +292,7 @@ class OrderControllerTest {
      */
     @SuppressWarnings("null")
     @Test
-    void testCreateOrderWithInvalidCustomerRollback() throws Exception {
+    void testCreateOrderWithInvalidCustomerRollback(Vertx vertx) throws Exception {
         logger.info("=== Testing Invalid Customer Rollback Scenario (Real HTTP) ===");
 
         CreateOrderRequest request = new CreateOrderRequest(
@@ -305,7 +313,9 @@ class OrderControllerTest {
             url, HttpMethod.POST, entity, CreateOrderResponse.class);
 
         // Wait a bit for async processing to complete
-        TimeUnit.MILLISECONDS.sleep(100);
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(100, id -> delay.complete(null));
+        delay.join();
 
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
         assertNotNull(response.getBody());
@@ -322,7 +332,7 @@ class OrderControllerTest {
      */
     @SuppressWarnings("null")
     @Test
-    void testCreateOrderWithDatabaseConstraintsRollback() throws Exception {
+    void testCreateOrderWithDatabaseConstraintsRollback(Vertx vertx) throws Exception {
         logger.info("=== Testing Database Constraints Rollback Scenario (Real HTTP) ===");
 
         CreateOrderRequest request = new CreateOrderRequest(
@@ -343,7 +353,9 @@ class OrderControllerTest {
             url, HttpMethod.POST, entity, CreateOrderResponse.class);
 
         // Wait a bit for async processing to complete
-        TimeUnit.MILLISECONDS.sleep(100);
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(100, id -> delay.complete(null));
+        delay.join();
 
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
         assertNotNull(response.getBody());
@@ -360,7 +372,7 @@ class OrderControllerTest {
      */
     @SuppressWarnings("null")
     @Test
-    void testCreateOrderWithMultipleEventsSuccess() throws Exception {
+    void testCreateOrderWithMultipleEventsSuccess(Vertx vertx) throws Exception {
         logger.info("=== Testing Successful Order Creation with Multiple Events (Real HTTP) ===");
 
         CreateOrderRequest request = createValidOrderRequest();
@@ -373,7 +385,9 @@ class OrderControllerTest {
             url, HttpMethod.POST, entity, CreateOrderResponse.class);
 
         // Wait a bit for async processing to complete
-        TimeUnit.MILLISECONDS.sleep(100);
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(100, id -> delay.complete(null));
+        delay.join();
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertNotNull(response.getBody());

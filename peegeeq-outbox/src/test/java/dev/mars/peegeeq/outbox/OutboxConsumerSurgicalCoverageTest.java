@@ -15,15 +15,21 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
+import org.junit.jupiter.api.extension.ExtendWith;
+
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
@@ -41,6 +47,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 class OutboxConsumerSurgicalCoverageTest {
 
     @Container
@@ -100,7 +107,7 @@ class OutboxConsumerSurgicalCoverageTest {
      * OutboxConsumer constructor uses configuration.getQueueConfig().getConsumerThreads().
      */
     @Test
-    void testConsumerWithMultipleThreads() throws Exception {
+    void testConsumerWithMultipleThreads(Vertx vertx, VertxTestContext testContext) throws Exception {
         System.setProperty("peegeeq.queue.consumer-threads", "4");
         System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
 
@@ -113,12 +120,12 @@ class OutboxConsumerSurgicalCoverageTest {
         producer = outboxFactory.createProducer(testTopic, String.class);
         consumer = outboxFactory.createConsumer(testTopic, String.class);
 
-        CountDownLatch latch = new CountDownLatch(3);
+        Checkpoint checkpoint = testContext.checkpoint(3);
         AtomicInteger receivedCount = new AtomicInteger(0);
 
         consumer.subscribe(message -> {
             receivedCount.incrementAndGet();
-            latch.countDown();
+            checkpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -127,7 +134,7 @@ class OutboxConsumerSurgicalCoverageTest {
         producer.send("msg2").get(5, TimeUnit.SECONDS);
         producer.send("msg3").get(5, TimeUnit.SECONDS);
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Should process all messages with multi-threaded executor");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process all messages with multi-threaded executor");
         assertEquals(3, receivedCount.get(), "Should process exactly 3 messages");
     }
 
@@ -136,7 +143,7 @@ class OutboxConsumerSurgicalCoverageTest {
      * processAvailableMessagesReactive() uses configuration.getQueueConfig().getBatchSize().
      */
     @Test
-    void testConsumerWithCustomBatchSize() throws Exception {
+    void testConsumerWithCustomBatchSize(Vertx vertx, VertxTestContext testContext) throws Exception {
         System.setProperty("peegeeq.queue.batch-size", "5");
         System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
 
@@ -149,12 +156,12 @@ class OutboxConsumerSurgicalCoverageTest {
         producer = outboxFactory.createProducer(testTopic, String.class);
         consumer = outboxFactory.createConsumer(testTopic, String.class);
 
-        CountDownLatch latch = new CountDownLatch(5);
+        Checkpoint checkpoint = testContext.checkpoint(5);
         AtomicInteger receivedCount = new AtomicInteger(0);
 
         consumer.subscribe(message -> {
             receivedCount.incrementAndGet();
-            latch.countDown();
+            checkpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -163,7 +170,7 @@ class OutboxConsumerSurgicalCoverageTest {
             producer.send("batch-msg-" + i).get(5, TimeUnit.SECONDS);
         }
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Should process batch of messages");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process batch of messages");
         assertEquals(5, receivedCount.get(), "Should process all batch messages");
     }
 
@@ -172,7 +179,7 @@ class OutboxConsumerSurgicalCoverageTest {
      * handleMessageFailureWithRetry() checks configuration.getQueueConfig().getMaxRetries().
      */
     @Test
-    void testRetryWithConfiguredMaxRetries() throws Exception {
+    void testRetryWithConfiguredMaxRetries(Vertx vertx, VertxTestContext testContext) throws Exception {
         System.setProperty("peegeeq.queue.max-retries", "1");
         System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
 
@@ -186,30 +193,25 @@ class OutboxConsumerSurgicalCoverageTest {
         consumer = outboxFactory.createConsumer(testTopic, String.class);
 
         AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch firstAttemptLatch = new CountDownLatch(1);
+        Checkpoint firstAttemptCheckpoint = testContext.checkpoint();
 
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
-            firstAttemptLatch.countDown();
+            firstAttemptCheckpoint.flag();
             throw new RuntimeException("Intentional failure for retry test");
         });
 
         producer.send("retry-msg").get(5, TimeUnit.SECONDS);
 
-        assertTrue(firstAttemptLatch.await(10, TimeUnit.SECONDS), "Should attempt message processing");
-        
-        // Wait for retry attempts
-        Thread.sleep(1000);
-
-        // With maxRetries=1, should have initial attempt + 1 retry = 2 total attempts
-        assertTrue(attemptCount.get() >= 1, "Should have at least initial attempt");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should attempt message processing");
+        assertTrue(attemptCount.get() >= 1);
     }
 
     /**
      * Test setConsumerGroupName() to cover consumer group tracking branch.
      */
     @Test
-    void testSetConsumerGroupName() throws Exception {
+    void testSetConsumerGroupName(Vertx vertx, VertxTestContext testContext) throws Exception {
         System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("group-test");
@@ -227,15 +229,15 @@ class OutboxConsumerSurgicalCoverageTest {
             outboxConsumer.setConsumerGroupName("test-group");
         }
 
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint checkpoint = testContext.checkpoint();
         consumer.subscribe(message -> {
-            latch.countDown();
+            checkpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
 
         producer.send("group-msg").get(5, TimeUnit.SECONDS);
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Should process message with consumer group name set");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process message with consumer group name set");
     }
 
     /**
@@ -243,7 +245,7 @@ class OutboxConsumerSurgicalCoverageTest {
      * processMessageWithCompletion() handles both direct exceptions and failed futures.
      */
     @Test
-    void testHandlerCompletesExceptionally() throws Exception {
+    void testHandlerCompletesExceptionally(Vertx vertx, VertxTestContext testContext) throws Exception {
         System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("except-test");
@@ -255,10 +257,10 @@ class OutboxConsumerSurgicalCoverageTest {
         producer = outboxFactory.createProducer(testTopic, String.class);
         consumer = outboxFactory.createConsumer(testTopic, String.class);
 
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint checkpoint = testContext.checkpoint();
 
         consumer.subscribe(message -> {
-            latch.countDown();
+            checkpoint.flag();
             CompletableFuture<Void> future = new CompletableFuture<>();
             future.completeExceptionally(new RuntimeException("Async failure"));
             return future;
@@ -266,8 +268,7 @@ class OutboxConsumerSurgicalCoverageTest {
 
         producer.send("async-fail").get(5, TimeUnit.SECONDS);
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Should invoke handler");
-        Thread.sleep(500); // Give time for exception handling
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should invoke handler");
     }
 
     /**
@@ -275,7 +276,7 @@ class OutboxConsumerSurgicalCoverageTest {
      * processRowReactive() adds correlationId to headers if present.
      */
     @Test
-    void testMessageWithCorrelationId() throws Exception {
+    void testMessageWithCorrelationId(Vertx vertx, VertxTestContext testContext) throws Exception {
         System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("correlation-test");
@@ -287,12 +288,12 @@ class OutboxConsumerSurgicalCoverageTest {
         producer = outboxFactory.createProducer(testTopic, String.class);
         consumer = outboxFactory.createConsumer(testTopic, String.class);
 
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint checkpoint = testContext.checkpoint();
         AtomicReference<Map<String, String>> receivedHeaders = new AtomicReference<>();
 
         consumer.subscribe(message -> {
             receivedHeaders.set(message.getHeaders());
-            latch.countDown();
+            checkpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -302,7 +303,7 @@ class OutboxConsumerSurgicalCoverageTest {
 
         producer.send("correlation-msg", headers, correlationId).get(5, TimeUnit.SECONDS);
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Should receive message");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive message");
         assertNotNull(receivedHeaders.get(), "Should have headers");
         assertEquals(correlationId, receivedHeaders.get().get("correlationId"), "Should have correlation ID in headers");
     }
@@ -322,11 +323,7 @@ class OutboxConsumerSurgicalCoverageTest {
         outboxFactory = new OutboxFactory(databaseService, config);
         consumer = outboxFactory.createConsumer(testTopic, String.class);
 
-        CountDownLatch latch = new CountDownLatch(1);
-        consumer.subscribe(message -> {
-            latch.countDown();
-            return CompletableFuture.completedFuture(null);
-        });
+        consumer.subscribe(message -> CompletableFuture.completedFuture(null));
 
         // Subscribe again - should log warning but not fail
         consumer.subscribe(message -> CompletableFuture.completedFuture(null));
@@ -377,7 +374,7 @@ class OutboxConsumerSurgicalCoverageTest {
      * Test message with null headers to cover header parsing edge case.
      */
     @Test
-    void testMessageWithNullHeaders() throws Exception {
+    void testMessageWithNullHeaders(Vertx vertx, VertxTestContext testContext) throws Exception {
         System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("null-headers-test");
@@ -389,19 +386,19 @@ class OutboxConsumerSurgicalCoverageTest {
         producer = outboxFactory.createProducer(testTopic, String.class);
         consumer = outboxFactory.createConsumer(testTopic, String.class);
 
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint checkpoint = testContext.checkpoint();
         AtomicReference<Map<String, String>> receivedHeaders = new AtomicReference<>();
 
         consumer.subscribe(message -> {
             receivedHeaders.set(message.getHeaders());
-            latch.countDown();
+            checkpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
 
         // Send with null headers
         producer.send("null-header-msg", null).get(5, TimeUnit.SECONDS);
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Should receive message");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive message");
         assertNotNull(receivedHeaders.get(), "Headers map should not be null (should be empty map)");
     }
 
@@ -409,7 +406,7 @@ class OutboxConsumerSurgicalCoverageTest {
      * Test message with empty headers to cover parseHeadersFromJsonObject empty case.
      */
     @Test
-    void testMessageWithEmptyHeaders() throws Exception {
+    void testMessageWithEmptyHeaders(Vertx vertx, VertxTestContext testContext) throws Exception {
         System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("empty-headers-test");
@@ -421,19 +418,19 @@ class OutboxConsumerSurgicalCoverageTest {
         producer = outboxFactory.createProducer(testTopic, String.class);
         consumer = outboxFactory.createConsumer(testTopic, String.class);
 
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint checkpoint = testContext.checkpoint();
         AtomicReference<Map<String, String>> receivedHeaders = new AtomicReference<>();
 
         consumer.subscribe(message -> {
             receivedHeaders.set(message.getHeaders());
-            latch.countDown();
+            checkpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
 
         // Send with empty headers map
         producer.send("empty-header-msg", new HashMap<>()).get(5, TimeUnit.SECONDS);
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Should receive message");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive message");
         assertNotNull(receivedHeaders.get(), "Headers should not be null");
         assertTrue(receivedHeaders.get().isEmpty() || receivedHeaders.get().size() <= 1, 
             "Headers should be empty or contain only system headers");
@@ -443,7 +440,7 @@ class OutboxConsumerSurgicalCoverageTest {
      * Test message processing metrics recording to cover metrics branch.
      */
     @Test
-    void testMessageMetricsRecording() throws Exception {
+    void testMessageMetricsRecording(Vertx vertx, VertxTestContext testContext) throws Exception {
         System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
 
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
@@ -456,26 +453,23 @@ class OutboxConsumerSurgicalCoverageTest {
         producer = outboxFactory.createProducer(testTopic, String.class);
         consumer = outboxFactory.createConsumer(testTopic, String.class);
 
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint checkpoint = testContext.checkpoint();
 
         consumer.subscribe(message -> {
-            latch.countDown();
+            checkpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
 
         producer.send("metrics-msg").get(5, TimeUnit.SECONDS);
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Should process message");
-        
-        // Metrics should be recorded
-        Thread.sleep(500); // Give metrics time to record
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process message");
     }
 
     /**
      * Test message failure metrics recording to cover failure metrics branch.
      */
     @Test
-    void testMessageFailureMetricsRecording() throws Exception {
+    void testMessageFailureMetricsRecording(Vertx vertx, VertxTestContext testContext) throws Exception {
         System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
 
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
@@ -488,17 +482,16 @@ class OutboxConsumerSurgicalCoverageTest {
         producer = outboxFactory.createProducer(testTopic, String.class);
         consumer = outboxFactory.createConsumer(testTopic, String.class);
 
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint checkpoint = testContext.checkpoint();
 
         consumer.subscribe(message -> {
-            latch.countDown();
+            checkpoint.flag();
             throw new IllegalArgumentException("Test failure for metrics");
         });
 
         producer.send("failure-metrics-msg").get(5, TimeUnit.SECONDS);
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Should attempt to process message");
-        Thread.sleep(500); // Give metrics time to record
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should attempt to process message");
     }
 
     /**

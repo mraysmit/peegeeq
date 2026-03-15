@@ -34,11 +34,15 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
+import org.junit.jupiter.api.extension.ExtendWith;
+
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -59,6 +63,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 public class OutboxConsumerCoreTest {
 
     @Container
@@ -141,16 +146,16 @@ public class OutboxConsumerCoreTest {
     }
 
     @Test
-    void testConsumerSubscribe() throws Exception {
+    void testConsumerSubscribe(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
         System.err.println("=== TEST: testConsumerSubscribe STARTED ===");
         
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint latch = testContext.checkpoint();
         AtomicReference<String> receivedMessage = new AtomicReference<>();
 
         // Subscribe to receive messages
         consumer.subscribe(message -> {
             receivedMessage.set(message.getPayload());
-            latch.countDown();
+            latch.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -159,58 +164,63 @@ public class OutboxConsumerCoreTest {
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
 
         // Wait for message to be received
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Should receive message within timeout");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive message within timeout");
         assertEquals(testMessage, receivedMessage.get(), "Should receive correct message");
         
         System.err.println("=== TEST: testConsumerSubscribe COMPLETED ===");
     }
 
     @Test
-    void testConsumerUnsubscribe() throws Exception {
+    void testConsumerUnsubscribe(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
         System.err.println("=== TEST: testConsumerUnsubscribe STARTED ===");
         
-        CountDownLatch latch = new CountDownLatch(1);
+        CompletableFuture<Void> firstReceived = new CompletableFuture<>();
         AtomicInteger messageCount = new AtomicInteger(0);
 
         // Subscribe
         consumer.subscribe(message -> {
             messageCount.incrementAndGet();
-            latch.countDown();
+            firstReceived.complete(null);
             return CompletableFuture.completedFuture(null);
         });
 
         // Send first message
         producer.send("Message 1").get(5, TimeUnit.SECONDS);
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Should receive first message");
+        firstReceived.get(10, TimeUnit.SECONDS);
         assertEquals(1, messageCount.get(), "Should have received one message");
 
         // Unsubscribe
         consumer.unsubscribe();
         
-        // Wait a bit for unsubscribe to take effect
-        Thread.sleep(1000);
+        // Wait for unsubscribe to take effect
+        CompletableFuture<Void> unsubWait = new CompletableFuture<>();
+        vertx.setTimer(1000, timerId -> unsubWait.complete(null));
+        unsubWait.get(5, TimeUnit.SECONDS);
 
         // Send second message - should not be received
         producer.send("Message 2").get(5, TimeUnit.SECONDS);
-        Thread.sleep(2000); // Give time for potential message delivery
+        CompletableFuture<Void> deliveryWait = new CompletableFuture<>();
+        vertx.setTimer(2000, timerId -> deliveryWait.complete(null));
+        deliveryWait.get(5, TimeUnit.SECONDS);
 
         // Message count should still be 1
         assertEquals(1, messageCount.get(), "Should not receive messages after unsubscribe");
         
         System.err.println("=== TEST: testConsumerUnsubscribe COMPLETED ===");
+        testContext.completeNow();
     }
 
     @Test
-    void testConsumerReceivesMultipleMessages() throws Exception {
+    void testConsumerReceivesMultipleMessages(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
         System.err.println("=== TEST: testConsumerReceivesMultipleMessages STARTED ===");
         
         int messageCount = 5;
-        CountDownLatch latch = new CountDownLatch(messageCount);
+        Checkpoint latch = testContext.checkpoint(messageCount);
         AtomicInteger receivedCount = new AtomicInteger(0);
 
         consumer.subscribe(message -> {
             receivedCount.incrementAndGet();
-            latch.countDown();
+            latch.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -220,22 +230,22 @@ public class OutboxConsumerCoreTest {
         }
 
         // Wait for all messages
-        assertTrue(latch.await(15, TimeUnit.SECONDS), "Should receive all messages within timeout");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should receive all messages within timeout");
         assertEquals(messageCount, receivedCount.get(), "Should receive all messages");
         
         System.err.println("=== TEST: testConsumerReceivesMultipleMessages COMPLETED ===");
     }
 
     @Test
-    void testConsumerReceivesMessagesWithHeaders() throws Exception {
+    void testConsumerReceivesMessagesWithHeaders(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
         System.err.println("=== TEST: testConsumerReceivesMessagesWithHeaders STARTED ===");
         
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint latch = testContext.checkpoint();
         AtomicReference<Map<String, String>> receivedHeaders = new AtomicReference<>();
 
         consumer.subscribe(message -> {
             receivedHeaders.set(message.getHeaders());
-            latch.countDown();
+            latch.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -246,7 +256,7 @@ public class OutboxConsumerCoreTest {
         
         producer.send("Message with headers", headers).get(5, TimeUnit.SECONDS);
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Should receive message within timeout");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive message within timeout");
         assertNotNull(receivedHeaders.get(), "Should receive headers");
         assertTrue(receivedHeaders.get().containsKey("content-type"), "Should contain content-type header");
         assertEquals("application/json", receivedHeaders.get().get("content-type"), "Header value should match");
@@ -255,15 +265,15 @@ public class OutboxConsumerCoreTest {
     }
 
     @Test
-    void testConsumerHandlerException() throws Exception {
+    void testConsumerHandlerException(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
         System.err.println("=== TEST: testConsumerHandlerException STARTED ===");
         
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint latch = testContext.checkpoint();
         AtomicInteger attemptCount = new AtomicInteger(0);
 
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
-            latch.countDown();
+            latch.flag();
             
             // Simulate handler error on first attempt
             if (attempt == 1) {
@@ -276,26 +286,28 @@ public class OutboxConsumerCoreTest {
         producer.send("Message that causes error").get(5, TimeUnit.SECONDS);
 
         // Wait for at least one delivery attempt
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Should attempt to process message");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should attempt to process message");
         assertTrue(attemptCount.get() >= 1, "Should have at least one processing attempt");
         
         System.err.println("=== TEST: testConsumerHandlerException COMPLETED ===");
     }
 
     @Test
-    void testConsumerClose() throws Exception {
+    void testConsumerClose(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
         System.err.println("=== TEST: testConsumerClose STARTED ===");
         
-        CountDownLatch latch = new CountDownLatch(1);
+        CompletableFuture<Void> firstReceived = new CompletableFuture<>();
+        AtomicInteger messageCount = new AtomicInteger(0);
 
         consumer.subscribe(message -> {
-            latch.countDown();
+            messageCount.incrementAndGet();
+            firstReceived.complete(null);
             return CompletableFuture.completedFuture(null);
         });
 
         // Send a message before closing
         producer.send("Message before close").get(5, TimeUnit.SECONDS);
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Should receive message before close");
+        firstReceived.get(10, TimeUnit.SECONDS);
 
         // Close consumer
         consumer.close();
@@ -303,17 +315,19 @@ public class OutboxConsumerCoreTest {
         // Try to send another message
         producer.send("Message after close").get(5, TimeUnit.SECONDS);
         
-        // Wait a bit
-        Thread.sleep(2000);
+        // Wait to verify no additional delivery
+        CompletableFuture<Void> closeWait = new CompletableFuture<>();
+        vertx.setTimer(2000, timerId -> closeWait.complete(null));
+        closeWait.get(5, TimeUnit.SECONDS);
 
-        // Latch should not be counted down again (still at 0)
-        assertEquals(0, latch.getCount(), "Should only have received one message");
+        assertEquals(1, messageCount.get(), "Should only have received one message");
         
         System.err.println("=== TEST: testConsumerClose COMPLETED ===");
+        testContext.completeNow();
     }
 
     @Test
-    void testConsumerGroupNameSetting() throws Exception {
+    void testConsumerGroupNameSetting(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
         System.err.println("=== TEST: testConsumerGroupNameSetting STARTED ===");
         
         // Create a new consumer with consumer group
@@ -324,17 +338,17 @@ public class OutboxConsumerCoreTest {
             ((OutboxConsumer<String>) groupConsumer).setConsumerGroupName("test-group");
         }
 
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint latch = testContext.checkpoint();
         
         groupConsumer.subscribe(message -> {
-            latch.countDown();
+            latch.flag();
             return CompletableFuture.completedFuture(null);
         });
 
         // Send a message
         producer.send("Message for consumer group").get(5, TimeUnit.SECONDS);
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Consumer with group should receive message");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Consumer with group should receive message");
         
         groupConsumer.close();
         

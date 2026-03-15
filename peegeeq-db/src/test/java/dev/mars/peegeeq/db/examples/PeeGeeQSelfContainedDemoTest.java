@@ -280,9 +280,8 @@ public class PeeGeeQSelfContainedDemoTest {
             logger.info("Monitor cycle {}: System healthy={}", i + 1, manager.isHealthy());
             
             try {
-                Thread.sleep(100); // Brief pause between monitoring cycles
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
+                manager.getVertx().timer(100).toCompletionStage().toCompletableFuture().join(); // Brief pause between monitoring cycles
+            } catch (Exception e) {
                 break;
             }
         }

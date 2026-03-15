@@ -25,9 +25,13 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -44,6 +48,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * - Test various configuration combinations and edge cases
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 class PeeGeeQConfigurationConsumerModeTest {
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQConfigurationConsumerModeTest.class);
@@ -140,14 +145,15 @@ class PeeGeeQConfigurationConsumerModeTest {
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class, pollingConfig);
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        CountDownLatch latch = new CountDownLatch(5);
+        VertxTestContext methodCtx = new VertxTestContext();
+        Checkpoint allDone = methodCtx.checkpoint(5);
         AtomicInteger processedCount = new AtomicInteger(0);
 
         // Subscribe to messages
         consumer.subscribe(message -> {
             int count = processedCount.incrementAndGet();
-            logger.info("📨 Processed message {} with batch size configuration: {}", count, message.getPayload());
-            latch.countDown();
+            logger.info("\ud83d\udce8 Processed message {} with batch size configuration: {}", count, message.getPayload());
+            allDone.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -157,7 +163,7 @@ class PeeGeeQConfigurationConsumerModeTest {
         }
 
         // Wait for all messages to be processed
-        boolean allProcessed = latch.await(10, TimeUnit.SECONDS);
+        boolean allProcessed = methodCtx.awaitCompletion(10, TimeUnit.SECONDS);
         assertTrue(allProcessed, "All messages should be processed with custom batch size");
         assertEquals(5, processedCount.get(), "Should process exactly 5 messages");
 
@@ -190,14 +196,15 @@ class PeeGeeQConfigurationConsumerModeTest {
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class, hybridConfig);
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        CountDownLatch latch = new CountDownLatch(2);
+        VertxTestContext methodCtx = new VertxTestContext();
+        Checkpoint allDone = methodCtx.checkpoint(2);
         AtomicInteger processedCount = new AtomicInteger(0);
 
         // Subscribe to messages
         consumer.subscribe(message -> {
             int count = processedCount.incrementAndGet();
-            logger.info("📨 Processed message {} with polling interval configuration: {}", count, message.getPayload());
-            latch.countDown();
+            logger.info("\ud83d\udce8 Processed message {} with polling interval configuration: {}", count, message.getPayload());
+            allDone.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -206,7 +213,7 @@ class PeeGeeQConfigurationConsumerModeTest {
         producer.send("Polling interval message 2");
 
         // Wait for messages to be processed
-        boolean allProcessed = latch.await(15, TimeUnit.SECONDS);
+        boolean allProcessed = methodCtx.awaitCompletion(15, TimeUnit.SECONDS);
         assertTrue(allProcessed, "All messages should be processed with custom polling interval");
         assertEquals(2, processedCount.get(), "Should process exactly 2 messages");
 
@@ -238,14 +245,15 @@ class PeeGeeQConfigurationConsumerModeTest {
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class, listenConfig);
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        CountDownLatch latch = new CountDownLatch(2);
+        VertxTestContext methodCtx = new VertxTestContext();
+        Checkpoint allDone = methodCtx.checkpoint(2);
         AtomicInteger processedCount = new AtomicInteger(0);
 
         // Subscribe to messages
         consumer.subscribe(message -> {
             int count = processedCount.incrementAndGet();
-            logger.info("📨 Processed message {} with visibility timeout configuration: {}", count, message.getPayload());
-            latch.countDown();
+            logger.info("\ud83d\udce8 Processed message {} with visibility timeout configuration: {}", count, message.getPayload());
+            allDone.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -254,7 +262,7 @@ class PeeGeeQConfigurationConsumerModeTest {
         producer.send("Visibility timeout message 2");
 
         // Wait for messages to be processed
-        boolean allProcessed = latch.await(10, TimeUnit.SECONDS);
+        boolean allProcessed = methodCtx.awaitCompletion(10, TimeUnit.SECONDS);
         assertTrue(allProcessed, "All messages should be processed with custom visibility timeout");
         assertEquals(2, processedCount.get(), "Should process exactly 2 messages");
 
@@ -288,15 +296,16 @@ class PeeGeeQConfigurationConsumerModeTest {
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class, pollingConfig);
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        CountDownLatch latch = new CountDownLatch(3);
+        VertxTestContext methodCtx = new VertxTestContext();
+        Checkpoint allDone = methodCtx.checkpoint(3);
         AtomicInteger processedCount = new AtomicInteger(0);
 
         // Subscribe to messages
         consumer.subscribe(message -> {
             int count = processedCount.incrementAndGet();
-            logger.info("📨 Processed message {} with consumer threads configuration: {} (Thread: {})", 
+            logger.info("\ud83d\udce8 Processed message {} with consumer threads configuration: {} (Thread: {})", 
                 count, message.getPayload(), Thread.currentThread().getName());
-            latch.countDown();
+            allDone.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -306,7 +315,7 @@ class PeeGeeQConfigurationConsumerModeTest {
         producer.send("Consumer threads message 3");
 
         // Wait for messages to be processed
-        boolean allProcessed = latch.await(10, TimeUnit.SECONDS);
+        boolean allProcessed = methodCtx.awaitCompletion(10, TimeUnit.SECONDS);
         assertTrue(allProcessed, "All messages should be processed with custom consumer threads");
         assertEquals(3, processedCount.get(), "Should process exactly 3 messages");
 
@@ -351,15 +360,16 @@ class PeeGeeQConfigurationConsumerModeTest {
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class, hybridConfig);
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        CountDownLatch latch = new CountDownLatch(6);
+        VertxTestContext methodCtx = new VertxTestContext();
+        Checkpoint allDone = methodCtx.checkpoint(6);
         AtomicInteger processedCount = new AtomicInteger(0);
 
         // Subscribe to messages
         consumer.subscribe(message -> {
             int count = processedCount.incrementAndGet();
-            logger.info("📨 Processed message {} with multiple configuration properties: {} (Thread: {})",
+            logger.info("\ud83d\udce8 Processed message {} with multiple configuration properties: {} (Thread: {})",
                 count, message.getPayload(), Thread.currentThread().getName());
-            latch.countDown();
+            allDone.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -369,7 +379,7 @@ class PeeGeeQConfigurationConsumerModeTest {
         }
 
         // Wait for messages to be processed
-        boolean allProcessed = latch.await(15, TimeUnit.SECONDS);
+        boolean allProcessed = methodCtx.awaitCompletion(15, TimeUnit.SECONDS);
         assertTrue(allProcessed, "All messages should be processed with multiple custom configuration properties");
         assertEquals(6, processedCount.get(), "Should process exactly 6 messages");
 
@@ -414,14 +424,15 @@ class PeeGeeQConfigurationConsumerModeTest {
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class, pollingConfig);
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        CountDownLatch latch = new CountDownLatch(3);
+        VertxTestContext methodCtx = new VertxTestContext();
+        Checkpoint allDone = methodCtx.checkpoint(3);
         AtomicInteger processedCount = new AtomicInteger(0);
 
         // Subscribe to messages
         consumer.subscribe(message -> {
             int count = processedCount.incrementAndGet();
-            logger.info("📨 Processed message {} with default configuration values: {}", count, message.getPayload());
-            latch.countDown();
+            logger.info("\ud83d\udce8 Processed message {} with default configuration values: {}", count, message.getPayload());
+            allDone.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -431,7 +442,7 @@ class PeeGeeQConfigurationConsumerModeTest {
         producer.send("Default config message 3");
 
         // Wait for messages to be processed
-        boolean allProcessed = latch.await(15, TimeUnit.SECONDS);
+        boolean allProcessed = methodCtx.awaitCompletion(15, TimeUnit.SECONDS);
         assertTrue(allProcessed, "All messages should be processed with default configuration values");
         assertEquals(3, processedCount.get(), "Should process exactly 3 messages");
 

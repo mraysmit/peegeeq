@@ -13,11 +13,16 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -26,7 +31,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -45,6 +49,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * - Keep tests focused and lightweight to avoid resource exhaustion
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 class PollingOnlyEdgeCaseTest {
     private static final Logger logger = LoggerFactory.getLogger(PollingOnlyEdgeCaseTest.class);
@@ -104,7 +109,7 @@ class PollingOnlyEdgeCaseTest {
     }
 
     @Test
-    void testFastPollingInterval() throws Exception {
+    void testFastPollingInterval(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing fast polling interval (100ms)");
 
         String topicName = "test-fast-polling";
@@ -119,25 +124,22 @@ class PollingOnlyEdgeCaseTest {
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         AtomicInteger messageCount = new AtomicInteger(0);
-        CountDownLatch latch = new CountDownLatch(5); // Expect 5 messages
+        Checkpoint messagesReceived = testContext.checkpoint(5);
 
         consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             logger.info("📨 Received fast polling message {}: {}", count, message.getPayload());
-            latch.countDown();
+            messagesReceived.flag();
             return CompletableFuture.completedFuture(null);
         });
 
         // Send messages rapidly
         for (int i = 1; i <= 5; i++) {
             producer.send("Fast polling message " + i).get(5, TimeUnit.SECONDS);
-            Thread.sleep(50); // Send every 50ms
         }
 
         // Wait for all messages to be processed
-        boolean receivedAll = latch.await(10, TimeUnit.SECONDS);
-
-        assertTrue(receivedAll, "Should receive all 5 messages with fast polling");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive all 5 messages with fast polling");
         assertEquals(5, messageCount.get(), "Should have processed exactly 5 messages");
 
         consumer.close();
@@ -146,7 +148,7 @@ class PollingOnlyEdgeCaseTest {
     }
 
     @Test
-    void testSlowPollingInterval() throws Exception {
+    void testSlowPollingInterval(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing slow polling interval (5 seconds)");
 
         String topicName = "test-slow-polling";
@@ -161,12 +163,12 @@ class PollingOnlyEdgeCaseTest {
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         AtomicInteger messageCount = new AtomicInteger(0);
-        CountDownLatch latch = new CountDownLatch(2); // Expect 2 messages
+        Checkpoint messagesReceived = testContext.checkpoint(2);
 
         consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             logger.info("📨 Received slow polling message {}: {}", count, message.getPayload());
-            latch.countDown();
+            messagesReceived.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -175,9 +177,7 @@ class PollingOnlyEdgeCaseTest {
         producer.send("Slow polling message 2").get(5, TimeUnit.SECONDS);
 
         // Wait for polling to pick up messages (need to wait longer than polling interval)
-        boolean receivedAll = latch.await(15, TimeUnit.SECONDS);
-
-        assertTrue(receivedAll, "Should receive all 2 messages with slow polling");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should receive all 2 messages with slow polling");
         assertEquals(2, messageCount.get(), "Should have processed exactly 2 messages");
 
         consumer.close();
@@ -186,7 +186,7 @@ class PollingOnlyEdgeCaseTest {
     }
 
     @Test
-    void testHighConcurrencyPolling() throws Exception {
+    void testHighConcurrencyPolling(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing high concurrency polling");
 
         String topicName = "test-high-concurrency-polling";
@@ -202,13 +202,13 @@ class PollingOnlyEdgeCaseTest {
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         AtomicInteger messageCount = new AtomicInteger(0);
-        CountDownLatch latch = new CountDownLatch(10); // Reduced message count
+        Checkpoint messagesReceived = testContext.checkpoint(10);
 
         consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             logger.info("📨 Received concurrent message {}: {} on thread {}",
                 count, message.getPayload(), Thread.currentThread().getName());
-            latch.countDown();
+            messagesReceived.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -218,9 +218,7 @@ class PollingOnlyEdgeCaseTest {
         }
 
         // Wait for all messages to be processed
-        boolean receivedAll = latch.await(15, TimeUnit.SECONDS);
-
-        assertTrue(receivedAll, "Should receive all 10 messages with high concurrency");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should receive all 10 messages with high concurrency");
         assertEquals(10, messageCount.get(), "Should have processed exactly 10 messages");
 
         consumer.close();
@@ -229,7 +227,7 @@ class PollingOnlyEdgeCaseTest {
     }
 
     @Test
-    void testBatchProcessing() throws Exception {
+    void testBatchProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing batch processing");
 
         String topicName = "test-batch-processing";
@@ -245,12 +243,12 @@ class PollingOnlyEdgeCaseTest {
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         AtomicInteger messageCount = new AtomicInteger(0);
-        CountDownLatch latch = new CountDownLatch(10); // Small message count
+        Checkpoint messagesReceived = testContext.checkpoint(10);
 
         consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             logger.info("📨 Processed batch message {}: {}", count, message.getPayload());
-            latch.countDown();
+            messagesReceived.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -261,9 +259,7 @@ class PollingOnlyEdgeCaseTest {
         }
 
         // Wait for all messages to be processed in batches
-        boolean receivedAll = latch.await(15, TimeUnit.SECONDS);
-
-        assertTrue(receivedAll, "Should receive all 10 messages in batches");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should receive all 10 messages in batches");
         assertEquals(10, messageCount.get(), "Should have processed exactly 10 messages");
 
         consumer.close();
@@ -272,7 +268,7 @@ class PollingOnlyEdgeCaseTest {
     }
 
     @Test
-    void testEmptyQueuePolling() throws Exception {
+    void testEmptyQueuePolling(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing empty queue polling behavior");
 
         String topicName = "test-empty-queue-polling";
@@ -287,38 +283,44 @@ class PollingOnlyEdgeCaseTest {
 
         AtomicInteger messageCount = new AtomicInteger(0);
         AtomicReference<String> lastMessage = new AtomicReference<>();
+        Checkpoint messageReceived = testContext.checkpoint();
 
         consumer.subscribe(message -> {
             messageCount.incrementAndGet();
             lastMessage.set(message.getPayload());
             logger.info("📨 Received message: {}", message.getPayload());
+            messageReceived.flag();
             return CompletableFuture.completedFuture(null);
         });
 
-        // Let it poll empty queue for a while
-        Thread.sleep(3000);
+        // Let it poll empty queue for a while, then send a message
+        vertx.setTimer(3000, id -> {
+            // Verify no messages were processed from empty queue
+            if (messageCount.get() != 0) {
+                testContext.failNow(new AssertionError("Should not process any messages from empty queue"));
+                return;
+            }
 
-        // Verify no messages were processed from empty queue
-        assertEquals(0, messageCount.get(), "Should not process any messages from empty queue");
-        assertNull(lastMessage.get(), "Should not have received any messages");
-
-        // Now send a message and verify it gets processed
-        MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-        producer.send("Message after empty polling").get(5, TimeUnit.SECONDS);
+            // Now send a message and verify it gets processed
+            try {
+                MessageProducer<String> producer = factory.createProducer(topicName, String.class);
+                producer.send("Message after empty polling").get(5, TimeUnit.SECONDS);
+                producer.close();
+            } catch (Exception e) {
+                testContext.failNow(e);
+            }
+        });
 
         // Wait for the message to be processed
-        Thread.sleep(2000);
-
-        assertEquals(1, messageCount.get(), "Should process the single message");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should receive the message after empty polling");
         assertEquals("Message after empty polling", lastMessage.get(), "Should receive the correct message");
 
         consumer.close();
-        producer.close();
         logger.info("✅ POLLING_ONLY handles empty queue polling correctly");
     }
 
     @Test
-    void testPollingWithDatabaseConnectionIssues() throws Exception {
+    void testPollingWithDatabaseConnectionIssues(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing polling resilience with database connection issues");
 
         String topicName = "test-db-connection-issues";
@@ -333,26 +335,22 @@ class PollingOnlyEdgeCaseTest {
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         AtomicInteger messageCount = new AtomicInteger(0);
-        CountDownLatch latch = new CountDownLatch(3); // Expect 3 messages
+        Checkpoint messagesReceived = testContext.checkpoint(3);
 
         consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             logger.info("📨 Received resilient message {}: {}", count, message.getPayload());
-            latch.countDown();
+            messagesReceived.flag();
             return CompletableFuture.completedFuture(null);
         });
 
-        // Send messages sequentially to avoid overwhelming the system
+        // Send messages sequentially
         producer.send("Message 1 - resilience test").get(5, TimeUnit.SECONDS);
-        Thread.sleep(100); // Small delay between sends
         producer.send("Message 2 - resilience test").get(5, TimeUnit.SECONDS);
-        Thread.sleep(100);
         producer.send("Message 3 - resilience test").get(5, TimeUnit.SECONDS);
 
         // Wait for messages to be processed (consumer should handle normal operations)
-        boolean receivedAll = latch.await(10, TimeUnit.SECONDS);
-
-        assertTrue(receivedAll, "Should receive all messages in normal operation");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive all messages in normal operation");
         assertEquals(3, messageCount.get(), "Should have processed exactly 3 messages");
 
         consumer.close();

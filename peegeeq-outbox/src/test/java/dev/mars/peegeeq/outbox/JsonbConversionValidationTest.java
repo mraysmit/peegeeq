@@ -37,7 +37,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -239,7 +239,7 @@ class JsonbConversionValidationTest {
         // Consume message
         MessageConsumer<OrderEvent> consumer = factory.createConsumer(topic, OrderEvent.class);
         
-        CountDownLatch latch = new CountDownLatch(1);
+        CompletableFuture<Void> latch = new CompletableFuture<>();
         AtomicInteger processedCount = new AtomicInteger(0);
         
         consumer.subscribe(message -> {
@@ -259,7 +259,7 @@ class JsonbConversionValidationTest {
                 assertEquals("HIGH", receivedHeaders.get("priority"), "Priority header should match");
                 
                 processedCount.incrementAndGet();
-                latch.countDown();
+                latch.complete(null);
                 
                 logger.info("✅ Consumer successfully read JSONB objects");
                 logger.info("   Received order: {}", receivedOrder.getOrderId());
@@ -273,7 +273,7 @@ class JsonbConversionValidationTest {
         });
 
         // Wait for message processing
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Message should be processed within 10 seconds");
+        latch.get(10, TimeUnit.SECONDS); // Message should be processed within 10 seconds
         assertEquals(1, processedCount.get(), "Should have processed exactly 1 message");
 
         consumer.close();

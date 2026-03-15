@@ -10,7 +10,12 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -22,7 +27,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -60,6 +64,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  */
 @Testcontainers
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 class DistributedTracingTest {
 
     private static final Logger logger = LoggerFactory.getLogger(DistributedTracingTest.class);
@@ -124,7 +129,7 @@ class DistributedTracingTest {
     }
 
     @Test
-    void testDistributedTracingWithW3CTraceContext() throws Exception {
+    void testDistributedTracingWithW3CTraceContext(Vertx vertx, VertxTestContext testContext) throws Exception {
         System.out.println("\n" + "=".repeat(80));
         System.out.println("=== Testing Distributed Tracing with W3C Trace Context ===");
         System.out.println("=".repeat(80));
@@ -153,7 +158,7 @@ class DistributedTracingTest {
         AtomicReference<String> consumerTraceId = new AtomicReference<>();
         AtomicReference<String> consumerSpanId = new AtomicReference<>();
         AtomicReference<String> consumerCorrelationId = new AtomicReference<>();
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint messageReceived = testContext.checkpoint();
 
         // Subscribe consumer
         consumer.subscribe(message -> {
@@ -173,7 +178,7 @@ class DistributedTracingTest {
             logger.info("Simulating business logic processing...");
             logger.info("Message processing complete!");
 
-            latch.countDown();
+            messageReceived.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -185,10 +190,10 @@ class DistributedTracingTest {
 
         // Wait for consumer to process
         System.out.println("\n⏳ Waiting for consumer to process message...");
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Consumer should receive message");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Consumer should receive message");
 
         // Give a moment for all logs to flush
-        Thread.sleep(500);
+        vertx.timer(500).toCompletionStage().toCompletableFuture().join();
 
         // Verify trace context was propagated
         System.out.println("\n🔍 Verifying trace context propagation:");
@@ -208,7 +213,7 @@ class DistributedTracingTest {
     }
 
     @Test
-    void testAutomaticTraceGenerationForMissingHeaders() throws Exception {
+    void testAutomaticTraceGenerationForMissingHeaders(Vertx vertx, VertxTestContext testContext) throws Exception {
         System.out.println("\n" + "=".repeat(80));
         System.out.println("=== Testing Automatic Trace Generation for Missing Headers ===");
         System.out.println("=".repeat(80));
@@ -216,7 +221,7 @@ class DistributedTracingTest {
         // Prepare context capture
         AtomicReference<String> consumerTraceId = new AtomicReference<>();
         AtomicReference<String> consumerSpanId = new AtomicReference<>();
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint messageReceived = testContext.checkpoint();
 
         // Subscribe consumer
         consumer.subscribe(message -> {
@@ -231,7 +236,7 @@ class DistributedTracingTest {
             // Log with logger
             logger.info("Processing message with auto-generated trace context");
 
-            latch.countDown();
+            messageReceived.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -241,7 +246,7 @@ class DistributedTracingTest {
 
         // Wait for consumer
         System.out.println("\n⏳ Waiting for consumer...");
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Consumer should receive message");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Consumer should receive message");
 
         // Verify
         System.out.println("\n🔍 Verifying automatic trace generation:");

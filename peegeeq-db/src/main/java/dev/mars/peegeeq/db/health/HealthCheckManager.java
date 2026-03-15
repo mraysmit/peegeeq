@@ -387,6 +387,10 @@ public class HealthCheckManager implements HealthService {
     }
 
     private Future<HealthStatus> runHealthCheckWithTimeout(String name, HealthCheck check) {
+        if (!running) {
+            return Future.succeededFuture(HealthStatus.unhealthy(name, "Skipped — health check manager stopped"));
+        }
+
         Promise<HealthStatus> promise = Promise.promise();
         AtomicBoolean completed = new AtomicBoolean(false);
         ExecutorService executor = ensureHealthCheckExecutor();
@@ -399,6 +403,13 @@ public class HealthCheckManager implements HealthService {
         AtomicReference<java.util.concurrent.Future<?>> runningTaskRef = new AtomicReference<>();
 
         Runnable checkRunnable = () -> {
+            if (!running) {
+                if (completed.compareAndSet(false, true)) {
+                    promise.tryComplete(HealthStatus.unhealthy(name, "Skipped — health check manager stopped"));
+                }
+                inFlightChecks.remove(name);
+                return;
+            }
             try {
                 HealthStatus status = check.check();
                 if (completed.compareAndSet(false, true)) {
@@ -414,13 +425,14 @@ public class HealthCheckManager implements HealthService {
                 boolean isConnectionError = errorMsg != null &&
                     (errorMsg.contains("Connection refused") ||
                      errorMsg.contains("connection may have been lost") ||
-                     errorMsg.contains("underlying connection"));
+                     errorMsg.contains("underlying connection") ||
+                     errorMsg.contains("Pool closed"));
 
                 // Check if this is a FATAL schema error (missing tables)
                 boolean isFatalSchemaError = errorMsg != null &&
                     (errorMsg.contains("relation") && errorMsg.contains("does not exist"));
 
-                if (isConnectionError) {
+                if (isConnectionError || !running) {
                     logger.debug("Health check failed due to connection issue (expected during shutdown): {} - {}",
                         name, errorMsg);
                 } else if (isFatalSchemaError) {
@@ -473,7 +485,8 @@ public class HealthCheckManager implements HealthService {
         boolean isConnectionError = statusMsg != null &&
             (statusMsg.contains("Connection refused") ||
              statusMsg.contains("connection may have been lost") ||
-             statusMsg.contains("underlying connection"));
+             statusMsg.contains("underlying connection") ||
+             statusMsg.contains("Pool closed"));
 
         boolean isFatalSchemaError = statusMsg != null && statusMsg.contains("FATAL:");
 

@@ -38,10 +38,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import io.vertx.junit5.VertxTestContext;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -73,7 +74,7 @@ public class PostgresNoticeHandlerIntegrationTest {
     private Pool pool;
 
     @BeforeEach
-    void setUp() {
+    void setUp(VertxTestContext testContext) {
         vertx = Vertx.vertx();
         meterRegistry = new SimpleMeterRegistry();
         noticeMetrics = new MicrometerNoticeMetrics(meterRegistry);
@@ -90,7 +91,7 @@ public class PostgresNoticeHandlerIntegrationTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         if (pool != null) {
             pool.close().toCompletionStage().toCompletableFuture().get(15, TimeUnit.SECONDS);
         }
@@ -121,10 +122,8 @@ public class PostgresNoticeHandlerIntegrationTest {
 
     @Test
     @DisplayName("Should handle RAISE INFO with PeeGeeQ code")
-    void testRaiseInfoWithPeeGeeQCode() throws Exception {
+    void testRaiseInfoWithPeeGeeQCode(VertxTestContext testContext) throws Exception {
         pool = createPool();
-
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicBoolean success = new AtomicBoolean(false);
 
         // Execute SQL that raises INFO with PeeGeeQ code
@@ -135,14 +134,14 @@ public class PostgresNoticeHandlerIntegrationTest {
         )
             .onSuccess(result -> {
                 success.set(true);
-                latch.countDown();
+                testContext.completeNow();
             })
             .onFailure(err -> {
                 logger.error("Failed to execute RAISE INFO", err);
-                latch.countDown();
+                testContext.completeNow();
             });
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Query should complete");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         assertTrue(success.get(), "Query should succeed");
 
         // Verify metrics were incremented
@@ -155,10 +154,8 @@ public class PostgresNoticeHandlerIntegrationTest {
 
     @Test
     @DisplayName("Should handle RAISE NOTICE statements")
-    void testRaiseNotice() throws Exception {
+    void testRaiseNotice(VertxTestContext testContext) throws Exception {
         pool = createPool();
-
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicBoolean success = new AtomicBoolean(false);
 
         // Execute SQL that raises NOTICE
@@ -168,14 +165,14 @@ public class PostgresNoticeHandlerIntegrationTest {
         )
             .onSuccess(result -> {
                 success.set(true);
-                latch.countDown();
+                testContext.completeNow();
             })
             .onFailure(err -> {
                 logger.error("Failed to execute RAISE NOTICE", err);
-                latch.countDown();
+                testContext.completeNow();
             });
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Query should complete");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         assertTrue(success.get(), "Query should succeed");
 
         // Verify metrics were incremented
@@ -185,10 +182,8 @@ public class PostgresNoticeHandlerIntegrationTest {
 
     @Test
     @DisplayName("Should handle RAISE WARNING statements")
-    void testRaiseWarning() throws Exception {
+    void testRaiseWarning(VertxTestContext testContext) throws Exception {
         pool = createPool();
-
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicBoolean success = new AtomicBoolean(false);
 
         // Execute SQL that raises WARNING
@@ -198,14 +193,14 @@ public class PostgresNoticeHandlerIntegrationTest {
         )
             .onSuccess(result -> {
                 success.set(true);
-                latch.countDown();
+                testContext.completeNow();
             })
             .onFailure(err -> {
                 logger.error("Failed to execute RAISE WARNING", err);
-                latch.countDown();
+                testContext.completeNow();
             });
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Query should complete");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         assertTrue(success.get(), "Query should succeed");
 
         // Verify metrics were incremented
@@ -215,10 +210,8 @@ public class PostgresNoticeHandlerIntegrationTest {
 
     @Test
     @DisplayName("Should handle actual PostgreSQL warnings from deprecated syntax")
-    void testActualPostgresWarning() throws Exception {
+    void testActualPostgresWarning(VertxTestContext testContext) throws Exception {
         pool = createPool();
-
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicBoolean success = new AtomicBoolean(false);
 
         // Create a function that uses deprecated syntax to trigger a real PostgreSQL warning
@@ -240,14 +233,14 @@ public class PostgresNoticeHandlerIntegrationTest {
         )
             .onSuccess(result -> {
                 success.set(true);
-                latch.countDown();
+                testContext.completeNow();
             })
             .onFailure(err -> {
                 logger.error("Failed to execute function with warning", err);
-                latch.countDown();
+                testContext.completeNow();
             });
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Query should complete");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         assertTrue(success.get(), "Query should succeed");
 
         // Verify metrics were incremented
@@ -257,10 +250,8 @@ public class PostgresNoticeHandlerIntegrationTest {
 
     @Test
     @DisplayName("Should handle multiple notice types in sequence")
-    void testMultipleNoticeTypes() throws Exception {
+    void testMultipleNoticeTypes(VertxTestContext testContext) throws Exception {
         pool = createPool();
-
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicInteger successCount = new AtomicInteger(0);
 
         // Create a function that raises multiple types of notices
@@ -282,14 +273,14 @@ public class PostgresNoticeHandlerIntegrationTest {
         )
             .onSuccess(result -> {
                 successCount.incrementAndGet();
-                latch.countDown();
+                testContext.completeNow();
             })
             .onFailure(err -> {
                 logger.error("Failed to execute function with multiple notices", err);
-                latch.countDown();
+                testContext.completeNow();
             });
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Query should complete");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         assertEquals(1, successCount.get(), "Query should succeed");
 
         // Verify all notice types were captured
@@ -304,10 +295,8 @@ public class PostgresNoticeHandlerIntegrationTest {
 
     @Test
     @DisplayName("Should not interfere with error propagation")
-    void testErrorPropagation() throws Exception {
+    void testErrorPropagation(VertxTestContext testContext) throws Exception {
         pool = createPool();
-
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicBoolean errorReceived = new AtomicBoolean(false);
 
         // Execute SQL that will cause an error
@@ -316,24 +305,22 @@ public class PostgresNoticeHandlerIntegrationTest {
         )
             .onSuccess(result -> {
                 logger.error("Query should have failed but succeeded");
-                latch.countDown();
+                testContext.completeNow();
             })
             .onFailure(err -> {
                 logger.info("Correctly received error: {}", err.getMessage());
                 errorReceived.set(true);
-                latch.countDown();
+                testContext.completeNow();
             });
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Query should complete");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         assertTrue(errorReceived.get(), "Error should be propagated correctly");
     }
 
     @Test
     @DisplayName("Should capture infrastructure schema creation messages")
-    void testInfrastructureSchemaCreation() throws Exception {
+    void testInfrastructureSchemaCreation(VertxTestContext testContext) throws Exception {
         pool = createPool();
-
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicBoolean success = new AtomicBoolean(false);
 
         double initialInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
@@ -359,14 +346,14 @@ public class PostgresNoticeHandlerIntegrationTest {
         )
             .onSuccess(result -> {
                 success.set(true);
-                latch.countDown();
+                testContext.completeNow();
             })
             .onFailure(err -> {
                 logger.error("Failed to create schema", err);
-                latch.countDown();
+                testContext.completeNow();
             });
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Schema creation should complete");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         assertTrue(success.get(), "Schema creation should succeed");
 
         // Verify the info message was captured
@@ -377,10 +364,8 @@ public class PostgresNoticeHandlerIntegrationTest {
 
     @Test
     @DisplayName("Should capture infrastructure table creation messages")
-    void testInfrastructureTableCreation() throws Exception {
+    void testInfrastructureTableCreation(VertxTestContext testContext) throws Exception {
         pool = createPool();
-
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicBoolean success = new AtomicBoolean(false);
 
         double initialInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
@@ -410,14 +395,14 @@ public class PostgresNoticeHandlerIntegrationTest {
         )
             .onSuccess(result -> {
                 success.set(true);
-                latch.countDown();
+                testContext.completeNow();
             })
             .onFailure(err -> {
                 logger.error("Failed to create table", err);
-                latch.countDown();
+                testContext.completeNow();
             });
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Table creation should complete");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         assertTrue(success.get(), "Table creation should succeed");
 
         // Verify the info messages were captured
@@ -428,10 +413,8 @@ public class PostgresNoticeHandlerIntegrationTest {
 
     @Test
     @DisplayName("Should capture infrastructure index creation messages")
-    void testInfrastructureIndexCreation() throws Exception {
+    void testInfrastructureIndexCreation(VertxTestContext testContext) throws Exception {
         pool = createPool();
-
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicBoolean success = new AtomicBoolean(false);
 
         // First create a table for the index
@@ -462,14 +445,14 @@ public class PostgresNoticeHandlerIntegrationTest {
         )
             .onSuccess(result -> {
                 success.set(true);
-                latch.countDown();
+                testContext.completeNow();
             })
             .onFailure(err -> {
                 logger.error("Failed to create index", err);
-                latch.countDown();
+                testContext.completeNow();
             });
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Index creation should complete");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         assertTrue(success.get(), "Index creation should succeed");
 
         // Verify the info message was captured
@@ -480,10 +463,8 @@ public class PostgresNoticeHandlerIntegrationTest {
 
     @Test
     @DisplayName("Should capture multiple infrastructure operations")
-    void testMultipleInfrastructureOperations() throws Exception {
+    void testMultipleInfrastructureOperations(VertxTestContext testContext) throws Exception {
         pool = createPool();
-
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicBoolean success = new AtomicBoolean(false);
 
         double initialInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
@@ -528,14 +509,14 @@ public class PostgresNoticeHandlerIntegrationTest {
         )
             .onSuccess(result -> {
                 success.set(true);
-                latch.countDown();
+                testContext.completeNow();
             })
             .onFailure(err -> {
                 logger.error("Failed to execute multiple operations", err);
-                latch.countDown();
+                testContext.completeNow();
             });
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Multiple operations should complete");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         assertTrue(success.get(), "Multiple operations should succeed");
 
         // Verify multiple info messages were captured
@@ -547,10 +528,8 @@ public class PostgresNoticeHandlerIntegrationTest {
 
     @Test
     @DisplayName("Should preserve tracing context in infrastructure messages")
-    void testTracingContextPreservation() throws Exception {
+    void testTracingContextPreservation(VertxTestContext testContext) throws Exception {
         pool = createPool();
-
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicBoolean success = new AtomicBoolean(false);
 
         // This test verifies that info messages can be correlated with operations for tracing
@@ -582,14 +561,14 @@ public class PostgresNoticeHandlerIntegrationTest {
         )
             .onSuccess(result -> {
                 success.set(true);
-                latch.countDown();
+                testContext.completeNow();
             })
             .onFailure(err -> {
                 logger.error("Failed to execute traced operations", err);
-                latch.countDown();
+                testContext.completeNow();
             });
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Traced operations should complete");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         assertTrue(success.get(), "Traced operations should succeed");
 
         // Verify messages were captured

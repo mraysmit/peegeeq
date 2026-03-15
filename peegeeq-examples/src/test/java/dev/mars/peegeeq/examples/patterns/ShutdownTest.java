@@ -19,13 +19,17 @@ package dev.mars.peegeeq.examples.patterns;
 
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -54,6 +58,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 public class ShutdownTest {
     private static final Logger logger = LoggerFactory.getLogger(ShutdownTest.class);
 
@@ -135,7 +140,7 @@ public class ShutdownTest {
 
     @Test
     @Timeout(10) // Test should complete within 10 seconds
-    void testManualContainerManagement() {
+    void testManualContainerManagement(Vertx vertx) {
         logger.info("Testing manual container management");
 
         PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
@@ -149,7 +154,9 @@ public class ShutdownTest {
             logger.info("Container started: {}", postgres.getJdbcUrl());
 
             // Simulate some work
-            Thread.sleep(1000);
+            CompletableFuture<Void> delay = new CompletableFuture<>();
+            vertx.setTimer(1000, id -> delay.complete(null));
+            delay.join();
 
         } catch (Exception e) {
             logger.error("Error in test", e);

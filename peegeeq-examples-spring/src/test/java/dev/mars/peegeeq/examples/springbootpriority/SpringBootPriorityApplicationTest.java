@@ -25,10 +25,13 @@ import dev.mars.peegeeq.examples.springbootpriority.service.TradeProducerService
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -47,6 +50,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -77,6 +81,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @ActiveProfiles("springboot-priority")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+@ExtendWith(VertxExtension.class)
 public class SpringBootPriorityApplicationTest {
     
     private static final Logger log = LoggerFactory.getLogger(SpringBootPriorityApplicationTest.class);
@@ -184,7 +189,7 @@ public class SpringBootPriorityApplicationTest {
     
     @SuppressWarnings("null")
     @Test
-    void testSendCriticalTrade() throws Exception {
+    void testSendCriticalTrade(Vertx vertx) throws Exception {
         log.info("=== Testing Send Critical Trade ===");
         
         TradeProducerController.TradeRequest request = new TradeProducerController.TradeRequest();
@@ -207,7 +212,9 @@ public class SpringBootPriorityApplicationTest {
         assertEquals("FAIL", response.getBody().get("status"));
         
         // Wait for processing
-        Thread.sleep(2000);
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(2000, id -> delay.complete(null));
+        delay.join();
         
         // Verify producer metrics
         assertTrue(producerService.getCriticalSent() > 0, "Critical messages should be sent");
@@ -217,7 +224,7 @@ public class SpringBootPriorityApplicationTest {
     
     @SuppressWarnings("null")
     @Test
-    void testSendHighPriorityTrade() throws Exception {
+    void testSendHighPriorityTrade(Vertx vertx) throws Exception {
         log.info("=== Testing Send High Priority Trade ===");
         
         TradeProducerController.TradeRequest request = new TradeProducerController.TradeRequest();
@@ -239,7 +246,9 @@ public class SpringBootPriorityApplicationTest {
         assertEquals("AMEND", response.getBody().get("status"));
         
         // Wait for processing
-        Thread.sleep(2000);
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(2000, id -> delay.complete(null));
+        delay.join();
         
         // Verify producer metrics
         assertTrue(producerService.getHighSent() > 0, "High priority messages should be sent");
@@ -249,7 +258,7 @@ public class SpringBootPriorityApplicationTest {
     
     @SuppressWarnings("null")
     @Test
-    void testSendNormalPriorityTrade() throws Exception {
+    void testSendNormalPriorityTrade(Vertx vertx) throws Exception {
         log.info("=== Testing Send Normal Priority Trade ===");
         
         TradeProducerController.TradeRequest request = new TradeProducerController.TradeRequest();
@@ -271,7 +280,9 @@ public class SpringBootPriorityApplicationTest {
         assertEquals("NEW", response.getBody().get("status"));
         
         // Wait for processing
-        Thread.sleep(2000);
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(2000, id -> delay.complete(null));
+        delay.join();
         
         // Verify producer metrics
         assertTrue(producerService.getNormalSent() > 0, "Normal priority messages should be sent");
@@ -327,7 +338,7 @@ public class SpringBootPriorityApplicationTest {
     }
     
     @Test
-    void testConsumerMetrics() throws Exception {
+    void testConsumerMetrics(Vertx vertx) throws Exception {
         log.info("=== Testing Consumer Metrics ===");
 
         // Send messages of different priorities
@@ -336,7 +347,9 @@ public class SpringBootPriorityApplicationTest {
         sendTestTrade("TRADE-TEST-003", "confirmation");
 
         // Wait for processing
-        Thread.sleep(3000);
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(3000, id -> delay.complete(null));
+        delay.join();
 
         // Verify total messages processed across all consumers
         // Note: In outbox pattern with competing consumers, each message is processed by ONE consumer

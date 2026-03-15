@@ -4,23 +4,26 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import io.vertx.pgclient.PgConnection;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.RowSet;
-import org.awaitility.Awaitility;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.time.Duration;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile.BASIC;
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.createContainer;
 import static org.junit.jupiter.api.Assertions.*;
 
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 class VertxPoolAdapterHappyPathIT {
 
@@ -53,7 +56,7 @@ class VertxPoolAdapterHappyPathIT {
     }
 
     @Test
-    void connectDedicated_succeeds_withDatabaseService() {
+    void connectDedicated_succeeds_withDatabaseService(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Arrange: create adapter using DatabaseService interfaces
         PgDatabaseService databaseService = new PgDatabaseService(manager);
         VertxPoolAdapter adapter = new VertxPoolAdapter(
@@ -63,31 +66,27 @@ class VertxPoolAdapterHappyPathIT {
         );
 
         // Act: connect dedicated and run a simple query
-        AtomicReference<RowSet<Row>> resultRef = new AtomicReference<>();
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
-
-        CompletableFuture<Void> done = new CompletableFuture<>();
         adapter.connectDedicated()
             .compose((PgConnection conn) -> conn
                 .query("SELECT 1 AS one")
                 .execute()
                 .onComplete(ar -> conn.close()))
-            .onSuccess(rows -> { resultRef.set(rows); done.complete(null); })
-            .onFailure(err -> { errorRef.set(err); done.complete(null); });
+            .onSuccess(rows -> {
+                testContext.verify(() -> {
+                    assertNotNull(rows);
+                    assertEquals(1, rows.size());
+                    Row row = rows.iterator().next();
+                    assertEquals(1, row.getInteger("one"));
+                });
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
 
-        Awaitility.await().atMost(Duration.ofSeconds(10)).until(done::isDone);
-
-        // Assert
-        assertNull(errorRef.get(), () -> "Unexpected failure: " + errorRef.get());
-        assertNotNull(resultRef.get());
-        RowSet<Row> rows = resultRef.get();
-        assertEquals(1, rows.size());
-        Row row = rows.iterator().next();
-        assertEquals(1, row.getInteger("one"));
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test
-    void getPoolOrThrow_returnsDatabaseServicePool() {
+    void getPoolOrThrow_returnsDatabaseServicePool(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Arrange: create adapter using DatabaseService interfaces
         PgDatabaseService databaseService = new PgDatabaseService(manager);
         VertxPoolAdapter adapter = new VertxPoolAdapter(
@@ -98,20 +97,20 @@ class VertxPoolAdapterHappyPathIT {
 
         // Act
         var pool = adapter.getPoolOrThrow();
+        assertNotNull(pool);
 
         // Assert basic pool access by running a simple query
-        assertNotNull(pool);
-        AtomicReference<RowSet<Row>> resultRef = new AtomicReference<>();
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
-        CompletableFuture<Void> done = new CompletableFuture<>();
         pool.query("SELECT 1 AS one").execute()
-            .onSuccess(rows -> { resultRef.set(rows); done.complete(null); })
-            .onFailure(err -> { errorRef.set(err); done.complete(null); });
+            .onSuccess(rows -> {
+                testContext.verify(() -> {
+                    assertNotNull(rows);
+                    assertEquals(1, rows.iterator().next().getInteger("one"));
+                });
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
 
-        Awaitility.await().atMost(Duration.ofSeconds(10)).until(done::isDone);
-        assertNull(errorRef.get());
-        assertNotNull(resultRef.get());
-        assertEquals(1, resultRef.get().iterator().next().getInteger("one"));
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
 }

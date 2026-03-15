@@ -45,6 +45,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -406,7 +407,9 @@ public class CrossLayerPropagationIntegrationTest {
             });
 
         // Wait for connections to establish
-        Thread.sleep(2000);
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(2000, id -> delay.complete(null));
+        delay.join();
 
         // Send a message
         JsonObject sendRequest = new JsonObject()

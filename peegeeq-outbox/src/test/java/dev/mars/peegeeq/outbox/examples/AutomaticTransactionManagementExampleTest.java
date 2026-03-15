@@ -33,6 +33,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.concurrent.locks.LockSupport;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -363,7 +364,7 @@ public class AutomaticTransactionManagementExampleTest {
             );
             logger.debug("Processing performance test order: {}", order.getOrderId());
             performanceTests++;
-            Thread.sleep(1); // Simulate processing time
+            LockSupport.parkNanos(1_000_000L); // Simulate processing time
         }
         
         long processingTime = System.currentTimeMillis() - startTime;

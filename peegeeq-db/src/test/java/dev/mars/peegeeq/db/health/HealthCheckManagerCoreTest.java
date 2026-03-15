@@ -115,7 +115,7 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
             .get();
 
         // Wait for health checks to run
-        Thread.sleep(500);
+        manager.getVertx().timer(500).toCompletionStage().toCompletableFuture().join();
 
         // Get database health status
         HealthStatus dbHealth = healthCheckManager.getHealthStatus("database");
@@ -133,7 +133,7 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
             .get();
 
         // Wait for health checks to run
-        Thread.sleep(500);
+        manager.getVertx().timer(500).toCompletionStage().toCompletableFuture().join();
 
         // Get memory health status
         HealthStatus memoryHealth = healthCheckManager.getHealthStatus("memory");
@@ -156,7 +156,7 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
             .get();
 
         // Wait for health checks to run
-        Thread.sleep(500);
+        manager.getVertx().timer(500).toCompletionStage().toCompletableFuture().join();
 
         // Get disk space health status
         HealthStatus diskHealth = healthCheckManager.getHealthStatus("disk-space");
@@ -179,7 +179,7 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
             .get();
 
         // Wait for health checks to run
-        Thread.sleep(500);
+        manager.getVertx().timer(500).toCompletionStage().toCompletableFuture().join();
 
         // Get overall health status
         OverallHealthStatus overallHealth = healthCheckManager.getOverallHealthInternal();
@@ -201,7 +201,7 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
             .get();
 
         // Wait for health checks to run
-        Thread.sleep(500);
+        manager.getVertx().timer(500).toCompletionStage().toCompletableFuture().join();
 
         // Check if overall system is healthy
         assertTrue(healthCheckManager.isHealthy());
@@ -220,7 +220,7 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
             .get();
 
         // Wait for health checks to run
-        Thread.sleep(500);
+        manager.getVertx().timer(500).toCompletionStage().toCompletableFuture().join();
 
         // Verify custom health check is registered and running
         HealthStatus customHealth = healthCheckManager.getHealthStatus("custom-check");
@@ -238,7 +238,7 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
             .get();
 
         // Wait for health checks to run
-        Thread.sleep(500);
+        manager.getVertx().timer(500).toCompletionStage().toCompletableFuture().join();
 
         // Verify queue health checks are NOT registered
         assertNull(healthCheckManager.getHealthStatus("outbox-queue"));
@@ -265,7 +265,7 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
                 .get();
 
             // Wait for health checks to run
-            Thread.sleep(500);
+            manager.getVertx().timer(500).toCompletionStage().toCompletableFuture().join();
 
             // Verify queue health checks ARE registered
             HealthStatus outboxHealth = queueEnabledManager.getHealthStatus("outbox-queue");
@@ -354,11 +354,7 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
             long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
 
             while (System.nanoTime() < deadlineNanos) {
-                try {
-                    Thread.sleep(50);
-                } catch (InterruptedException ignored) {
-                    // Simulate a non-cooperative check that does not stop on interrupt.
-                }
+                    manager.getVertx().timer(50).toCompletionStage().toCompletableFuture().join();
             }
 
             return HealthStatus.healthy("slow");
@@ -379,7 +375,7 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
                 .toCompletableFuture()
                 .get();
 
-            Thread.sleep(700);
+            manager.getVertx().timer(700).toCompletionStage().toCompletableFuture().join();
 
             assertEquals(1, invocations.get(),
                 "Timed-out checks must not be re-started while a prior run is still in-flight");

@@ -34,11 +34,13 @@ import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.sql.SQLException;
 import java.time.Duration;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxTestContext;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -162,11 +164,8 @@ class HealthCheckManagerTest {
         assertDoesNotThrow(() -> healthCheckManager.start());
         
         // Wait a moment for health checks to run
-        try {
-            Thread.sleep(3000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+                    vertx.timer(3000).toCompletionStage().toCompletableFuture().join();
+
         
         assertTrue(healthCheckManager.isHealthy());
         
@@ -178,11 +177,8 @@ class HealthCheckManagerTest {
         healthCheckManager.start();
         
         // Wait for health checks to run
-        try {
-            Thread.sleep(3000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+                    vertx.timer(3000).toCompletionStage().toCompletableFuture().join();
+
         
         OverallHealthStatus status = healthCheckManager.getOverallHealthInternal();
         assertNotNull(status);
@@ -204,11 +200,8 @@ class HealthCheckManagerTest {
         healthCheckManager.start();
         
         // Wait for health checks to run
-        try {
-            Thread.sleep(3000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+                    vertx.timer(3000).toCompletionStage().toCompletableFuture().join();
+
         
         HealthStatus dbHealth = healthCheckManager.getHealthStatus("database");
         assertNotNull(dbHealth);
@@ -225,11 +218,8 @@ class HealthCheckManagerTest {
         healthCheckManager.start();
         
         // Wait for health checks to run
-        try {
-            Thread.sleep(3000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+                    vertx.timer(3000).toCompletionStage().toCompletableFuture().join();
+
         
         // Test outbox queue health
         HealthStatus outboxHealth = healthCheckManager.getHealthStatus("outbox-queue");
@@ -258,11 +248,8 @@ class HealthCheckManagerTest {
         healthCheckManager.start();
         
         // Wait for health checks to run
-        try {
-            Thread.sleep(3000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+                    vertx.timer(3000).toCompletionStage().toCompletableFuture().join();
+
         
         HealthStatus memoryHealth = healthCheckManager.getHealthStatus("memory");
         assertNotNull(memoryHealth);
@@ -278,11 +265,8 @@ class HealthCheckManagerTest {
         healthCheckManager.start();
         
         // Wait for health checks to run
-        try {
-            Thread.sleep(3000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+                    vertx.timer(3000).toCompletionStage().toCompletableFuture().join();
+
         
         HealthStatus diskHealth = healthCheckManager.getHealthStatus("disk-space");
         assertNotNull(diskHealth);
@@ -306,11 +290,8 @@ class HealthCheckManagerTest {
         healthCheckManager.start();
         
         // Wait for health checks to run
-        try {
-            Thread.sleep(3000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+                    vertx.timer(3000).toCompletionStage().toCompletableFuture().join();
+
         
         assertTrue(customCheckCalled.get());
         
@@ -343,11 +324,8 @@ class HealthCheckManagerTest {
         healthCheckManager.start();
 
         // Wait for health checks to run
-        try {
-            Thread.sleep(3000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+                    vertx.timer(3000).toCompletionStage().toCompletableFuture().join();
+
 
         HealthStatus failingHealth = healthCheckManager.getHealthStatus("failing");
         assertNotNull(failingHealth);
@@ -363,11 +341,8 @@ class HealthCheckManagerTest {
     @Test
     void testHealthCheckTimeout() {
         HealthCheck slowCheck = () -> {
-            try {
-                Thread.sleep(5000); // Longer than timeout
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+                            vertx.timer(5000).toCompletionStage().toCompletableFuture().join(); // Longer than timeout
+
             return HealthStatus.healthy("slow-check");
         };
         
@@ -380,11 +355,8 @@ class HealthCheckManagerTest {
         // - Default health checks to complete (database, memory, disk-space, etc.)
         // - Slow check to timeout (3 seconds)
         // Total conservative wait: 8 seconds to handle CI/parallel execution variance
-        try {
-            Thread.sleep(8000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+                    vertx.timer(8000).toCompletionStage().toCompletableFuture().join();
+
         
         HealthStatus slowHealth = healthCheckManager.getHealthStatus("slow");
         assertNotNull(slowHealth, "Health check 'slow' should have a status after timeout period");
@@ -408,11 +380,8 @@ class HealthCheckManagerTest {
         healthCheckManager.start();
 
         // Wait for initial healthy state
-        try {
-            Thread.sleep(3000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+                    vertx.timer(3000).toCompletionStage().toCompletableFuture().join();
+
 
         assertTrue(healthCheckManager.isHealthy());
         System.out.println("Initial state: Health checks are healthy");
@@ -422,11 +391,8 @@ class HealthCheckManagerTest {
         connectionManager.close();
 
         // Wait for health checks to detect failure
-        try {
-            Thread.sleep(6000); // Wait longer than check interval
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+                    vertx.timer(6000).toCompletionStage().toCompletableFuture().join(); // Wait longer than check interval
+
 
         assertFalse(healthCheckManager.isHealthy());
 
@@ -439,38 +405,32 @@ class HealthCheckManagerTest {
     }
 
     @Test
-    void testConcurrentHealthChecks() throws InterruptedException {
+    void testConcurrentHealthChecks(VertxTestContext testContext) throws InterruptedException {
         AtomicReference<Exception> exception = new AtomicReference<>();
-        CountDownLatch latch = new CountDownLatch(5);
+        Checkpoint latch = testContext.checkpoint(5);
         AtomicInteger completedChecks = new AtomicInteger(0);
 
         // Register multiple health checks that run concurrently
         for (int i = 0; i < 5; i++) {
             final int checkId = i;
             healthCheckManager.registerHealthCheck("concurrent-" + i, () -> {
-                try {
-                    Thread.sleep(100); // Simulate some work
+                    vertx.timer(100).toCompletionStage().toCompletableFuture().join(); // Simulate some work
                     HealthStatus result = HealthStatus.healthy("concurrent-" + checkId);
                     completedChecks.incrementAndGet();
-                    latch.countDown();
+                    latch.flag();
                     return result;
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    exception.set(e);
-                    return HealthStatus.unhealthy("concurrent-" + checkId, "Interrupted");
-                }
             });
         }
 
         healthCheckManager.start();
 
         // Wait for all health checks to complete
-        assertTrue(latch.await(10, TimeUnit.SECONDS));
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         assertNull(exception.get());
 
         // Wait a bit more to ensure results are stored in lastResults map
         // The health check execution and result storage happen asynchronously
-        Thread.sleep(500);
+        vertx.timer(500).toCompletionStage().toCompletableFuture().join();
 
         // Verify all health checks are healthy
         for (int i = 0; i < 5; i++) {
@@ -524,11 +484,8 @@ class HealthCheckManagerTest {
         healthCheckManager.start();
         
         // Wait for health checks to run
-        try {
-            Thread.sleep(3000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+                    vertx.timer(3000).toCompletionStage().toCompletableFuture().join();
+
         
         OverallHealthStatus status = healthCheckManager.getOverallHealthInternal();
 
@@ -613,11 +570,8 @@ class HealthCheckManagerTest {
         // Wait for health checks to complete
         // Health checks include database, memory, disk-space checks
         // Need to wait for initial delay (100ms) + execution time
-        try {
-            Thread.sleep(3000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+                    vertx.timer(3000).toCompletionStage().toCompletableFuture().join();
+
 
         // Test that health checks work
         assertTrue(reactiveHealthCheckManager.isHealthy());

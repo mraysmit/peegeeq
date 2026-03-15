@@ -15,6 +15,8 @@ import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceP
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.AfterEach;
@@ -27,7 +29,6 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -240,7 +241,8 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
 
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicLong totalLatency = new AtomicLong(0);
-        CountDownLatch latch = new CountDownLatch(messageCount);
+        VertxTestContext measureCtx = new VertxTestContext();
+        Checkpoint allProcessed = measureCtx.checkpoint(messageCount);
 
         MessageConsumer<String> consumer = null;
         MessageProducer<String> producer = null;
@@ -266,7 +268,7 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
                         long sendTime = messageSentTimes[index - 1];
                         long latency = receiveTime - sendTime;
                         totalLatency.addAndGet(latency);
-                        latch.countDown();
+                        allProcessed.flag();
 
                         if (index % 10 == 0) {
                             logger.debug("Processed {} messages", index);
@@ -279,9 +281,6 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
                     return CompletableFuture.failedFuture(e);
                 }
             });
-
-            // Wait for consumer setup with timeout
-            Thread.sleep(1000);
 
             // Create producer
             producer = factory.createProducer(topicName, String.class);
@@ -299,15 +298,13 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
             // Wait for all test messages to be processed (excluding warmup) with timeout
             // Adjust timeout based on performance profile - BASIC needs more time
             int timeoutSeconds = scenario.getPerformanceProfile() == PerformanceProfile.BASIC ? 20 : 10;
-            boolean completed = latch.await(timeoutSeconds, TimeUnit.SECONDS);
+            boolean completed = measureCtx.awaitCompletion(timeoutSeconds, TimeUnit.SECONDS);
             long endTime = System.currentTimeMillis();
 
             if (!completed) {
-                int remaining = (int) latch.getCount();
-                logger.error("Test did not complete within timeout. Processed: {}/{}, Remaining: {}",
-                    (messageCount - remaining), messageCount, remaining);
-                throw new RuntimeException("Test did not complete within " + timeoutSeconds + " seconds timeout. Processed: " +
-                    (messageCount - remaining) + "/" + messageCount);
+                logger.error("Test did not complete within timeout. Processed: {}/{}",
+                    processedCount.get(), messageCount + warmupMessages);
+                throw new RuntimeException("Test did not complete within " + timeoutSeconds + " seconds timeout.");
             }
 
             // Calculate metrics

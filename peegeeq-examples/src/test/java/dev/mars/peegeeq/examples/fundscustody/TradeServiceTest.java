@@ -15,6 +15,7 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -179,7 +180,9 @@ class TradeServiceTest extends FundsCustodyTestBase {
         
         // Trade 2: Confirmed after cutoff (20:00)
         // Simulate late confirmation by waiting a bit
-        Thread.sleep(100);
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(100, id -> delay.complete(null));
+        delay.join();
         
         TradeRequest lateTrade = new TradeRequest(
             "FUND-001", "MSFT", TradeType.BUY,

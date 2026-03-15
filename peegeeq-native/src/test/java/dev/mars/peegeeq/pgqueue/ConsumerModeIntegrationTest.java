@@ -25,9 +25,13 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -36,6 +40,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests LISTEN_NOTIFY_ONLY, POLLING_ONLY, and HYBRID modes.
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 public class ConsumerModeIntegrationTest {
     private static final Logger logger = LoggerFactory.getLogger(ConsumerModeIntegrationTest.class);
@@ -97,7 +102,7 @@ public class ConsumerModeIntegrationTest {
     }
 
     @Test
-    void testListenNotifyOnlyMode() throws Exception {
+    void testListenNotifyOnlyMode(Vertx vertx, VertxTestContext testContext) throws Exception {
         System.out.println("🧪 TEST METHOD CALLED: testListenNotifyOnlyMode");
         System.err.println("🧪 TEST METHOD CALLED: testListenNotifyOnlyMode");
         logger.info("🧪 STARTING LISTEN_NOTIFY_ONLY MODE TEST");
@@ -110,7 +115,6 @@ public class ConsumerModeIntegrationTest {
         MessageConsumer<String> consumer = factory.createConsumer("test-listen-only-simple", String.class, config);
         MessageProducer<String> producer = factory.createProducer("test-listen-only-simple", String.class);
 
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<String> receivedMessage = new AtomicReference<>();
 
         // Subscribe to messages
@@ -119,29 +123,26 @@ public class ConsumerModeIntegrationTest {
             System.out.println("🎯 LISTEN_NOTIFY_ONLY: Message received: " + message.getPayload());
             logger.info("🎯 LISTEN_NOTIFY_ONLY: Message received: {}", message.getPayload());
             receivedMessage.set(message.getPayload());
-            latch.countDown();
+            testContext.verify(() -> {
+                assertEquals("Hello LISTEN_NOTIFY_ONLY!", receivedMessage.get());
+            });
+            testContext.completeNow();
             return CompletableFuture.completedFuture(null);
         });
         System.out.println("✅ consumer.subscribe() completed");
 
-        // Wait a bit for LISTEN setup
-        System.out.println("💤 About to sleep for 1 second");
-        Thread.sleep(1000);
-        System.out.println("⏰ Sleep completed");
-
-        // Send message
-        System.out.println("🔔 About to send message");
-        logger.info("🔔 LISTEN_NOTIFY_ONLY: Sending test message...");
-        producer.send("Hello LISTEN_NOTIFY_ONLY!").get(5, TimeUnit.SECONDS);
-        System.out.println("✅ Message sent successfully");
-        logger.info("✅ LISTEN_NOTIFY_ONLY: Message sent");
+        // Wait for LISTEN setup, then send
+        System.out.println("⏳ Waiting for LISTEN setup via timer");
+        vertx.setTimer(1000, id -> {
+            System.out.println("🔔 About to send message");
+            logger.info("🔔 LISTEN_NOTIFY_ONLY: Sending test message...");
+            producer.send("Hello LISTEN_NOTIFY_ONLY!");
+            System.out.println("✅ Message sent successfully");
+            logger.info("✅ LISTEN_NOTIFY_ONLY: Message sent");
+        });
 
         // Wait for message
-        boolean received = latch.await(10, TimeUnit.SECONDS);
-        logger.info("📊 LISTEN_NOTIFY_ONLY: Message received: {}, Content: {}", received, receivedMessage.get());
-
-        assertTrue(received, "Message should be received via LISTEN/NOTIFY");
-        assertEquals("Hello LISTEN_NOTIFY_ONLY!", receivedMessage.get());
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Message should be received via LISTEN/NOTIFY");
 
         consumer.close();
         producer.close();
@@ -161,13 +162,13 @@ public class ConsumerModeIntegrationTest {
         MessageConsumer<String> consumer = factory.createConsumer("test-polling-only", String.class, config);
         MessageProducer<String> producer = factory.createProducer("test-polling-only", String.class);
 
-        CountDownLatch latch = new CountDownLatch(1);
+        VertxTestContext methodCtx = new VertxTestContext();
         AtomicReference<String> receivedMessage = new AtomicReference<>();
 
         // Subscribe to messages
         consumer.subscribe(message -> {
             receivedMessage.set(message.getPayload());
-            latch.countDown();
+            methodCtx.completeNow();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -175,7 +176,7 @@ public class ConsumerModeIntegrationTest {
         producer.send("Hello POLLING_ONLY!");
 
         // Wait for message (should be received via polling)
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Message should be received via polling");
+        assertTrue(methodCtx.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received via polling");
         assertEquals("Hello POLLING_ONLY!", receivedMessage.get());
 
         consumer.close();
@@ -196,24 +197,21 @@ public class ConsumerModeIntegrationTest {
         MessageConsumer<String> consumer = factory.createConsumer("test-hybrid", String.class, config);
         MessageProducer<String> producer = factory.createProducer("test-hybrid", String.class);
 
-        CountDownLatch latch = new CountDownLatch(1);
+        VertxTestContext methodCtx = new VertxTestContext();
         AtomicReference<String> receivedMessage = new AtomicReference<>();
 
         // Subscribe to messages
         consumer.subscribe(message -> {
             receivedMessage.set(message.getPayload());
-            latch.countDown();
+            methodCtx.completeNow();
             return CompletableFuture.completedFuture(null);
         });
-
-        // Give consumer time to set up both LISTEN and polling
-        Thread.sleep(1000);
 
         // Send message
         producer.send("Hello HYBRID!");
 
         // Wait for message (should be received via LISTEN/NOTIFY or polling)
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Message should be received via HYBRID mode");
+        assertTrue(methodCtx.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received via HYBRID mode");
         assertEquals("Hello HYBRID!", receivedMessage.get());
 
         consumer.close();
@@ -229,24 +227,21 @@ public class ConsumerModeIntegrationTest {
         MessageConsumer<String> consumer = factory.createConsumer("test-backward-compat", String.class);
         MessageProducer<String> producer = factory.createProducer("test-backward-compat", String.class);
 
-        CountDownLatch latch = new CountDownLatch(1);
+        VertxTestContext methodCtx = new VertxTestContext();
         AtomicReference<String> receivedMessage = new AtomicReference<>();
 
         // Subscribe to messages
         consumer.subscribe(message -> {
             receivedMessage.set(message.getPayload());
-            latch.countDown();
+            methodCtx.completeNow();
             return CompletableFuture.completedFuture(null);
         });
-
-        // Give consumer time to set up
-        Thread.sleep(1000);
 
         // Send message
         producer.send("Hello Backward Compatibility!");
 
         // Wait for message
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Message should be received in backward compatibility mode");
+        assertTrue(methodCtx.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received in backward compatibility mode");
         assertEquals("Hello Backward Compatibility!", receivedMessage.get());
 
         consumer.close();

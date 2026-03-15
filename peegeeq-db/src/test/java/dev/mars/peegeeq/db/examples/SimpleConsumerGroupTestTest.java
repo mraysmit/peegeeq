@@ -37,6 +37,9 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxTestContext;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -224,7 +227,7 @@ public class SimpleConsumerGroupTestTest {
         
         // Simulate message processing
         logger.info("Starting consumer group...");
-        Thread.sleep(100); // Simulate startup time
+        manager.getVertx().timer(100).toCompletionStage().toCompletableFuture().join(); // Simulate startup time
         
         // Simulate sending messages
         logger.info("Sending test messages...");
@@ -258,13 +261,13 @@ public class SimpleConsumerGroupTestTest {
         
         // Simulate filter application
         logger.info("Applying region filter: US");
-        Thread.sleep(50);
+        manager.getVertx().timer(50).toCompletionStage().toCompletableFuture().join();
         
         logger.info("Applying region filter: EU");
-        Thread.sleep(50);
+        manager.getVertx().timer(50).toCompletionStage().toCompletableFuture().join();
         
         logger.info("Applying accept-all filter");
-        Thread.sleep(50);
+        manager.getVertx().timer(50).toCompletionStage().toCompletableFuture().join();
         
         logger.info("✓ Message filtering functionality tested");
         
@@ -284,10 +287,10 @@ public class SimpleConsumerGroupTestTest {
         
         // Simulate message production and consumption
         logger.info("Producing {} messages...", messagesProduced);
-        Thread.sleep(100);
+        manager.getVertx().timer(100).toCompletionStage().toCompletableFuture().join();
         
         logger.info("Consuming {} messages...", messagesConsumed);
-        Thread.sleep(100);
+        manager.getVertx().timer(100).toCompletionStage().toCompletableFuture().join();
         
         long processingTime = System.currentTimeMillis() - startTime;
         
@@ -308,13 +311,13 @@ public class SimpleConsumerGroupTestTest {
         
         // Simulate consumer management operations
         logger.info("Creating consumer group...");
-        Thread.sleep(50);
+        manager.getVertx().timer(50).toCompletionStage().toCompletableFuture().join();
         
         logger.info("Adding consumers to group...");
-        Thread.sleep(50);
+        manager.getVertx().timer(50).toCompletionStage().toCompletableFuture().join();
         
         logger.info("Managing consumer lifecycle...");
-        Thread.sleep(50);
+        manager.getVertx().timer(50).toCompletionStage().toCompletableFuture().join();
         
         logger.info("✓ Consumer management functionality tested");
         

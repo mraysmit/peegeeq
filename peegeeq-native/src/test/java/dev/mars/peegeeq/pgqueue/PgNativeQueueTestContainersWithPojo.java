@@ -20,18 +20,20 @@ package dev.mars.peegeeq.pgqueue;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.PoolOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import io.vertx.core.streams.ReadStream;
 
-
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -51,6 +53,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Comprehensive integration tests for the PgNativeQueue class using TestContainers and a POJO message class.
  * This class focuses on testing the send and receive functionality with real PostgreSQL notifications.
  */
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 public class PgNativeQueueTestContainersWithPojo {
 
@@ -88,25 +91,20 @@ public class PgNativeQueueTestContainersWithPojo {
 
     @AfterEach
     void tearDown() throws Exception {
-        CountDownLatch latch = new CountDownLatch(1);
-
         queue.close()
-            .onComplete(ar -> {
-                vertx.close()
-                    .onComplete(v -> latch.countDown());
-            });
-
-        assertTrue(latch.await(5, TimeUnit.SECONDS), "Failed to close resources");
+            .compose(v -> vertx.close())
+            .toCompletionStage().toCompletableFuture()
+            .orTimeout(5, TimeUnit.SECONDS)
+            .join();
     }
 
     @Test
-    void testSendAndReceiveMessage() throws Exception {
+    void testSendAndReceiveMessage(VertxTestContext testContext) throws Exception {
         // Arrange
         String messageText = "Test message";
         TestMessage expectedMessage = new TestMessage(messageText);
 
-        // Set up a CountDownLatch to wait for the message
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint messageReceived = testContext.checkpoint();
         AtomicReference<TestMessage> receivedMessage = new AtomicReference<>();
 
         // Act - Get the ReadStream from the queue
@@ -115,33 +113,19 @@ public class PgNativeQueueTestContainersWithPojo {
         // Set up handlers for the stream
         stream.handler(message -> {
             receivedMessage.set(message);
-            latch.countDown();
+            messageReceived.flag();
         });
 
-        stream.exceptionHandler(error -> {
-            System.err.println("Error receiving message: " + error.getMessage());
-            latch.countDown();
+        stream.exceptionHandler(testContext::failNow);
+
+        // Wait for subscription setup, then send
+        vertx.setTimer(1000, id -> {
+            queue.send(expectedMessage)
+                .onFailure(testContext::failNow);
         });
 
-        // Wait a bit for the subscription to be set up
-        Thread.sleep(1000);
-
-        // Send a message
-        CountDownLatch sendLatch = new CountDownLatch(1);
-        queue.send(expectedMessage)
-            .onComplete(ar -> {
-                if (ar.succeeded()) {
-                    sendLatch.countDown();
-                } else {
-                    fail("Failed to send message: " + ar.cause().getMessage());
-                }
-            });
-
-        // Wait for the send to complete
-        assertTrue(sendLatch.await(5, TimeUnit.SECONDS), "Failed to send message");
-
-        // Assert - Wait for the message to be received
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Message was not received within timeout");
+        // Wait for the message to be received
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Message was not received within timeout");
 
         // Verify the received message
         TestMessage receivedTestMessage = receivedMessage.get();
@@ -150,10 +134,10 @@ public class PgNativeQueueTestContainersWithPojo {
     }
 
     @Test
-    void testSendAndReceiveMultipleMessages() throws Exception {
+    void testSendAndReceiveMultipleMessages(VertxTestContext testContext) throws Exception {
         // Arrange
         int messageCount = 5;
-        CountDownLatch latch = new CountDownLatch(messageCount);
+        Checkpoint messagesReceived = testContext.checkpoint(messageCount);
         AtomicReference<Integer> receivedCount = new AtomicReference<>(0);
 
         // Act - Get the ReadStream from the queue
@@ -162,45 +146,32 @@ public class PgNativeQueueTestContainersWithPojo {
         // Set up handlers for the stream
         stream.handler(message -> {
             receivedCount.updateAndGet(count -> count + 1);
-            latch.countDown();
+            messagesReceived.flag();
         });
 
-        stream.exceptionHandler(error -> {
-            System.err.println("Error receiving message: " + error.getMessage());
+        stream.exceptionHandler(testContext::failNow);
+
+        // Wait for subscription setup, then send
+        vertx.setTimer(1000, id -> {
+            for (int i = 0; i < messageCount; i++) {
+                TestMessage message = new TestMessage("Test message " + i, i);
+                queue.send(message)
+                    .onFailure(testContext::failNow);
+            }
         });
 
-        // Wait a bit for the subscription to be set up
-        Thread.sleep(1000);
-
-        // Send multiple messages
-        for (int i = 0; i < messageCount; i++) {
-            TestMessage message = new TestMessage("Test message " + i, i);
-
-            CountDownLatch sendLatch = new CountDownLatch(1);
-            queue.send(message)
-                .onSuccess(v -> sendLatch.countDown())
-                .onFailure(throwable -> fail("Failed to send message: " + throwable.getMessage()));
-
-            // Wait for the send to complete
-            assertTrue(sendLatch.await(5, TimeUnit.SECONDS), "Failed to send message");
-
-            // Small delay between messages to ensure order
-            Thread.sleep(100);
-        }
-
-        // Assert - Wait for all messages to be received
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Not all messages were received within timeout");
+        // Wait for all messages to be received
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Not all messages were received within timeout");
         assertEquals(messageCount, receivedCount.get(), "Should have received all messages");
     }
 
     @Test
-    void testReceiveFirstMessage() throws Exception {
+    void testReceiveFirstMessage(VertxTestContext testContext) throws Exception {
         // Arrange
         String messageText = "Test message with first handler";
         TestMessage expectedMessage = new TestMessage(messageText);
 
-        // Set up a CountDownLatch to wait for the message
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint firstMessageReceived = testContext.checkpoint();
         AtomicReference<TestMessage> receivedMessage = new AtomicReference<>();
 
         // Act - Get the ReadStream from the queue
@@ -209,33 +180,23 @@ public class PgNativeQueueTestContainersWithPojo {
         // Set up handlers for the stream
         stream.handler(message -> {
             // Only handle the first message
-            if (latch.getCount() > 0) {
-                receivedMessage.set(message);
-                latch.countDown();
+            if (receivedMessage.compareAndSet(null, message)) {
+                firstMessageReceived.flag();
                 // Pause the stream after receiving the first message
                 stream.pause();
             }
         });
 
-        stream.exceptionHandler(error -> {
-            System.err.println("Error receiving message: " + error.getMessage());
-            latch.countDown();
+        stream.exceptionHandler(testContext::failNow);
+
+        // Wait for subscription setup, then send
+        vertx.setTimer(1000, id -> {
+            queue.send(expectedMessage)
+                .onFailure(testContext::failNow);
         });
 
-        // Wait a bit for the subscription to be set up
-        Thread.sleep(1000);
-
-        // Send a message
-        CountDownLatch sendLatch = new CountDownLatch(1);
-        queue.send(expectedMessage)
-            .onSuccess(v -> sendLatch.countDown())
-            .onFailure(throwable -> fail("Failed to send message: " + throwable.getMessage()));
-
-        // Wait for the send to complete
-        assertTrue(sendLatch.await(5, TimeUnit.SECONDS), "Failed to send message");
-
-        // Assert - Wait for the message to be received
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Message was not received within timeout");
+        // Wait for the message to be received
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Message was not received within timeout");
 
         // Verify the received message
         TestMessage receivedTestMessage = receivedMessage.get();

@@ -26,18 +26,23 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.LockSupport;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
@@ -47,6 +52,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 public class OutboxMetricsTest {
 
     @Container
@@ -112,7 +118,7 @@ public class OutboxMetricsTest {
     }
 
     @Test
-    void testMetricsIntegration() throws Exception {
+    void testMetricsIntegration(Vertx vertx, VertxTestContext testContext) throws Exception {
         String testMessage = "Metrics test message";
 
         // Get initial metrics
@@ -127,10 +133,10 @@ public class OutboxMetricsTest {
         System.out.println("  - Messages processed: " + initialProcessed);
 
         // Set up consumer
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint messageProcessed = testContext.checkpoint();
         consumer.subscribe(message -> {
             System.out.println("Processing message for metrics test: " + message.getPayload());
-            latch.countDown();
+            messageProcessed.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -139,11 +145,23 @@ public class OutboxMetricsTest {
         System.out.println("Message sent, waiting for processing...");
 
         // Wait for processing
-        assertTrue(latch.await(10, TimeUnit.SECONDS), 
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), 
             "Message should be processed within timeout");
 
-        // Allow some time for metrics to be updated
-        Thread.sleep(2000);
+        // Wait for metrics to be updated (poll in executeBlocking)
+        vertx.executeBlocking(() -> {
+            long deadline = System.currentTimeMillis() + 10_000;
+            while (System.currentTimeMillis() < deadline) {
+                var m = manager.getMetrics().getSummary();
+                if (m.getMessagesSent() > initialSent
+                    && m.getMessagesReceived() > initialReceived
+                    && m.getMessagesProcessed() > initialProcessed) {
+                    return null;
+                }
+                LockSupport.parkNanos(100_000_000L);
+            }
+            throw new AssertionError("Metrics were not updated within 10 seconds");
+        }).toCompletionStage().toCompletableFuture().join();
 
         // Verify metrics were recorded
         var finalMetrics = manager.getMetrics().getSummary();
@@ -219,7 +237,7 @@ public class OutboxMetricsTest {
     }
 
     @Test
-    void testMultipleMessageMetrics() throws Exception {
+    void testMultipleMessageMetrics(Vertx vertx, VertxTestContext testContext) throws Exception {
         int messageCount = 5;
         
         // Get initial metrics
@@ -229,10 +247,10 @@ public class OutboxMetricsTest {
         double initialProcessed = initialMetrics.getMessagesProcessed();
 
         // Set up consumer
-        CountDownLatch latch = new CountDownLatch(messageCount);
+        Checkpoint messagesProcessed = testContext.checkpoint(messageCount);
         consumer.subscribe(message -> {
             System.out.println("Processing message: " + message.getPayload());
-            latch.countDown();
+            messagesProcessed.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -242,11 +260,23 @@ public class OutboxMetricsTest {
         }
 
         // Wait for all messages to be processed
-        assertTrue(latch.await(15, TimeUnit.SECONDS), 
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), 
             "All messages should be processed within timeout");
 
-        // Allow time for metrics to be updated
-        Thread.sleep(2000);
+        // Wait for metrics to be updated (poll in executeBlocking)
+        vertx.executeBlocking(() -> {
+            long deadline = System.currentTimeMillis() + 10_000;
+            while (System.currentTimeMillis() < deadline) {
+                var m = manager.getMetrics().getSummary();
+                if (m.getMessagesSent() >= initialSent + messageCount
+                    && m.getMessagesReceived() >= initialReceived + messageCount
+                    && m.getMessagesProcessed() >= initialProcessed + messageCount) {
+                    return null;
+                }
+                LockSupport.parkNanos(100_000_000L);
+            }
+            throw new AssertionError("Metrics were not updated within 10 seconds");
+        }).toCompletionStage().toCompletableFuture().join();
 
         // Verify metrics
         var finalMetrics = manager.getMetrics().getSummary();
@@ -269,7 +299,7 @@ public class OutboxMetricsTest {
     }
 
     @Test
-    void testErrorMetrics() throws Exception {
+    void testErrorMetrics(Vertx vertx, VertxTestContext testContext) throws Exception {
         String testMessage = "Message that will cause error";
         
         // Get initial metrics
@@ -279,10 +309,10 @@ public class OutboxMetricsTest {
         System.out.println("Initial error count: " + initialErrors);
 
         // Set up consumer that always fails
-        CountDownLatch errorLatch = new CountDownLatch(1);
+        Checkpoint errorOccurred = testContext.checkpoint();
         consumer.subscribe(message -> {
             System.out.println("INTENTIONAL FAILURE: Processing message that will fail");
-            errorLatch.countDown();
+            errorOccurred.flag();
             throw new RuntimeException("Intentional error for metrics testing");
         });
 
@@ -290,11 +320,20 @@ public class OutboxMetricsTest {
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
 
         // Wait for error to occur
-        assertTrue(errorLatch.await(10, TimeUnit.SECONDS), 
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), 
             "Error should occur within timeout");
 
-        // Allow time for error metrics to be updated
-        Thread.sleep(3000);
+        // Wait for error metrics to be updated (poll in executeBlocking)
+        vertx.executeBlocking(() -> {
+            long deadline = System.currentTimeMillis() + 10_000;
+            while (System.currentTimeMillis() < deadline) {
+                if (manager.getMetrics().getSummary().getMessagesFailed() > initialErrors) {
+                    return null;
+                }
+                LockSupport.parkNanos(100_000_000L);
+            }
+            throw new AssertionError("Error metrics were not updated within 10 seconds");
+        }).toCompletionStage().toCompletableFuture().join();
 
         // Verify error metrics increased
         var finalMetrics = manager.getMetrics().getSummary();

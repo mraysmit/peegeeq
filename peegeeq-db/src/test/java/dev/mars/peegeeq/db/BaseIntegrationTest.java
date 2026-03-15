@@ -115,14 +115,14 @@ public abstract class BaseIntegrationTest {
         if (manager != null) {
             try {
                 // Give manager time to complete any ongoing operations
-                Thread.sleep(100);
+                manager.getVertx().timer(100).toCompletionStage().toCompletableFuture().join();
                 
                 // Close manager (this should close all HikariCP pools)
                 manager.closeReactive().toCompletionStage().toCompletableFuture().join();
                 logger.info("PeeGeeQ Manager closed successfully for profile: {}", testProfile);
                 
                 // Wait a bit for cleanup to complete
-                Thread.sleep(100);
+                manager.getVertx().timer(100).toCompletionStage().toCompletableFuture().join();
                 
             } catch (Exception e) {
                 logger.error("Error closing PeeGeeQ Manager for profile: {}", testProfile, e);
@@ -207,7 +207,7 @@ public abstract class BaseIntegrationTest {
         }
         
         // Wait for health checks to stabilize
-        Thread.sleep(1000);
+        manager.getVertx().timer(1000).toCompletionStage().toCompletableFuture().join();
 
         // Verify manager is healthy
         var healthStatus = manager.getHealthCheckManager().getOverallHealthInternal();

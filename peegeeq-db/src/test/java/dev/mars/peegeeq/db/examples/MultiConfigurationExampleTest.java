@@ -6,6 +6,8 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -18,6 +20,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.time.Duration;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -37,7 +40,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * since peegeeq-db doesn't have queue factory implementations registered.
  */
 @Tag(TestCategories.INTEGRATION)
-@ExtendWith(SharedPostgresTestExtension.class)
+@ExtendWith({SharedPostgresTestExtension.class, VertxExtension.class})
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
 @org.junit.jupiter.api.parallel.ResourceLock("system-properties")
 public class MultiConfigurationExampleTest {
@@ -91,21 +94,21 @@ public class MultiConfigurationExampleTest {
      * Validates registration and management of multiple named configurations
      */
     @Test
-    void testMultipleConfigurationRegistration() throws Exception {
+    void testMultipleConfigurationRegistration(Vertx vertx) throws Exception {
         logger.info("=== Testing Multiple Configuration Registration ===");
 
         // Register different configurations for different use cases with small delays to prevent race conditions
         logger.info("Registering high-throughput configuration...");
         configManager.registerConfiguration("high-throughput", "test");
-        Thread.sleep(100);
+        vertx.timer(100).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
 
         logger.info("Registering low-latency configuration...");
         configManager.registerConfiguration("low-latency", "test");
-        Thread.sleep(100);
+        vertx.timer(100).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
 
         logger.info("Registering reliable configuration...");
         configManager.registerConfiguration("reliable", "test");
-        Thread.sleep(100);
+        vertx.timer(100).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
 
         logger.info("Registering development configuration...");
         configManager.registerConfiguration("development", "test");

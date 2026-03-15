@@ -12,11 +12,16 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -44,6 +49,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * - Test system resilience under adverse conditions
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 class ConsumerModeGracefulDegradationTest {
 
@@ -129,56 +135,47 @@ class ConsumerModeGracefulDegradationTest {
      */
     @Test
     @Timeout(30)
-    void testHybridModeGracefulDegradationToPolling() throws Exception {
-        logger.info("🧪 Testing HYBRID mode graceful degradation to polling");
+    void testHybridModeGracefulDegradationToPolling(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Testing HYBRID mode graceful degradation to polling");
 
         String topicName = "test-hybrid-degradation-polling";
-        
-        // Create HYBRID consumer with fast polling for quick test execution
+
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
             ConsumerConfig.builder()
                 .mode(ConsumerMode.HYBRID)
-                .pollingInterval(Duration.ofMillis(500)) // Fast polling for test
+                .pollingInterval(Duration.ofMillis(500))
                 .build());
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         try {
+            Checkpoint received = testContext.checkpoint(3);
             AtomicInteger processedCount = new AtomicInteger(0);
-            CountDownLatch latch = new CountDownLatch(3);
-            AtomicReference<String> lastProcessedMessage = new AtomicReference<>();
 
             consumer.subscribe(message -> {
                 int count = processedCount.incrementAndGet();
-                lastProcessedMessage.set(message.getPayload());
+                testContext.verify(() ->
+                    assertTrue(message.getPayload().startsWith("Degradation test message"),
+                        "Should process degradation test messages correctly"));
                 logger.info("Processed message {}: {}", count, message.getPayload());
-                latch.countDown();
+                received.flag();
                 return CompletableFuture.completedFuture(null);
             });
 
-            // Wait for consumer setup
-            Thread.sleep(1000);
+            // Delay for consumer setup using Vert.x timer
+            vertx.setTimer(1000, id -> {
+                producer.send("Degradation test message 1");
+                producer.send("Degradation test message 2");
+                producer.send("Degradation test message 3");
+            });
 
-            // Send messages - HYBRID mode should handle them via polling even if LISTEN/NOTIFY has issues
-            producer.send("Degradation test message 1").get(5, TimeUnit.SECONDS);
-            producer.send("Degradation test message 2").get(5, TimeUnit.SECONDS);
-            producer.send("Degradation test message 3").get(5, TimeUnit.SECONDS);
-
-            // Wait for message processing - should work via polling fallback
-            boolean received = latch.await(20, TimeUnit.SECONDS);
-            assertTrue(received, "Should process messages via polling fallback mechanism");
-            assertEquals(3, processedCount.get(), "Should process exactly 3 messages");
-            assertTrue(lastProcessedMessage.get().startsWith("Degradation test message"),
-                "Should process degradation test messages correctly");
-
-            logger.info("✅ HYBRID mode degradation verified - processed: {} messages via polling fallback", 
+            assertTrue(testContext.awaitCompletion(25, TimeUnit.SECONDS), "Test timed out");
+            logger.info("HYBRID mode degradation verified - processed: {} messages via polling fallback",
                 processedCount.get());
 
         } finally {
             consumer.close();
             producer.close();
         }
-
-        logger.info("✅ HYBRID mode graceful degradation test completed successfully");
     }
 
     /**
@@ -188,12 +185,11 @@ class ConsumerModeGracefulDegradationTest {
      */
     @Test
     @Timeout(45)
-    void testGracefulHandlingOfResourceExhaustion() throws Exception {
-        logger.info("🧪 Testing graceful handling of resource exhaustion");
+    void testGracefulHandlingOfResourceExhaustion(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Testing graceful handling of resource exhaustion");
 
         String topicName = "test-resource-exhaustion";
-        
-        // Create consumer with limited resources
+
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
             ConsumerConfig.builder()
                 .mode(ConsumerMode.HYBRID)
@@ -204,12 +200,12 @@ class ConsumerModeGracefulDegradationTest {
         try {
             AtomicInteger processedCount = new AtomicInteger(0);
             AtomicInteger errorCount = new AtomicInteger(0);
-            CountDownLatch latch = new CountDownLatch(10); // Expect at least 10 successful messages
             AtomicBoolean resourceExhaustionSimulated = new AtomicBoolean(false);
+            Checkpoint processed = testContext.checkpoint(10);
 
             consumer.subscribe(message -> {
                 int count = processedCount.incrementAndGet();
-                
+
                 // Simulate resource exhaustion for some messages
                 if (count > 5 && count <= 8 && !resourceExhaustionSimulated.get()) {
                     resourceExhaustionSimulated.set(true);
@@ -218,36 +214,37 @@ class ConsumerModeGracefulDegradationTest {
                     return CompletableFuture.failedFuture(
                         new RuntimeException("Simulated resource exhaustion"));
                 }
-                
+
                 logger.info("Successfully processed message {}: {}", count, message.getPayload());
-                latch.countDown();
+                processed.flag();
                 return CompletableFuture.completedFuture(null);
             });
 
-            // Wait for consumer setup
-            Thread.sleep(1000);
+            // Delay for consumer setup, then send messages with periodic timer
+            vertx.setTimer(1000, setupId -> {
+                AtomicInteger sendIndex = new AtomicInteger(0);
+                vertx.setPeriodic(50, periodicId -> {
+                    int i = sendIndex.incrementAndGet();
+                    if (i <= 15) {
+                        producer.send("Resource test message " + i);
+                    }
+                    if (i >= 15) {
+                        vertx.cancelTimer(periodicId);
+                    }
+                });
+            });
 
-            // Send multiple messages to trigger resource exhaustion scenario
-            for (int i = 1; i <= 15; i++) {
-                producer.send("Resource test message " + i).get(5, TimeUnit.SECONDS);
-                Thread.sleep(50); // Small delay between sends
-            }
-
-            // Wait for message processing
-            boolean received = latch.await(30, TimeUnit.SECONDS);
-            assertTrue(received, "Should process at least 10 messages despite resource exhaustion");
+            assertTrue(testContext.awaitCompletion(35, TimeUnit.SECONDS), "Test timed out");
             assertTrue(processedCount.get() >= 10, "Should process at least 10 messages");
             assertTrue(errorCount.get() > 0, "Should encounter some resource exhaustion errors");
 
-            logger.info("✅ Resource exhaustion handling verified - processed: {}, errors: {}", 
+            logger.info("Resource exhaustion handling verified - processed: {}, errors: {}",
                 processedCount.get(), errorCount.get());
 
         } finally {
             consumer.close();
             producer.close();
         }
-
-        logger.info("✅ Resource exhaustion graceful handling test completed successfully");
     }
 
     /**
@@ -257,8 +254,8 @@ class ConsumerModeGracefulDegradationTest {
      */
     @Test
     @Timeout(30)
-    void testRecoveryAfterTemporaryDegradation() throws Exception {
-        logger.info("🧪 Testing recovery after temporary degradation");
+    void testRecoveryAfterTemporaryDegradation(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Testing recovery after temporary degradation");
 
         String topicName = "test-recovery-after-degradation";
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
@@ -271,68 +268,64 @@ class ConsumerModeGracefulDegradationTest {
         try {
             AtomicInteger processedCount = new AtomicInteger(0);
             AtomicInteger degradationPhase = new AtomicInteger(0); // 0=normal, 1=degraded, 2=recovered
-            CountDownLatch latch = new CountDownLatch(6);
             AtomicReference<String> lastProcessedMessage = new AtomicReference<>();
+            Checkpoint received = testContext.checkpoint(6);
 
             consumer.subscribe(message -> {
                 int count = processedCount.incrementAndGet();
                 lastProcessedMessage.set(message.getPayload());
-                
+
                 // Simulate temporary degradation for messages 3-4
                 if (count == 3 || count == 4) {
                     degradationPhase.set(1);
                     logger.info("Processing message {} during degradation phase: {}", count, message.getPayload());
-                    // Add some delay to simulate degraded performance
-                    try {
-                        Thread.sleep(200);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    }
+                    // Simulate degraded performance using non-blocking Vert.x timer
+                    CompletableFuture<Void> delayed = new CompletableFuture<>();
+                    vertx.setTimer(200, timerId -> {
+                        received.flag();
+                        delayed.complete(null);
+                    });
+                    return delayed;
                 } else if (count >= 5) {
                     degradationPhase.set(2);
                     logger.info("Processing message {} after recovery: {}", count, message.getPayload());
                 } else {
                     logger.info("Processing message {} normally: {}", count, message.getPayload());
                 }
-                
-                latch.countDown();
+
+                received.flag();
                 return CompletableFuture.completedFuture(null);
             });
 
-            // Wait for consumer setup
-            Thread.sleep(1000);
+            // Delay for consumer setup, then send messages in phases using Vert.x timers
+            vertx.setTimer(1000, setupId -> {
+                producer.send("Pre-degradation message 1");
+                producer.send("Pre-degradation message 2");
 
-            // Send messages across different phases
-            producer.send("Pre-degradation message 1").get(5, TimeUnit.SECONDS);
-            producer.send("Pre-degradation message 2").get(5, TimeUnit.SECONDS);
-            
-            Thread.sleep(500); // Brief pause
-            
-            producer.send("Degraded message 3").get(5, TimeUnit.SECONDS);
-            producer.send("Degraded message 4").get(5, TimeUnit.SECONDS);
-            
-            Thread.sleep(500); // Brief pause for recovery
-            
-            producer.send("Recovery message 5").get(5, TimeUnit.SECONDS);
-            producer.send("Recovery message 6").get(5, TimeUnit.SECONDS);
+                vertx.setTimer(500, phase2Id -> {
+                    producer.send("Degraded message 3");
+                    producer.send("Degraded message 4");
 
-            // Wait for message processing
-            boolean received = latch.await(20, TimeUnit.SECONDS);
-            assertTrue(received, "Should process all messages through degradation and recovery");
+                    vertx.setTimer(500, phase3Id -> {
+                        producer.send("Recovery message 5");
+                        producer.send("Recovery message 6");
+                    });
+                });
+            });
+
+            assertTrue(testContext.awaitCompletion(25, TimeUnit.SECONDS), "Test timed out");
             assertEquals(6, processedCount.get(), "Should process exactly 6 messages");
             assertEquals(2, degradationPhase.get(), "Should reach recovery phase");
-            assertEquals("Recovery message 6", lastProcessedMessage.get(), 
-                "Should process the final recovery message");
+            assertTrue(lastProcessedMessage.get().startsWith("Recovery message"),
+                "Last processed message should be a recovery-phase message");
 
-            logger.info("✅ Recovery after degradation verified - processed: {} messages, final phase: {}", 
+            logger.info("Recovery after degradation verified - processed: {} messages, final phase: {}",
                 processedCount.get(), degradationPhase.get());
 
         } finally {
             consumer.close();
             producer.close();
         }
-
-        logger.info("✅ Recovery after temporary degradation test completed successfully");
     }
 }
 

@@ -14,10 +14,14 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -31,7 +35,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -51,6 +54,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * - Test with various payload types including primitives, objects, and collections
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 class ConsumerModeTypeSafetyTest {
     private static final Logger logger = LoggerFactory.getLogger(ConsumerModeTypeSafetyTest.class);
@@ -273,7 +277,7 @@ class ConsumerModeTypeSafetyTest {
     }
 
     @Test
-    void testNullValueHandlingAcrossConsumerModes() throws Exception {
+    void testNullValueHandlingAcrossConsumerModes(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing null value handling behavior across all consumer modes");
 
         String topicName = "test-null-value-handling";
@@ -285,17 +289,14 @@ class ConsumerModeTypeSafetyTest {
             ConsumerConfig.builder().mode(ConsumerMode.HYBRID).pollingInterval(Duration.ofSeconds(1)).build());
 
         AtomicReference<String> receivedMessage = new AtomicReference<>();
-        CountDownLatch latch = new CountDownLatch(1);
+        VertxTestContext nullCtx = new VertxTestContext();
 
         consumer.subscribe(message -> {
             receivedMessage.set(message.getPayload());
             logger.info("📨 Received message: {}", message.getPayload());
-            latch.countDown();
+            nullCtx.completeNow();
             return CompletableFuture.completedFuture(null);
         });
-
-        // Wait for consumer setup
-        Thread.sleep(500);
 
         try {
             // Producer accepts null values (based on logs showing successful NOTIFY)
@@ -303,7 +304,7 @@ class ConsumerModeTypeSafetyTest {
             logger.info("✅ Producer accepted null payload (will be rejected by consumer)");
 
             // Consumer should not receive the message (it gets moved to dead letter queue)
-            boolean received = latch.await(5, TimeUnit.SECONDS);
+            boolean received = nullCtx.awaitCompletion(5, TimeUnit.SECONDS);
             assertFalse(received, "Consumer should not receive null payload (moved to dead letter queue)");
 
             logger.info("✅ Null payload correctly handled - producer accepts, consumer rejects, moved to DLQ");
@@ -312,6 +313,7 @@ class ConsumerModeTypeSafetyTest {
             producer.close();
         }
 
+        testContext.completeNow();
         logger.info("✅ Null value handling behavior verified");
     }
 
@@ -330,24 +332,21 @@ class ConsumerModeTypeSafetyTest {
         MessageProducer<T> producer = factory.createProducer(topicName, payloadType);
 
         AtomicReference<T> receivedMessage = new AtomicReference<>();
-        CountDownLatch latch = new CountDownLatch(1);
+        VertxTestContext modeCtx = new VertxTestContext();
 
         consumer.subscribe(message -> {
             receivedMessage.set(message.getPayload());
             logger.info("📨 Received {} message in {} mode: {}",
                 payloadType.getSimpleName(), mode, message.getPayload());
-            latch.countDown();
+            modeCtx.completeNow();
             return CompletableFuture.completedFuture(null);
         });
-
-        // Wait for consumer setup
-        Thread.sleep(500);
 
         // Send test message
         producer.send(expectedMessage).get(5, TimeUnit.SECONDS);
 
         // Wait for message processing
-        boolean received = latch.await(10, TimeUnit.SECONDS);
+        boolean received = modeCtx.awaitCompletion(10, TimeUnit.SECONDS);
         assertTrue(received, "Should receive message in " + mode + " mode");
 
         // Verify type safety and content

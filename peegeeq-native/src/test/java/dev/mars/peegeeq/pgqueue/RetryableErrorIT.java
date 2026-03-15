@@ -19,7 +19,6 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -70,22 +69,21 @@ public class RetryableErrorIT {
     }
 
     @Test
-    void testConsumerRetriesOn40P01AndSucceeds() throws Exception {
+    void testConsumerRetriesOn40P01AndSucceeds(Vertx vertx, VertxTestContext testContext) throws Exception {
         String topic = "retryable-error-test-topic";
         MessageProducer<String> producer = factory.createProducer(topic, String.class);
         MessageConsumer<String> consumer = factory.createConsumer(topic, String.class,
                 new ConsumerConfig.Builder().mode(ConsumerMode.HYBRID).consumerThreads(1).build());
 
-        CountDownLatch latch = new CountDownLatch(1);
         consumer.subscribe(msg -> {
-            latch.countDown();
+            testContext.completeNow();
             return CompletableFuture.completedFuture(null);
         });
 
         producer.send("one").get(5, TimeUnit.SECONDS);
 
         // Should still process successfully even though the first claim attempt fails with 40P01
-        assertTrue(latch.await(15, TimeUnit.SECONDS), "Message should be processed after one retry");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Message should be processed after one retry");
 
         // Verify our trigger fired exactly once
         assertEquals(1, getRetryLogCount(), "Expected exactly one simulated 40P01 raise from trigger");

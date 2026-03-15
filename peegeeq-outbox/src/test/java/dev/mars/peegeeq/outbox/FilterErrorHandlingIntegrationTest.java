@@ -14,9 +14,9 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.LockSupport;
 import java.util.function.Predicate;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -41,8 +41,6 @@ public class FilterErrorHandlingIntegrationTest {
         AtomicInteger permanentErrors = new AtomicInteger(0);
         AtomicInteger successfulProcessing = new AtomicInteger(0);
         AtomicInteger circuitBreakerRejections = new AtomicInteger(0);
-        
-        CountDownLatch processingComplete = new CountDownLatch(50); // Expect 50 successful processes
         
         // Realistic filter that simulates various error conditions
         // *** INTENTIONAL TEST FAILURE: This filter deliberately fails for certain message IDs to test error handling ***
@@ -76,7 +74,6 @@ public class FilterErrorHandlingIntegrationTest {
         // Handler that processes accepted messages
         MessageHandler<TestMessage> productionHandler = message -> {
             successfulProcessing.incrementAndGet();
-            processingComplete.countDown();
             logger.debug("✅ Successfully processed: {}", message.getId());
             return CompletableFuture.completedFuture(null);
         };
@@ -152,7 +149,11 @@ public class FilterErrorHandlingIntegrationTest {
         }
         
         // Wait for processing to complete (with timeout)
-        boolean completed = processingComplete.await(10, TimeUnit.SECONDS);
+        long deadline = System.currentTimeMillis() + 10_000;
+        while (successfulProcessing.get() < 50 && System.currentTimeMillis() < deadline) {
+            LockSupport.parkNanos(50_000_000L);
+        }
+        boolean completed = successfulProcessing.get() >= 50;
         
         // Get final metrics
         FilterCircuitBreaker.CircuitBreakerMetrics finalMetrics = member.getFilterCircuitBreakerMetrics();
@@ -264,7 +265,7 @@ public class FilterErrorHandlingIntegrationTest {
 
         // Wait for circuit breaker timeout
         logger.info("⏳ Waiting for circuit breaker timeout...");
-        Thread.sleep(600); // Wait longer than timeout
+        LockSupport.parkNanos(600_000_000L); // Wait longer than timeout
 
         // Phase 2: Test recovery
         logger.info("🔄 PHASE 2: Testing recovery");

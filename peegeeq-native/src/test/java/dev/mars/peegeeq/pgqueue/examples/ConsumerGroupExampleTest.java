@@ -40,9 +40,15 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
+import org.junit.jupiter.api.extension.ExtendWith;
+
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -56,6 +62,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class ConsumerGroupExampleTest {
@@ -136,7 +143,7 @@ class ConsumerGroupExampleTest {
     }
     
     @Test
-    void testConsumerGroupsWithMessageFiltering() throws Exception {
+    void testConsumerGroupsWithMessageFiltering(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Consumer Groups with Message Filtering ===");
         
         // Counters to track message processing
@@ -145,36 +152,45 @@ class ConsumerGroupExampleTest {
         AtomicInteger analyticsCount = new AtomicInteger(0);
         
         // Create consumer groups
-        ConsumerGroup<OrderEvent> orderGroup = createOrderProcessingGroup(nativeFactory, orderProcessingCount);
-        ConsumerGroup<OrderEvent> paymentGroup = createPaymentProcessingGroup(nativeFactory, paymentProcessingCount);
-        ConsumerGroup<OrderEvent> analyticsGroup = createAnalyticsGroup(nativeFactory, analyticsCount);
+        ConsumerGroup<OrderEvent> orderGroup = createOrderProcessingGroup(nativeFactory, orderProcessingCount, vertx);
+        ConsumerGroup<OrderEvent> paymentGroup = createPaymentProcessingGroup(nativeFactory, paymentProcessingCount, vertx);
+        ConsumerGroup<OrderEvent> analyticsGroup = createAnalyticsGroup(nativeFactory, analyticsCount, vertx);
         
         // Send test messages
         int messageCount = 20;
-        sendTestMessages(producer, messageCount);
+        sendTestMessages(producer, messageCount, vertx);
         
-        // Wait for message processing
+        // Wait for message processing using Vert.x periodic timer
         logger.info("Waiting for message processing...");
-        Thread.sleep(5000);
+        vertx.setPeriodic(200, id -> {
+            if (orderProcessingCount.get() > 0
+                && paymentProcessingCount.get() > 0
+                && analyticsCount.get() > 0) {
+                vertx.cancelTimer(id);
+                testContext.verify(() -> {
+                    assertTrue(orderProcessingCount.get() > 0, "Order processing group should have processed messages");
+                    assertTrue(paymentProcessingCount.get() > 0, "Payment processing group should have processed messages");
+                    assertTrue(analyticsCount.get() > 0, "Analytics group should have processed messages");
+                    
+                    logger.info("Order Processing: {} messages", orderProcessingCount.get());
+                    logger.info("Payment Processing: {} messages", paymentProcessingCount.get());
+                    logger.info("Analytics: {} messages", analyticsCount.get());
+                    
+                    // Stop consumer groups
+                    orderGroup.stop();
+                    paymentGroup.stop();
+                    analyticsGroup.stop();
+                    
+                    logger.info("✅ Consumer Groups with Message Filtering test completed successfully!");
+                });
+                testContext.completeNow();
+            }
+        });
         
-        // Verify that messages were processed by different consumer groups
-        assertTrue(orderProcessingCount.get() > 0, "Order processing group should have processed messages");
-        assertTrue(paymentProcessingCount.get() > 0, "Payment processing group should have processed messages");
-        assertTrue(analyticsCount.get() > 0, "Analytics group should have processed messages");
-        
-        logger.info("Order Processing: {} messages", orderProcessingCount.get());
-        logger.info("Payment Processing: {} messages", paymentProcessingCount.get());
-        logger.info("Analytics: {} messages", analyticsCount.get());
-        
-        // Stop consumer groups
-        orderGroup.stop();
-        paymentGroup.stop();
-        analyticsGroup.stop();
-        
-        logger.info("✅ Consumer Groups with Message Filtering test completed successfully!");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "All consumer groups should process messages within 10 seconds");
     }
     
-    private ConsumerGroup<OrderEvent> createOrderProcessingGroup(QueueFactory factory, AtomicInteger counter) throws Exception {
+    private ConsumerGroup<OrderEvent> createOrderProcessingGroup(QueueFactory factory, AtomicInteger counter, Vertx vertx) throws Exception {
         logger.info("Creating Order Processing consumer group...");
         
         ConsumerGroup<OrderEvent> orderGroup = factory.createConsumerGroup(
@@ -182,15 +198,15 @@ class ConsumerGroupExampleTest {
         
         // Add region-specific consumers
         orderGroup.addConsumer("US-Consumer", 
-            createOrderHandler("US", counter), 
+            createOrderHandler("US", counter, vertx), 
             MessageFilter.byRegion(Set.of("US")));
         
         orderGroup.addConsumer("EU-Consumer", 
-            createOrderHandler("EU", counter), 
+            createOrderHandler("EU", counter, vertx), 
             MessageFilter.byRegion(Set.of("EU")));
         
         orderGroup.addConsumer("ASIA-Consumer", 
-            createOrderHandler("ASIA", counter), 
+            createOrderHandler("ASIA", counter, vertx), 
             MessageFilter.byRegion(Set.of("ASIA")));
         
         orderGroup.start();
@@ -198,7 +214,7 @@ class ConsumerGroupExampleTest {
         return orderGroup;
     }
     
-    private ConsumerGroup<OrderEvent> createPaymentProcessingGroup(QueueFactory factory, AtomicInteger counter) throws Exception {
+    private ConsumerGroup<OrderEvent> createPaymentProcessingGroup(QueueFactory factory, AtomicInteger counter, Vertx vertx) throws Exception {
         logger.info("Creating Payment Processing consumer group...");
         
         ConsumerGroup<OrderEvent> paymentGroup = factory.createConsumerGroup(
@@ -206,11 +222,11 @@ class ConsumerGroupExampleTest {
         
         // Add priority-based consumers
         paymentGroup.addConsumer("HighPriority-Consumer", 
-            createPaymentHandler("HIGH", counter), 
+            createPaymentHandler("HIGH", counter, vertx), 
             MessageFilter.byPriority("HIGH"));
         
         paymentGroup.addConsumer("Normal-Consumer", 
-            createPaymentHandler("NORMAL", counter), 
+            createPaymentHandler("NORMAL", counter, vertx), 
             MessageFilter.byPriority("NORMAL"));
         
         paymentGroup.start();
@@ -218,7 +234,7 @@ class ConsumerGroupExampleTest {
         return paymentGroup;
     }
     
-    private ConsumerGroup<OrderEvent> createAnalyticsGroup(QueueFactory factory, AtomicInteger counter) throws Exception {
+    private ConsumerGroup<OrderEvent> createAnalyticsGroup(QueueFactory factory, AtomicInteger counter, Vertx vertx) throws Exception {
         logger.info("Creating Analytics consumer group...");
         
         ConsumerGroup<OrderEvent> analyticsGroup = factory.createConsumerGroup(
@@ -226,16 +242,16 @@ class ConsumerGroupExampleTest {
         
         // Add consumers for different message types
         analyticsGroup.addConsumer("Premium-Consumer", 
-            createAnalyticsHandler("PREMIUM", counter), 
+            createAnalyticsHandler("PREMIUM", counter, vertx), 
             MessageFilter.byType(Set.of("PREMIUM")));
         
         analyticsGroup.addConsumer("Standard-Consumer", 
-            createAnalyticsHandler("STANDARD", counter), 
+            createAnalyticsHandler("STANDARD", counter, vertx), 
             MessageFilter.byType(Set.of("STANDARD")));
         
         // Add a consumer that accepts all messages for audit
         analyticsGroup.addConsumer("Audit-Consumer", 
-            createAnalyticsHandler("ALL", counter), 
+            createAnalyticsHandler("ALL", counter, vertx), 
             MessageFilter.acceptAll());
         
         analyticsGroup.start();
@@ -243,26 +259,23 @@ class ConsumerGroupExampleTest {
         return analyticsGroup;
     }
     
-    private MessageHandler<OrderEvent> createOrderHandler(String region, AtomicInteger counter) {
+    private MessageHandler<OrderEvent> createOrderHandler(String region, AtomicInteger counter, Vertx vertx) {
         return message -> {
             OrderEvent event = message.getPayload();
             logger.info("[OrderProcessing-{}] Processing order: {} (amount: ${:.2f})", 
                 region, event.getOrderId(), event.getAmount());
             
-            counter.incrementAndGet();
-            
-            // Simulate processing time
-            try {
-                Thread.sleep(100);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            
-            return CompletableFuture.completedFuture(null);
+            // Simulate processing time with Vert.x timer
+            CompletableFuture<Void> future = new CompletableFuture<>();
+            vertx.setTimer(100, id -> {
+                counter.incrementAndGet();
+                future.complete(null);
+            });
+            return future;
         };
     }
     
-    private MessageHandler<OrderEvent> createPaymentHandler(String priority, AtomicInteger counter) {
+    private MessageHandler<OrderEvent> createPaymentHandler(String priority, AtomicInteger counter, Vertx vertx) {
         return message -> {
             OrderEvent event = message.getPayload();
             Map<String, String> headers = message.getHeaders();
@@ -270,21 +283,18 @@ class ConsumerGroupExampleTest {
             logger.info("[PaymentProcessing-{}] Processing payment for order: {} (priority: {})", 
                 priority, event.getOrderId(), headers.get("priority"));
             
-            counter.incrementAndGet();
-            
             // High priority messages process faster
             int processingTime = "HIGH".equals(priority) ? 50 : 200;
-            try {
-                Thread.sleep(processingTime);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            
-            return CompletableFuture.completedFuture(null);
+            CompletableFuture<Void> future = new CompletableFuture<>();
+            vertx.setTimer(processingTime, id -> {
+                counter.incrementAndGet();
+                future.complete(null);
+            });
+            return future;
         };
     }
     
-    private MessageHandler<OrderEvent> createAnalyticsHandler(String type, AtomicInteger counter) {
+    private MessageHandler<OrderEvent> createAnalyticsHandler(String type, AtomicInteger counter, Vertx vertx) {
         return message -> {
             OrderEvent event = message.getPayload();
             Map<String, String> headers = message.getHeaders();
@@ -292,27 +302,32 @@ class ConsumerGroupExampleTest {
             logger.info("[Analytics-{}] Analyzing order: {} (type: {}, region: {})",
                 type, event.getOrderId(), headers.get("type"), headers.get("region"));
 
-            counter.incrementAndGet();
-
-            // Analytics processing is typically fast
-            try {
-                Thread.sleep(25);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-
-            return CompletableFuture.completedFuture(null);
+            // Analytics processing with Vert.x timer
+            CompletableFuture<Void> future = new CompletableFuture<>();
+            vertx.setTimer(25, id -> {
+                counter.incrementAndGet();
+                future.complete(null);
+            });
+            return future;
         };
     }
 
-    private void sendTestMessages(MessageProducer<OrderEvent> producer, int messageCount) throws Exception {
+    private void sendTestMessages(MessageProducer<OrderEvent> producer, int messageCount, Vertx vertx) {
         logger.info("Sending {} test messages with different routing headers...", messageCount);
 
         String[] regions = {"US", "EU", "ASIA"};
         String[] priorities = {"HIGH", "NORMAL"};
         String[] types = {"PREMIUM", "STANDARD"};
 
-        for (int i = 1; i <= messageCount; i++) {
+        AtomicInteger sent = new AtomicInteger(0);
+        vertx.setPeriodic(100, timerId -> {
+            int i = sent.incrementAndGet();
+            if (i > messageCount) {
+                vertx.cancelTimer(timerId);
+                logger.info("Finished sending {} test messages", messageCount);
+                return;
+            }
+
             OrderEvent event = new OrderEvent(
                 "ORDER-" + i,
                 "CREATED",
@@ -341,12 +356,7 @@ class ConsumerGroupExampleTest {
                         logger.debug("Sent message for order {} with headers: {}", event.getOrderId(), headers);
                     }
                 });
-
-            // Small delay between messages
-            Thread.sleep(100);
-        }
-
-        logger.info("Finished sending {} test messages", messageCount);
+        });
     }
 
     /**

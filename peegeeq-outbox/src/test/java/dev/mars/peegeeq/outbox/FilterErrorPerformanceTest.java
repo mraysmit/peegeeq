@@ -6,16 +6,20 @@ import dev.mars.peegeeq.api.messaging.SimpleMessage;
 import dev.mars.peegeeq.outbox.config.FilterErrorHandlingConfig;
 import dev.mars.peegeeq.outbox.resilience.FilterCircuitBreaker;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -28,18 +32,19 @@ import static org.junit.jupiter.api.Assertions.*;
  * Measures throughput, latency, and resource usage during different failure scenarios.
  */
 @Tag(TestCategories.PERFORMANCE)
+@ExtendWith(VertxExtension.class)
 public class FilterErrorPerformanceTest {
     private static final Logger logger = LoggerFactory.getLogger(FilterErrorPerformanceTest.class);
     
     @Test
     @DisplayName("PERFORMANCE: Throughput under normal conditions")
-    void testNormalThroughputBaseline() throws InterruptedException {
+    void testNormalThroughputBaseline(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("📊 PERFORMANCE TEST: Normal throughput baseline");
         
         int messageCount = 1000;
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicLong totalProcessingTime = new AtomicLong(0);
-        CountDownLatch completionLatch = new CountDownLatch(messageCount);
+        Checkpoint completionCheckpoint = testContext.checkpoint(messageCount);
         
         // Normal filter that always accepts
         Predicate<Message<TestMessage>> normalFilter = message -> true;
@@ -47,18 +52,13 @@ public class FilterErrorPerformanceTest {
         // Handler that tracks processing time
         MessageHandler<TestMessage> performanceHandler = message -> {
             long startTime = System.nanoTime();
-            return CompletableFuture.supplyAsync(() -> {
-                // Simulate some processing work
-                try {
-                    Thread.sleep(1); // 1ms processing time
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-                
+            CompletableFuture<Void> delay = new CompletableFuture<>();
+            vertx.setTimer(1, id -> delay.complete(null));
+            return delay.thenApply(v -> {
                 long endTime = System.nanoTime();
                 totalProcessingTime.addAndGet(endTime - startTime);
                 processedCount.incrementAndGet();
-                completionLatch.countDown();
+                completionCheckpoint.flag();
                 
                 return null;
             });
@@ -87,7 +87,7 @@ public class FilterErrorPerformanceTest {
         }
         
         // Wait for completion
-        assertTrue(completionLatch.await(30, TimeUnit.SECONDS), 
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 
             "All messages should be processed within timeout");
         
         Instant endTime = Instant.now();
@@ -113,14 +113,14 @@ public class FilterErrorPerformanceTest {
     
     @Test
     @DisplayName("PERFORMANCE: Throughput under filter exceptions")
-    void testThroughputUnderFilterExceptions() throws InterruptedException {
+    void testThroughputUnderFilterExceptions(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("📊 PERFORMANCE TEST: Throughput under filter exceptions");
         
         int messageCount = 1000;
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicInteger rejectedCount = new AtomicInteger(0);
         AtomicInteger filterExceptions = new AtomicInteger(0);
-        CountDownLatch completionLatch = new CountDownLatch(messageCount);
+        Checkpoint completionCheckpoint = testContext.checkpoint(messageCount);
         
         // Filter that fails on every 5th message
         Predicate<Message<TestMessage>> intermittentFailingFilter = message -> {
@@ -137,13 +137,9 @@ public class FilterErrorPerformanceTest {
         
         // Handler that tracks processing
         MessageHandler<TestMessage> performanceHandler = message -> {
-            return CompletableFuture.supplyAsync(() -> {
-                try {
-                    Thread.sleep(1); // 1ms processing time
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-                
+            CompletableFuture<Void> delay = new CompletableFuture<>();
+            vertx.setTimer(1, id -> delay.complete(null));
+            return delay.thenApply(v -> {
                 processedCount.incrementAndGet();
                 return null;
             });
@@ -171,16 +167,16 @@ public class FilterErrorPerformanceTest {
             boolean accepted = member.acceptsMessage(message);
             if (accepted) {
                 member.processMessage(message).whenComplete((result, throwable) -> {
-                    completionLatch.countDown();
+                    completionCheckpoint.flag();
                 });
             } else {
                 rejectedCount.incrementAndGet();
-                completionLatch.countDown();
+                completionCheckpoint.flag();
             }
         }
         
         // Wait for completion
-        assertTrue(completionLatch.await(30, TimeUnit.SECONDS), 
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 
             "All messages should be handled within timeout");
         
         Instant endTime = Instant.now();
@@ -212,7 +208,7 @@ public class FilterErrorPerformanceTest {
     
     @Test
     @DisplayName("PERFORMANCE: Circuit breaker impact on throughput")
-    void testCircuitBreakerPerformanceImpact() throws InterruptedException {
+    void testCircuitBreakerPerformanceImpact(VertxTestContext testContext) throws Exception {
         logger.info("📊 PERFORMANCE TEST: Circuit breaker impact on throughput");
         
         int messageCount = 1000;
@@ -220,7 +216,7 @@ public class FilterErrorPerformanceTest {
         AtomicInteger rejectedCount = new AtomicInteger(0);
         AtomicInteger circuitBreakerRejections = new AtomicInteger(0);
         AtomicInteger filterCalls = new AtomicInteger(0);
-        CountDownLatch completionLatch = new CountDownLatch(messageCount);
+        Checkpoint completionCheckpoint = testContext.checkpoint(messageCount);
         
         // Filter that fails initially to trigger circuit breaker
         // *** INTENTIONAL TEST FAILURE: This filter deliberately fails first 50 messages to test circuit breaker performance ***
@@ -275,19 +271,19 @@ public class FilterErrorPerformanceTest {
             boolean accepted = member.acceptsMessage(message);
             if (accepted) {
                 member.processMessage(message).whenComplete((result, throwable) -> {
-                    completionLatch.countDown();
+                    completionCheckpoint.flag();
                 });
             } else {
                 rejectedCount.incrementAndGet();
                 if (circuitWasOpen) {
                     circuitBreakerRejections.incrementAndGet();
                 }
-                completionLatch.countDown();
+                completionCheckpoint.flag();
             }
         }
         
         // Wait for completion
-        assertTrue(completionLatch.await(30, TimeUnit.SECONDS), 
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 
             "All messages should be handled within timeout");
         
         Instant endTime = Instant.now();
@@ -326,13 +322,13 @@ public class FilterErrorPerformanceTest {
     
     @Test
     @DisplayName("PERFORMANCE: Dead letter queue performance impact")
-    void testDeadLetterQueuePerformanceImpact() throws InterruptedException {
+    void testDeadLetterQueuePerformanceImpact(VertxTestContext testContext) throws Exception {
         logger.info("📊 PERFORMANCE TEST: Dead letter queue performance impact");
 
         int messageCount = 100; // Smaller count for DLQ test
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicInteger deadLetterCount = new AtomicInteger(0);
-        CountDownLatch completionLatch = new CountDownLatch(messageCount);
+        Checkpoint completionCheckpoint = testContext.checkpoint(messageCount);
 
         // Filter that sends every 10th message to dead letter queue
         Predicate<Message<TestMessage>> deadLetterFilter = message -> {
@@ -378,16 +374,16 @@ public class FilterErrorPerformanceTest {
             boolean accepted = member.acceptsMessage(message);
             if (accepted) {
                 member.processMessage(message).whenComplete((result, throwable) -> {
-                    completionLatch.countDown();
+                    completionCheckpoint.flag();
                 });
             } else {
                 deadLetterCount.incrementAndGet();
-                completionLatch.countDown();
+                completionCheckpoint.flag();
             }
         }
 
         // Wait for completion
-        assertTrue(completionLatch.await(30, TimeUnit.SECONDS),
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
             "All messages should be handled within timeout");
 
         Instant endTime = Instant.now();

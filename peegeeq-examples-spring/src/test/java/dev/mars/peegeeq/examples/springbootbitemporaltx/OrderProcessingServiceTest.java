@@ -25,9 +25,12 @@ import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -43,6 +46,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -93,6 +97,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @ActiveProfiles("test")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 class OrderProcessingServiceTest {
     
     private static final Logger logger = LoggerFactory.getLogger(OrderProcessingServiceTest.class);
@@ -138,7 +143,7 @@ class OrderProcessingServiceTest {
      * to validate basic service functionality and event store coordination.
      */
     @Test
-    void testSingleProductOrderProcessing() throws Exception {
+    void testSingleProductOrderProcessing(Vertx vertx) throws Exception {
         logger.info("=== Testing Single Product Order Processing ===");
         
         // BUSINESS SETUP: Create simple single-product order
@@ -182,7 +187,9 @@ class OrderProcessingServiceTest {
         logger.info("Starting event store validation for order: {}", orderId);
 
         // Add a small delay to ensure all async operations complete
-        Thread.sleep(100);
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(100, id -> delay.complete(null));
+        delay.join();
 
         // 1. Order Event Validation - Query specifically for OrderCreated events
         logger.info("Querying order events for orderId: {}", orderId);
@@ -318,7 +325,7 @@ class OrderProcessingServiceTest {
      * proper handling of multiple inventory reservations and complex order structures.
      */
     @Test
-    void testMultiProductOrderProcessing() throws Exception {
+    void testMultiProductOrderProcessing(Vertx vertx) throws Exception {
         logger.info("=== Testing Multi-Product Order Processing ===");
         
         // BUSINESS SETUP: Create order with multiple products
@@ -372,7 +379,9 @@ class OrderProcessingServiceTest {
         logger.info("Starting event store validation for order: {}", orderId);
 
         // Add a small delay to ensure all async operations complete
-        Thread.sleep(100);
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(100, id -> delay.complete(null));
+        delay.join();
 
         // 1. Order Event Validation - Query specifically for OrderCreated events
         logger.info("Querying order events for orderId: {}", orderId);

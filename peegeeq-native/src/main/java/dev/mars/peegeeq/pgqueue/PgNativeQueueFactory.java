@@ -19,6 +19,7 @@ import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.ConsumerGroup;
 import dev.mars.peegeeq.api.messaging.QueueStats;
+import dev.mars.peegeeq.api.messaging.TopicNameValidator;
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.database.MetricsProvider;
 import dev.mars.peegeeq.api.database.NoOpMetricsProvider;
@@ -36,6 +37,8 @@ import org.slf4j.LoggerFactory;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -67,6 +70,7 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
     // Common fields
     private final ObjectMapper objectMapper;
     private final VertxPoolAdapter poolAdapter;
+    private final List<AutoCloseable> managedResources = new CopyOnWriteArrayList<>();
     private volatile boolean closed = false;
 
     // Constructor using DatabaseService interface
@@ -125,6 +129,7 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
     @Override
     public <T> MessageProducer<T> createProducer(String topic, Class<T> payloadType) {
         checkNotClosed();
+        TopicNameValidator.validate(topic);
         logger.info("Creating native queue producer for topic: {}", topic);
 
         MetricsProvider metrics = getMetrics();
@@ -141,11 +146,12 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
     @Override
     public <T> MessageConsumer<T> createConsumer(String topic, Class<T> payloadType) {
         checkNotClosed();
+        TopicNameValidator.validate(topic);
         logger.info("Creating native queue consumer for topic: {} with configuration: {}", topic,
                 configuration != null ? "enabled" : "disabled");
 
         MetricsProvider metrics = getMetrics();
-        logger.debug("FACTORY-DEBUG: Creating consumer with metrics: {}, configuration: {} for topic: {}", true,
+        logger.debug("Creating consumer with metrics: {}, configuration: {} for topic: {}", true,
                 (configuration != null), topic);
         logger.info("Creating consumer with metrics: {}, configuration: {}", true, configuration != null);
 
@@ -157,10 +163,10 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
             consumer = new PgNativeQueueConsumer<>(poolAdapter, objectMapper, topic, payloadType, metrics);
         }
 
-        logger.debug("FACTORY-DEBUG: Successfully created native queue consumer for topic: {}, consumer class: {}",
+        logger.debug("Successfully created native queue consumer for topic: {}, consumer class: {}",
                 topic, consumer.getClass().getSimpleName());
         logger.info("Successfully created native queue consumer for topic: {}", topic);
-        return consumer;
+        return registerResource(consumer);
     }
 
     /**
@@ -179,6 +185,7 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
     @Override
     public <T> MessageConsumer<T> createConsumer(String topic, Class<T> payloadType, Object consumerConfig) {
         checkNotClosed();
+        TopicNameValidator.validate(topic);
 
         // Validate that consumerConfig is the expected type
         if (consumerConfig != null && !(consumerConfig instanceof ConsumerConfig)) {
@@ -191,7 +198,7 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
                 topic, config != null ? config.getMode() : "default");
 
         MetricsProvider metrics = getMetrics();
-        logger.debug("FACTORY-DEBUG: Creating consumer with metrics: {}, consumer config: {} for topic: {}",
+        logger.debug("Creating consumer with metrics: {}, consumer config: {} for topic: {}",
                 true, (config != null), topic);
 
         // Create consumer with the new ConsumerConfig-aware constructor
@@ -199,11 +206,11 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
                 poolAdapter, objectMapper, topic, payloadType, metrics, configuration, config);
 
         logger.debug(
-                "FACTORY-DEBUG: Successfully created native queue consumer for topic: {} with mode: {}, consumer class: {}",
+                "Successfully created native queue consumer for topic: {} with mode: {}, consumer class: {}",
                 topic, config != null ? config.getMode() : "default", consumer.getClass().getSimpleName());
         logger.info("Successfully created native queue consumer for topic: {} with mode: {}",
                 topic, config != null ? config.getMode() : "default");
-        return consumer;
+        return registerResource(consumer);
     }
 
     /**
@@ -217,16 +224,18 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
     @Override
     public <T> ConsumerGroup<T> createConsumerGroup(String groupName, String topic, Class<T> payloadType) {
         checkNotClosed();
+        TopicNameValidator.validate(topic);
         logger.info("Creating native queue consumer group '{}' for topic: {}", groupName, topic);
 
         MetricsProvider metrics = getMetrics();
-        return new PgNativeConsumerGroup<>(groupName, topic, payloadType, poolAdapter, objectMapper, metrics,
-                configuration, databaseService);
+        return registerResource(new PgNativeConsumerGroup<>(groupName, topic, payloadType, poolAdapter, objectMapper,
+            metrics, configuration, databaseService));
     }
 
     @Override
     public <T> dev.mars.peegeeq.api.messaging.QueueBrowser<T> createBrowser(String topic, Class<T> payloadType) {
         checkNotClosed();
+        TopicNameValidator.validate(topic);
         logger.debug("Creating browser for topic: {}", topic);
 
         io.vertx.sqlclient.Pool pool = poolAdapter.getPool();
@@ -235,7 +244,7 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
         }
 
         String schema = configuration != null ? configuration.getDatabaseConfig().getSchema() : "public";
-        return new PgNativeQueueBrowser<>(topic, payloadType, pool, objectMapper, schema);
+        return registerResource(new PgNativeQueueBrowser<>(topic, payloadType, pool, objectMapper, schema));
     }
 
     @Override
@@ -391,6 +400,11 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
         }
     }
 
+    private <T extends AutoCloseable> T registerResource(T resource) {
+        managedResources.add(resource);
+        return resource;
+    }
+
     /**
      * Closes the factory and releases resources.
      */
@@ -409,6 +423,7 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
         closed = true;
 
         try {
+            closeManagedResources();
             if (poolAdapter != null) {
                 poolAdapter.closeAsync().toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
             }
@@ -441,5 +456,28 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
         mapper.registerModule(new JavaTimeModule());
         mapper.registerModule(JsonFormat.getCloudEventJacksonModule());
         return mapper;
+    }
+
+    private void closeManagedResources() throws Exception {
+        Exception firstFailure = null;
+
+        for (AutoCloseable resource : managedResources) {
+            try {
+                resource.close();
+            } catch (Exception e) {
+                if (firstFailure == null) {
+                    firstFailure = e;
+                } else {
+                    firstFailure.addSuppressed(e);
+                }
+                logger.error("Error closing managed native queue resource", e);
+            }
+        }
+
+        managedResources.clear();
+
+        if (firstFailure != null) {
+            throw firstFailure;
+        }
     }
 }

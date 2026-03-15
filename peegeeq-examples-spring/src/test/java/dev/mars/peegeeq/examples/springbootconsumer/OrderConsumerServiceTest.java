@@ -25,11 +25,14 @@ import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
 import io.vertx.sqlclient.Row;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -47,6 +50,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -78,6 +82,7 @@ import org.junit.jupiter.api.AfterAll;
 @Testcontainers
 @ActiveProfiles("test")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+@ExtendWith(VertxExtension.class)
 public class OrderConsumerServiceTest {
     
     private static final Logger log = LoggerFactory.getLogger(OrderConsumerServiceTest.class);
@@ -160,7 +165,7 @@ public class OrderConsumerServiceTest {
     }
 
     @Test
-    void testBasicMessageConsumption() throws Exception {
+    void testBasicMessageConsumption(Vertx vertx) throws Exception {
         log.info("=== Testing Basic Message Consumption ===");
         
         // Create producer
@@ -171,7 +176,9 @@ public class OrderConsumerServiceTest {
         producer.send(event).get(5, TimeUnit.SECONDS);
         
         // Wait for message to be processed
-        Thread.sleep(2000);
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(2000, id -> delay.complete(null));
+        delay.join();
         
         // Verify order was stored in database
         boolean orderExists = databaseService.getConnectionProvider()
@@ -195,7 +202,7 @@ public class OrderConsumerServiceTest {
     }
     
     @Test
-    void testMessageFiltering() throws Exception {
+    void testMessageFiltering(Vertx vertx) throws Exception {
         log.info("=== Testing Message Filtering ===");
         
         // Create producer
@@ -213,7 +220,9 @@ public class OrderConsumerServiceTest {
         producer.send(filteredEvent).get(5, TimeUnit.SECONDS);
         
         // Wait for messages to be processed
-        Thread.sleep(2000);
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(2000, id -> delay.complete(null));
+        delay.join();
         
         // Verify filtering worked
         long processedDelta = consumerService.getMessagesProcessed() - initialProcessed;

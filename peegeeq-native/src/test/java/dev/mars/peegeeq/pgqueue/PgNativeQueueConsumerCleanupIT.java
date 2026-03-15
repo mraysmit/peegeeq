@@ -8,23 +8,28 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Tuple;
-import org.awaitility.Awaitility;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile.BASIC;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent.*;
 import static org.junit.jupiter.api.Assertions.*;
 
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 class PgNativeQueueConsumerCleanupIT {
 
@@ -80,7 +85,7 @@ class PgNativeQueueConsumerCleanupIT {
     }
 
     @Test
-    void expired_lock_cleanup_in_hybrid_mode_resets_and_processes_message() {
+    void expired_lock_cleanup_in_hybrid_mode_resets_and_processes_message(Vertx vertx, VertxTestContext testContext) throws Exception {
         ConsumerConfig consumerConfig = ConsumerConfig.builder()
             .mode(ConsumerMode.HYBRID)
             .pollingInterval(Duration.ofMillis(200))
@@ -93,12 +98,11 @@ class PgNativeQueueConsumerCleanupIT {
         );
 
         AtomicBoolean processed = new AtomicBoolean(false);
-        CompletableFuture<Void> done = new CompletableFuture<>();
 
         consumer.subscribe(msg -> {
-            assertEquals("locked-msg", msg.getPayload());
+            testContext.verify(() -> assertEquals("locked-msg", msg.getPayload()));
             processed.set(true);
-            done.complete(null);
+            testContext.completeNow();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -119,7 +123,7 @@ class PgNativeQueueConsumerCleanupIT {
             .toCompletionStage().toCompletableFuture().join();
 
         // Wait up to 20s for the 10s cleanup periodic to run and processing to occur
-        Awaitility.await().atMost(Duration.ofSeconds(20)).until(done::isDone);
+        assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS));
         assertTrue(processed.get());
 
         consumer.close();

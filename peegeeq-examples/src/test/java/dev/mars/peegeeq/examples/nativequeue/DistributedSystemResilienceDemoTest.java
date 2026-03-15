@@ -15,8 +15,12 @@ import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -25,7 +29,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -47,6 +50,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+@ExtendWith(VertxExtension.class)
 class DistributedSystemResilienceDemoTest {
 
     static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
@@ -408,7 +412,7 @@ class DistributedSystemResilienceDemoTest {
     @Test
     @Order(1)
     @DisplayName("Circuit Breaker Pattern - Preventing Cascade Failures")
-    void testCircuitBreakerPattern() throws Exception {
+    void testCircuitBreakerPattern(Vertx vertx, VertxTestContext testContext) throws Exception {
         System.out.println("\n🛡️ Testing Circuit Breaker Pattern");
 
         String requestQueue = "resilience-request-queue";
@@ -418,8 +422,8 @@ class DistributedSystemResilienceDemoTest {
         ResilientService service = new ResilientService("payment-service", 3, 5000); // 3 failures, 5s timeout
         AtomicInteger requestsProcessed = new AtomicInteger(0);
         AtomicInteger responsesReceived = new AtomicInteger(0);
-        CountDownLatch requestLatch = new CountDownLatch(10);
-        CountDownLatch responseLatch = new CountDownLatch(10);
+        var requestCheckpoint = testContext.checkpoint(10);
+        var responseCheckpoint = testContext.checkpoint(10);
 
         // Set high failure rate to trigger circuit breaker
         service.failureRate = 0.7; // 70% failure rate
@@ -442,7 +446,7 @@ class DistributedSystemResilienceDemoTest {
             responseProducer.send(response);
 
             requestsProcessed.incrementAndGet();
-            requestLatch.countDown();
+            requestCheckpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -456,7 +460,7 @@ class DistributedSystemResilienceDemoTest {
 
             responses.put(response.requestId, response);
             responsesReceived.incrementAndGet();
-            responseLatch.countDown();
+            responseCheckpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -482,11 +486,9 @@ class DistributedSystemResilienceDemoTest {
                 requestProducer.send(request);
 
                 // Small delay to see circuit breaker behavior progression
-                try {
-                    Thread.sleep(50);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
+                CompletableFuture<Void> delay = new CompletableFuture<>();
+                vertx.setTimer(50, id -> delay.complete(null));
+                delay.join();
             });
             sendTasks.add(sendTask);
         }
@@ -495,8 +497,7 @@ class DistributedSystemResilienceDemoTest {
         CompletableFuture.allOf(sendTasks.toArray(new CompletableFuture[0])).join();
 
         // Wait for all processing
-        assertTrue(requestLatch.await(30, TimeUnit.SECONDS), "Should process all requests");
-        assertTrue(responseLatch.await(30, TimeUnit.SECONDS), "Should receive all responses");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Should process all requests and responses");
 
         // Verify circuit breaker behavior
         assertEquals(10, requestsProcessed.get(), "Should have processed 10 requests");

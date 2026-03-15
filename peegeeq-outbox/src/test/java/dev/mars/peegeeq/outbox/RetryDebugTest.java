@@ -26,17 +26,21 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -47,6 +51,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  */
 @Tag(TestCategories.FLAKY)  // Column ocg.outbox_message_id does not exist - needs investigation
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 public class RetryDebugTest {
 
     private static final Logger logger = LoggerFactory.getLogger(RetryDebugTest.class);
@@ -141,13 +146,13 @@ public class RetryDebugTest {
     }
 
     @Test
-    void debugRetryMechanism() throws Exception {
+    void debugRetryMechanism(Vertx vertx, VertxTestContext testContext) throws Exception {
         System.out.println("🔍 === DEBUGGING RETRY MECHANISM ===");
         logger.info("🔍 === DEBUGGING RETRY MECHANISM ===");
 
         String testMessage = "Debug retry message";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch firstAttemptLatch = new CountDownLatch(1);
+        Checkpoint firstAttempt = testContext.checkpoint();
 
         System.out.println("📤 Sending message: " + testMessage);
         logger.info("📤 Sending message: {}", testMessage);
@@ -159,7 +164,7 @@ public class RetryDebugTest {
         logger.info("📤 Message sent successfully: {}", testMessage);
 
         // Wait a moment to ensure the message is committed to the database
-        Thread.sleep(500);
+        vertx.timer(500).toCompletionStage().toCompletableFuture().join();
 
         // Check initial database state
         checkDatabaseState("After message sent");
@@ -177,7 +182,7 @@ public class RetryDebugTest {
                 System.out.println("🔥 ATTEMPT " + attempt + ": Processing message: " + message.getPayload());
                 logger.info("🔥 ATTEMPT {}: Processing message: {}", attempt, message.getPayload());
 
-                firstAttemptLatch.countDown();
+                firstAttempt.flag();
 
                 // Check database state during processing
                 try {
@@ -199,7 +204,7 @@ public class RetryDebugTest {
 
 
         // Wait for first attempt
-        boolean firstCompleted = firstAttemptLatch.await(10, TimeUnit.SECONDS);
+        boolean firstCompleted = testContext.awaitCompletion(10, TimeUnit.SECONDS);
         System.out.println("✅ First attempt completed: " + firstCompleted);
         logger.info("✅ First attempt completed: {}", firstCompleted);
 
@@ -209,13 +214,13 @@ public class RetryDebugTest {
         }
 
         // Check database state after first failure
-        Thread.sleep(1000);
+        vertx.timer(1000).toCompletionStage().toCompletableFuture().join();
         checkDatabaseState("After first failure");
 
         // Wait longer to see if retry happens
         System.out.println("⏳ Waiting 5 seconds for potential retries...");
         logger.info("⏳ Waiting 5 seconds for potential retries...");
-        Thread.sleep(5000);
+        vertx.timer(5000).toCompletionStage().toCompletableFuture().join();
         checkDatabaseState("After waiting 5 seconds");
 
         System.out.println("🔍 Total attempts made: " + attemptCount.get());

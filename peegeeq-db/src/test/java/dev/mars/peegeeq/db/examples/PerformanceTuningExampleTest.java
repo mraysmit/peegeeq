@@ -277,7 +277,7 @@ public class PerformanceTuningExampleTest {
         logger.info("   • Configure appropriate timeouts");
         
         // Simulate connection pool usage
-        Thread.sleep(100);
+        manager.getVertx().timer(100).toCompletionStage().toCompletableFuture().join();
         
         logger.info("✓ Connection pool optimization demonstrated");
     }
@@ -385,7 +385,7 @@ public class PerformanceTuningExampleTest {
         
         // Simulate memory optimization
         System.gc(); // Suggest garbage collection
-        Thread.sleep(50);
+        manager.getVertx().timer(50).toCompletionStage().toCompletableFuture().join();
         
         logger.info("✓ Memory optimization demonstrated");
     }

@@ -199,7 +199,7 @@ public class PerformanceComparisonExampleTest {
             manager.start();
             
             // Simulate performance test
-            Thread.sleep(100); // Brief simulation
+            manager.getVertx().timer(100).toCompletionStage().toCompletableFuture().join(); // Brief simulation
             
             Instant endTime = Instant.now();
             long totalTimeMs = Duration.between(startTime, endTime).toMillis();

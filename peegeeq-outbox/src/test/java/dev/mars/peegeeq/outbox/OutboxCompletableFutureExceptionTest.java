@@ -26,11 +26,16 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -38,7 +43,6 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -53,6 +57,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 public class OutboxCompletableFutureExceptionTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxCompletableFutureExceptionTest.class);
@@ -105,12 +110,12 @@ public class OutboxCompletableFutureExceptionTest {
     }
 
     @Test
-    void testFailedCompletableFutureHandling() throws Exception {
+    void testFailedCompletableFutureHandling(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Failed CompletableFuture Handling ===");
         
         String testMessage = "Message that returns failed future";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch retryLatch = new CountDownLatch(3);
+        Checkpoint retryCheckpoint = testContext.checkpoint(3);
 
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
 
@@ -118,7 +123,7 @@ public class OutboxCompletableFutureExceptionTest {
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
             logger.info("INTENTIONAL FAILURE: Processing attempt {} for failed future", attempt);
-            retryLatch.countDown();
+            retryCheckpoint.flag();
             
             // Return failed CompletableFuture - should be handled correctly
             return CompletableFuture.failedFuture(
@@ -126,20 +131,19 @@ public class OutboxCompletableFutureExceptionTest {
             );
         });
 
-        boolean completed = retryLatch.await(15, TimeUnit.SECONDS);
-        assertTrue(completed, "Should have attempted processing 3 times for failed future");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times for failed future");
         assertEquals(3, attemptCount.get(), "Should have made exactly 3 processing attempts");
         
         logger.info("✅ Failed CompletableFuture handling test completed successfully");
     }
 
     @Test
-    void testAsyncFailureHandling() throws Exception {
+    void testAsyncFailureHandling(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Async Failure Handling ===");
         
         String testMessage = "Message that fails asynchronously";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch retryLatch = new CountDownLatch(3);
+        Checkpoint retryCheckpoint = testContext.checkpoint(3);
 
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
 
@@ -147,35 +151,30 @@ public class OutboxCompletableFutureExceptionTest {
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
             logger.info("INTENTIONAL FAILURE: Processing attempt {} for async failure", attempt);
-            retryLatch.countDown();
+            retryCheckpoint.flag();
             
-            // Return future that fails asynchronously
-            return CompletableFuture.supplyAsync(() -> {
-                try {
-                    Thread.sleep(50); // Simulate async work
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
-                throw new RuntimeException("INTENTIONAL FAILURE: Async failure, attempt " + attempt);
-            }).thenRun(() -> {
-                // This won't be reached due to exception above
+            // Return future that fails asynchronously after a delay
+            CompletableFuture<Void> delayed = new CompletableFuture<>();
+            vertx.setTimer(50, id -> {
+                delayed.completeExceptionally(
+                    new RuntimeException("INTENTIONAL FAILURE: Async failure, attempt " + attempt));
             });
+            return delayed;
         });
 
-        boolean completed = retryLatch.await(15, TimeUnit.SECONDS);
-        assertTrue(completed, "Should have attempted processing 3 times for async failure");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times for async failure");
         assertEquals(3, attemptCount.get(), "Should have made exactly 3 processing attempts");
         
         logger.info("✅ Async failure handling test completed successfully");
     }
 
     @Test
-    void testTimeoutExceptionHandling() throws Exception {
+    void testTimeoutExceptionHandling(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Timeout Exception Handling ===");
         
         String testMessage = "Message that times out";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch retryLatch = new CountDownLatch(3);
+        Checkpoint retryCheckpoint = testContext.checkpoint(3);
 
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
 
@@ -183,7 +182,7 @@ public class OutboxCompletableFutureExceptionTest {
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
             logger.info("INTENTIONAL FAILURE: Processing attempt {} for timeout", attempt);
-            retryLatch.countDown();
+            retryCheckpoint.flag();
             
             // Return future that times out
             CompletableFuture<Void> future = new CompletableFuture<>();
@@ -198,20 +197,19 @@ public class OutboxCompletableFutureExceptionTest {
             return future;
         });
 
-        boolean completed = retryLatch.await(15, TimeUnit.SECONDS);
-        assertTrue(completed, "Should have attempted processing 3 times for timeout");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times for timeout");
         assertEquals(3, attemptCount.get(), "Should have made exactly 3 processing attempts");
         
         logger.info("✅ Timeout exception handling test completed successfully");
     }
 
     @Test
-    void testNullCompletableFutureHandling() throws Exception {
+    void testNullCompletableFutureHandling(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Null CompletableFuture Handling ===");
         
         String testMessage = "Message that returns null future";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch errorLatch = new CountDownLatch(1);
+        Checkpoint errorCheckpoint = testContext.checkpoint();
 
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
 
@@ -219,14 +217,13 @@ public class OutboxCompletableFutureExceptionTest {
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
             logger.info("INTENTIONAL FAILURE: Processing attempt {} returning null", attempt);
-            errorLatch.countDown();
+            errorCheckpoint.flag();
             
             // Return null - should cause NPE and be handled
             return null;
         });
 
-        boolean completed = errorLatch.await(10, TimeUnit.SECONDS);
-        assertTrue(completed, "Should have attempted processing and failed with null return");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should have attempted processing and failed with null return");
         assertTrue(attemptCount.get() >= 1, "Should have made at least 1 processing attempt");
         
         logger.info("✅ Null CompletableFuture handling test completed successfully");

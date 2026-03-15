@@ -31,6 +31,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -260,7 +261,9 @@ public class RestApiStreamingExampleTest {
         
         // Simulate WebSocket streaming
         logger.info("🔌 Establishing WebSocket connection...");
-        Thread.sleep(100); // Simulate connection time
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(100, id -> delay.complete(null));
+        delay.join();
         
         // Simulate receiving messages
         for (int i = 0; i < 5; i++) {
@@ -284,7 +287,9 @@ public class RestApiStreamingExampleTest {
         
         // Simulate SSE streaming
         logger.info("📡 Establishing SSE connection...");
-        Thread.sleep(100); // Simulate connection time
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(100, id -> delay.complete(null));
+        delay.join();
         
         // Simulate receiving SSE messages
         for (int i = 0; i < 3; i++) {
@@ -310,7 +315,9 @@ public class RestApiStreamingExampleTest {
         // Simulate filtered streaming
         logger.info("🔍 Establishing filtered streaming connection...");
         logger.info("   Filter criteria: {}", filterCriteria);
-        Thread.sleep(100); // Simulate connection time
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(100, id -> delay.complete(null));
+        delay.join();
         
         // Simulate receiving filtered messages
         for (int i = 0; i < 2; i++) {
@@ -336,14 +343,20 @@ public class RestApiStreamingExampleTest {
         // Simulate connection lifecycle
         logger.info("🔗 Creating connections...");
         connectionsCreated = 3;
-        Thread.sleep(50);
+        CompletableFuture<Void> delay1 = new CompletableFuture<>();
+        vertx.setTimer(50, id -> delay1.complete(null));
+        delay1.join();
         
         logger.info("❌ Testing error handling...");
-        Thread.sleep(50);
+        CompletableFuture<Void> delay2 = new CompletableFuture<>();
+        vertx.setTimer(50, id -> delay2.complete(null));
+        delay2.join();
         
         logger.info("🔌 Closing connections...");
         connectionsClosed = 3;
-        Thread.sleep(50);
+        CompletableFuture<Void> delay3 = new CompletableFuture<>();
+        vertx.setTimer(50, id -> delay3.complete(null));
+        delay3.join();
         
         logger.info("✓ Connection management demonstrated");
         
@@ -363,7 +376,9 @@ public class RestApiStreamingExampleTest {
         // Simulate consumer group streaming
         logger.info("👥 Setting up consumer group: {}", groupId);
         logger.info("   Consumer count: {}", consumerCount);
-        Thread.sleep(100);
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(100, id -> delay.complete(null));
+        delay.join();
         
         // Simulate message distribution
         logger.info("📤 Distributing messages to consumers...");

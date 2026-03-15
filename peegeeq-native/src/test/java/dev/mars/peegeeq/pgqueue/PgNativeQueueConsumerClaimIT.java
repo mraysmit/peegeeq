@@ -8,23 +8,28 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Tuple;
-import org.awaitility.Awaitility;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile.BASIC;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent.*;
 import static org.junit.jupiter.api.Assertions.*;
 
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 class PgNativeQueueConsumerClaimIT {
 
@@ -80,7 +85,7 @@ class PgNativeQueueConsumerClaimIT {
     }
 
     @Test
-    void visibleAt_serverTime_is_honored_and_consumer_batchSize_from_consumerConfig() {
+    void visibleAt_serverTime_is_honored_and_consumer_batchSize_from_consumerConfig(Vertx vertx, VertxTestContext testContext) throws Exception {
         ConsumerConfig consumerConfig = ConsumerConfig.builder()
             .mode(ConsumerMode.LISTEN_NOTIFY_ONLY)
             .pollingInterval(Duration.ofSeconds(1))
@@ -94,16 +99,15 @@ class PgNativeQueueConsumerClaimIT {
 
         AtomicInteger processedCount = new AtomicInteger();
         CompletableFuture<Void> firstReceived = new CompletableFuture<>();
-        CompletableFuture<Void> secondReceived = new CompletableFuture<>();
 
         consumer.subscribe(msg -> {
             int n = processedCount.incrementAndGet();
             if (n == 1) {
-                assertEquals("now-msg", msg.getPayload());
+                testContext.verify(() -> assertEquals("now-msg", msg.getPayload()));
                 firstReceived.complete(null);
             } else if (n == 2) {
-                assertEquals("future-msg", msg.getPayload());
-                secondReceived.complete(null);
+                testContext.verify(() -> assertEquals("future-msg", msg.getPayload()));
+                testContext.completeNow();
             }
             return CompletableFuture.completedFuture(null);
         });
@@ -135,8 +139,8 @@ class PgNativeQueueConsumerClaimIT {
         pool.query("SELECT pg_notify('" + ("queue_" + TOPIC) + "', 'test')").execute()
             .toCompletionStage().toCompletableFuture().join();
 
-        // Expect only the now-visible message to be processed quickly
-        Awaitility.await().atMost(Duration.ofSeconds(10)).until(firstReceived::isDone);
+        // Wait for first message to be processed
+        firstReceived.orTimeout(10, TimeUnit.SECONDS).join();
         assertEquals(1, processedCount.get(), "Only the visible-now message should be processed initially");
 
         // Update the future message to become visible now and notify again
@@ -148,7 +152,7 @@ class PgNativeQueueConsumerClaimIT {
             .toCompletionStage().toCompletableFuture().join();
 
         // Now the second should be processed
-        Awaitility.await().atMost(Duration.ofSeconds(10)).until(secondReceived::isDone);
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         assertEquals(2, processedCount.get());
 
         consumer.close();

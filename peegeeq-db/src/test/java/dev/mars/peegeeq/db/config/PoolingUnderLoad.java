@@ -20,18 +20,22 @@ package dev.mars.peegeeq.db.config;
 import dev.mars.peegeeq.db.client.PgClient;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
 import io.vertx.sqlclient.Row;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxTestContext;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -46,6 +50,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 public class PoolingUnderLoad {
 
     @Container
@@ -82,10 +87,10 @@ public class PoolingUnderLoad {
     }
 
     @Test
-    void testConnectionPoolingUnderLoad() throws Exception {
+    void testConnectionPoolingUnderLoad(Vertx vertx, VertxTestContext testContext) throws Exception {
         int numThreads = 10;
         ExecutorService executor = Executors.newFixedThreadPool(numThreads);
-        CountDownLatch latch = new CountDownLatch(numThreads);
+        Checkpoint latch = testContext.checkpoint(numThreads);
 
         for (int i = 0; i < numThreads; i++) {
             executor.submit(() -> {
@@ -104,16 +109,16 @@ public class PoolingUnderLoad {
                     }).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
 
                     // Add a small delay to simulate work
-                    Thread.sleep(100);
+                    vertx.timer(100).toCompletionStage().toCompletableFuture().join();
                 } catch (Exception e) {
                     fail("Exception in thread: " + e.getMessage());
                 } finally {
-                    latch.countDown();
+                    latch.flag();
                 }
             });
         }
 
-        assertTrue(latch.await(5, TimeUnit.SECONDS), "Not all threads completed in time");
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Not all threads completed in time");
         executor.shutdown();
     }
 

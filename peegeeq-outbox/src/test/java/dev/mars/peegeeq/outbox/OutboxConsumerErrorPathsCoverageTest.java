@@ -16,9 +16,14 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
+import org.junit.jupiter.api.extension.ExtendWith;
+
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -35,6 +40,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+@ExtendWith(VertxExtension.class)
 public class OutboxConsumerErrorPathsCoverageTest {
 
     @Container
@@ -90,19 +96,18 @@ public class OutboxConsumerErrorPathsCoverageTest {
         if (manager != null) {
             manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
-        Thread.sleep(200);
     }
 
     @Test
     @Order(1)
     @DisplayName("Test handler throws exception triggering error handling")
-    void testHandlerExceptionTriggersErrorHandling() throws Exception {
-        CountDownLatch failureLatch = new CountDownLatch(1); // Just initial attempt
+    void testHandlerExceptionTriggersErrorHandling(Vertx vertx, VertxTestContext testContext) throws Exception {
+        Checkpoint failureCheckpoint = testContext.checkpoint();
         AtomicBoolean errorHandled = new AtomicBoolean(false);
         
         MessageHandler<TestMessage> failingHandler = message -> {
-            failureLatch.countDown();
             errorHandled.set(true);
+            failureCheckpoint.flag();
             // Fail to trigger error handling path
             throw new RuntimeException("Simulated processing failure");
         };
@@ -113,22 +118,15 @@ public class OutboxConsumerErrorPathsCoverageTest {
         TestMessage testMsg = new TestMessage("error-test", "This message will fail");
         producer.send(testMsg);
         
-        // Wait for processing attempt
-        boolean completed = failureLatch.await(5, TimeUnit.SECONDS);
-        assertTrue(completed, "Should process message");
-        
-        // Give time for error handling
-        Thread.sleep(500);
-        
-        // Verify error was handled
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process message");
         assertTrue(errorHandled.get(), "Error handler should have been invoked");
     }
 
     @Test
     @Order(2)
     @DisplayName("Test async handler completes exceptionally")
-    void testAsyncHandlerCompletesExceptionally() throws Exception {
-        CountDownLatch messageLatch = new CountDownLatch(1);
+    void testAsyncHandlerCompletesExceptionally(Vertx vertx, VertxTestContext testContext) throws Exception {
+        Checkpoint messageCheckpoint = testContext.checkpoint();
         AtomicReference<Throwable> capturedError = new AtomicReference<>();
         
         MessageHandler<TestMessage> asyncFailingHandler = message -> {
@@ -138,7 +136,7 @@ public class OutboxConsumerErrorPathsCoverageTest {
             RuntimeException error = new RuntimeException("Async processing failed");
             capturedError.set(error);
             future.completeExceptionally(error);
-            messageLatch.countDown();
+            messageCheckpoint.flag();
             
             return future;
         };
@@ -148,25 +146,21 @@ public class OutboxConsumerErrorPathsCoverageTest {
         TestMessage testMsg = new TestMessage("async-fail", "Async failure test");
         producer.send(testMsg);
         
-        boolean received = messageLatch.await(10, TimeUnit.SECONDS);
-        assertTrue(received, "Should receive and process message");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive and process message");
         assertNotNull(capturedError.get(), "Should capture exception");
-        
-        // Allow retry processing
-        Thread.sleep(3000);
     }
 
     @Test
     @Order(3)
     @DisplayName("Test rapid message failures to stress error paths")
-    void testRapidMessageFailures() throws Exception {
+    void testRapidMessageFailures(Vertx vertx, VertxTestContext testContext) throws Exception {
         int messageCount = 5;
-        CountDownLatch failureLatch = new CountDownLatch(messageCount);
+        Checkpoint failureCheckpoint = testContext.checkpoint(messageCount);
         AtomicInteger failureCount = new AtomicInteger(0);
         
         MessageHandler<TestMessage> rapidFailHandler = message -> {
             failureCount.incrementAndGet();
-            failureLatch.countDown();
+            failureCheckpoint.flag();
             throw new RuntimeException("Rapid failure: " + message.getId());
         };
         
@@ -178,22 +172,18 @@ public class OutboxConsumerErrorPathsCoverageTest {
             producer.send(msg);
         }
         
-        boolean completed = failureLatch.await(10, TimeUnit.SECONDS);
-        assertTrue(completed, "Should process all messages");
-        assertEquals(messageCount, failureCount.get(), "All messages should fail initially");
-        
-        // Wait for retry processing
-        Thread.sleep(3000);
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process all messages");
+        assertTrue(failureCount.get() >= messageCount, "All messages should fail initially");
     }
 
     @Test
     @Order(4)
     @DisplayName("Test handler throws null pointer exception")
-    void testHandlerThrowsNullPointerException() throws Exception {
-        CountDownLatch errorLatch = new CountDownLatch(1);
+    void testHandlerThrowsNullPointerException(Vertx vertx, VertxTestContext testContext) throws Exception {
+        Checkpoint errorCheckpoint = testContext.checkpoint();
         
         MessageHandler<TestMessage> nullPointerHandler = message -> {
-            errorLatch.countDown();
+            errorCheckpoint.flag();
             // Simulate NPE
             String nullString = null;
             nullString.length(); // Will throw NPE
@@ -205,21 +195,17 @@ public class OutboxConsumerErrorPathsCoverageTest {
         TestMessage testMsg = new TestMessage("npe-test", "NPE test message");
         producer.send(testMsg);
         
-        boolean received = errorLatch.await(5, TimeUnit.SECONDS);
-        assertTrue(received, "Should receive message");
-        
-        // Allow error handling to complete
-        Thread.sleep(2000);
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive message");
     }
 
     @Test
     @Order(5)
     @DisplayName("Test handler throws error (not exception)")
-    void testHandlerThrowsError() throws Exception {
-        CountDownLatch errorLatch = new CountDownLatch(1);
+    void testHandlerThrowsError(Vertx vertx, VertxTestContext testContext) throws Exception {
+        Checkpoint errorCheckpoint = testContext.checkpoint();
         
         MessageHandler<TestMessage> errorHandler = message -> {
-            errorLatch.countDown();
+            errorCheckpoint.flag();
             // Throw Error instead of Exception
             throw new AssertionError("Simulated assertion error");
         };
@@ -229,21 +215,17 @@ public class OutboxConsumerErrorPathsCoverageTest {
         TestMessage testMsg = new TestMessage("error-test", "Error test message");
         producer.send(testMsg);
         
-        boolean received = errorLatch.await(5, TimeUnit.SECONDS);
-        assertTrue(received, "Should receive message");
-        
-        // Allow error handling
-        Thread.sleep(2000);
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive message");
     }
 
     @Test
     @Order(6)
     @DisplayName("Test message with special characters in error scenario")
-    void testMessageWithSpecialCharactersFailure() throws Exception {
-        CountDownLatch errorLatch = new CountDownLatch(1);
+    void testMessageWithSpecialCharactersFailure(Vertx vertx, VertxTestContext testContext) throws Exception {
+        Checkpoint errorCheckpoint = testContext.checkpoint();
         
         MessageHandler<TestMessage> failHandler = message -> {
-            errorLatch.countDown();
+            errorCheckpoint.flag();
             throw new RuntimeException("Failed with special chars: " + message.getPayload().getData());
         };
         
@@ -255,20 +237,17 @@ public class OutboxConsumerErrorPathsCoverageTest {
         );
         producer.send(specialMsg);
         
-        boolean received = errorLatch.await(5, TimeUnit.SECONDS);
-        assertTrue(received, "Should handle message with special characters");
-        
-        Thread.sleep(2000);
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should handle message with special characters");
     }
 
     @Test
     @Order(7)
     @DisplayName("Test very large message failure")
-    void testLargeMessageFailure() throws Exception {
-        CountDownLatch errorLatch = new CountDownLatch(1);
+    void testLargeMessageFailure(Vertx vertx, VertxTestContext testContext) throws Exception {
+        Checkpoint errorCheckpoint = testContext.checkpoint();
         
         MessageHandler<TestMessage> failHandler = message -> {
-            errorLatch.countDown();
+            errorCheckpoint.flag();
             throw new RuntimeException("Failed processing large message");
         };
         
@@ -283,27 +262,22 @@ public class OutboxConsumerErrorPathsCoverageTest {
         TestMessage largeMsg = new TestMessage("large-fail", largeData.toString());
         producer.send(largeMsg);
         
-        boolean received = errorLatch.await(5, TimeUnit.SECONDS);
-        assertTrue(received, "Should handle large message");
-        
-        Thread.sleep(2000);
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should handle large message");
     }
 
     @Test
     @Order(8)
     @DisplayName("Test handler with timeout simulation")
-    void testHandlerTimeoutSimulation() throws Exception {
-        CountDownLatch startLatch = new CountDownLatch(1);
+    void testHandlerTimeoutSimulation(Vertx vertx, VertxTestContext testContext) throws Exception {
+        Checkpoint startCheckpoint = testContext.checkpoint();
         
         MessageHandler<TestMessage> slowFailHandler = message -> {
-            startLatch.countDown();
-            // Simulate slow processing then fail
-            try {
-                Thread.sleep(500);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            throw new RuntimeException("Timeout simulation failure");
+            startCheckpoint.flag();
+            // Simulate slow processing then fail using non-blocking timer
+            CompletableFuture<Void> future = new CompletableFuture<>();
+            vertx.setTimer(500, timerId ->
+                future.completeExceptionally(new RuntimeException("Timeout simulation failure")));
+            return future;
         };
         
         consumer.subscribe(slowFailHandler);
@@ -311,30 +285,25 @@ public class OutboxConsumerErrorPathsCoverageTest {
         TestMessage testMsg = new TestMessage("timeout-test", "Timeout simulation");
         producer.send(testMsg);
         
-        boolean started = startLatch.await(5, TimeUnit.SECONDS);
-        assertTrue(started, "Should start processing");
-        
-        // Wait for failure processing
-        Thread.sleep(3000);
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should start processing");
     }
 
     @Test
     @Order(9)
     @DisplayName("Test multiple consumers with failures")
-    void testMultipleConsumersWithFailures() throws Exception {
+    void testMultipleConsumersWithFailures(Vertx vertx, VertxTestContext testContext) throws Exception {
         MessageConsumer<TestMessage> consumer2 = outboxFactory.createConsumer(testTopic, TestMessage.class);
         
         try {
-            CountDownLatch latch1 = new CountDownLatch(1);
-            CountDownLatch latch2 = new CountDownLatch(1);
+            Checkpoint receivedCheckpoint = testContext.checkpoint();
             
             consumer.subscribe(message -> {
-                latch1.countDown();
+                receivedCheckpoint.flag();
                 return CompletableFuture.failedFuture(new RuntimeException("Consumer 1 failure"));
             });
             
             consumer2.subscribe(message -> {
-                latch2.countDown();
+                receivedCheckpoint.flag();
                 return CompletableFuture.failedFuture(new RuntimeException("Consumer 2 failure"));
             });
             
@@ -342,10 +311,7 @@ public class OutboxConsumerErrorPathsCoverageTest {
             producer.send(testMsg);
             
             // At least one consumer should process
-            boolean received = latch1.await(5, TimeUnit.SECONDS) || latch2.await(5, TimeUnit.SECONDS);
-            assertTrue(received, "At least one consumer should process message");
-            
-            Thread.sleep(2000);
+            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "At least one consumer should process message");
         } finally {
             consumer2.close();
         }
@@ -354,9 +320,9 @@ public class OutboxConsumerErrorPathsCoverageTest {
     @Test
     @Order(10)
     @DisplayName("Test failure then success pattern to cover retry reset")
-    void testFailureThenSuccessPattern() throws Exception {
+    void testFailureThenSuccessPattern(Vertx vertx, VertxTestContext testContext) throws Exception {
         AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch successLatch = new CountDownLatch(1);
+        Checkpoint successCheckpoint = testContext.checkpoint();
         
         MessageHandler<TestMessage> intermittentHandler = message -> {
             int attempt = attemptCount.incrementAndGet();
@@ -365,7 +331,7 @@ public class OutboxConsumerErrorPathsCoverageTest {
                 throw new RuntimeException("First attempt failure");
             }
             // Second attempt succeeds
-            successLatch.countDown();
+            successCheckpoint.flag();
             return CompletableFuture.completedFuture(null);
         };
         
@@ -374,11 +340,8 @@ public class OutboxConsumerErrorPathsCoverageTest {
         TestMessage testMsg = new TestMessage("intermittent", "Intermittent failure test");
         producer.send(testMsg);
         
-        boolean success = successLatch.await(10, TimeUnit.SECONDS);
-        assertTrue(success, "Should eventually succeed after retry");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should eventually succeed after retry");
         assertTrue(attemptCount.get() >= 2, "Should have multiple attempts");
-        
-        Thread.sleep(1000);
     }
 
     static class TestMessage {

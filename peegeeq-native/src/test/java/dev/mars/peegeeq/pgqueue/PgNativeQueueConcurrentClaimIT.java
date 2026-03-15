@@ -8,11 +8,15 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Tuple;
-import org.awaitility.Awaitility;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -22,12 +26,14 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile.BASIC;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent.*;
 import static org.junit.jupiter.api.Assertions.*;
 
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 class PgNativeQueueConcurrentClaimIT {
 
@@ -83,7 +89,7 @@ class PgNativeQueueConcurrentClaimIT {
     }
 
     @Test
-    void two_consumers_do_not_double_claim_messages_in_polling_mode() {
+    void two_consumers_do_not_double_claim_messages_in_polling_mode(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Insert two messages with unique payloads
         String insertSql = """
             INSERT INTO queue_messages (topic, payload, headers, correlation_id, status, created_at, visible_at, priority)
@@ -108,25 +114,23 @@ class PgNativeQueueConcurrentClaimIT {
 
         AtomicInteger processed = new AtomicInteger();
         Set<String> payloads = Collections.synchronizedSet(new HashSet<>());
-        CompletableFuture<Void> done = new CompletableFuture<>();
+        Checkpoint bothDone = testContext.checkpoint(2);
 
         c1.subscribe(msg -> {
             payloads.add(msg.getPayload());
-            if (processed.incrementAndGet() >= 2) {
-                done.complete(null);
-            }
+            processed.incrementAndGet();
+            bothDone.flag();
             return CompletableFuture.completedFuture(null);
         });
         c2.subscribe(msg -> {
             payloads.add(msg.getPayload());
-            if (processed.incrementAndGet() >= 2) {
-                done.complete(null);
-            }
+            processed.incrementAndGet();
+            bothDone.flag();
             return CompletableFuture.completedFuture(null);
         });
 
         // Wait up to 10s for both messages to be processed exactly once
-        Awaitility.await().atMost(Duration.ofSeconds(10)).until(done::isDone);
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         assertEquals(2, processed.get());
         assertEquals(Set.of("m1", "m2"), payloads);
 

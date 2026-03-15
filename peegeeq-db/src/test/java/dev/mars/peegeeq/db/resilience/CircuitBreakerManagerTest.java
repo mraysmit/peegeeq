@@ -21,14 +21,19 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.time.Duration;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxTestContext;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -43,6 +48,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.CORE)
+@ExtendWith(VertxExtension.class)
 class CircuitBreakerManagerTest {
 
     /**
@@ -254,11 +260,11 @@ class CircuitBreakerManagerTest {
     }
 
     @Test
-    void testConcurrentCircuitBreakerAccess() throws InterruptedException {
+    void testConcurrentCircuitBreakerAccess(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
         // Test basic concurrent access with a simpler approach
         int threadCount = 3;
         int operationsPerThread = 5;
-        CountDownLatch finishLatch = new CountDownLatch(threadCount);
+        Checkpoint finishLatch = testContext.checkpoint(threadCount);
         AtomicInteger successCount = new AtomicInteger(0);
 
         // Create threads that each perform multiple operations
@@ -275,19 +281,19 @@ class CircuitBreakerManagerTest {
                             successCount.incrementAndGet();
                         }
                         // Small delay to ensure operations are distinct
-                        Thread.sleep(1);
+                        vertx.timer(1).toCompletionStage().toCompletableFuture().join();
                     }
                 } catch (Exception e) {
                     // Log any unexpected exceptions
                     System.err.println("Thread " + threadId + " failed: " + e.getMessage());
                 } finally {
-                    finishLatch.countDown();
+                    finishLatch.flag();
                 }
             }, "ConcurrentTest-" + i).start();
         }
 
         // Wait for all threads to complete
-        assertTrue(finishLatch.await(10, TimeUnit.SECONDS), "Test timed out");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Test timed out");
 
         // Verify basic concurrent functionality
         assertTrue(successCount.get() >= threadCount,

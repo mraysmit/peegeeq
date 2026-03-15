@@ -27,12 +27,15 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.recovery.StuckMessageRecoveryManager;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -57,6 +60,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  */
 @Tag(TestCategories.FLAKY)  // Long to OffsetDateTime coercion error - needs investigation
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 public class StuckMessageRecoveryIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(StuckMessageRecoveryIntegrationTest.class);
@@ -135,7 +139,7 @@ public class StuckMessageRecoveryIntegrationTest {
      * This simulates the exact scenario where a consumer crashes after polling messages.
      */
     @Test
-    void testStuckMessageRecoveryWithRealCrash() throws Exception {
+    void testStuckMessageRecoveryWithRealCrash(Vertx vertx) throws Exception {
         logger.info("=== Testing Stuck Message Recovery with Simulated Consumer Crash ===");
 
         // Create a dedicated recovery manager for testing with a very short timeout
@@ -153,7 +157,7 @@ public class StuckMessageRecoveryIntegrationTest {
         logger.info("📤 Sent {} test messages", messageCount);
 
         // Wait for messages to be persisted
-        Thread.sleep(1000);
+        vertx.timer(1000).toCompletionStage().toCompletableFuture().join();
 
         // Verify messages are in PENDING state
         int pendingCount = countMessagesByStatus("PENDING");
@@ -180,7 +184,7 @@ public class StuckMessageRecoveryIntegrationTest {
         assertTrue(processingCount > 0, "Should have messages stuck in PROCESSING state after crash");
 
         // Wait for messages to be considered stuck (longer than the recovery timeout)
-        Thread.sleep(3000);
+        vertx.timer(3000).toCompletionStage().toCompletableFuture().join();
 
         // Now test the recovery mechanism
         logger.info("🔧 Running stuck message recovery...");
@@ -191,7 +195,7 @@ public class StuckMessageRecoveryIntegrationTest {
         logger.info("✅ Recovery manager recovered {} stuck messages", recoveredCount);
 
         // Wait for recovery to complete
-        Thread.sleep(1000);
+        vertx.timer(1000).toCompletionStage().toCompletableFuture().join();
 
         // Verify messages are back in PENDING state
         int pendingAfterRecovery = countMessagesByStatus("PENDING");
@@ -255,7 +259,7 @@ public class StuckMessageRecoveryIntegrationTest {
      * This creates an even more realistic crash scenario.
      */
     @Test
-    void testStuckMessageRecoveryWithThreadCrash() throws Exception {
+    void testStuckMessageRecoveryWithThreadCrash(Vertx vertx) throws Exception {
         System.out.println("🚀 TEST STARTED: testStuckMessageRecoveryWithThreadCrash");
         logger.info("=== Testing Stuck Message Recovery with Direct Database Insertion ===");
 
@@ -277,7 +281,7 @@ public class StuckMessageRecoveryIntegrationTest {
         assertTrue(processingCount > 0, "Should have at least one PROCESSING message");
 
         // Wait for the message to be considered stuck (timeout is 3 seconds)
-        Thread.sleep(4000);
+        vertx.timer(4000).toCompletionStage().toCompletableFuture().join();
 
         // Test recovery
         logger.info("🔧 Running stuck message recovery...");

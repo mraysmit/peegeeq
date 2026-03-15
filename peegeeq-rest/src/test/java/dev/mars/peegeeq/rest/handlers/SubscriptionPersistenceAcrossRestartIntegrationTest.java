@@ -24,6 +24,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -284,7 +285,9 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
         logger.info("      cannot access it after restart due to setup cache being in-memory.");
 
         // Wait a bit to ensure clean state
-        Thread.sleep(1000);
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        managedVertx.setTimer(1000, id -> delay.complete(null));
+        delay.join();
 
         // Query the database directly to verify subscription was persisted
         try (var connection = java.sql.DriverManager.getConnection(
@@ -349,7 +352,9 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
         logger.info("        due to in-memory setup cache being lost (KNOWN ARCHITECTURAL LIMITATION)");
 
         // Wait a bit to ensure clean state
-        Thread.sleep(1000);
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        managedVertx.setTimer(1000, id -> delay.complete(null));
+        delay.join();
 
         // Start new server instance (same database) using our managed Vertx
         startServer(managedVertx)
@@ -412,7 +417,9 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
             });
 
         // Wait for server to stop
-        Thread.sleep(1000);
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        managedVertx.setTimer(1000, id -> delay.complete(null));
+        delay.join();
 
         // Verify database persistence after multiple simulated restarts
         // (We don't need to actually restart the server - just verify the data is still there)

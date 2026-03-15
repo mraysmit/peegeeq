@@ -11,17 +11,21 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -44,6 +48,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 2.0 (Refactored)
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 class MultiConfigurationIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(MultiConfigurationIntegrationTest.class);
@@ -151,7 +156,7 @@ class MultiConfigurationIntegrationTest {
     }
     
     @Test
-    void testMultipleQueueConfigurationsInSameApplication() throws Exception {
+    void testMultipleQueueConfigurationsInSameApplication(Vertx vertx) throws Exception {
         logger.info("Testing multiple queue configurations in same application");
 
         // Create different queue factories for different use cases (using outbox due to native compatibility issues)
@@ -168,7 +173,7 @@ class MultiConfigurationIntegrationTest {
         testBatchProcessing(batchProcessingQueue);
 
         // Test real-time queue
-        testRealTimeProcessing(realTimeQueue);
+        testRealTimeProcessing(realTimeQueue, vertx);
 
         // Test transactional queue
         testTransactionalProcessing(transactionalQueue);
@@ -205,7 +210,7 @@ class MultiConfigurationIntegrationTest {
     }
     
     @Test
-    void testConcurrentMultiConfigurationUsage() throws Exception {
+    void testConcurrentMultiConfigurationUsage(VertxTestContext testContext) throws Exception {
         logger.info("Testing concurrent multi-configuration usage");
         
         // Create multiple queue factories concurrently (using outbox due to native compatibility issues)
@@ -216,7 +221,7 @@ class MultiConfigurationIntegrationTest {
         factories[3] = configManager.createFactory("test", "outbox");
         
         // Test concurrent message processing (reduced message count for reliability)
-        CountDownLatch latch = new CountDownLatch(12); // 3 messages per factory
+        Checkpoint checkpoint = testContext.checkpoint(12); // 3 messages per factory
         AtomicInteger totalProcessed = new AtomicInteger(0);
 
         for (int i = 0; i < factories.length; i++) {
@@ -231,7 +236,7 @@ class MultiConfigurationIntegrationTest {
             // Set up consumer
             consumer.subscribe(message -> {
                 totalProcessed.incrementAndGet();
-                latch.countDown();
+                checkpoint.flag();
                 return CompletableFuture.completedFuture(null);
             });
 
@@ -245,7 +250,7 @@ class MultiConfigurationIntegrationTest {
         }
 
         // Wait for all messages to be processed (increased timeout)
-        boolean completed = latch.await(45, TimeUnit.SECONDS);
+        boolean completed = testContext.awaitCompletion(45, TimeUnit.SECONDS);
         assertTrue(completed, "Not all messages were processed in time");
         assertEquals(12, totalProcessed.get(), "Expected 12 messages to be processed");
         
@@ -263,10 +268,11 @@ class MultiConfigurationIntegrationTest {
         MessageConsumer<BatchEvent> consumer = factory.createConsumer(queueName, BatchEvent.class);
 
         // Reduced number of messages for more reliable testing
-        CountDownLatch latch = new CountDownLatch(10);
+        VertxTestContext batchContext = new VertxTestContext();
+        Checkpoint checkpoint = batchContext.checkpoint(10);
 
         consumer.subscribe(message -> {
-            latch.countDown();
+            checkpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -277,14 +283,14 @@ class MultiConfigurationIntegrationTest {
         }
 
         // Increased timeout for more reliable testing
-        boolean completed = latch.await(30, TimeUnit.SECONDS);
+        boolean completed = batchContext.awaitCompletion(30, TimeUnit.SECONDS);
         assertTrue(completed, "Batch processing did not complete in time");
 
         consumer.close();
         producer.close();
     }
     
-    private void testRealTimeProcessing(QueueFactory factory) throws Exception {
+    private void testRealTimeProcessing(QueueFactory factory, Vertx vertx) throws Exception {
         logger.info("Testing real-time processing queue");
 
         String queueName = getUniqueQueueName("realtime-events");
@@ -292,27 +298,28 @@ class MultiConfigurationIntegrationTest {
         MessageConsumer<RealTimeEvent> consumer = factory.createConsumer(queueName, RealTimeEvent.class);
 
         // Reduced number of messages for more reliable testing
-        CountDownLatch latch = new CountDownLatch(3);
+        VertxTestContext realtimeContext = new VertxTestContext();
+        Checkpoint checkpoint = realtimeContext.checkpoint(3);
 
         consumer.subscribe(message -> {
             long latency = System.currentTimeMillis() - message.getPayload().getTimestamp();
             logger.info("Real-time processed: {} (latency: {}ms)",
                 message.getPayload().getEventId(), latency);
-            latch.countDown();
+            checkpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
 
-        // Send real-time messages (reduced count) using CompletableFuture
+        // Send real-time messages (reduced count)
         for (int i = 1; i <= 3; i++) {
             RealTimeEvent event = new RealTimeEvent("RT-" + i, System.currentTimeMillis(), "Real-time event " + i);
             producer.send(event, Map.of("priority", "HIGH"), "correlation-" + i, "realtime-" + i);
-            CompletableFuture.runAsync(() -> {
-                try { Thread.sleep(100); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-            }).join();
+            CompletableFuture<Void> delay = new CompletableFuture<>();
+            vertx.setTimer(100, id -> delay.complete(null));
+            delay.join();
         }
 
         // Increased timeout for more reliable testing
-        boolean completed = latch.await(20, TimeUnit.SECONDS);
+        boolean completed = realtimeContext.awaitCompletion(20, TimeUnit.SECONDS);
         assertTrue(completed, "Real-time processing did not complete in time");
 
         consumer.close();
@@ -327,12 +334,13 @@ class MultiConfigurationIntegrationTest {
         MessageConsumer<CriticalEvent> consumer = factory.createConsumer(queueName, CriticalEvent.class);
 
         // Reduced number of messages for more reliable testing
-        CountDownLatch latch = new CountDownLatch(2);
+        VertxTestContext txContext = new VertxTestContext();
+        Checkpoint checkpoint = txContext.checkpoint(2);
 
         consumer.subscribe(message -> {
             logger.info("Critical processed: {} (importance: {})",
                 message.getPayload().getEventId(), message.getPayload().getImportanceLevel());
-            latch.countDown();
+            checkpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -343,7 +351,7 @@ class MultiConfigurationIntegrationTest {
         }
 
         // Increased timeout for more reliable testing
-        boolean completed = latch.await(20, TimeUnit.SECONDS);
+        boolean completed = txContext.awaitCompletion(20, TimeUnit.SECONDS);
         assertTrue(completed, "Transactional processing did not complete in time");
 
         consumer.close();

@@ -29,11 +29,13 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxTestContext;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -97,7 +99,7 @@ public class BackfillServiceConcurrencyTest extends BaseIntegrationTest {
      */
     @Test
     @Timeout(60)
-    void testConcurrentBackfillSameSubscription_PreventsDuplicateProcessing() throws Exception {
+    void testConcurrentBackfillSameSubscription_PreventsDuplicateProcessing(VertxTestContext testContext) throws Exception {
         String topic = "test-concurrent-same-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "concurrent-group-1";
 
@@ -108,7 +110,7 @@ public class BackfillServiceConcurrencyTest extends BaseIntegrationTest {
 
         // Launch 5 concurrent backfill attempts on same subscription
         int concurrentAttempts = 5;
-        CountDownLatch latch = new CountDownLatch(concurrentAttempts);
+        Checkpoint latch = testContext.checkpoint(concurrentAttempts);
         AtomicInteger completedCount = new AtomicInteger(0);
         AtomicInteger failedCount = new AtomicInteger(0);
         List<Long> processedCounts = new ArrayList<>();
@@ -135,12 +137,12 @@ public class BackfillServiceConcurrencyTest extends BaseIntegrationTest {
                         failedCount.incrementAndGet();
                         logger.warn("Attempt {} failed: {}", attemptNum, e.getMessage());
                     } finally {
-                        latch.countDown();
+                        latch.flag();
                     }
                 });
             }
 
-            assertTrue(latch.await(45, TimeUnit.SECONDS), "All backfill attempts should complete");
+            assertTrue(testContext.awaitCompletion(45, TimeUnit.SECONDS), "All backfill attempts should complete");
 
             // Validate: Only ONE should have done the work, others should see ALREADY_COMPLETED
             logger.info("Results: completed={}, failed={}, processedCounts={}", 
@@ -353,7 +355,7 @@ public class BackfillServiceConcurrencyTest extends BaseIntegrationTest {
         Future<BackfillResult> future1 = backfillService.startBackfill(topic, groupName, 500, 0);
         
         // Give it time to process some batches
-        Thread.sleep(500);
+        manager.getVertx().timer(500).toCompletionStage().toCompletableFuture().join();
         
         // Cancel mid-flight
         backfillService.cancelBackfill(topic, groupName)

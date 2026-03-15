@@ -37,8 +37,11 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.List;
@@ -46,6 +49,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 /**
  * Simple test to isolate native queue issues.
@@ -53,6 +57,7 @@ import java.util.concurrent.Executors;
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class SimpleNativeQueueTest {
 
@@ -109,7 +114,7 @@ public class SimpleNativeQueueTest {
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown(Vertx vertx) {
         logger.info("=== Tearing down SimpleNativeQueueTest ===");
 
         if (nativeFactory != null) {
@@ -129,7 +134,9 @@ public class SimpleNativeQueueTest {
 
                 // CRITICAL: Wait for all resources to be fully released
                 // This prevents connection pool exhaustion in subsequent tests
-                Thread.sleep(2000);
+                CompletableFuture<Void> delay = new CompletableFuture<>();
+                vertx.setTimer(2000, id -> delay.complete(null));
+                delay.join();
                 logger.info("Resource cleanup wait completed");
             } catch (Exception e) {
                 logger.error("Error during manager cleanup", e);
@@ -148,7 +155,7 @@ public class SimpleNativeQueueTest {
 
     @Test
     @Order(1)
-    void testSingleMessageSendAndReceive() throws Exception {
+    void testSingleMessageSendAndReceive(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Single Message Send and Receive ===");
 
         // Create producer and consumer
@@ -156,7 +163,7 @@ public class SimpleNativeQueueTest {
         MessageConsumer<String> consumer = nativeFactory.createConsumer("simple-test", String.class);
 
         // Set up message reception
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint checkpoint = testContext.checkpoint(1);
         AtomicInteger processedCount = new AtomicInteger();
         String testMessage = "Hello Simple Test";
 
@@ -164,25 +171,28 @@ public class SimpleNativeQueueTest {
         consumer.subscribe(message -> {
             logger.info("✅ RECEIVED MESSAGE: {}", message.getPayload());
             processedCount.incrementAndGet();
-            latch.countDown();
+            checkpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
         logger.info("Consumer subscribed, waiting 2 seconds for setup...");
-        Thread.sleep(2000); // Give consumer time to set up LISTEN
 
-        // Send message
-        logger.info("Sending message: {}", testMessage);
-        producer.send(testMessage).get(10, TimeUnit.SECONDS);
-        logger.info("✅ Message sent successfully");
+        vertx.setTimer(2000, id -> {
+            try {
+                // Send message
+                logger.info("Sending message: {}", testMessage);
+                producer.send(testMessage);
+                logger.info("✅ Message sent successfully");
+            } catch (Exception e) {
+                testContext.failNow(e);
+            }
+        });
 
         // Wait for message to be processed
         logger.info("Waiting for message to be received...");
-        boolean messageReceived = latch.await(15, TimeUnit.SECONDS);
+        testContext.awaitCompletion(15, TimeUnit.SECONDS);
 
         // Verify results
-        logger.info("Message received: {}, Processed count: {}", messageReceived, processedCount.get());
-
-        Assertions.assertTrue(messageReceived, "Message should be received within timeout");
+        logger.info("Processed count: {}", processedCount.get());
         Assertions.assertEquals(1, processedCount.get(), "Exactly one message should be processed");
 
         // Clean up with debug logging
@@ -199,7 +209,7 @@ public class SimpleNativeQueueTest {
 
     @Test
     @Order(2)
-    void testConcurrentMessageProcessing() throws Exception {
+    void testConcurrentMessageProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Concurrent Message Processing ===");
 
         // Create producer and consumer
@@ -207,7 +217,7 @@ public class SimpleNativeQueueTest {
         MessageConsumer<String> consumer = nativeFactory.createConsumer("concurrent-test", String.class);
 
         int messageCount = 10; // Reduce count to isolate concurrency issues
-        CountDownLatch latch = new CountDownLatch(messageCount);
+        Checkpoint checkpoint = testContext.checkpoint(messageCount);
         AtomicInteger processedCount = new AtomicInteger();
         List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
 
@@ -216,11 +226,13 @@ public class SimpleNativeQueueTest {
             logger.info("✅ RECEIVED CONCURRENT MESSAGE: {}", message.getPayload());
             receivedMessages.add(message.getPayload());
             processedCount.incrementAndGet();
-            latch.countDown();
+            checkpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
         logger.info("Consumer subscribed, waiting 2 seconds for setup...");
-        Thread.sleep(2000);
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(2000, id -> delay.complete(null));
+        delay.join();
 
         // Send messages concurrently like the original failing test
         logger.info("Sending {} messages concurrently...", messageCount);
@@ -251,13 +263,15 @@ public class SimpleNativeQueueTest {
 
         // Wait for all messages to be processed
         logger.info("Waiting for all {} messages to be received...", messageCount);
-        boolean allReceived = latch.await(30, TimeUnit.SECONDS);
+        boolean allReceived = testContext.awaitCompletion(30, TimeUnit.SECONDS);
 
         // Debug: Check database state if not all messages received
         if (!allReceived) {
             logger.warn("Not all messages received - checking database state...");
             // Add a small delay to let any pending operations complete
-            Thread.sleep(1000);
+            CompletableFuture<Void> delay = new CompletableFuture<>();
+            vertx.setTimer(1000, id -> delay.complete(null));
+            delay.join();
         }
 
         // Verify results

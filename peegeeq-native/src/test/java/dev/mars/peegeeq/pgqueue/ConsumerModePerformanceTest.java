@@ -13,11 +13,16 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import dev.mars.peegeeq.test.categories.TestCategories;
 import org.slf4j.Logger;
@@ -30,7 +35,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -42,6 +46,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests throughput, latency, and resource usage across LISTEN_NOTIFY_ONLY, POLLING_ONLY, and HYBRID modes.
  */
 @Tag(TestCategories.PERFORMANCE)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 public class ConsumerModePerformanceTest {
     private static final Logger logger = LoggerFactory.getLogger(ConsumerModePerformanceTest.class);
@@ -214,7 +219,8 @@ public class ConsumerModePerformanceTest {
                                               int messageCount, int warmupMessages) throws Exception {
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicLong totalLatency = new AtomicLong(0);
-        CountDownLatch latch = new CountDownLatch(messageCount);
+        VertxTestContext measureCtx = new VertxTestContext();
+        Checkpoint allProcessed = measureCtx.checkpoint(messageCount);
         
         // Create consumer with specific mode
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
@@ -235,14 +241,11 @@ public class ConsumerModePerformanceTest {
                 long sendTime = messageSentTimes[index - 1];
                 long latency = receiveTime - sendTime;
                 totalLatency.addAndGet(latency);
-                latch.countDown();
+                allProcessed.flag();
             }
             
             return CompletableFuture.completedFuture(null);
         });
-
-        // Wait for consumer setup
-        Thread.sleep(1000);
 
         // Send messages
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
@@ -256,7 +259,7 @@ public class ConsumerModePerformanceTest {
         }
         
         // Wait for all test messages to be processed (excluding warmup)
-        boolean completed = latch.await(30, TimeUnit.SECONDS);
+        boolean completed = measureCtx.awaitCompletion(30, TimeUnit.SECONDS);
         long endTime = System.currentTimeMillis();
         
         producer.close();
@@ -273,7 +276,8 @@ public class ConsumerModePerformanceTest {
 
     private LatencyResult measureLatency(String topicName, ConsumerMode mode, int messageCount) throws Exception {
         List<Long> latencies = new ArrayList<>();
-        CountDownLatch latch = new CountDownLatch(messageCount);
+        VertxTestContext latencyCtx = new VertxTestContext();
+        Checkpoint allProcessed = latencyCtx.checkpoint(messageCount);
         
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
             ConsumerConfig.builder()
@@ -294,13 +298,11 @@ public class ConsumerModePerformanceTest {
                 synchronized (latencies) {
                     latencies.add(latency);
                 }
-                latch.countDown();
+                allProcessed.flag();
             }
             
             return CompletableFuture.completedFuture(null);
         });
-
-        Thread.sleep(1000); // Consumer setup time
 
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
         
@@ -309,7 +311,7 @@ public class ConsumerModePerformanceTest {
             producer.send("Latency test message " + i);
         }
         
-        boolean completed = latch.await(20, TimeUnit.SECONDS);
+        boolean completed = latencyCtx.awaitCompletion(20, TimeUnit.SECONDS);
         
         producer.close();
         consumer.close();

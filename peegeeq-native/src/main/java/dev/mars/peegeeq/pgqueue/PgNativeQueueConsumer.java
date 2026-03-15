@@ -106,12 +106,8 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
         // operations)
         int consumerThreads = configuration != null ? configuration.getQueueConfig().getConsumerThreads() : 1;
 
-        logger.debug("NATIVE-DEBUG: Created native queue consumer for topic: {} with configuration: {} (threads: {})",
-                topic, configuration != null ? "enabled" : "disabled", consumerThreads);
         logger.info("Created native queue consumer for topic: {} with configuration: {} (threads: {})",
                 topic, configuration != null ? "enabled" : "disabled", consumerThreads);
-        logger.debug("NATIVE-DEBUG: Native queue consumer ready for subscription on topic: {}", topic);
-        logger.info("Native queue consumer ready for subscription on topic: {}", topic);
     }
 
     public PgNativeQueueConsumer(VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
@@ -131,30 +127,21 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
         int consumerThreads = consumerConfig != null ? consumerConfig.getConsumerThreads()
                 : (configuration != null ? configuration.getQueueConfig().getConsumerThreads() : 1);
 
-        logger.debug("NATIVE-DEBUG: Created native queue consumer for topic: {} with consumer mode: {} (threads: {})",
-                topic, consumerConfig != null ? consumerConfig.getMode() : "default", consumerThreads);
         logger.info("Created native queue consumer for topic: {} with consumer mode: {} (threads: {})",
                 topic, consumerConfig != null ? consumerConfig.getMode() : "default", consumerThreads);
-
-        logger.debug("NATIVE-DEBUG: Native queue consumer ready for subscription on topic: {}", topic);
-        logger.info("Native queue consumer ready for subscription on topic: {}", topic);
     }
 
     @Override
     public void subscribe(MessageHandler<T> handler) {
-        logger.debug("NATIVE-DEBUG: Subscribe called for topic: {}, closed: {}, subscribed: {}", topic, closed.get(),
-                subscribed.get());
         logger.info("Subscribe called for topic: {}, closed: {}, subscribed: {}", topic, closed.get(),
                 subscribed.get());
 
         if (closed.get()) {
-            logger.debug("NATIVE-DEBUG: Cannot subscribe - consumer is closed for topic: {}", topic);
             logger.error("Cannot subscribe - consumer is closed for topic: {}", topic);
             throw new IllegalStateException("Consumer is closed");
         }
 
         if (subscribed.compareAndSet(false, true)) {
-            logger.debug("NATIVE-DEBUG: Starting subscription for topic: {}", topic);
             logger.info("Starting subscription for topic: {}", topic);
             this.messageHandler = handler;
 
@@ -162,42 +149,30 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 // Determine consumer mode - use ConsumerConfig if available, otherwise default
                 // to HYBRID
                 ConsumerMode mode = consumerConfig != null ? consumerConfig.getMode() : ConsumerMode.HYBRID;
-                logger.debug("NATIVE-DEBUG: Using consumer mode: {} for topic: {}", mode, topic);
                 logger.info("Using consumer mode: {} for topic: {}", mode, topic);
 
                 // Start LISTEN/NOTIFY based on mode
                 if (mode == ConsumerMode.LISTEN_NOTIFY_ONLY || mode == ConsumerMode.HYBRID) {
-                    logger.debug("NATIVE-DEBUG: About to start listening for topic: {}", topic);
                     startListening();
-                    logger.debug("NATIVE-DEBUG: Started listening for topic: {}", topic);
                     logger.info("Started listening for topic: {}", topic);
                 } else {
-                    logger.debug("NATIVE-DEBUG: Skipping LISTEN/NOTIFY setup for POLLING_ONLY mode on topic: {}",
-                            topic);
                     logger.info("Skipping LISTEN/NOTIFY setup for POLLING_ONLY mode on topic: {}", topic);
                 }
 
                 // Start polling based on mode
                 if (mode == ConsumerMode.POLLING_ONLY || mode == ConsumerMode.HYBRID) {
-                    logger.debug("NATIVE-DEBUG: About to start polling for topic: {}", topic);
                     startPolling();
-                    logger.debug("NATIVE-DEBUG: Started polling for topic: {}", topic);
                     logger.info("Started polling for topic: {}", topic);
                 } else {
-                    logger.debug("NATIVE-DEBUG: Skipping polling setup for LISTEN_NOTIFY_ONLY mode on topic: {}",
-                            topic);
                     logger.info("Skipping polling setup for LISTEN_NOTIFY_ONLY mode on topic: {}", topic);
                 }
 
-                logger.debug("NATIVE-DEBUG: Subscribed to topic: {} with mode: {}", topic, mode);
                 logger.info("Subscribed to topic: {} with mode: {}", topic, mode);
             } catch (Exception e) {
-                logger.debug("NATIVE-DEBUG: Error during subscription for topic: {} - {}", topic, e.getMessage());
                 logger.error("Error during subscription for topic: {}", topic, e);
                 throw e;
             }
         } else {
-            logger.debug("NATIVE-DEBUG: Cannot subscribe - consumer is already subscribed for topic: {}", topic);
             logger.error("Cannot subscribe - consumer is already subscribed for topic: {}", topic);
             throw new IllegalStateException("Already subscribed");
         }
@@ -213,9 +188,9 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     }
 
     private void startListening() {
-        logger.debug("NATIVE-DEBUG: startListening() called for topic: {}, notifyChannel: {}", topic, notifyChannel);
-        if (closed.get()) {
-            logger.debug("NATIVE-DEBUG: Consumer is closed, skipping LISTEN setup for topic: {}", topic);
+        logger.debug("startListening() called for topic: {}, notifyChannel: {}", topic, notifyChannel);
+        if (!shouldMaintainListenSubscription()) {
+            logger.debug("Consumer is closed, skipping LISTEN setup for topic: {}", topic);
             return;
         }
 
@@ -230,7 +205,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                         .execute()
                         .map(conn))
                 .onSuccess(conn -> {
-                    if (closed.get()) {
+                    if (!shouldMaintainListenSubscription()) {
                         conn.close();
                         return;
                     }
@@ -240,13 +215,13 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                     logger.info("Started listening on channel: {}", notifyChannel);
 
                     conn.notificationHandler(notification -> {
-                        if (!closed.get() && notifyChannel.equals(notification.getChannel())) {
-                            logger.debug("NATIVE-DEBUG: Received notification on channel: {}", notifyChannel);
+                        if (shouldMaintainListenSubscription() && notifyChannel.equals(notification.getChannel())) {
+                            logger.debug("Received notification on channel: {}", notifyChannel);
                             processAvailableMessages();
                         }
                     });
                     conn.closeHandler(v -> {
-                        if (closed.get()) {
+                        if (!shouldMaintainListenSubscription()) {
                             logger.debug("LISTEN connection closed during shutdown for channel: {}", notifyChannel);
                         } else {
                             logger.error("LISTEN connection closed unexpectedly for channel: {}", notifyChannel);
@@ -255,7 +230,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                         scheduleListenReconnect();
                     });
                     conn.exceptionHandler(err -> {
-                        if (closed.get()) {
+                        if (!shouldMaintainListenSubscription()) {
                             logger.debug("LISTEN error during shutdown on channel {}: {}", notifyChannel,
                                     err.getMessage());
                         } else {
@@ -273,7 +248,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                     }
                 })
                 .onFailure(err -> {
-                    if (closed.get()) {
+                    if (!shouldMaintainListenSubscription()) {
                         logger.debug("Failed to start LISTEN during shutdown on channel {}: {}", notifyChannel,
                                 err.getMessage());
                     } else {
@@ -293,7 +268,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             PgConnection connectionToClose = subscriber;
             subscriber = null; // Clear reference first to prevent new operations
 
-            logger.debug("NATIVE-DEBUG: Executing UNLISTEN for channel: {}", notifyChannel);
+            logger.debug("Executing UNLISTEN for channel: {}", notifyChannel);
             connectionToClose
                     .query("UNLISTEN \"" + notifyChannel + "\"")
                     .execute()
@@ -315,7 +290,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     }
 
     private void scheduleListenReconnect() {
-        if (closed.get())
+        if (!shouldMaintainListenSubscription())
             return;
         Vertx vertx = poolAdapter.getVertx();
         if (vertx == null) {
@@ -324,13 +299,20 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
         }
         long delay = listenBackoffMs;
         listenReconnectTimerId = vertx.setTimer(delay, id -> {
-            if (closed.get())
+            if (!shouldMaintainListenSubscription()) {
+                listenReconnectTimerId = -1;
                 return;
+            }
+            listenReconnectTimerId = -1;
             logger.info("Reconnecting LISTEN on channel {} after {} ms", notifyChannel, delay);
             startListening();
         });
         // Exponential backoff capped at 30 seconds
         listenBackoffMs = Math.min(listenBackoffMs * 2, 30_000);
+    }
+
+    private boolean shouldMaintainListenSubscription() {
+        return subscribed.get() && !closed.get();
     }
 
     void closeSubscriberConnectionForTest() {
@@ -368,7 +350,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             if (closed.get())
                 return;
             try {
-                logger.debug("NATIVE-DEBUG: Polling for messages on topic: {} (interval: {}ms)", topic,
+                logger.debug("Polling for messages on topic: {} (interval: {}ms)", topic,
                         pollingIntervalMs);
                 processAvailableMessages();
             } catch (Exception e) {
@@ -395,16 +377,16 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     }
 
     private void processAvailableMessages() {
-        logger.debug("NATIVE-DEBUG: processAvailableMessages() called for topic: {}", topic);
+        logger.debug("processAvailableMessages() called for topic: {}", topic);
         // Critical fix: Check if consumer is closed to prevent infinite retry loops
         // during shutdown
         if (!subscribed.get() || messageHandler == null || closed.get()) {
             logger.debug(
-                    "NATIVE-DEBUG: Skipping message processing - subscribed: {}, messageHandler: {}, closed: {} for topic {}",
+                    "Skipping message processing - subscribed: {}, messageHandler: {}, closed: {} for topic {}",
                     subscribed.get(), (messageHandler != null), closed.get(), topic);
             return;
         }
-        logger.debug("NATIVE-DEBUG: Consumer is active, proceeding with message processing for topic: {}", topic);
+        logger.debug("Consumer is active, proceeding with message processing for topic: {}", topic);
 
         try {
             final Pool pool = poolAdapter.getPoolOrThrow();
@@ -412,7 +394,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             // CRITICAL FIX: Check if pool is closed before attempting operations
             // This prevents RejectedExecutionException during shutdown
             if (pool == null) {
-                logger.debug("NATIVE-DEBUG: Pool is null, skipping message processing for topic: {}", topic);
+                logger.debug("Pool is null, skipping message processing for topic: {}", topic);
                 return;
             }
 
@@ -432,7 +414,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             }
             int remainingCapacity = Math.max(0, maxThreads - processingInFlight.get());
             if (remainingCapacity <= 0) {
-                logger.debug("NATIVE-DEBUG: No remaining capacity (processingInFlight={} >= maxThreads={}), skip claim",
+                logger.debug("No remaining capacity (processingInFlight={} >= maxThreads={}), skip claim",
                         processingInFlight.get(), maxThreads);
                 return;
             }
@@ -473,7 +455,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 }
                 params = Tuple.from(allParams);
 
-                logger.debug("NATIVE-DEBUG: Using server-side filter: {}, SQL filter: {}", filter, filterCondition);
+                logger.debug("Using server-side filter: {}, SQL filter: {}", filter, filterCondition);
             } else {
                 // No filter: use original SQL
                 sql = """
@@ -500,7 +482,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 vt = Vertx.currentContext().owner();
             }
             if (vt == null) {
-                logger.debug("NATIVE-DEBUG: No Vert.x instance available, skipping message processing for topic: {}",
+                logger.debug("No Vert.x instance available, skipping message processing for topic: {}",
                         topic);
                 return;
             }
@@ -515,13 +497,13 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                         // Double-check if consumer is still active after async operation
                         if (closed.get()) {
                             logger.debug(
-                                    "NATIVE-DEBUG: Consumer closed during message processing, ignoring results for topic: {}",
+                                    "Consumer closed during message processing, ignoring results for topic: {}",
                                     topic);
                             return;
                         }
 
                         if (result.size() > 0) {
-                            logger.debug("NATIVE-DEBUG: Processing {} messages for topic {}", result.size(), topic);
+                            logger.debug("Processing {} messages for topic {}", result.size(), topic);
                             logger.debug("Processing {} messages for topic {}", result.size(), topic);
 
                             // CRITICAL FIX: Process messages without transactions since locking is already
@@ -530,12 +512,12 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                                 processMessageWithoutTransaction(row);
                             }
                         } else {
-                            logger.debug("NATIVE-DEBUG: No messages found for topic {}", topic);
+                            logger.debug("No messages found for topic {}", topic);
                             logger.debug("No messages found for topic {}", topic);
                         }
                     })
                     .onFailure(error -> {
-                        logger.debug("NATIVE-DEBUG: Error querying messages for topic {}: {}", topic,
+                        logger.debug("Error querying messages for topic {}: {}", topic,
                                 error.getMessage());
                         // CRITICAL FIX: Handle shutdown-related errors gracefully following established
                         // pattern
@@ -1161,7 +1143,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
         // CRITICAL FIX: Check if Vert.x instance is null or closed before attempting
         // operations
         if (vertx == null) {
-            logger.debug("NATIVE-DEBUG: Vert.x instance is null, returning failed future");
+            logger.debug("Vert.x instance is null, returning failed future");
             return Future.failedFuture("Vert.x instance is null");
         }
 
@@ -1175,7 +1157,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                     // CRITICAL FIX: Handle RejectedExecutionException and other errors gracefully
                     if (e.getMessage() != null && (e.getMessage().contains("event executor terminated") ||
                             e.getMessage().contains("RejectedExecutionException"))) {
-                        logger.debug("NATIVE-DEBUG: Event executor terminated during direct execution: {}",
+                        logger.debug("Event executor terminated during direct execution: {}",
                                 e.getMessage());
                         return Future.failedFuture("Event executor terminated");
                     }
@@ -1196,7 +1178,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                             // CRITICAL FIX: Handle exceptions during context execution
                             if (e.getMessage() != null && (e.getMessage().contains("event executor terminated") ||
                                     e.getMessage().contains("RejectedExecutionException"))) {
-                                logger.debug("NATIVE-DEBUG: Event executor terminated during context execution: {}",
+                                logger.debug("Event executor terminated during context execution: {}",
                                         e.getMessage());
                                 promise.fail("Event executor terminated");
                             } else {
@@ -1208,7 +1190,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                     // CRITICAL FIX: Handle RejectedExecutionException when scheduling on context
                     if (e.getMessage() != null && (e.getMessage().contains("event executor terminated") ||
                             e.getMessage().contains("RejectedExecutionException"))) {
-                        logger.debug("NATIVE-DEBUG: Event executor terminated when scheduling on context: {}",
+                        logger.debug("Event executor terminated when scheduling on context: {}",
                                 e.getMessage());
                         return Future.failedFuture("Event executor terminated");
                     }
@@ -1220,7 +1202,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             // CRITICAL FIX: Handle any other exceptions during context creation
             if (e.getMessage() != null && (e.getMessage().contains("event executor terminated") ||
                     e.getMessage().contains("RejectedExecutionException"))) {
-                logger.debug("NATIVE-DEBUG: Event executor terminated during context creation: {}", e.getMessage());
+                logger.debug("Event executor terminated during context creation: {}", e.getMessage());
                 return Future.failedFuture("Event executor terminated");
             }
             return Future.failedFuture(e);

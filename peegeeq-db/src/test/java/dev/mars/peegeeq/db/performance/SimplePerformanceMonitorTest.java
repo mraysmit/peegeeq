@@ -1,12 +1,16 @@
 package dev.mars.peegeeq.db.performance;
 
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.time.Duration;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -14,6 +18,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests for SimplePerformanceMonitor.
  */
 @Tag(TestCategories.CORE)
+@ExtendWith(VertxExtension.class)
 class SimplePerformanceMonitorTest {
     
     private SimplePerformanceMonitor monitor;
@@ -105,12 +110,12 @@ class SimplePerformanceMonitorTest {
     
     @Test
     @DisplayName("Should provide timing context for measurements")
-    void shouldProvideTimingContext() throws InterruptedException {
+    void shouldProvideTimingContext(Vertx vertx) throws Exception {
         // Given
         SimplePerformanceMonitor.TimingContext timing = monitor.startTiming();
         
         // When
-        Thread.sleep(10); // Small delay
+        vertx.timer(10).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS); // Small delay
         timing.recordAsQuery();
         
         // Then

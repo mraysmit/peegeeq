@@ -34,11 +34,14 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -48,7 +51,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -71,6 +73,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.PERFORMANCE)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class PerformanceComparisonExampleTest {
@@ -158,10 +161,10 @@ class PerformanceComparisonExampleTest {
     }
 
     @Test
-    void testSingleThreadedConfiguration() throws Exception {
+    void testSingleThreadedConfiguration(Vertx vertx) throws Exception {
         logger.info("=== Testing Single-Threaded Configuration ===");
 
-        PerformanceResult result = testConfiguration("Single-Threaded", 1, 1, "PT1S");
+        PerformanceResult result = testConfiguration("Single-Threaded", 1, 1, "PT1S", vertx);
 
         // Verify single-threaded configuration worked
         assertNotNull(result, "Performance result should not be null");
@@ -175,10 +178,10 @@ class PerformanceComparisonExampleTest {
     }
 
     @Test
-    void testMultiThreadedConfiguration() throws Exception {
+    void testMultiThreadedConfiguration(Vertx vertx) throws Exception {
         logger.info("=== Testing Multi-Threaded Configuration ===");
 
-        PerformanceResult result = testConfiguration("Multi-Threaded", 4, 1, "PT1S");
+        PerformanceResult result = testConfiguration("Multi-Threaded", 4, 1, "PT1S", vertx);
 
         // Verify multi-threaded configuration worked
         assertNotNull(result, "Performance result should not be null");
@@ -192,10 +195,10 @@ class PerformanceComparisonExampleTest {
     }
 
     @Test
-    void testBatchedProcessingConfiguration() throws Exception {
+    void testBatchedProcessingConfiguration(Vertx vertx) throws Exception {
         logger.info("=== Testing Batched Processing Configuration ===");
 
-        PerformanceResult result = testConfiguration("Batched Processing", 2, 25, "PT1S");
+        PerformanceResult result = testConfiguration("Batched Processing", 2, 25, "PT1S", vertx);
 
         // Verify batched processing configuration worked
         assertNotNull(result, "Performance result should not be null");
@@ -209,10 +212,10 @@ class PerformanceComparisonExampleTest {
     }
 
     @Test
-    void testFastPollingConfiguration() throws Exception {
+    void testFastPollingConfiguration(Vertx vertx) throws Exception {
         logger.info("=== Testing Fast Polling Configuration ===");
 
-        PerformanceResult result = testConfiguration("Fast Polling", 2, 10, "PT0.1S");
+        PerformanceResult result = testConfiguration("Fast Polling", 2, 10, "PT0.1S", vertx);
 
         // Verify fast polling configuration worked
         assertNotNull(result, "Performance result should not be null");
@@ -227,10 +230,10 @@ class PerformanceComparisonExampleTest {
     }
 
     @Test
-    void testOptimizedConfiguration() throws Exception {
+    void testOptimizedConfiguration(Vertx vertx) throws Exception {
         logger.info("=== Testing Optimized Configuration ===");
 
-        PerformanceResult result = testConfiguration("Optimized", 6, 50, "PT0.2S");
+        PerformanceResult result = testConfiguration("Optimized", 6, 50, "PT0.2S", vertx);
 
         // Verify optimized configuration worked
         assertNotNull(result, "Performance result should not be null");
@@ -245,23 +248,35 @@ class PerformanceComparisonExampleTest {
     }
 
     @Test
-    void testPerformanceComparison() throws Exception {
+    void testPerformanceComparison(Vertx vertx) throws Exception {
         logger.info("=== Testing Complete Performance Comparison ===");
 
         // Test all configurations and compare performance
-        PerformanceResult singleThreaded = testConfiguration("Single-Threaded", 1, 1, "PT1S");
-        Thread.sleep(2000);
+        PerformanceResult singleThreaded = testConfiguration("Single-Threaded", 1, 1, "PT1S", vertx);
 
-        PerformanceResult multiThreaded = testConfiguration("Multi-Threaded", 4, 1, "PT1S");
-        Thread.sleep(2000);
+        CompletableFuture<Void> delay1 = new CompletableFuture<>();
+        vertx.setTimer(2000, id -> delay1.complete(null));
+        delay1.join();
 
-        PerformanceResult batched = testConfiguration("Batched Processing", 2, 25, "PT1S");
-        Thread.sleep(2000);
+        PerformanceResult multiThreaded = testConfiguration("Multi-Threaded", 4, 1, "PT1S", vertx);
 
-        PerformanceResult fastPolling = testConfiguration("Fast Polling", 2, 10, "PT0.1S");
-        Thread.sleep(2000);
+        CompletableFuture<Void> delay2 = new CompletableFuture<>();
+        vertx.setTimer(2000, id -> delay2.complete(null));
+        delay2.join();
 
-        PerformanceResult optimized = testConfiguration("Optimized", 6, 50, "PT0.2S");
+        PerformanceResult batched = testConfiguration("Batched Processing", 2, 25, "PT1S", vertx);
+
+        CompletableFuture<Void> delay3 = new CompletableFuture<>();
+        vertx.setTimer(2000, id -> delay3.complete(null));
+        delay3.join();
+
+        PerformanceResult fastPolling = testConfiguration("Fast Polling", 2, 10, "PT0.1S", vertx);
+
+        CompletableFuture<Void> delay4 = new CompletableFuture<>();
+        vertx.setTimer(2000, id -> delay4.complete(null));
+        delay4.join();
+
+        PerformanceResult optimized = testConfiguration("Optimized", 6, 50, "PT0.2S", vertx);
 
         // Display comparison results
         displayPerformanceComparison(singleThreaded, multiThreaded, batched, fastPolling, optimized);
@@ -308,7 +323,7 @@ class PerformanceComparisonExampleTest {
     /**
      * Tests a specific configuration and measures performance.
      */
-    private PerformanceResult testConfiguration(String configName, int threads, int batchSize, String pollingInterval) throws Exception {
+    private PerformanceResult testConfiguration(String configName, int threads, int batchSize, String pollingInterval, Vertx vertx) throws Exception {
         logger.info("\n=== Testing Configuration: {} ===", configName);
         logger.info("🔧 Threads: {}, Batch Size: {}, Polling Interval: {}", threads, batchSize, pollingInterval);
 
@@ -341,32 +356,30 @@ class PerformanceComparisonExampleTest {
             // Performance tracking
             AtomicInteger processedCount = new AtomicInteger(0);
             AtomicLong totalProcessingTime = new AtomicLong(0);
-            CountDownLatch completionLatch = new CountDownLatch(MESSAGE_COUNT);
+            CompletableFuture<Void> allProcessed = new CompletableFuture<>();
 
             // Start consumer
             Instant consumerStartTime = Instant.now();
             consumer.subscribe(message -> {
                 Instant processingStart = Instant.now();
+                CompletableFuture<Void> result = new CompletableFuture<>();
 
-                try {
-                    // Simulate some processing work
-                    Thread.sleep(1); // 1ms processing time
-
-                    processedCount.incrementAndGet();
+                // Simulate some processing work (1ms via timer)
+                vertx.setTimer(1, tid -> {
+                    int count = processedCount.incrementAndGet();
 
                     long processingTime = Duration.between(processingStart, Instant.now()).toMillis();
                     totalProcessingTime.addAndGet(processingTime);
 
                     logger.debug("Processed message {} for config {}", message.getId(), configName);
 
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    logger.warn("Processing interrupted for message {}", message.getId());
-                } finally {
-                    completionLatch.countDown();
-                }
+                    if (count >= MESSAGE_COUNT) {
+                        allProcessed.complete(null);
+                    }
+                    result.complete(null);
+                });
 
-                return CompletableFuture.completedFuture(null);
+                return result;
             });
 
             // Send messages
@@ -387,7 +400,8 @@ class PerformanceComparisonExampleTest {
             logger.info("📤 Sent {} messages in {}ms", MESSAGE_COUNT, sendingTimeMs);
 
             // Wait for processing to complete (with timeout)
-            boolean completed = completionLatch.await(30, TimeUnit.SECONDS);
+            boolean completed = allProcessed.orTimeout(30, TimeUnit.SECONDS)
+                .handle((v, ex) -> ex == null).join();
             Instant endTime = Instant.now();
 
             long totalTimeMs = Duration.between(startTime, endTime).toMillis();

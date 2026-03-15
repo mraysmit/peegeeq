@@ -30,7 +30,11 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -40,7 +44,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -56,6 +59,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 class MultiTenantSchemaIsolationTest {
 
@@ -154,7 +158,7 @@ class MultiTenantSchemaIsolationTest {
      * Test 1: Verify that messages sent by one tenant are not visible to another tenant.
      */
     @Test
-    void testMessageIsolationBetweenTenants() throws Exception {
+    void testMessageIsolationBetweenTenants(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Test 1: Testing message isolation between tenants");
 
         // Tenant A sends a message
@@ -163,21 +167,20 @@ class MultiTenantSchemaIsolationTest {
         logger.info("✅ Tenant A sent message: tenant-a-message");
 
         // Give a moment for the message to be persisted
-        Thread.sleep(500);
+        VertxTestContext tenantBContext = new VertxTestContext();
 
         // Tenant B creates a consumer
         MessageConsumer<String> consumerB = factoryTenantB.createConsumer("test-queue", String.class);
         List<String> receivedB = new ArrayList<>();
-        CountDownLatch latchB = new CountDownLatch(1);
 
         consumerB.subscribe(msg -> {
             receivedB.add(msg.getPayload());
-            latchB.countDown();
+            tenantBContext.completeNow();
             return CompletableFuture.completedFuture(null);
         });
 
         // Wait for any cross-tenant leakage
-        boolean receivedMessage = latchB.await(3, TimeUnit.SECONDS);
+        boolean receivedMessage = tenantBContext.awaitCompletion(3, TimeUnit.SECONDS);
 
         // Verify tenant B did NOT receive tenant A's message
         assertFalse(receivedMessage, "Tenant B should not receive Tenant A's messages");
@@ -186,17 +189,16 @@ class MultiTenantSchemaIsolationTest {
         // Verify tenant A can receive its own message
         MessageConsumer<String> consumerA = factoryTenantA.createConsumer("test-queue", String.class);
         List<String> receivedA = new ArrayList<>();
-        CountDownLatch latchA = new CountDownLatch(1);
 
         consumerA.subscribe(msg -> {
             logger.info("🔔 Tenant A consumer received message: {}", msg.getPayload());
             receivedA.add(msg.getPayload());
-            latchA.countDown();
+            testContext.completeNow();
             return CompletableFuture.completedFuture(null);
         });
 
         logger.info("⏳ Waiting for Tenant A to receive message...");
-        boolean receivedByA = latchA.await(10, TimeUnit.SECONDS);
+        boolean receivedByA = testContext.awaitCompletion(10, TimeUnit.SECONDS);
         logger.info("⏱️ Tenant A wait result: {}, received count: {}", receivedByA, receivedA.size());
 
         assertTrue(receivedByA, "Tenant A should receive its own message");
@@ -250,7 +252,7 @@ class MultiTenantSchemaIsolationTest {
      * Test 3: Verify that queue names can be the same across tenants without collision.
      */
     @Test
-    void testSameQueueNameAcrossTenants() throws Exception {
+    void testSameQueueNameAcrossTenants(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Test 3: Testing same queue name across tenants");
 
         String queueName = "shared-queue-name";
@@ -267,30 +269,29 @@ class MultiTenantSchemaIsolationTest {
         // Tenant A consumes from its queue
         MessageConsumer<String> consumerA = factoryTenantA.createConsumer(queueName, String.class);
         List<String> receivedA = new ArrayList<>();
-        CountDownLatch latchA = new CountDownLatch(1);
+        VertxTestContext ctxA = new VertxTestContext();
 
         consumerA.subscribe(msg -> {
             receivedA.add(msg.getPayload());
-            latchA.countDown();
+            ctxA.completeNow();
             return CompletableFuture.completedFuture(null);
         });
 
-        assertTrue(latchA.await(10, TimeUnit.SECONDS), "Tenant A should receive message");
+        assertTrue(ctxA.awaitCompletion(10, TimeUnit.SECONDS), "Tenant A should receive message");
         assertEquals(1, receivedA.size(), "Tenant A should have 1 message");
         assertEquals("tenant-a-data", receivedA.get(0), "Tenant A should receive its own message");
 
         // Tenant B consumes from its queue
         MessageConsumer<String> consumerB = factoryTenantB.createConsumer(queueName, String.class);
         List<String> receivedB = new ArrayList<>();
-        CountDownLatch latchB = new CountDownLatch(1);
 
         consumerB.subscribe(msg -> {
             receivedB.add(msg.getPayload());
-            latchB.countDown();
+            testContext.completeNow();
             return CompletableFuture.completedFuture(null);
         });
 
-        assertTrue(latchB.await(10, TimeUnit.SECONDS), "Tenant B should receive message");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Tenant B should receive message");
         assertEquals(1, receivedB.size(), "Tenant B should have 1 message");
         assertEquals("tenant-b-data", receivedB.get(0), "Tenant B should receive its own message");
 

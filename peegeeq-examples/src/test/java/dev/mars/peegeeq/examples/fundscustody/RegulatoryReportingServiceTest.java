@@ -5,8 +5,12 @@ import dev.mars.peegeeq.examples.fundscustody.domain.TradeType;
 import dev.mars.peegeeq.examples.fundscustody.model.TradeRequest;
 import dev.mars.peegeeq.examples.fundscustody.model.RegulatoryReport;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -17,70 +21,81 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests for RegulatoryReportingService - regulatory snapshots and compliance reporting.
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
     
     @Test
-    void testGetRegulatorySnapshot() throws Exception {
+    void testGetRegulatorySnapshot(Vertx vertx, VertxTestContext testContext) throws Exception {
         String fundId = "FUND-001";
         LocalDate reportingDate = LocalDate.of(2025, 10, 31);
         
         // Set up fund data
-        setupFundData(fundId, reportingDate);
-        
-        Thread.sleep(200);
-        
-        // Generate regulatory snapshot
-        RegulatoryReport report = regulatoryService
-            .getRegulatorySnapshot(fundId, reportingDate, "AIFMD")
-            .toCompletableFuture().get();
-        
-        assertNotNull(report);
-        assertEquals(fundId, report.fundId());
-        assertEquals(reportingDate, report.reportingDate());
-        assertEquals("AIFMD", report.reportType());
-        assertTrue(report.isAIFMD());
-        assertFalse(report.isMiFIDII());
-        
-        // Verify NAV snapshot included
-        assertNotNull(report.navSnapshot());
-        assertEquals(fundId, report.navSnapshot().fundId());
-        
-        // Verify positions included
-        assertNotNull(report.positions());
-        assertFalse(report.positions().isEmpty());
-        
-        // Verify trades included
-        assertNotNull(report.tradesInPeriod());
-        assertFalse(report.tradesInPeriod().isEmpty());
+        setupFundData(fundId, reportingDate, vertx, testContext, () -> {
+            vertx.setTimer(200, id -> {
+                try {
+                    // Generate regulatory snapshot
+                    RegulatoryReport report = regulatoryService
+                        .getRegulatorySnapshot(fundId, reportingDate, "AIFMD")
+                        .toCompletableFuture().get();
+                    
+                    assertNotNull(report);
+                    assertEquals(fundId, report.fundId());
+                    assertEquals(reportingDate, report.reportingDate());
+                    assertEquals("AIFMD", report.reportType());
+                    assertTrue(report.isAIFMD());
+                    assertFalse(report.isMiFIDII());
+                    
+                    // Verify NAV snapshot included
+                    assertNotNull(report.navSnapshot());
+                    assertEquals(fundId, report.navSnapshot().fundId());
+                    
+                    // Verify positions included
+                    assertNotNull(report.positions());
+                    assertFalse(report.positions().isEmpty());
+                    
+                    // Verify trades included
+                    assertNotNull(report.tradesInPeriod());
+                    assertFalse(report.tradesInPeriod().isEmpty());
+                    testContext.completeNow();
+                } catch (Exception e) {
+                    testContext.failNow(e);
+                }
+            });
+        });
     }
     
     @Test
-    void testGetAIFMDReport() throws Exception {
+    void testGetAIFMDReport(Vertx vertx, VertxTestContext testContext) throws Exception {
         String fundId = "FUND-002";
         LocalDate reportingDate = LocalDate.of(2025, 9, 30);
         
         // Set up fund data
-        setupFundData(fundId, reportingDate);
-        
-        Thread.sleep(200);
-        
-        // Generate AIFMD report
-        RegulatoryReport report = regulatoryService
-            .getAIFMDReport(fundId, reportingDate)
-            .toCompletableFuture().get();
-        
-        assertNotNull(report);
-        assertEquals("AIFMD", report.reportType());
-        assertTrue(report.isAIFMD());
-        
-        // Verify report contains required AIFMD data
-        assertNotNull(report.navSnapshot());
-        assertNotNull(report.positions());
-        assertNotNull(report.tradesInPeriod());
+        setupFundData(fundId, reportingDate, vertx, testContext, () -> {
+            vertx.setTimer(200, id -> {
+                try {
+                    // Generate AIFMD report
+                    RegulatoryReport report = regulatoryService
+                        .getAIFMDReport(fundId, reportingDate)
+                        .toCompletableFuture().get();
+                    
+                    assertNotNull(report);
+                    assertEquals("AIFMD", report.reportType());
+                    assertTrue(report.isAIFMD());
+                    
+                    // Verify report contains required AIFMD data
+                    assertNotNull(report.navSnapshot());
+                    assertNotNull(report.positions());
+                    assertNotNull(report.tradesInPeriod());
+                    testContext.completeNow();
+                } catch (Exception e) {
+                    testContext.failNow(e);
+                }
+            });
+        });
     }
     
     @Test
-    void testGetMiFIDTransactionReport() throws Exception {
+    void testGetMiFIDTransactionReport(Vertx vertx, VertxTestContext testContext) throws Exception {
         String fundId = "FUND-003";
         LocalDate tradingDay = LocalDate.of(2025, 10, 15);
         
@@ -89,46 +104,55 @@ class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
         recordTrade(fundId, "MSFT", tradingDay, TradeType.BUY, "200", "300.00");
         recordTrade(fundId, "GOOGL", tradingDay, TradeType.SELL, "50", "2800.00");
         
-        Thread.sleep(200);
-        
-        // Calculate NAV for the day
-        navService.calculateNAV(
-            fundId,
-            tradingDay,
-            new BigDecimal("5000000.00"),
-            new BigDecimal("100000.00"),
-            new BigDecimal("50000"),
-            Currency.USD,
-            "nav-calc"
-        ).toCompletableFuture().get();
-        
-        Thread.sleep(100);
-        
-        // Generate MiFID II transaction report
-        RegulatoryReport report = regulatoryService
-            .getMiFIDTransactionReport(fundId, tradingDay)
-            .toCompletableFuture().get();
-        
-        assertNotNull(report);
-        assertEquals(fundId, report.fundId());
-        assertEquals(tradingDay, report.reportingDate());
-        assertEquals("MiFID_II", report.reportType());
-        assertTrue(report.isMiFIDII());
-        assertFalse(report.isAIFMD());
-        
-        // Verify all trades on trading day are included
-        assertNotNull(report.tradesInPeriod());
-        assertEquals(3, report.tradesInPeriod().size());
-        
-        // Verify NAV included
-        assertNotNull(report.navSnapshot());
-        
-        // Verify positions included
-        assertNotNull(report.positions());
+        vertx.setTimer(200, id1 -> {
+            try {
+                // Calculate NAV for the day
+                navService.calculateNAV(
+                    fundId,
+                    tradingDay,
+                    new BigDecimal("5000000.00"),
+                    new BigDecimal("100000.00"),
+                    new BigDecimal("50000"),
+                    Currency.USD,
+                    "nav-calc"
+                ).toCompletableFuture().get();
+                
+                vertx.setTimer(100, id2 -> {
+                    try {
+                        // Generate MiFID II transaction report
+                        RegulatoryReport report = regulatoryService
+                            .getMiFIDTransactionReport(fundId, tradingDay)
+                            .toCompletableFuture().get();
+                        
+                        assertNotNull(report);
+                        assertEquals(fundId, report.fundId());
+                        assertEquals(tradingDay, report.reportingDate());
+                        assertEquals("MiFID_II", report.reportType());
+                        assertTrue(report.isMiFIDII());
+                        assertFalse(report.isAIFMD());
+                        
+                        // Verify all trades on trading day are included
+                        assertNotNull(report.tradesInPeriod());
+                        assertEquals(3, report.tradesInPeriod().size());
+                        
+                        // Verify NAV included
+                        assertNotNull(report.navSnapshot());
+                        
+                        // Verify positions included
+                        assertNotNull(report.positions());
+                        testContext.completeNow();
+                    } catch (Exception e) {
+                        testContext.failNow(e);
+                    }
+                });
+            } catch (Exception e) {
+                testContext.failNow(e);
+            }
+        });
     }
     
     @Test
-    void testRegulatorySnapshotPointInTime() throws Exception {
+    void testRegulatorySnapshotPointInTime(Vertx vertx, VertxTestContext testContext) throws Exception {
         String fundId = "FUND-004";
         LocalDate reportingDate = LocalDate.of(2025, 10, 1);
         
@@ -143,49 +167,66 @@ class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
             "nav-calc"
         ).toCompletableFuture().get();
 
-        Thread.sleep(200);
-        
-        // Record trade
-        recordTrade(fundId, "AAPL", reportingDate, TradeType.BUY, "100", "150.00");
-        
-        Thread.sleep(100);
-        
-        // Generate report (captures state at this point)
-        RegulatoryReport report1 = regulatoryService
-            .getRegulatorySnapshot(fundId, reportingDate, "AIFMD")
-            .toCompletableFuture().get();
-        
-        Thread.sleep(100);
-        
-        // Make correction after reporting
-        navService.calculateNAV(
-            fundId,
-            reportingDate,
-            new BigDecimal("10100000.00"),  // Corrected
-            new BigDecimal("500000.00"),
-            new BigDecimal("100000.00"),
-            Currency.USD,
-            "nav-auditor"
-        ).toCompletableFuture().get();
+        vertx.setTimer(200, id1 -> {
+            try {
+                // Record trade
+                recordTrade(fundId, "AAPL", reportingDate, TradeType.BUY, "100", "150.00");
+                
+                vertx.setTimer(100, id2 -> {
+                    try {
+                        // Generate report (captures state at this point)
+                        RegulatoryReport report1 = regulatoryService
+                            .getRegulatorySnapshot(fundId, reportingDate, "AIFMD")
+                            .toCompletableFuture().get();
+                        
+                        vertx.setTimer(100, id3 -> {
+                            try {
+                                // Make correction after reporting
+                                navService.calculateNAV(
+                                    fundId,
+                                    reportingDate,
+                                    new BigDecimal("10100000.00"),  // Corrected
+                                    new BigDecimal("500000.00"),
+                                    new BigDecimal("100000.00"),
+                                    Currency.USD,
+                                    "nav-auditor"
+                                ).toCompletableFuture().get();
 
-        Thread.sleep(200);
-        
-        // Generate new report (should show corrected data)
-        RegulatoryReport report2 = regulatoryService
-            .getRegulatorySnapshot(fundId, reportingDate, "AIFMD")
-            .toCompletableFuture().get();
-        
-        // Verify reports show different NAV values
-        assertNotNull(report1.navSnapshot());
-        assertNotNull(report2.navSnapshot());
-        
-        // First report shows original NAV
-        assertEquals(0, new BigDecimal("95.000000")
-            .compareTo(report1.navSnapshot().navPerShare()));
-        
-        // Second report shows corrected NAV
-        assertEquals(0, new BigDecimal("96.000000")
-            .compareTo(report2.navSnapshot().navPerShare()));
+                                vertx.setTimer(200, id4 -> {
+                                    try {
+                                        // Generate new report (should show corrected data)
+                                        RegulatoryReport report2 = regulatoryService
+                                            .getRegulatorySnapshot(fundId, reportingDate, "AIFMD")
+                                            .toCompletableFuture().get();
+                                        
+                                        // Verify reports show different NAV values
+                                        assertNotNull(report1.navSnapshot());
+                                        assertNotNull(report2.navSnapshot());
+                                        
+                                        // First report shows original NAV
+                                        assertEquals(0, new BigDecimal("95.000000")
+                                            .compareTo(report1.navSnapshot().navPerShare()));
+                                        
+                                        // Second report shows corrected NAV
+                                        assertEquals(0, new BigDecimal("96.000000")
+                                            .compareTo(report2.navSnapshot().navPerShare()));
+                                        testContext.completeNow();
+                                    } catch (Exception e) {
+                                        testContext.failNow(e);
+                                    }
+                                });
+                            } catch (Exception e) {
+                                testContext.failNow(e);
+                            }
+                        });
+                    } catch (Exception e) {
+                        testContext.failNow(e);
+                    }
+                });
+            } catch (Exception e) {
+                testContext.failNow(e);
+            }
+        });
     }
     
     @Test
@@ -210,7 +251,7 @@ class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
     }
     
     @Test
-    void testMiFIDReportOnlyIncludesTradingDayTrades() throws Exception {
+    void testMiFIDReportOnlyIncludesTradingDayTrades(Vertx vertx, VertxTestContext testContext) throws Exception {
         String fundId = "FUND-005";
         LocalDate tradingDay = LocalDate.of(2025, 10, 15);
         LocalDate previousDay = tradingDay.minusDays(1);
@@ -221,24 +262,29 @@ class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
         recordTrade(fundId, "MSFT", tradingDay, TradeType.BUY, "200", "300.00");
         recordTrade(fundId, "GOOGL", nextDay, TradeType.SELL, "50", "2800.00");
         
-        Thread.sleep(200);
-        
-        // Generate MiFID report for trading day
-        RegulatoryReport report = regulatoryService
-            .getMiFIDTransactionReport(fundId, tradingDay)
-            .toCompletableFuture().get();
-        
-        assertNotNull(report);
-        assertNotNull(report.tradesInPeriod());
+        vertx.setTimer(200, id -> {
+            try {
+                // Generate MiFID report for trading day
+                RegulatoryReport report = regulatoryService
+                    .getMiFIDTransactionReport(fundId, tradingDay)
+                    .toCompletableFuture().get();
+                
+                assertNotNull(report);
+                assertNotNull(report.tradesInPeriod());
 
-        // Should only include trading day trades
-        assertEquals(1, report.tradesInPeriod().size());
-        assertEquals("MSFT", report.tradesInPeriod().get(0).securityId());
+                // Should only include trading day trades
+                assertEquals(1, report.tradesInPeriod().size());
+                assertEquals("MSFT", report.tradesInPeriod().get(0).securityId());
+                testContext.completeNow();
+            } catch (Exception e) {
+                testContext.failNow(e);
+            }
+        });
     }
     
     // Helper methods
     
-    private void setupFundData(String fundId, LocalDate date) throws Exception {
+    private void setupFundData(String fundId, LocalDate date, Vertx vertx, VertxTestContext testContext, Runnable continuation) throws Exception {
         // Calculate NAV
         navService.calculateNAV(
             fundId,
@@ -250,15 +296,32 @@ class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
             "nav-calculator"
         ).toCompletableFuture().get();
 
-        Thread.sleep(200);
-        
-        // Record some trades in the period
-        LocalDate startDate = date.minusDays(15);
-        recordTrade(fundId, "AAPL", startDate, TradeType.BUY, "100", "150.00");
-        Thread.sleep(50);
-        recordTrade(fundId, "MSFT", startDate.plusDays(5), TradeType.BUY, "200", "300.00");
-        Thread.sleep(50);
-        recordTrade(fundId, "GOOGL", startDate.plusDays(10), TradeType.SELL, "50", "2800.00");
+        vertx.setTimer(200, id1 -> {
+            try {
+                // Record some trades in the period
+                LocalDate startDate = date.minusDays(15);
+                recordTrade(fundId, "AAPL", startDate, TradeType.BUY, "100", "150.00");
+                
+                vertx.setTimer(50, id2 -> {
+                    try {
+                        recordTrade(fundId, "MSFT", startDate.plusDays(5), TradeType.BUY, "200", "300.00");
+                        
+                        vertx.setTimer(50, id3 -> {
+                            try {
+                                recordTrade(fundId, "GOOGL", startDate.plusDays(10), TradeType.SELL, "50", "2800.00");
+                                continuation.run();
+                            } catch (Exception e) {
+                                testContext.failNow(e);
+                            }
+                        });
+                    } catch (Exception e) {
+                        testContext.failNow(e);
+                    }
+                });
+            } catch (Exception e) {
+                testContext.failNow(e);
+            }
+        });
     }
     
     private void recordTrade(String fundId, String securityId, LocalDate tradeDate,

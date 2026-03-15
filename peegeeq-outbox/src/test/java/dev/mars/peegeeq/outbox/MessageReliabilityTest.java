@@ -16,6 +16,7 @@ import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.LockSupport;
 import java.util.function.Predicate;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -414,8 +415,12 @@ public class MessageReliabilityTest {
             }
         }
 
-        // Wait a bit for processing
-        Thread.sleep(100);
+        // Wait for processing to complete
+        long deadline = System.currentTimeMillis() + 5_000;
+        while (processedCount.get() < 5 && System.currentTimeMillis() < deadline) {
+            LockSupport.parkNanos(50_000_000L);
+        }
+        assertEquals(5, processedCount.get(), "Should have processed 5 messages");
 
         String finalOrder = processingOrder.toString();
         logger.info("📊 Message Ordering Test Results:");

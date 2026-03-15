@@ -26,10 +26,13 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -46,6 +49,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * - Test backward compatibility to ensure existing code continues to work
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 class QueueFactoryConsumerModeTest {
     private static final Logger logger = LoggerFactory.getLogger(QueueFactoryConsumerModeTest.class);
@@ -123,23 +127,20 @@ class QueueFactoryConsumerModeTest {
 
         // Verify consumer works correctly
         AtomicInteger messageCount = new AtomicInteger(0);
-        CountDownLatch latch = new CountDownLatch(1);
+        VertxTestContext methodCtx = new VertxTestContext();
 
         consumer.subscribe(message -> {
             messageCount.incrementAndGet();
-            logger.info("📨 Received factory test message: {}", message.getPayload());
-            latch.countDown();
+            logger.info("\ud83d\udce8 Received factory test message: {}", message.getPayload());
+            methodCtx.completeNow();
             return CompletableFuture.completedFuture(null);
         });
-
-        // Wait for consumer setup
-        Thread.sleep(500);
 
         // Send test message
         producer.send("Factory test message").get(5, TimeUnit.SECONDS);
 
         // Verify message received
-        boolean received = latch.await(5, TimeUnit.SECONDS);
+        boolean received = methodCtx.awaitCompletion(5, TimeUnit.SECONDS);
         assertTrue(received, "Should receive message via factory-created consumer");
         assertEquals(1, messageCount.get(), "Should have processed exactly 1 message");
 
@@ -163,23 +164,20 @@ class QueueFactoryConsumerModeTest {
 
         // Verify consumer works correctly (should default to HYBRID mode)
         AtomicInteger messageCount = new AtomicInteger(0);
-        CountDownLatch latch = new CountDownLatch(1);
+        VertxTestContext methodCtx = new VertxTestContext();
 
         consumer.subscribe(message -> {
             messageCount.incrementAndGet();
-            logger.info("📨 Received null config test message: {}", message.getPayload());
-            latch.countDown();
+            logger.info("\ud83d\udce8 Received null config test message: {}", message.getPayload());
+            methodCtx.completeNow();
             return CompletableFuture.completedFuture(null);
         });
-
-        // Wait for consumer setup
-        Thread.sleep(500);
 
         // Send test message
         producer.send("Null config test message").get(5, TimeUnit.SECONDS);
 
         // Verify message received
-        boolean received = latch.await(5, TimeUnit.SECONDS);
+        boolean received = methodCtx.awaitCompletion(5, TimeUnit.SECONDS);
         assertTrue(received, "Should receive message via consumer created with null config");
         assertEquals(1, messageCount.get(), "Should have processed exactly 1 message");
 
@@ -274,23 +272,20 @@ class QueueFactoryConsumerModeTest {
 
         // Verify consumer works correctly (should default to HYBRID mode)
         AtomicInteger messageCount = new AtomicInteger(0);
-        CountDownLatch latch = new CountDownLatch(1);
+        VertxTestContext methodCtx = new VertxTestContext();
 
         consumer.subscribe(message -> {
             messageCount.incrementAndGet();
-            logger.info("📨 Received backward compatibility test message: {}", message.getPayload());
-            latch.countDown();
+            logger.info("\ud83d\udce8 Received backward compatibility test message: {}", message.getPayload());
+            methodCtx.completeNow();
             return CompletableFuture.completedFuture(null);
         });
-
-        // Wait for consumer setup
-        Thread.sleep(500);
 
         // Send test message
         producer.send("Backward compatibility test message").get(5, TimeUnit.SECONDS);
 
         // Verify message received
-        boolean received = latch.await(5, TimeUnit.SECONDS);
+        boolean received = methodCtx.awaitCompletion(5, TimeUnit.SECONDS);
         assertTrue(received, "Should receive message via backward compatible consumer");
         assertEquals(1, messageCount.get(), "Should have processed exactly 1 message");
 
@@ -313,7 +308,8 @@ class QueueFactoryConsumerModeTest {
         // Create multiple consumers concurrently
         int consumerCount = 3;
         MessageConsumer<String>[] consumers = new MessageConsumer[consumerCount];
-        CountDownLatch creationLatch = new CountDownLatch(consumerCount);
+        VertxTestContext creationCtx = new VertxTestContext();
+        io.vertx.junit5.Checkpoint allDone = creationCtx.checkpoint(consumerCount);
         AtomicInteger successCount = new AtomicInteger(0);
 
         // Create consumers in parallel threads
@@ -329,14 +325,14 @@ class QueueFactoryConsumerModeTest {
                 } catch (Exception e) {
                     logger.error("Failed to create consumer {}: {}", index, e.getMessage());
                 } finally {
-                    creationLatch.countDown();
+                    allDone.flag();
                 }
             });
             creationThread.start();
         }
 
         // Wait for all creation attempts to complete
-        boolean allCreated = creationLatch.await(10, TimeUnit.SECONDS);
+        boolean allCreated = creationCtx.awaitCompletion(10, TimeUnit.SECONDS);
         assertTrue(allCreated, "All consumer creation attempts should complete");
         assertEquals(consumerCount, successCount.get(), "All consumers should be created successfully");
 
@@ -363,25 +359,30 @@ class QueueFactoryConsumerModeTest {
                 .mode(ConsumerMode.LISTEN_NOTIFY_ONLY)
                 .build();
 
-        // Test null topic name - currently allowed but creates consumer with "null" topic
-        // Following "Read Logs Carefully" principle - the system doesn't validate topic names
-        MessageConsumer<String> nullTopicConsumer = factory.createConsumer(null, String.class, config);
-        assertNotNull(nullTopicConsumer, "Consumer should be created even with null topic name");
-        nullTopicConsumer.close();
-        logger.info("Null topic names are currently allowed (creates 'null' topic)");
+        // Test null topic name - should be rejected by validation
+        assertThrows(IllegalArgumentException.class,
+                () -> factory.createConsumer(null, String.class, config),
+                "Null topic name should be rejected");
+        logger.info("Null topic names are correctly rejected");
 
-        // Test empty topic name - currently allowed but creates consumer with empty topic
-        MessageConsumer<String> emptyTopicConsumer = factory.createConsumer("", String.class, config);
-        assertNotNull(emptyTopicConsumer, "Consumer should be created even with empty topic name");
-        emptyTopicConsumer.close();
-        logger.info("Empty topic names are currently allowed");
+        // Test empty topic name - should be rejected by validation
+        assertThrows(IllegalArgumentException.class,
+                () -> factory.createConsumer("", String.class, config),
+                "Empty topic name should be rejected");
+        logger.info("Empty topic names are correctly rejected");
 
-        // Test topic name with special characters - verify they are allowed
-        MessageConsumer<String> specialCharsConsumer = factory.createConsumer("test-topic-with-special-chars!@#", String.class, config);
-        assertNotNull(specialCharsConsumer, "Consumer should be created with special characters in topic name");
-        specialCharsConsumer.close();
-        logger.info("Special characters in topic names are allowed");
+        // Test topic name with unsafe special characters - should be rejected
+        assertThrows(IllegalArgumentException.class,
+                () -> factory.createConsumer("test-topic-with-special-chars!@#", String.class, config),
+                "Topic name with unsafe characters should be rejected");
+        logger.info("Unsafe special characters in topic names are correctly rejected");
 
-        logger.info("QueueFactory topic name handling verified (no validation currently implemented)");
+        // Test topic name with safe characters (hyphens, underscores, dots) - should be allowed
+        MessageConsumer<String> safeConsumer = factory.createConsumer("test-topic_safe.name", String.class, config);
+        assertNotNull(safeConsumer, "Consumer should be created with safe characters in topic name");
+        safeConsumer.close();
+        logger.info("Safe special characters in topic names are allowed");
+
+        logger.info("QueueFactory topic name validation verified");
     }
 }

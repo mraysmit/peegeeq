@@ -23,17 +23,20 @@ import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.HttpResponse;
 import io.vertx.ext.web.client.WebClient;
+import io.vertx.junit5.VertxExtension;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.consul.ConsulContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -59,6 +62,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 public class ServiceDiscoveryExampleTest {
 
@@ -98,7 +102,9 @@ public class ServiceDiscoveryExampleTest {
         }
 
         // Wait for Service Manager to be ready
-        Thread.sleep(2000);
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(2000, id -> delay.complete(null));
+        delay.join();
     }
     
     @AfterEach

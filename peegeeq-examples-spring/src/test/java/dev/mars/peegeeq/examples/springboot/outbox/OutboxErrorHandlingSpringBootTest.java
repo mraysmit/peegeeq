@@ -17,12 +17,16 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -55,6 +59,7 @@ import static org.junit.jupiter.api.Assertions.*;
 )
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+@ExtendWith(VertxExtension.class)
 class OutboxErrorHandlingSpringBootTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxErrorHandlingSpringBootTest.class);
@@ -81,7 +86,7 @@ class OutboxErrorHandlingSpringBootTest {
     private final List<MessageConsumer<?>> activeConsumers = new ArrayList<>();
 
     @AfterEach
-    void tearDown() throws InterruptedException {
+    void tearDown(Vertx vertx) throws InterruptedException {
         logger.info("Cleaning up test resources...");
         
         // Close all active consumers first
@@ -105,13 +110,15 @@ class OutboxErrorHandlingSpringBootTest {
         activeProducers.clear();
         
         // Wait for connections to be released
-        Thread.sleep(2000);
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(2000, id -> delay.complete(null));
+        delay.join();
     }
 
     @Test
     @Order(1)
     @DisplayName("Test 1: Transient Error Recovery - Automatic retry succeeds")
-    void testTransientErrorRecovery() throws Exception {
+    void testTransientErrorRecovery(VertxTestContext testContext) throws Exception {
         logger.info("\n=== TEST 1: Transient Error Recovery ===");
         
         String topicName = "error-transient-topic";
@@ -124,7 +131,7 @@ class OutboxErrorHandlingSpringBootTest {
         
         // Track attempts
         AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch successLatch = new CountDownLatch(1);
+        Checkpoint successCheckpoint = testContext.checkpoint(1);
         
         // Set up consumer that fails first 2 times, then succeeds
         consumer.subscribe(message -> {
@@ -139,7 +146,7 @@ class OutboxErrorHandlingSpringBootTest {
             } else {
                 // Succeed on the 3rd attempt
                 logger.info("SUCCESS: Processing succeeded on attempt {}", attempt);
-                successLatch.countDown();
+                successCheckpoint.flag();
                 return CompletableFuture.completedFuture(null);
             }
         });
@@ -148,7 +155,7 @@ class OutboxErrorHandlingSpringBootTest {
         producer.send("Transient error test message").get(5, TimeUnit.SECONDS);
         
         // Wait for eventual success
-        assertTrue(successLatch.await(30, TimeUnit.SECONDS), 
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 
             "Message should eventually succeed after retries");
         
         // Verify retry attempts
@@ -162,7 +169,7 @@ class OutboxErrorHandlingSpringBootTest {
     @Test
     @Order(2)
     @DisplayName("Test 2: Permanent Error Handling - Fails after max retries")
-    void testPermanentErrorHandling() throws Exception {
+    void testPermanentErrorHandling(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("\n=== TEST 2: Permanent Error Handling ===");
         
         String topicName = "error-permanent-topic";
@@ -175,13 +182,13 @@ class OutboxErrorHandlingSpringBootTest {
         
         // Track attempts
         AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch attemptLatch = new CountDownLatch(4); // Initial + 3 retries
+        Checkpoint attemptCheckpoint = testContext.checkpoint(4); // Initial + 3 retries
         
         // Set up consumer that always fails (simulating permanent error)
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
             logger.info("INTENTIONAL FAILURE: Processing attempt {} - permanent error", attempt);
-            attemptLatch.countDown();
+            attemptCheckpoint.flag();
             return CompletableFuture.failedFuture(
                 new RuntimeException("Simulated permanent error"));
         });
@@ -190,11 +197,13 @@ class OutboxErrorHandlingSpringBootTest {
         producer.send("Permanent error test message").get(5, TimeUnit.SECONDS);
         
         // Wait for all retry attempts
-        assertTrue(attemptLatch.await(30, TimeUnit.SECONDS), 
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 
             "Should attempt processing multiple times");
         
         // Verify max retries were attempted
-        Thread.sleep(2000); // Allow time for final retry
+        CompletableFuture<Void> retryDelay = new CompletableFuture<>();
+        vertx.setTimer(2000, id -> retryDelay.complete(null));
+        retryDelay.join();
         int finalAttempts = attemptCount.get();
         assertTrue(finalAttempts >= 4, 
             "Should have at least 4 attempts (initial + 3 retries), was " + finalAttempts);
@@ -206,7 +215,7 @@ class OutboxErrorHandlingSpringBootTest {
     @Test
     @Order(3)
     @DisplayName("Test 3: Mixed Error Scenarios - Handle both transient and permanent errors")
-    void testMixedErrorScenarios() throws Exception {
+    void testMixedErrorScenarios(VertxTestContext testContext) throws Exception {
         logger.info("\n=== TEST 3: Mixed Error Scenarios ===");
         
         String topicName = "error-mixed-topic";
@@ -220,8 +229,8 @@ class OutboxErrorHandlingSpringBootTest {
         // Track processing
         AtomicInteger transientAttempts = new AtomicInteger(0);
         AtomicInteger permanentAttempts = new AtomicInteger(0);
-        CountDownLatch transientSuccess = new CountDownLatch(1);
-        CountDownLatch permanentFailure = new CountDownLatch(4); // Initial + 3 retries
+        Checkpoint transientCheckpoint = testContext.checkpoint(1);
+        Checkpoint permanentCheckpoint = testContext.checkpoint(4); // Initial + 3 retries
         
         // Set up consumer with different behavior based on message content
         consumer.subscribe(message -> {
@@ -237,13 +246,13 @@ class OutboxErrorHandlingSpringBootTest {
                         new RuntimeException("Transient error"));
                 } else {
                     logger.info("SUCCESS: Transient message succeeded on attempt {}", attempt);
-                    transientSuccess.countDown();
+                    transientCheckpoint.flag();
                     return CompletableFuture.completedFuture(null);
                 }
             } else {
                 int attempt = permanentAttempts.incrementAndGet();
                 logger.info("INTENTIONAL FAILURE: Permanent error on attempt {}", attempt);
-                permanentFailure.countDown();
+                permanentCheckpoint.flag();
                 return CompletableFuture.failedFuture(
                     new RuntimeException("Permanent error"));
             }
@@ -254,10 +263,8 @@ class OutboxErrorHandlingSpringBootTest {
         producer.send("permanent error message").get(5, TimeUnit.SECONDS);
         
         // Wait for outcomes
-        assertTrue(transientSuccess.await(30, TimeUnit.SECONDS), 
-            "Transient error message should eventually succeed");
-        assertTrue(permanentFailure.await(30, TimeUnit.SECONDS), 
-            "Permanent error message should be retried multiple times");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 
+            "All messages should be processed within timeout");
         
         // Verify behavior
         assertTrue(transientAttempts.get() >= 2, 

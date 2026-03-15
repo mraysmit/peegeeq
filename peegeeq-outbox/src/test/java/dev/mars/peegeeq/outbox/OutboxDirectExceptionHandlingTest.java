@@ -27,10 +27,15 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -38,7 +43,6 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.io.IOException;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -52,6 +56,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  * are properly caught and processed through the retry and dead letter queue mechanisms.
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 public class OutboxDirectExceptionHandlingTest {
 
@@ -105,12 +110,12 @@ public class OutboxDirectExceptionHandlingTest {
     }
 
     @Test
-    void testRuntimeExceptionHandling() throws Exception {
+    void testRuntimeExceptionHandling(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Direct RuntimeException Handling ===");
         
         String testMessage = "Message that causes RuntimeException";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch retryLatch = new CountDownLatch(3); // Expect 3 attempts (initial + 2 retries)
+        Checkpoint retryCheckpoint = testContext.checkpoint(3); // Expect 3 attempts (initial + 2 retries)
 
         // Send the message
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
@@ -120,27 +125,26 @@ public class OutboxDirectExceptionHandlingTest {
             int attempt = attemptCount.incrementAndGet();
             logger.info("INTENTIONAL FAILURE: Processing attempt {} for message: {}", 
                 attempt, message.getPayload());
-            retryLatch.countDown();
+            retryCheckpoint.flag();
             
             // This throws directly from the handler method - should be caught and handled
             throw new RuntimeException("INTENTIONAL FAILURE: Direct RuntimeException, attempt " + attempt);
         });
 
         // Wait for all retry attempts
-        boolean completed = retryLatch.await(15, TimeUnit.SECONDS);
-        assertTrue(completed, "Should have attempted processing 3 times (initial + 2 retries)");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times (initial + 2 retries)");
         assertEquals(3, attemptCount.get(), "Should have made exactly 3 processing attempts");
         
         logger.info("✅ Direct RuntimeException handling test completed successfully");
     }
 
     @Test
-    void testCheckedExceptionHandling() throws Exception {
+    void testCheckedExceptionHandling(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Direct Checked Exception Handling ===");
         
         String testMessage = "Message that causes checked exception";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch retryLatch = new CountDownLatch(3);
+        Checkpoint retryCheckpoint = testContext.checkpoint(3);
 
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
 
@@ -148,27 +152,26 @@ public class OutboxDirectExceptionHandlingTest {
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
             logger.info("INTENTIONAL FAILURE: Processing attempt {} for checked exception", attempt);
-            retryLatch.countDown();
+            retryCheckpoint.flag();
             
             // Simulate checked exception scenario
             throw new RuntimeException("INTENTIONAL FAILURE: Wrapped IOException", 
                 new IOException("Simulated IO failure, attempt " + attempt));
         });
 
-        boolean completed = retryLatch.await(15, TimeUnit.SECONDS);
-        assertTrue(completed, "Should have attempted processing 3 times for checked exception");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times for checked exception");
         assertEquals(3, attemptCount.get(), "Should have made exactly 3 processing attempts");
         
         logger.info("✅ Direct checked exception handling test completed successfully");
     }
 
     @Test
-    void testCustomBusinessExceptionHandling() throws Exception {
+    void testCustomBusinessExceptionHandling(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Custom Business Exception Handling ===");
         
         String testMessage = "Message that causes business exception";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch retryLatch = new CountDownLatch(3);
+        Checkpoint retryCheckpoint = testContext.checkpoint(3);
 
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
 
@@ -176,27 +179,26 @@ public class OutboxDirectExceptionHandlingTest {
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
             logger.info("INTENTIONAL FAILURE: Processing attempt {} for business exception", attempt);
-            retryLatch.countDown();
+            retryCheckpoint.flag();
             
             // Custom business exception
             throw new BusinessProcessingException("INTENTIONAL FAILURE: Order validation failed", 
                 "VALIDATION_ERROR", attempt);
         });
 
-        boolean completed = retryLatch.await(15, TimeUnit.SECONDS);
-        assertTrue(completed, "Should have attempted processing 3 times for business exception");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times for business exception");
         assertEquals(3, attemptCount.get(), "Should have made exactly 3 processing attempts");
         
         logger.info("✅ Custom business exception handling test completed successfully");
     }
 
     @Test
-    void testNullPointerExceptionHandling() throws Exception {
+    void testNullPointerExceptionHandling(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing NullPointerException Handling ===");
         
         String testMessage = "Message that causes NPE";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch retryLatch = new CountDownLatch(3);
+        Checkpoint retryCheckpoint = testContext.checkpoint(3);
 
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
 
@@ -204,14 +206,13 @@ public class OutboxDirectExceptionHandlingTest {
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
             logger.info("INTENTIONAL FAILURE: Processing attempt {} for NPE", attempt);
-            retryLatch.countDown();
+            retryCheckpoint.flag();
 
             // Intentionally throw NPE to test exception handling
             throw new NullPointerException("INTENTIONAL TEST FAILURE: Simulated NPE for retry testing");
         });
 
-        boolean completed = retryLatch.await(15, TimeUnit.SECONDS);
-        assertTrue(completed, "Should have attempted processing 3 times for NPE");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times for NPE");
         assertEquals(3, attemptCount.get(), "Should have made exactly 3 processing attempts");
         
         logger.info("✅ NullPointerException handling test completed successfully");

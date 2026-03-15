@@ -28,7 +28,11 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -41,6 +45,7 @@ import java.util.List;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -62,6 +67,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 @DisplayName("Outbox Consumer Group v1.1.0 Edge Cases")
 class OutboxConsumerGroupV110EdgeCasesTest {
 
@@ -122,11 +128,13 @@ class OutboxConsumerGroupV110EdgeCasesTest {
 
         @Test
         @DisplayName("should start from specific message ID")
-        void testStartFromMessageId_Valid() throws Exception {
+        void testStartFromMessageId_Valid(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
             // Send 5 messages
             for (int i = 0; i < 5; i++) {
                 producer.send("Message-" + i).join();
-                Thread.sleep(100);
+                CompletableFuture<Void> gap = new CompletableFuture<>();
+                vertx.setTimer(100, timerId -> gap.complete(null));
+                gap.get(5, SECONDS);
             }
 
             ConsumerGroup<String> group = factory.createConsumerGroup(
@@ -144,7 +152,9 @@ class OutboxConsumerGroupV110EdgeCasesTest {
                 .build();
 
             group.start(options);
-            Thread.sleep(3000);
+            CompletableFuture<Void> processingWait = new CompletableFuture<>();
+            vertx.setTimer(3000, timerId -> processingWait.complete(null));
+            processingWait.get(5, SECONDS);
 
             assertTrue(group.isActive());
             // Should receive messages based on ID filtering
@@ -152,17 +162,20 @@ class OutboxConsumerGroupV110EdgeCasesTest {
                 "Should process messages from ID 3 onwards");
 
             group.close();
+            testContext.completeNow();
         }
 
         @Test
         @DisplayName("should handle message ID that doesn't exist")
-        void testStartFromMessageId_NonExistent() throws Exception {
+        void testStartFromMessageId_NonExistent(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
             AtomicInteger count = new AtomicInteger(0);
+            Checkpoint messageReceived = testContext.checkpoint();
             group.setMessageHandler(msg -> {
                 count.incrementAndGet();
+                messageReceived.flag();
                 return CompletableFuture.completedFuture(null);
             });
 
@@ -172,35 +185,40 @@ class OutboxConsumerGroupV110EdgeCasesTest {
                 .build();
 
             group.start(options);
-            Thread.sleep(2000);
+            CompletableFuture<Void> initialWait = new CompletableFuture<>();
+            vertx.setTimer(2000, timerId -> initialWait.complete(null));
+            initialWait.get(5, SECONDS);
 
             assertTrue(group.isActive());
             assertEquals(0, count.get(), "Should not receive any messages");
 
             // Now send a new message
             producer.send("New-Message").join();
-            Thread.sleep(2000);
 
-            assertTrue(count.get() >= 1, "Should receive new messages after start ID");
+            assertTrue(testContext.awaitCompletion(5, SECONDS));
 
             group.close();
         }
 
         @Test
         @DisplayName("should handle message ID = 0")
-        void testStartFromMessageId_Zero() throws Exception {
+        void testStartFromMessageId_Zero(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
             // Send some messages first
             for (int i = 0; i < 3; i++) {
                 producer.send("Message-" + i).join();
             }
-            Thread.sleep(500);
+            CompletableFuture<Void> sendWait = new CompletableFuture<>();
+            vertx.setTimer(500, timerId -> sendWait.complete(null));
+            sendWait.get(5, SECONDS);
 
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
             List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
+            Checkpoint received = testContext.checkpoint(2);
             group.setMessageHandler(msg -> {
                 receivedMessages.add(msg.getPayload());
+                received.flag();
                 return CompletableFuture.completedFuture(null);
             });
 
@@ -209,11 +227,9 @@ class OutboxConsumerGroupV110EdgeCasesTest {
                 .build();
 
             group.start(options);
-            Thread.sleep(3000);
 
+            assertTrue(testContext.awaitCompletion(10, SECONDS));
             assertTrue(group.isActive());
-            // Should get all messages since ID 0 is before everything
-            assertTrue(receivedMessages.size() >= 2);
 
             group.close();
         }
@@ -328,19 +344,23 @@ class OutboxConsumerGroupV110EdgeCasesTest {
 
         @Test
         @DisplayName("should handle very old timestamp")
-        void testTimestamp_VeryOld() throws Exception {
+        void testTimestamp_VeryOld(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
             // Send current messages
             for (int i = 0; i < 3; i++) {
                 producer.send("Message-" + i).join();
             }
-            Thread.sleep(500);
+            CompletableFuture<Void> sendWait = new CompletableFuture<>();
+            vertx.setTimer(500, timerId -> sendWait.complete(null));
+            sendWait.get(5, SECONDS);
 
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
             List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
+            Checkpoint received = testContext.checkpoint(2);
             group.setMessageHandler(msg -> {
                 receivedMessages.add(msg.getPayload());
+                received.flag();
                 return CompletableFuture.completedFuture(null);
             });
 
@@ -352,18 +372,16 @@ class OutboxConsumerGroupV110EdgeCasesTest {
                 .build();
 
             group.start(options);
-            Thread.sleep(3000);
 
+            assertTrue(testContext.awaitCompletion(10, SECONDS));
             assertTrue(group.isActive());
-            // Should get all messages since they're all after the old timestamp
-            assertTrue(receivedMessages.size() >= 2);
 
             group.close();
         }
 
         @Test
         @DisplayName("should handle future timestamp gracefully")
-        void testTimestamp_Future() throws Exception {
+        void testTimestamp_Future(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
             // Don't send any messages before starting
             
             ConsumerGroup<String> group = factory.createConsumerGroup(
@@ -383,16 +401,15 @@ class OutboxConsumerGroupV110EdgeCasesTest {
                 .build();
 
             group.start(options);
-            Thread.sleep(2000);
+            CompletableFuture<Void> processingWait = new CompletableFuture<>();
+            vertx.setTimer(2000, timerId -> processingWait.complete(null));
+            processingWait.get(5, SECONDS);
 
             assertTrue(group.isActive());
-            // Implementation may interpret future timestamp differently:
-            // - Some may skip all current messages (treating as "nothing before this time")
-            // - Others may receive current messages (treating timestamp as reference point)
-            // Just verify the group started successfully
             assertTrue(count.get() >= 0);
 
             group.close();
+            testContext.completeNow();
         }
 
         @Test
@@ -425,7 +442,7 @@ class OutboxConsumerGroupV110EdgeCasesTest {
 
         @Test
         @DisplayName("should handle start on empty topic with FROM_BEGINNING")
-        void testEmptyTopic_FromBeginning() throws Exception {
+        void testEmptyTopic_FromBeginning(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
             // Don't send any messages
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "empty-topic", String.class);
@@ -441,17 +458,20 @@ class OutboxConsumerGroupV110EdgeCasesTest {
                 .build();
 
             group.start(options);
-            Thread.sleep(2000);
+            CompletableFuture<Void> processingWait = new CompletableFuture<>();
+            vertx.setTimer(2000, timerId -> processingWait.complete(null));
+            processingWait.get(5, SECONDS);
 
             assertTrue(group.isActive());
             assertEquals(0, count.get(), "Should not receive any messages from empty topic");
 
             group.close();
+            testContext.completeNow();
         }
 
         @Test
         @DisplayName("should handle start on empty topic with FROM_TIMESTAMP")
-        void testEmptyTopic_FromTimestamp() throws Exception {
+        void testEmptyTopic_FromTimestamp(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "empty-topic", String.class);
 
@@ -466,12 +486,15 @@ class OutboxConsumerGroupV110EdgeCasesTest {
                 .build();
 
             group.start(options);
-            Thread.sleep(2000);
+            CompletableFuture<Void> processingWait = new CompletableFuture<>();
+            vertx.setTimer(2000, timerId -> processingWait.complete(null));
+            processingWait.get(5, SECONDS);
 
             assertTrue(group.isActive());
             assertEquals(0, count.get());
 
             group.close();
+            testContext.completeNow();
         }
     }
 
@@ -485,18 +508,18 @@ class OutboxConsumerGroupV110EdgeCasesTest {
 
         @Test
         @DisplayName("should handle setMessageHandler during message processing")
-        void testConcurrent_SetHandlerDuringProcessing() throws Exception {
+        void testConcurrent_SetHandlerDuringProcessing(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
-            CountDownLatch processingLatch = new CountDownLatch(1);
+            CompletableFuture<Void> processingGate = new CompletableFuture<>();
             AtomicInteger count = new AtomicInteger(0);
 
             group.setMessageHandler(msg -> {
                 count.incrementAndGet();
                 try {
-                    processingLatch.await(5, TimeUnit.SECONDS);
-                } catch (InterruptedException e) {
+                    processingGate.get(5, SECONDS);
+                } catch (Exception e) {
                     Thread.currentThread().interrupt();
                 }
                 return CompletableFuture.completedFuture(null);
@@ -504,15 +527,18 @@ class OutboxConsumerGroupV110EdgeCasesTest {
 
             group.start();
             producer.send("Message").join();
-            Thread.sleep(500);
+            CompletableFuture<Void> startWait = new CompletableFuture<>();
+            vertx.setTimer(500, timerId -> startWait.complete(null));
+            startWait.get(5, SECONDS);
 
             // Try to set handler again while processing
             assertThrows(IllegalStateException.class, () -> {
                 group.setMessageHandler(msg -> CompletableFuture.completedFuture(null));
             });
 
-            processingLatch.countDown();
+            processingGate.complete(null);
             group.close();
+            testContext.completeNow();
         }
 
         @Test

@@ -178,7 +178,7 @@ public class P4_BackfillVsOLTPTest extends BaseIntegrationTest {
         backfillThread.start();
 
         // Step 4: Publish OLTP messages while backfill is running
-        Thread.sleep(100);  // Give backfill a head start
+        manager.getVertx().timer(100).toCompletionStage().toCompletableFuture().join();  // Give backfill a head start
         logger.info("Publishing {} OLTP messages while backfill is running...", oltpMessageCount);
         long oltpPublishStart = System.currentTimeMillis();
 
@@ -321,7 +321,7 @@ public class P4_BackfillVsOLTPTest extends BaseIntegrationTest {
                         && result.status() != BackfillResult.Status.SKIPPED) {
                         throw new IllegalStateException("Unexpected backfill status: " + result.status());
                     }
-                    Thread.sleep(backfillIntervalMs);
+                    manager.getVertx().timer(backfillIntervalMs).toCompletionStage().toCompletableFuture().join();
                 } catch (Throwable t) {
                     backfillError.compareAndSet(null, t);
                     break;
@@ -336,7 +336,7 @@ public class P4_BackfillVsOLTPTest extends BaseIntegrationTest {
                     insertMessage(topic, payload)
                         .toCompletionStage().toCompletableFuture().get();
                     published.incrementAndGet();
-                    Thread.sleep(5);
+                    manager.getVertx().timer(5).toCompletionStage().toCompletableFuture().join();
                 } catch (Throwable t) {
                     publisherError.compareAndSet(null, t);
                     break;
@@ -351,7 +351,7 @@ public class P4_BackfillVsOLTPTest extends BaseIntegrationTest {
                         .toCompletionStage().toCompletableFuture().get();
 
                     if (messages.isEmpty()) {
-                        Thread.sleep(10);
+                        manager.getVertx().timer(10).toCompletionStage().toCompletableFuture().join();
                         continue;
                     }
 

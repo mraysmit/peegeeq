@@ -1,0 +1,399 @@
+[INFO] Scanning for projects...
+[INFO] ------------------------------------------------------------------------
+[INFO] Reactor Build Order:
+[INFO] 
+[INFO] PeeGeeQ                                                            [pom]
+[INFO] PeeGeeQ API                                                        [jar]
+[INFO] PeeGeeQ DB                                                         [jar]
+[INFO] 
+[INFO] --------------------------< dev.mars:peegeeq >--------------------------
+[INFO] Building PeeGeeQ 1.0-SNAPSHOT                                      [1/3]
+[INFO]   from pom.xml
+[INFO] --------------------------------[ pom ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ peegeeq ---
+[INFO] 
+[INFO] --- toolchains:3.1.0:toolchain (default) @ peegeeq ---
+[INFO] Required toolchain: jdk [ version='21' ]
+[INFO] Found matching toolchain for type jdk: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] 
+[INFO] --- enforcer:3.4.1:enforce (enforce-maven-version) @ peegeeq ---
+[INFO] Rule 0: org.apache.maven.enforcer.rules.version.RequireMavenVersion passed
+[INFO] 
+[INFO] ------------------------< dev.mars:peegeeq-api >------------------------
+[INFO] Building PeeGeeQ API 1.0-SNAPSHOT                                  [2/3]
+[INFO]   from peegeeq-api\pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ peegeeq-api ---
+[INFO] Deleting C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-api\target
+[INFO] 
+[INFO] --- toolchains:3.1.0:toolchain (default) @ peegeeq-api ---
+[INFO] Required toolchain: jdk [ version='21' ]
+[INFO] Found matching toolchain for type jdk: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] 
+[INFO] --- enforcer:3.4.1:enforce (enforce-maven-version) @ peegeeq-api ---
+[INFO] 
+[INFO] --- jacoco:0.8.12:prepare-agent (default) @ peegeeq-api ---
+[INFO] argLine set to -javaagent:C:\\Users\\mraysmit\\.m2\\repository\\org\\jacoco\\org.jacoco.agent\\0.8.12\\org.jacoco.agent-0.8.12-runtime.jar=destfile=C:\\Users\\mraysmit\\dev\\idea-projects\\peegeeq\\peegeeq-api\\target\\jacoco.exec
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ peegeeq-api ---
+[INFO] Copying 1 resource from src\main\resources to target\classes
+[INFO] 
+[INFO] --- compiler:3.11.0:compile (default-compile) @ peegeeq-api ---
+[INFO] Toolchain in maven-compiler-plugin: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] Changes detected - recompiling the module! :source
+[INFO] Compiling 69 source files with javac [forked debug release 21] to target\classes
+[INFO] 
+[INFO] --- resources:3.3.1:testResources (default-testResources) @ peegeeq-api ---
+[INFO] Copying 1 resource from src\test\resources to target\test-classes
+[INFO] 
+[INFO] --- compiler:3.11.0:testCompile (default-testCompile) @ peegeeq-api ---
+[INFO] Toolchain in maven-compiler-plugin: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] Changes detected - recompiling the module! :dependency
+[INFO] Compiling 31 source files with javac [forked debug release 21] to target\test-classes
+[INFO] 
+[INFO] ------------------------< dev.mars:peegeeq-db >-------------------------
+[INFO] Building PeeGeeQ DB 1.0-SNAPSHOT                                   [3/3]
+[INFO]   from peegeeq-db\pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ peegeeq-db ---
+[INFO] Deleting C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\target
+[INFO] 
+[INFO] --- toolchains:3.1.0:toolchain (default) @ peegeeq-db ---
+[INFO] Required toolchain: jdk [ version='21' ]
+[INFO] Found matching toolchain for type jdk: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] 
+[INFO] --- enforcer:3.4.1:enforce (enforce-maven-version) @ peegeeq-db ---
+[INFO] 
+[INFO] --- jacoco:0.8.12:prepare-agent (default) @ peegeeq-db ---
+[INFO] argLine set to -javaagent:C:\\Users\\mraysmit\\.m2\\repository\\org\\jacoco\\org.jacoco.agent\\0.8.12\\org.jacoco.agent-0.8.12-runtime.jar=destfile=C:\\Users\\mraysmit\\dev\\idea-projects\\peegeeq\\peegeeq-db\\target\\jacoco.exec
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ peegeeq-db ---
+[INFO] Copying 77 resources from src\main\resources to target\classes
+[INFO] 
+[INFO] --- compiler:3.11.0:compile (default-compile) @ peegeeq-db ---
+[INFO] Toolchain in maven-compiler-plugin: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] Changes detected - recompiling the module! :dependency
+[INFO] Compiling 52 source files with javac [forked debug release 21] to target\classes
+[INFO] 
+[INFO] --- resources:3.3.1:testResources (default-testResources) @ peegeeq-db ---
+[INFO] Copying 4 resources from src\test\resources to target\test-classes
+[INFO] 
+[INFO] --- compiler:3.11.0:testCompile (default-testCompile) @ peegeeq-db ---
+[INFO] Toolchain in maven-compiler-plugin: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] Changes detected - recompiling the module! :dependency
+[INFO] Compiling 99 source files with javac [forked debug release 21] to target\test-classes
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\MultiConfigurationExampleTest.java:[101,8] error: cannot find symbol
+  symbol:   variable vertx
+  location: class MultiConfigurationExampleTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\MultiConfigurationExampleTest.java:[105,8] error: cannot find symbol
+  symbol:   variable vertx
+  location: class MultiConfigurationExampleTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\MultiConfigurationExampleTest.java:[109,8] error: cannot find symbol
+  symbol:   variable vertx
+  location: class MultiConfigurationExampleTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\PeeGeeQPerformanceTest.java:[151,20] error: cannot find symbol
+  symbol:   variable testContext
+  location: class PeeGeeQPerformanceTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\PeeGeeQPerformanceTest.java:[197,32] error: cannot find symbol
+  symbol:   variable vertx
+  location: class PeeGeeQPerformanceTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\PeeGeeQPerformanceTest.java:[214,20] error: cannot find symbol
+  symbol:   variable testContext
+  location: class PeeGeeQPerformanceTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\PeeGeeQPerformanceTest.java:[269,20] error: cannot find symbol
+  symbol:   variable testContext
+  location: class PeeGeeQPerformanceTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\PeeGeeQPerformanceTest.java:[336,20] error: cannot find symbol
+  symbol:   variable testContext
+  location: class PeeGeeQPerformanceTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\PeeGeeQPerformanceTest.java:[369,8] error: cannot find symbol
+  symbol:   variable vertx
+  location: class PeeGeeQPerformanceTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\PeeGeeQPerformanceTest.java:[395,8] error: cannot find symbol
+  symbol:   variable vertx
+  location: class PeeGeeQPerformanceTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[129,24] error: cannot find symbol
+  symbol:   variable testContext
+  location: class CompletionTrackerIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[135,20] error: cannot find symbol
+  symbol:   variable testContext
+  location: class CompletionTrackerIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[138,19] error: cannot find symbol
+  symbol:   variable testContext
+  location: class CompletionTrackerIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[205,24] error: cannot find symbol
+  symbol:   variable testContext
+  location: class CompletionTrackerIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[211,20] error: cannot find symbol
+  symbol:   variable testContext
+  location: class CompletionTrackerIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[214,19] error: cannot find symbol
+  symbol:   variable testContext
+  location: class CompletionTrackerIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[253,24] error: cannot find symbol
+  symbol:   variable testContext
+  location: class CompletionTrackerIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[259,20] error: cannot find symbol
+  symbol:   variable testContext
+  location: class CompletionTrackerIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[262,19] error: cannot find symbol
+  symbol:   variable testContext
+  location: class CompletionTrackerIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[302,24] error: cannot find symbol
+  symbol:   variable testContext
+  location: class CompletionTrackerIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[307,20] error: cannot find symbol
+  symbol:   variable testContext
+  location: class CompletionTrackerIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[310,19] error: cannot find symbol
+  symbol:   variable testContext
+  location: class CompletionTrackerIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[358,24] error: cannot find symbol
+  symbol:   variable testContext
+  location: class CompletionTrackerIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[364,20] error: cannot find symbol
+  symbol:   variable testContext
+  location: class CompletionTrackerIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[367,19] error: cannot find symbol
+  symbol:   variable testContext
+  location: class CompletionTrackerIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[411,24] error: cannot find symbol
+  symbol:   variable testContext
+  location: class CompletionTrackerIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[416,20] error: cannot find symbol
+  symbol:   variable testContext
+  location: class CompletionTrackerIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[419,19] error: cannot find symbol
+  symbol:   variable testContext
+  location: class CompletionTrackerIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[453,32] error: cannot find symbol
+  symbol:   variable testContext
+  location: class CompletionTrackerIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[456,20] error: cannot find symbol
+  symbol:   variable testContext
+  location: class CompletionTrackerIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[459,19] error: cannot find symbol
+  symbol:   variable testContext
+  location: class CompletionTrackerIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[510,24] error: cannot find symbol
+  symbol:   variable testContext
+  location: class CompletionTrackerIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[515,20] error: cannot find symbol
+  symbol:   variable testContext
+  location: class CompletionTrackerIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[518,19] error: cannot find symbol
+  symbol:   variable testContext
+  location: class CompletionTrackerIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\SimpleConsumerGroupTestTest.java:[214,52] error: cannot find symbol
+  symbol:   variable testContext
+  location: class SimpleConsumerGroupTestTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\SimpleConsumerGroupTestTest.java:[230,8] error: cannot find symbol
+  symbol:   variable vertx
+  location: class SimpleConsumerGroupTestTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\SimpleConsumerGroupTestTest.java:[241,31] error: cannot find symbol
+  symbol:   variable testContext
+  location: class SimpleConsumerGroupTestTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\SimpleConsumerGroupTestTest.java:[264,8] error: cannot find symbol
+  symbol:   variable vertx
+  location: class SimpleConsumerGroupTestTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\SimpleConsumerGroupTestTest.java:[267,8] error: cannot find symbol
+  symbol:   variable vertx
+  location: class SimpleConsumerGroupTestTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\SimpleConsumerGroupTestTest.java:[270,8] error: cannot find symbol
+  symbol:   variable vertx
+  location: class SimpleConsumerGroupTestTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\SimpleConsumerGroupTestTest.java:[290,8] error: cannot find symbol
+  symbol:   variable vertx
+  location: class SimpleConsumerGroupTestTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\SimpleConsumerGroupTestTest.java:[293,8] error: cannot find symbol
+  symbol:   variable vertx
+  location: class SimpleConsumerGroupTestTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\SimpleConsumerGroupTestTest.java:[314,8] error: cannot find symbol
+  symbol:   variable vertx
+  location: class SimpleConsumerGroupTestTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\SimpleConsumerGroupTestTest.java:[317,8] error: cannot find symbol
+  symbol:   variable vertx
+  location: class SimpleConsumerGroupTestTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\SimpleConsumerGroupTestTest.java:[320,8] error: cannot find symbol
+  symbol:   variable vertx
+  location: class SimpleConsumerGroupTestTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\cleanup\DeadConsumerDetectorIntegrationTest.java:[142,20] error: cannot find symbol
+  symbol:   variable testContext
+  location: class DeadConsumerDetectorIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\cleanup\DeadConsumerDetectorIntegrationTest.java:[144,27] error: cannot find symbol
+  symbol:   variable testContext
+  location: class DeadConsumerDetectorIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\cleanup\DeadConsumerDetectorIntegrationTest.java:[146,19] error: cannot find symbol
+  symbol:   variable testContext
+  location: class DeadConsumerDetectorIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\cleanup\DeadConsumerDetectorIntegrationTest.java:[190,20] error: cannot find symbol
+  symbol:   variable testContext
+  location: class DeadConsumerDetectorIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\cleanup\DeadConsumerDetectorIntegrationTest.java:[192,27] error: cannot find symbol
+  symbol:   variable testContext
+  location: class DeadConsumerDetectorIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\cleanup\DeadConsumerDetectorIntegrationTest.java:[194,19] error: cannot find symbol
+  symbol:   variable testContext
+  location: class DeadConsumerDetectorIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\cleanup\DeadConsumerDetectorIntegrationTest.java:[269,20] error: cannot find symbol
+  symbol:   variable testContext
+  location: class DeadConsumerDetectorIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\cleanup\DeadConsumerDetectorIntegrationTest.java:[271,27] error: cannot find symbol
+  symbol:   variable testContext
+  location: class DeadConsumerDetectorIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\cleanup\DeadConsumerDetectorIntegrationTest.java:[273,19] error: cannot find symbol
+  symbol:   variable testContext
+  location: class DeadConsumerDetectorIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\cleanup\DeadConsumerDetectorIntegrationTest.java:[333,20] error: cannot find symbol
+  symbol:   variable testContext
+  location: class DeadConsumerDetectorIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\cleanup\DeadConsumerDetectorIntegrationTest.java:[335,27] error: cannot find symbol
+  symbol:   variable testContext
+  location: class DeadConsumerDetectorIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\cleanup\DeadConsumerDetectorIntegrationTest.java:[337,19] error: cannot find symbol
+  symbol:   variable testContext
+  location: class DeadConsumerDetectorIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\fanout\DeadConsumerDetectionJobIntegrationTest.java:[478,27] error: cannot find symbol
+  symbol:   variable SECONDS
+  location: class DeadConsumerDetectionJobIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\fanout\DeadConsumerDetectionJobIntegrationTest.java:[478,8] error: cannot find symbol
+  symbol:   method await()
+  location: class DeadConsumerDetectionJobIntegrationTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\PerformanceComparisonExampleTest.java:[203,12] error: cannot find symbol
+  symbol:   variable vertx
+  location: class PerformanceComparisonExampleTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\SecurityConfigurationExampleTest.java:[225,26] error: cannot find symbol
+  symbol:   variable SECONDS
+  location: class SecurityConfigurationExampleTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\SecurityConfigurationExampleTest.java:[225,8] error: cannot find symbol
+  symbol:   method await()
+  location: class SecurityConfigurationExampleTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\VertxEventLoopBlockingJoinTest.java:[33,12] error: cannot find symbol
+  symbol:   class CountDownLatch
+  location: class VertxEventLoopBlockingJoinTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\VertxEventLoopBlockingJoinTest.java:[33,47] error: cannot find symbol
+  symbol:   class CountDownLatch
+  location: class VertxEventLoopBlockingJoinTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\VertxEventLoopBlockingJoinTest.java:[64,12] error: cannot find symbol
+  symbol:   class CountDownLatch
+  location: class VertxEventLoopBlockingJoinTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\VertxEventLoopBlockingJoinTest.java:[64,40] error: cannot find symbol
+  symbol:   class CountDownLatch
+  location: class VertxEventLoopBlockingJoinTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\VertxEventLoopBlockingJoinTest.java:[76,12] error: cannot find symbol
+  symbol:   class CountDownLatch
+  location: class VertxEventLoopBlockingJoinTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\VertxEventLoopBlockingJoinTest.java:[76,47] error: cannot find symbol
+  symbol:   class CountDownLatch
+  location: class VertxEventLoopBlockingJoinTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\VertxEventLoopBlockingJoinTest.java:[77,12] error: cannot find symbol
+  symbol:   class CountDownLatch
+  location: class VertxEventLoopBlockingJoinTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\VertxEventLoopBlockingJoinTest.java:[77,44] error: cannot find symbol
+  symbol:   class CountDownLatch
+  location: class VertxEventLoopBlockingJoinTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\VertxEventLoopBlockingJoinTest.java:[101,12] error: cannot find symbol
+  symbol:   class CountDownLatch
+  location: class VertxEventLoopBlockingJoinTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\VertxEventLoopBlockingJoinTest.java:[101,40] error: cannot find symbol
+  symbol:   class CountDownLatch
+  location: class VertxEventLoopBlockingJoinTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\deadletter\DeadLetterQueueManagerTest.java:[216,26] error: cannot find symbol
+  symbol:   variable SECONDS
+  location: class DeadLetterQueueManagerTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\deadletter\DeadLetterQueueManagerTest.java:[216,8] error: cannot find symbol
+  symbol:   method await()
+  location: class DeadLetterQueueManagerTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\deadletter\DeadLetterQueueManagerTest.java:[257,26] error: cannot find symbol
+  symbol:   variable SECONDS
+  location: class DeadLetterQueueManagerTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\deadletter\DeadLetterQueueManagerTest.java:[257,8] error: cannot find symbol
+  symbol:   method await()
+  location: class DeadLetterQueueManagerTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\deadletter\DeadLetterQueueManagerTest.java:[372,27] error: cannot find symbol
+  symbol:   variable SECONDS
+  location: class DeadLetterQueueManagerTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\deadletter\DeadLetterQueueManagerTest.java:[372,8] error: cannot find symbol
+  symbol:   method await()
+  location: class DeadLetterQueueManagerTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\deadletter\DeadLetterQueueManagerTest.java:[536,27] error: cannot find symbol
+  symbol:   variable SECONDS
+  location: class DeadLetterQueueManagerTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\deadletter\DeadLetterQueueManagerTest.java:[536,8] error: cannot find symbol
+  symbol:   method await()
+  location: class DeadLetterQueueManagerTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\deadletter\DeadLetterQueueManagerTest.java:[542,105] error: cannot find symbol
+  symbol:   variable retries
+  location: class DeadLetterQueueManagerTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\resilience\BackpressureManagerTest.java:[125,24] error: cannot find symbol
+  symbol:   variable vertx
+  location: class BackpressureManagerTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\resilience\BackpressureManagerTest.java:[136,20] error: cannot find symbol
+  symbol:   variable completetestContext
+  location: class BackpressureManagerTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\resilience\BackpressureManagerTest.java:[141,8] error: cannot find symbol
+  symbol:   variable starttestContext
+  location: class BackpressureManagerTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\resilience\BackpressureManagerTest.java:[160,20] error: cannot find symbol
+  symbol:   variable vertx
+  location: class BackpressureManagerTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\resilience\BackpressureManagerTest.java:[170,12] error: cannot find symbol
+  symbol:   variable vertx
+  location: class BackpressureManagerTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\health\HealthCheckManagerTest.java:[168,27] error: cannot find symbol
+  symbol:   variable SECONDS
+  location: class HealthCheckManagerTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\health\HealthCheckManagerTest.java:[168,8] error: cannot find symbol
+  symbol:   method await()
+  location: class HealthCheckManagerTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\health\HealthCheckManagerTest.java:[178,27] error: cannot find symbol
+  symbol:   variable SECONDS
+  location: class HealthCheckManagerTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\health\HealthCheckManagerTest.java:[178,8] error: cannot find symbol
+  symbol:   method await()
+  location: class HealthCheckManagerTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\health\HealthCheckManagerTest.java:[200,27] error: cannot find symbol
+  symbol:   variable SECONDS
+  location: class HealthCheckManagerTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\health\HealthCheckManagerTest.java:[200,8] error: cannot find symbol
+  symbol:   method await()
+  location: class HealthCheckManagerTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\health\HealthCheckManagerTest.java:[220,27] error: cannot find symbol
+  symbol:   variable SECONDS
+  location: class HealthCheckManagerTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\health\HealthCheckManagerTest.java:[220,8] error: cannot find symbol
+  symbol:   method await()
+  location: class HealthCheckManagerTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\health\HealthCheckManagerTest.java:[249,27] error: cannot find symbol
+  symbol:   variable SECONDS
+  location: class HealthCheckManagerTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\health\HealthCheckManagerTest.java:[249,8] error: cannot find symbol
+  symbol:   method await()
+  location: class HealthCheckManagerTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\health\HealthCheckManagerTest.java:[265,27] error: cannot find symbol
+  symbol:   variable SECONDS
+  location: class HealthCheckManagerTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\health\HealthCheckManagerTest.java:[265,8] error: cannot find symbol
+  symbol:   method await()
+  location: class HealthCheckManagerTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\health\HealthCheckManagerTest.java:[289,27] error: cannot find symbol
+  symbol:   variable SECONDS
+  location: class HealthCheckManagerTest
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\health\HealthCheckManagerTest.java:[289,8] error: cannot find symbol
+  symbol:   method await()
+  location: class HealthCheckManagerTest
+[INFO] ------------------------------------------------------------------------
+[INFO] Reactor Summary for PeeGeeQ 1.0-SNAPSHOT:
+[INFO] 
+[INFO] PeeGeeQ ............................................ SUCCESS [  1.043 s]
+[INFO] PeeGeeQ API ........................................ SUCCESS [ 11.996 s]
+[INFO] PeeGeeQ DB ......................................... SUCCESS [ 15.060 s]
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD SUCCESS
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  28.993 s
+[INFO] Finished at: 2026-03-15T20:52:57+08:00
+[INFO] ------------------------------------------------------------------------

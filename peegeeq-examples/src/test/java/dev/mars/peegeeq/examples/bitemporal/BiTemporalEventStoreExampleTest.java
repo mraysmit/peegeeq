@@ -46,7 +46,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -138,6 +138,18 @@ class BiTemporalEventStoreExampleTest {
      */
     private String getUniqueId(String prefix) {
         return prefix + "-" + System.nanoTime();
+    }
+
+    private <T> T await(io.vertx.core.Future<T> future) {
+        return await(future, 5, TimeUnit.SECONDS);
+    }
+
+    private <T> T await(io.vertx.core.Future<T> future, long timeout, TimeUnit unit) {
+        try {
+            return future.toCompletionStage().toCompletableFuture().get(timeout, unit);
+        } catch (Exception e) {
+            throw new RuntimeException("Timed out waiting for async operation", e);
+        }
     }
     
     @BeforeEach
@@ -256,13 +268,13 @@ class BiTemporalEventStoreExampleTest {
 
         // COMPLIANCE VALIDATION: System must be able to handle basic audit operations
         assertDoesNotThrow(() -> {
-            EventStore.EventStoreStats stats = eventStore.getStats().join();
+            EventStore.EventStoreStats stats = await(eventStore.getStats());
             assertNotNull(stats, "System must provide audit statistics for compliance reporting");
         }, "Audit trail system must be ready to provide compliance statistics");
 
         // REGULATORY VALIDATION: System must support required query capabilities
         assertDoesNotThrow(() -> {
-            List<BiTemporalEvent<TradeEvent>> events = eventStore.query(EventQuery.all()).join();
+            List<BiTemporalEvent<TradeEvent>> events = await(eventStore.query(EventQuery.all()));
             assertNotNull(events, "System must support audit trail queries for regulatory inspection");
         }, "System must support regulatory audit queries");
 
@@ -284,7 +296,7 @@ class BiTemporalEventStoreExampleTest {
         assertNotNull(eventStore, "Audit trail system must be operational for financial transactions");
 
         // COMPLIANCE VALIDATION: System must maintain complete audit trail
-        List<BiTemporalEvent<TradeEvent>> initialEvents = eventStore.query(EventQuery.all()).join();
+        List<BiTemporalEvent<TradeEvent>> initialEvents = await(eventStore.query(EventQuery.all()));
         assertNotNull(initialEvents, "System must support audit trail queries for regulatory compliance");
 
         // 1. BUSINESS SCENARIO: Create realistic equity trades for compliance testing
@@ -310,15 +322,15 @@ class BiTemporalEventStoreExampleTest {
         );
 
         // AUDIT TRAIL: Append trade capture events with regulatory metadata
-        BiTemporalEvent<TradeEvent> event1 = eventStore.append("TradeCaptured", trade1, baseTime,
+        BiTemporalEvent<TradeEvent> event1 = await(eventStore.append("TradeCaptured", trade1, baseTime,
             Map.of("source", "trading-system", "region", "US", "desk", "equity-trading"),
             getUniqueId("corr"), null, tradeId1
-        ).join();
+        ));
 
-        BiTemporalEvent<TradeEvent> event2 = eventStore.append("TradeCaptured", trade2, baseTime.plus(10, ChronoUnit.MINUTES),
+        BiTemporalEvent<TradeEvent> event2 = await(eventStore.append("TradeCaptured", trade2, baseTime.plus(10, ChronoUnit.MINUTES),
             Map.of("source", "trading-system", "region", "EU", "desk", "equity-trading"),
             getUniqueId("corr"), null, tradeId2
-        ).join();
+        ));
 
         // 2. REGULATORY VALIDATION: Verify trade events were captured with complete audit trail
         assertNotNull(event1, "Trade capture event must be recorded for regulatory compliance");
@@ -328,17 +340,15 @@ class BiTemporalEventStoreExampleTest {
         assertEquals(new BigDecimal("150250.00"), event1.getPayload().getNotionalAmount(), "Notional amount must be accurate for regulatory reporting");
 
         // 3. COMPLIANCE VALIDATION: Query all events for audit trail verification
-        List<BiTemporalEvent<TradeEvent>> allEvents = eventStore.query(EventQuery.all()).join();
+        List<BiTemporalEvent<TradeEvent>> allEvents = await(eventStore.query(EventQuery.all()));
         assertTrue(allEvents.size() >= 2, "Audit trail must contain all financial transactions for compliance");
 
         // 4. REGULATORY QUERY: Query by event type for regulatory reporting
-        List<BiTemporalEvent<TradeEvent>> tradeEvents = eventStore.query(EventQuery.forEventType("TradeCaptured")
-        ).join();
+        List<BiTemporalEvent<TradeEvent>> tradeEvents = await(eventStore.query(EventQuery.forEventType("TradeCaptured")));
         assertTrue(tradeEvents.size() >= 2, "Should have at least the 2 TradeCaptured events for regulatory reporting");
 
         // 5. AUDIT QUERY: Query by aggregate (trade ID) for investigation
-        List<BiTemporalEvent<TradeEvent>> trade1Events = eventStore.query(EventQuery.forAggregate(tradeId1)
-        ).join();
+        List<BiTemporalEvent<TradeEvent>> trade1Events = await(eventStore.query(EventQuery.forAggregate(tradeId1)));
         assertEquals(1, trade1Events.size(), "Should have exactly 1 event for trade " + tradeId1 + " in audit trail");
 
         // 6. REGULATORY CORRECTION: Add a price correction event (common in post-trade processing)
@@ -349,10 +359,10 @@ class BiTemporalEventStoreExampleTest {
             "XNYS", "US", "BUY", Map.of("mifidII", "true", "reportingRegime", "US", "correctionReason", "price-adjustment")
         );
 
-        BiTemporalEvent<TradeEvent> correctionEvent = eventStore.appendCorrection(event1.getEventId(), "TradeCorrected", correctedTrade, baseTime,
+        BiTemporalEvent<TradeEvent> correctionEvent = await(eventStore.appendCorrection(event1.getEventId(), "TradeCorrected", correctedTrade, baseTime,
                 Map.of("source", "back-office", "region", "US", "corrected", "true", "approver", "SUPERVISOR001"),
             getUniqueId("corr"), tradeId1, "Price correction due to post-trade price discovery"
-        ).join();
+        ));
 
         // 7. REGULATORY VALIDATION: Verify correction was properly recorded
         assertNotNull(correctionEvent, "Correction event must be recorded for regulatory audit trail");
@@ -360,19 +370,18 @@ class BiTemporalEventStoreExampleTest {
         assertEquals(new BigDecimal("149750.00"), correctionEvent.getPayload().getNotionalAmount(), "Corrected notional amount must be accurate");
 
         // 8. AUDIT TRAIL: Get all versions of the trade for complete history
-        List<BiTemporalEvent<TradeEvent>> versions = eventStore.getAllVersions(event1.getEventId()).join();
+        List<BiTemporalEvent<TradeEvent>> versions = await(eventStore.getAllVersions(event1.getEventId()));
         assertEquals(2, versions.size(), "Audit trail must contain both original and corrected versions");
 
         // 9. COMPLIANCE QUERY: Point-in-time query for regulatory reconstruction
         Instant beforeCorrection = correctionEvent.getTransactionTime().minus(1, ChronoUnit.SECONDS);
-        BiTemporalEvent<TradeEvent> eventBeforeCorrection = eventStore.getAsOfTransactionTime(event1.getEventId(), beforeCorrection
-        ).join();
+        BiTemporalEvent<TradeEvent> eventBeforeCorrection = await(eventStore.getAsOfTransactionTime(event1.getEventId(), beforeCorrection));
 
         assertNotNull(eventBeforeCorrection, "Must be able to reconstruct pre-correction state for regulatory reporting");
         assertEquals(0, new BigDecimal("150250.00").compareTo(eventBeforeCorrection.getPayload().getNotionalAmount()), "Original notional amount must be preserved in audit trail");
 
         // 10. Get statistics
-        EventStore.EventStoreStats stats = eventStore.getStats().join();
+        EventStore.EventStoreStats stats = await(eventStore.getStats());
         assertNotNull(stats);
         assertTrue(stats.getTotalEvents() >= 3, "Should have at least 3 events (2 original + 1 correction)");
         assertTrue(stats.getTotalCorrections() >= 1, "Should have at least 1 correction");
@@ -415,22 +424,22 @@ class BiTemporalEventStoreExampleTest {
         );
 
         // AUDIT TRAIL: Record trades with their actual execution times
-        eventStore.append("TradeSettled", morningTrade, tradingDayStart, Map.of("session", "morning"), "corr-1", null, morningTrade.getTradeId()).join();
-        eventStore.append("TradeSettled", noonTrade, tradingDayStart.plus(4, ChronoUnit.HOURS), Map.of("session", "noon"), "corr-2", null, noonTrade.getTradeId()).join();
-        eventStore.append("TradeSettled", afternoonTrade, tradingDayStart.plus(7, ChronoUnit.HOURS), Map.of("session", "afternoon"), "corr-3", null, afternoonTrade.getTradeId()).join();
+        await(eventStore.append("TradeSettled", morningTrade, tradingDayStart, Map.of("session", "morning"), "corr-1", null, morningTrade.getTradeId()));
+        await(eventStore.append("TradeSettled", noonTrade, tradingDayStart.plus(4, ChronoUnit.HOURS), Map.of("session", "noon"), "corr-2", null, noonTrade.getTradeId()));
+        await(eventStore.append("TradeSettled", afternoonTrade, tradingDayStart.plus(7, ChronoUnit.HOURS), Map.of("session", "afternoon"), "corr-3", null, afternoonTrade.getTradeId()));
 
         // BUSINESS VALIDATION: Query trades within specific time window (noon period)
         Instant noonStart = tradingDayStart.plus(3, ChronoUnit.HOURS);   // 3 hours after market open
         Instant noonEnd = tradingDayStart.plus(5, ChronoUnit.HOURS);     // 5 hours after market open
 
         // Query for the specific trade we expect to be in the range
-        BiTemporalEvent<TradeEvent> noonTradeEvent = eventStore.query(
+        BiTemporalEvent<TradeEvent> noonTradeEvent = await(eventStore.query(
             EventQuery.builder()
                 .validTimeRange(new TemporalRange(noonStart, noonEnd))
                 .eventType("TradeSettled")
                 .aggregateId("TRD-" + testId + "-002") // Specific trade ID
                 .build()
-        ).join()
+        ))
         .stream()
         .findFirst()
         .orElse(null);
@@ -524,21 +533,17 @@ class BiTemporalEventStoreExampleTest {
         );
 
         // PERFORMANCE TEST: Async trade capture for high-frequency processing
-        CompletableFuture<BiTemporalEvent<TradeEvent>> future = eventStore.append(
+        BiTemporalEvent<TradeEvent> event = await(eventStore.append(
             "HFTTradeCaptured", hftTrade, Instant.now(),
             Map.of("async", "true", "priority", "high", "latency-sensitive", "true"),
             getUniqueId("hft-corr"), null, tradeId
-        );
-
-        BiTemporalEvent<TradeEvent> event = future.join();
+        ));
         assertNotNull(event, "HFT trade must be captured for regulatory compliance");
         assertEquals(tradeId, event.getPayload().getTradeId(), "Trade ID must be preserved for audit trail");
         assertEquals("HFT-ALGO-001", event.getPayload().getTraderId(), "Algo trader ID must be recorded for compliance");
 
         // REGULATORY VALIDATION: Async query for trade reconstruction
-        CompletableFuture<List<BiTemporalEvent<TradeEvent>>> queryFuture = eventStore.query(EventQuery.forAggregate(tradeId));
-
-        List<BiTemporalEvent<TradeEvent>> events = queryFuture.join();
+        List<BiTemporalEvent<TradeEvent>> events = await(eventStore.query(EventQuery.forAggregate(tradeId)));
         assertEquals(1, events.size(), "Should have exactly one HFT trade event");
         assertEquals(tradeId, events.get(0).getPayload().getTradeId(), "Trade ID must match for audit trail");
         assertEquals(0, new BigDecimal("15025.00").compareTo(events.get(0).getPayload().getNotionalAmount()), "Notional amount must be accurate for position tracking");
@@ -574,11 +579,11 @@ class BiTemporalEventStoreExampleTest {
             "XNYS", "US", "BUY", Map.of("source", "trading-system", "urgency", "normal")
         );
 
-        BiTemporalEvent<TradeEvent> captureEvent = eventStore.append(
+        BiTemporalEvent<TradeEvent> captureEvent = await(eventStore.append(
             "TradeCaptured", initialTrade, tradeExecutionTime,
             Map.of("stage", "capture", "system", "trading-platform", "trader-desk", "institutional-equity"),
             getUniqueId("lifecycle-corr"), null, tradeId
-        ).join();
+        ));
 
         // REGULATORY VALIDATION: Trade capture must be recorded
         assertNotNull(captureEvent, "Trade capture must be recorded for regulatory compliance");
@@ -598,11 +603,11 @@ class BiTemporalEventStoreExampleTest {
             )
         );
 
-        BiTemporalEvent<TradeEvent> enrichmentEvent = eventStore.append(
+        BiTemporalEvent<TradeEvent> enrichmentEvent = await(eventStore.append(
             "TradeEnriched", enrichedTrade, tradeExecutionTime.plus(15, ChronoUnit.MINUTES),
             Map.of("stage", "enrichment", "system", "back-office", "processor", "trade-enrichment-engine"),
             getUniqueId("lifecycle-corr"), null, tradeId
-        ).join();
+        ));
 
         // BUSINESS VALIDATION: Enrichment must add regulatory data
         assertNotNull(enrichmentEvent, "Trade enrichment must be recorded for audit trail");
@@ -624,11 +629,11 @@ class BiTemporalEventStoreExampleTest {
             )
         );
 
-        BiTemporalEvent<TradeEvent> validationEvent = eventStore.append(
+        BiTemporalEvent<TradeEvent> validationEvent = await(eventStore.append(
             "TradeValidated", validatedTrade, tradeExecutionTime.plus(30, ChronoUnit.MINUTES),
             Map.of("stage", "validation", "system", "risk-management", "validator", "compliance-engine"),
             getUniqueId("lifecycle-corr"), null, tradeId
-        ).join();
+        ));
 
         // COMPLIANCE VALIDATION: All risk checks must pass
         assertNotNull(validationEvent, "Trade validation must be recorded for compliance");
@@ -663,11 +668,11 @@ class BiTemporalEventStoreExampleTest {
             "XNYS", "US", "BUY", settledRegulatoryData
         );
 
-        BiTemporalEvent<TradeEvent> settlementEvent = eventStore.append(
+        BiTemporalEvent<TradeEvent> settlementEvent = await(eventStore.append(
             "TradeSettled", settledTrade, tradeExecutionTime.plus(2, ChronoUnit.DAYS),
             Map.of("stage", "settlement", "system", "settlement-system", "agent", "DTC-SETTLEMENT"),
             getUniqueId("lifecycle-corr"), null, tradeId
-        ).join();
+        ));
 
         // FINAL VALIDATION: Settlement must be complete
         assertNotNull(settlementEvent, "Trade settlement must be recorded for regulatory reporting");
@@ -678,7 +683,7 @@ class BiTemporalEventStoreExampleTest {
 
         // AUDIT TRAIL VALIDATION: Query complete trade lifecycle
         logger.info("AUDIT VALIDATION: Verifying complete trade lifecycle audit trail");
-        List<BiTemporalEvent<TradeEvent>> tradeLifecycle = eventStore.query(EventQuery.forAggregate(tradeId)).join();
+        List<BiTemporalEvent<TradeEvent>> tradeLifecycle = await(eventStore.query(EventQuery.forAggregate(tradeId)));
 
         assertEquals(4, tradeLifecycle.size(), "Complete trade lifecycle must have 4 stages recorded");
 
@@ -748,11 +753,11 @@ class BiTemporalEventStoreExampleTest {
             "XLON", "UK", "SELL", mifidIIData
         );
 
-        BiTemporalEvent<TradeEvent> initialReportEvent = eventStore.append(
+        BiTemporalEvent<TradeEvent> initialReportEvent = await(eventStore.append(
             "MiFIDIITransactionReported", initialMiFIDReport, reportingDeadline,
             Map.of("regulatory", "mifid-ii", "report-type", "original", "jurisdiction", "UK"),
             getUniqueId("mifid-corr"), null, tradeId
-        ).join();
+        ));
 
         // REGULATORY VALIDATION: Initial report must be recorded within T+1
         assertNotNull(initialReportEvent, "MiFID II transaction report must be recorded within T+1 deadline");
@@ -779,12 +784,12 @@ class BiTemporalEventStoreExampleTest {
             "XLON", "UK", "SELL", correctedMiFIDData
         );
 
-        BiTemporalEvent<TradeEvent> correctionEvent = eventStore.appendCorrection(
+        BiTemporalEvent<TradeEvent> correctionEvent = await(eventStore.appendCorrection(
             initialReportEvent.getEventId(), "MiFIDIITransactionCorrected", correctedMiFIDReport,
             tradeExecutionTime, // Valid time remains original execution time
             Map.of("regulatory", "mifid-ii", "report-type", "correction", "jurisdiction", "UK", "supervisor-approved", "true"),
             getUniqueId("mifid-corr"), tradeId, "MiFID II price correction due to post-trade price discovery"
-        ).join();
+        ));
 
         // COMPLIANCE VALIDATION: Correction must be properly recorded
         assertNotNull(correctionEvent, "MiFID II correction must be recorded for regulatory compliance");
@@ -797,35 +802,35 @@ class BiTemporalEventStoreExampleTest {
         logger.info("STAGE 3: Regulatory Audit Trail Reconstruction - Supervisor Inquiry");
 
         // AUDIT SCENARIO: Regulatory supervisor requests complete transaction history
-        List<BiTemporalEvent<TradeEvent>> completeAuditTrail = eventStore.getAllVersions(initialReportEvent.getEventId()).join();
+        List<BiTemporalEvent<TradeEvent>> completeAuditTrail = await(eventStore.getAllVersions(initialReportEvent.getEventId()));
 
         assertEquals(2, completeAuditTrail.size(), "Audit trail must contain both original and corrected versions");
 
         // REGULATORY VALIDATION: Point-in-time reconstruction for supervisor
         // Scenario: "What did you report on T+1?" (before correction was known)
         Instant supervisorInquiryTime = correctionTime.minus(1, ChronoUnit.HOURS); // Just before correction
-        BiTemporalEvent<TradeEvent> reportAsOfT1 = eventStore.getAsOfTransactionTime(
+        BiTemporalEvent<TradeEvent> reportAsOfT1 = await(eventStore.getAsOfTransactionTime(
             initialReportEvent.getEventId(), supervisorInquiryTime
-        ).join();
+        ));
 
         assertNotNull(reportAsOfT1, "Must be able to reconstruct T+1 report for regulatory inquiry");
         assertEquals(0, new BigDecimal("1143750.00").compareTo(reportAsOfT1.getPayload().getNotionalAmount()), "Original T+1 report amount must be preserved");
         assertEquals("ORIGINAL", reportAsOfT1.getPayload().getRegulatoryData().get("reportingStatus"), "Original reporting status must be preserved");
 
         // COMPLIANCE VALIDATION: Current corrected state shows updated information
-        BiTemporalEvent<TradeEvent> currentCorrectedState = eventStore.getById(correctionEvent.getEventId()).join();
+        BiTemporalEvent<TradeEvent> currentCorrectedState = await(eventStore.getById(correctionEvent.getEventId()));
         assertNotNull(currentCorrectedState, "Corrected state must be available for regulatory reporting");
         assertEquals(0, new BigDecimal("1156250.00").compareTo(currentCorrectedState.getPayload().getNotionalAmount()), "Corrected state must show updated amount");
         assertEquals("CORRECTED", currentCorrectedState.getPayload().getRegulatoryData().get("reportingStatus"), "Corrected state must show corrected status");
 
         // AUDIT VALIDATION: Original state must still be preserved
-        BiTemporalEvent<TradeEvent> originalState = eventStore.getById(initialReportEvent.getEventId()).join();
+        BiTemporalEvent<TradeEvent> originalState = await(eventStore.getById(initialReportEvent.getEventId()));
         assertNotNull(originalState, "Original state must be preserved for audit trail");
         assertEquals(0, new BigDecimal("1143750.00").compareTo(originalState.getPayload().getNotionalAmount()), "Original state must preserve original amount");
         assertEquals("ORIGINAL", originalState.getPayload().getRegulatoryData().get("reportingStatus"), "Original state must preserve original status");
 
         // REGULATORY REPORTING VALIDATION: Query all MiFID II reports for this trade
-        List<BiTemporalEvent<TradeEvent>> mifidReports = eventStore.query(EventQuery.forAggregate(tradeId)).join();
+        List<BiTemporalEvent<TradeEvent>> mifidReports = await(eventStore.query(EventQuery.forAggregate(tradeId)));
 
         assertTrue(mifidReports.size() >= 2, "Must have both original and corrected MiFID II reports");
 
@@ -881,11 +886,11 @@ class BiTemporalEventStoreExampleTest {
             "XPAR", "FR", "BUY", settlementData
         );
 
-        BiTemporalEvent<TradeEvent> instructionEvent = eventStore.append(
+        BiTemporalEvent<TradeEvent> instructionEvent = await(eventStore.append(
             "SettlementInstructed", settlementInstruction, settlementDate,
             Map.of("stage", "settlement", "system", "settlement-system", "priority", "high"),
             getUniqueId("settlement-corr"), null, tradeId
-        ).join();
+        ));
 
         // OPERATIONAL VALIDATION: Settlement instruction must be recorded
         assertNotNull(instructionEvent, "Settlement instruction must be recorded for operational tracking");
@@ -912,11 +917,11 @@ class BiTemporalEventStoreExampleTest {
             "XPAR", "FR", "BUY", failureData
         );
 
-        BiTemporalEvent<TradeEvent> failureEvent = eventStore.append(
+        BiTemporalEvent<TradeEvent> failureEvent = await(eventStore.append(
             "SettlementFailed", settlementFailure, failureTime,
             Map.of("stage", "settlement", "system", "settlement-system", "alert", "risk-management", "escalation", "required"),
             getUniqueId("settlement-corr"), null, tradeId
-        ).join();
+        ));
 
         // RISK MANAGEMENT VALIDATION: Settlement failure must trigger risk alerts
         assertNotNull(failureEvent, "Settlement failure must be recorded for risk management");
@@ -944,11 +949,11 @@ class BiTemporalEventStoreExampleTest {
             "XPAR", "FR", "BUY", retryData
         );
 
-        BiTemporalEvent<TradeEvent> retryEvent = eventStore.append(
+        BiTemporalEvent<TradeEvent> retryEvent = await(eventStore.append(
             "SettlementRetry", settlementRetry, retryTime,
             Map.of("stage", "settlement", "system", "settlement-system", "retry", "automated", "risk-status", "monitored"),
             getUniqueId("settlement-corr"), null, tradeId
-        ).join();
+        ));
 
         // OPERATIONAL VALIDATION: Retry must be properly tracked
         assertNotNull(retryEvent, "Settlement retry must be recorded for operational tracking");
@@ -976,11 +981,11 @@ class BiTemporalEventStoreExampleTest {
             "XPAR", "FR", "BUY", successData
         );
 
-        BiTemporalEvent<TradeEvent> successEvent = eventStore.append(
+        BiTemporalEvent<TradeEvent> successEvent = await(eventStore.append(
             "SettlementCompleted", settlementSuccess, successTime,
             Map.of("stage", "settlement", "system", "settlement-system", "status", "final", "risk-resolved", "true"),
             getUniqueId("settlement-corr"), null, tradeId
-        ).join();
+        ));
 
         // FINAL VALIDATION: Settlement must be completed successfully
         assertNotNull(successEvent, "Settlement completion must be recorded");
@@ -989,7 +994,7 @@ class BiTemporalEventStoreExampleTest {
         assertEquals("RESOLVED", successEvent.getPayload().getRegulatoryData().get("riskStatus"), "Risk status must be RESOLVED");
 
         // OPERATIONAL AUDIT: Verify complete settlement lifecycle
-        List<BiTemporalEvent<TradeEvent>> settlementLifecycle = eventStore.query(EventQuery.forAggregate(tradeId)).join();
+        List<BiTemporalEvent<TradeEvent>> settlementLifecycle = await(eventStore.query(EventQuery.forAggregate(tradeId)));
 
         assertEquals(4, settlementLifecycle.size(), "Complete settlement lifecycle must have 4 stages");
 

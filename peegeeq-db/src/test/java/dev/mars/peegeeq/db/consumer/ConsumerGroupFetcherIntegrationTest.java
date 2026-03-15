@@ -27,9 +27,10 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+
+import io.vertx.junit5.VertxTestContext;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -62,7 +63,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
     private SubscriptionManager subscriptionManager;
 
     @BeforeEach
-    public void setUp() throws Exception {
+    public void setUp(VertxTestContext testContext) throws Exception {
         super.setUpBaseIntegration();
 
         // Create connection manager using the shared Vertx instance
@@ -94,7 +95,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    public void testFetchMessagesBasic() throws Exception {
+    public void testFetchMessagesBasic(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST: testFetchMessagesBasic STARTED ===");
 
         String topic = "test-fetch-basic-" + UUID.randomUUID().toString().substring(0, 8);
@@ -108,8 +109,6 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
 
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder()
                 .build();
-
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         topicConfigService.createTopic(topicConfig)
@@ -130,16 +129,16 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                     } catch (Throwable t) {
                         errorRef.set(t);
                     } finally {
-                        latch.countDown();
+                        testContext.completeNow();
                     }
                 })
                 .onFailure(throwable -> {
                     logger.error("Test failed", throwable);
                     errorRef.set(throwable);
-                    latch.countDown();
+                    testContext.completeNow();
                 });
 
-        assertTrue(latch.await(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (errorRef.get() != null) {
             fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
         }
@@ -147,7 +146,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    public void testFetchMessagesBatchSize() throws Exception {
+    public void testFetchMessagesBatchSize(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST: testFetchMessagesBatchSize STARTED ===");
 
         String topic = "test-fetch-batch-" + UUID.randomUUID().toString().substring(0, 8);
@@ -161,8 +160,6 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
 
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder()
                 .build();
-
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         topicConfigService.createTopic(topicConfig)
@@ -180,16 +177,16 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                     } catch (Throwable t) {
                         errorRef.set(t);
                     } finally {
-                        latch.countDown();
+                        testContext.completeNow();
                     }
                 })
                 .onFailure(throwable -> {
                     logger.error("Test failed", throwable);
                     errorRef.set(throwable);
-                    latch.countDown();
+                    testContext.completeNow();
                 });
 
-        assertTrue(latch.await(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (errorRef.get() != null) {
             fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
         }
@@ -197,7 +194,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    public void testFetchMessagesFiltersByGroup() throws Exception {
+    public void testFetchMessagesFiltersByGroup(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST: testFetchMessagesFiltersByGroup STARTED ===");
 
         String topic = "test-fetch-filter-" + UUID.randomUUID().toString().substring(0, 8);
@@ -212,8 +209,6 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
 
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder()
                 .build();
-
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         topicConfigService.createTopic(topicConfig)
@@ -239,16 +234,16 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                     } catch (Throwable t) {
                         errorRef.set(t);
                     } finally {
-                        latch.countDown();
+                        testContext.completeNow();
                     }
                 })
                 .onFailure(throwable -> {
                     logger.error("Test failed", throwable);
                     errorRef.set(throwable);
-                    latch.countDown();
+                    testContext.completeNow();
                 });
 
-        assertTrue(latch.await(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (errorRef.get() != null) {
             fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
         }
@@ -256,7 +251,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    public void testFetchMessagesEmptyResult() throws Exception {
+    public void testFetchMessagesEmptyResult(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST: testFetchMessagesEmptyResult STARTED ===");
 
         String topic = "test-fetch-empty-" + UUID.randomUUID().toString().substring(0, 8);
@@ -270,8 +265,6 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
 
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder()
                 .build();
-
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         topicConfigService.createTopic(topicConfig)
@@ -284,16 +277,16 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                     } catch (Throwable t) {
                         errorRef.set(t);
                     } finally {
-                        latch.countDown();
+                        testContext.completeNow();
                     }
                 })
                 .onFailure(throwable -> {
                     logger.error("Test failed", throwable);
                     errorRef.set(throwable);
-                    latch.countDown();
+                    testContext.completeNow();
                 });
 
-        assertTrue(latch.await(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (errorRef.get() != null) {
             fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
         }
@@ -301,7 +294,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    public void testConcurrentFetchContentionSameGroupOnlyOneFetcherClaimsMessage() throws Exception {
+    public void testConcurrentFetchContentionSameGroupOnlyOneFetcherClaimsMessage(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST: testConcurrentFetchContentionSameGroupOnlyOneFetcherClaimsMessage STARTED ===");
 
         String topic = "test-fetch-concurrency-" + UUID.randomUUID().toString().substring(0, 8);
@@ -313,8 +306,6 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                 .build();
 
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
-
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         topicConfigService.createTopic(topicConfig)
@@ -338,15 +329,15 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                     } catch (Throwable t) {
                         errorRef.set(t);
                     } finally {
-                        latch.countDown();
+                        testContext.completeNow();
                     }
                 })
                 .onFailure(throwable -> {
                     errorRef.set(throwable);
-                    latch.countDown();
+                    testContext.completeNow();
                 });
 
-        assertTrue(latch.await(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (errorRef.get() != null) {
             fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
         }
@@ -354,7 +345,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    public void testFailedMessageIsRefetchableForSameGroup() throws Exception {
+    public void testFailedMessageIsRefetchableForSameGroup(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST: testFailedMessageIsRefetchableForSameGroup STARTED ===");
 
         String topic = "test-refetch-failed-" + UUID.randomUUID().toString().substring(0, 8);
@@ -365,8 +356,6 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                 .semantics(TopicSemantics.PUB_SUB)
                 .build();
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
-
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         topicConfigService.createTopic(topicConfig)
@@ -393,15 +382,15 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                     } catch (Throwable t) {
                         errorRef.set(t);
                     } finally {
-                        latch.countDown();
+                        testContext.completeNow();
                     }
                 })
                 .onFailure(throwable -> {
                     errorRef.set(throwable);
-                    latch.countDown();
+                    testContext.completeNow();
                 });
 
-        assertTrue(latch.await(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (errorRef.get() != null) {
             fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
         }
@@ -409,7 +398,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    public void testStuckProcessingRequiresRecoveryTransitionBeforeRefetch() throws Exception {
+    public void testStuckProcessingRequiresRecoveryTransitionBeforeRefetch(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST: testStuckProcessingRequiresRecoveryTransitionBeforeRefetch STARTED ===");
 
         String topic = "test-recover-stuck-processing-" + UUID.randomUUID().toString().substring(0, 8);
@@ -420,8 +409,6 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                 .semantics(TopicSemantics.PUB_SUB)
                 .build();
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
-
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         topicConfigService.createTopic(topicConfig)
@@ -457,15 +444,15 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                     } catch (Throwable t) {
                         errorRef.set(t);
                     } finally {
-                        latch.countDown();
+                        testContext.completeNow();
                     }
                 })
                 .onFailure(throwable -> {
                     errorRef.set(throwable);
-                    latch.countDown();
+                    testContext.completeNow();
                 });
 
-        assertTrue(latch.await(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (errorRef.get() != null) {
             fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
         }
@@ -473,7 +460,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    public void testConcurrentFailRefetchCompleteMaintainsCrossTableConsistency() throws Exception {
+    public void testConcurrentFailRefetchCompleteMaintainsCrossTableConsistency(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST: testConcurrentFailRefetchCompleteMaintainsCrossTableConsistency STARTED ===");
 
         String topic = "test-cross-cutting-consistency-" + UUID.randomUUID().toString().substring(0, 8);
@@ -488,7 +475,6 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                 .build();
 
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         topicConfigService.createTopic(topicConfig)
@@ -541,15 +527,15 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                     } catch (Throwable t) {
                         errorRef.set(t);
                     } finally {
-                        latch.countDown();
+                        testContext.completeNow();
                     }
                 })
                 .onFailure(throwable -> {
                     errorRef.set(throwable);
-                    latch.countDown();
+                    testContext.completeNow();
                 });
 
-        assertTrue(latch.await(60, TimeUnit.SECONDS), "Test should complete within 60 seconds");
+        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
         if (errorRef.get() != null) {
             fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
         }

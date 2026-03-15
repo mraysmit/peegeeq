@@ -28,11 +28,15 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -46,8 +50,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -63,6 +67,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class PeeGeeQExampleTest {
@@ -147,34 +152,30 @@ class PeeGeeQExampleTest {
     }
 
     @Test
-    void testHealthChecks() {
+    void testHealthChecks(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Health Checks ===");
 
-        // Wait briefly for the reactive health check scheduler to populate statuses
-        OverallHealthInfo health = null;
-        int attempts = 0;
-        while (attempts < 50) { // up to ~5s
-            health = manager.getHealthCheckManager().getOverallHealth();
-            if (health != null && health.getHealthyCount() > 0) {
-                break;
+        // Wait for the reactive health check scheduler to populate statuses
+        vertx.setPeriodic(200, id -> {
+            OverallHealthInfo h = manager.getHealthCheckManager().getOverallHealth();
+            if (h != null && h.getHealthyCount() > 0) {
+                vertx.cancelTimer(id);
+                testContext.verify(() -> {
+                    OverallHealthInfo health = manager.getHealthCheckManager().getOverallHealth();
+                    // Log the current health snapshot with details
+                    demonstrateHealthChecks(manager);
+
+                    // Verify health checks are working
+                    assertNotNull(health, "Health status should not be null");
+                    assertTrue(health.getHealthyCount() > 0, "Should have healthy components");
+
+                    logger.info("✅ Health checks test completed successfully!");
+                });
+                testContext.completeNow();
             }
-            try {
-                Thread.sleep(100);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
-            }
-            attempts++;
-        }
+        });
 
-        // Log the current health snapshot with details
-        demonstrateHealthChecks(manager);
-
-        // Verify health checks are working
-        assertNotNull(health, "Health status should not be null");
-        assertTrue(health.getHealthyCount() > 0, "Should have healthy components");
-
-        logger.info("✅ Health checks test completed successfully!");
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Health checks should be populated within 5 seconds");
     }
 
     @Test
@@ -204,41 +205,30 @@ class PeeGeeQExampleTest {
     }
 
     @Test
-    void testBackpressure() {
+    void testBackpressure(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Backpressure ===");
         
-        demonstrateBackpressure(manager);
+        demonstrateBackpressure(manager, vertx, testContext);
         
-        // Verify backpressure is working
-        BackpressureManager backpressureManager = manager.getBackpressureManager();
-        assertNotNull(backpressureManager, "Backpressure manager should not be null");
-        
-        logger.info("✅ Backpressure test completed successfully!");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Backpressure demo should complete");
     }
 
     @Test
-    void testDeadLetterQueue() {
+    void testDeadLetterQueue(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing Dead Letter Queue ===");
         
-        demonstrateDeadLetterQueue(manager);
+        demonstrateDeadLetterQueue(manager, vertx, testContext);
         
-        // Verify dead letter queue is working
-        var dlqManager = manager.getDeadLetterQueueManager();
-        assertNotNull(dlqManager, "Dead letter queue manager should not be null");
-        
-        logger.info("✅ Dead letter queue test completed successfully!");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "DLQ demo should complete");
     }
 
     @Test
-    void testSystemMonitoring() {
+    void testSystemMonitoring(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Testing System Monitoring ===");
         
-        monitorSystem(manager);
+        monitorSystem(manager, vertx, testContext);
         
-        // Verify monitoring completed
-        assertTrue(true, "System monitoring demonstration completed");
-        
-        logger.info("✅ System monitoring test completed successfully!");
+        assertTrue(testContext.awaitCompletion(35, TimeUnit.SECONDS), "System monitoring should complete");
     }
 
     /**
@@ -394,7 +384,7 @@ class PeeGeeQExampleTest {
         logger.info("Failure Rate: {}%", metrics.getFailureRate());
     }
 
-    private void demonstrateBackpressure(PeeGeeQManager manager) {
+    private void demonstrateBackpressure(PeeGeeQManager manager, Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Backpressure Demo ===");
 
         BackpressureManager backpressureManager = manager.getBackpressureManager();
@@ -411,9 +401,10 @@ class PeeGeeQExampleTest {
                     try {
                         // Use the proper backpressure execute method
                         String result = backpressureManager.execute("test-operation-" + operationId, () -> {
-                            // Simulate work
-                            Thread.sleep(10);
-                            return "Operation " + operationId + " completed";
+                            // Simulate work without sleep
+                            long sum = 0;
+                            for (int j = 0; j < 100_000; j++) sum += j;
+                            return "Operation " + operationId + " completed (" + sum + ")";
                         });
                         logger.debug("Result: {}", result);
                     } catch (BackpressureManager.BackpressureException e) {
@@ -424,32 +415,38 @@ class PeeGeeQExampleTest {
                 });
             }
 
-            // Wait a bit for operations to complete
-            Thread.sleep(2000);
+            // Wait for operations to complete using Vert.x timer
+            vertx.setTimer(2000, id -> {
+                var metrics = backpressureManager.getMetrics();
+                logger.info("🚦 Backpressure Metrics:");
+                logger.info("Max Concurrent Operations: {}", metrics.getMaxConcurrentOperations());
+                logger.info("Available Permits: {}", metrics.getAvailablePermits());
+                logger.info("Active Operations: {}", metrics.getActiveOperations());
+                logger.info("Total Requests: {}", metrics.getTotalRequests());
+                logger.info("Rejected Requests: {}", metrics.getRejectedRequests());
+                logger.info("Successful Operations: {}", metrics.getSuccessfulOperations());
+                logger.info("Failed Operations: {}", metrics.getFailedOperations());
+                logger.info("Current Success Rate: {}%", metrics.getCurrentSuccessRate() * 100);
+                logger.info("Rejection Rate: {}%", metrics.getRejectionRate() * 100);
+                logger.info("Utilization: {}%", metrics.getUtilization() * 100);
 
-            var metrics = backpressureManager.getMetrics();
-            logger.info("🚦 Backpressure Metrics:");
-            logger.info("Max Concurrent Operations: {}", metrics.getMaxConcurrentOperations());
-            logger.info("Available Permits: {}", metrics.getAvailablePermits());
-            logger.info("Active Operations: {}", metrics.getActiveOperations());
-            logger.info("Total Requests: {}", metrics.getTotalRequests());
-            logger.info("Rejected Requests: {}", metrics.getRejectedRequests());
-            logger.info("Successful Operations: {}", metrics.getSuccessfulOperations());
-            logger.info("Failed Operations: {}", metrics.getFailedOperations());
-            logger.info("Current Success Rate: {}%", metrics.getCurrentSuccessRate() * 100);
-            logger.info("Rejection Rate: {}%", metrics.getRejectionRate() * 100);
-            logger.info("Utilization: {}%", metrics.getUtilization() * 100);
+                // Properly shutdown the executor
+                shutdownExecutorGracefully(executor, "backpressure-demo");
 
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            logger.warn("Backpressure demo interrupted");
-        } finally {
-            // Properly shutdown the executor
+                testContext.verify(() -> {
+                    assertNotNull(backpressureManager, "Backpressure manager should not be null");
+                });
+                testContext.completeNow();
+                logger.info("✅ Backpressure test completed successfully!");
+            });
+
+        } catch (Exception e) {
             shutdownExecutorGracefully(executor, "backpressure-demo");
+            testContext.failNow(e);
         }
     }
 
-    private void demonstrateDeadLetterQueue(PeeGeeQManager manager) {
+    private void demonstrateDeadLetterQueue(PeeGeeQManager manager, Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Dead Letter Queue Demo ===");
 
         var dlqManager = manager.getDeadLetterQueueManager();
@@ -481,76 +478,76 @@ class PeeGeeQExampleTest {
             Instant.now().minus(Duration.ofMinutes(1)), "Email service unavailable", 5,
             Map.of("source", "notification-service"), "corr-003", "notification-group").join();
 
-        // Wait a moment for processing
-        try {
-            Thread.sleep(1000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        // Wait for processing using Vert.x timer
+        vertx.setTimer(1000, id -> {
+            // Check DLQ statistics
+            DeadLetterStatsInfo stats = dlqManager.getStatistics().join();
+            logger.info("Dead Letter Queue Statistics:");
+            logger.info("Total Messages: {}", stats.totalMessages());
+            logger.info("Messages by Topic: (detailed breakdown not available in current API)");
 
-        // Check DLQ statistics
-        DeadLetterStatsInfo stats = dlqManager.getStatistics().join();
-        logger.info("Dead Letter Queue Statistics:");
-        logger.info("Total Messages: {}", stats.totalMessages());
-        logger.info("Messages by Topic: (detailed breakdown not available in current API)");
+            // Retrieve and display some DLQ messages using the correct method
+            List<DeadLetterMessageInfo> dlqMessages = dlqManager.getAllDeadLetterMessages(10, 0).join();
+            logger.info("Recent Dead Letter Messages:");
+            for (DeadLetterMessageInfo msg : dlqMessages) {
+                logger.info("  ID: {}, Original ID: {}, Topic: {}, Reason: {}, Retry Count: {}",
+                    msg.id(), msg.originalId(), msg.topic(), msg.failureReason(), msg.retryCount());
+            }
 
-        // Retrieve and display some DLQ messages using the correct method
-        List<DeadLetterMessageInfo> dlqMessages = dlqManager.getAllDeadLetterMessages(10, 0).join();
-        logger.info("Recent Dead Letter Messages:");
-        for (DeadLetterMessageInfo msg : dlqMessages) {
-            logger.info("  ID: {}, Original ID: {}, Topic: {}, Reason: {}, Retry Count: {}",
-                msg.id(), msg.originalId(), msg.topic(), msg.failureReason(), msg.retryCount());
-        }
+            testContext.verify(() -> {
+                assertNotNull(dlqManager, "Dead letter queue manager should not be null");
+            });
+            testContext.completeNow();
+            logger.info("✅ Dead letter queue test completed successfully!");
+        });
     }
 
-    private void monitorSystem(PeeGeeQManager manager) {
+    private void monitorSystem(PeeGeeQManager manager, Vertx vertx, VertxTestContext testContext) {
         logger.info("=== System Monitoring ===");
         logger.info("Monitoring system for 30 seconds...");
 
-        ScheduledExecutorService monitor = Executors.newSingleThreadScheduledExecutor();
+        AtomicInteger monitorCount = new AtomicInteger(0);
+        int totalChecks = 6; // 30 seconds / 5 seconds per check
 
-        try {
-            // Schedule monitoring every 5 seconds
-            monitor.scheduleAtFixedRate(() -> {
-                try {
-                    logger.info("System Status Check:");
+        // Schedule monitoring every 5 seconds using Vert.x periodic timer
+        vertx.setPeriodic(5000, timerId -> {
+            try {
+                logger.info("System Status Check:");
 
-                    // Health status
-                    OverallHealthInfo health = manager.getHealthCheckManager().getOverallHealth();
-                    logger.info("  Health: {} ({} healthy, {} unhealthy)",
-                        health.status(), health.getHealthyCount(), health.getUnhealthyCount());
+                // Health status
+                OverallHealthInfo health = manager.getHealthCheckManager().getOverallHealth();
+                logger.info("  Health: {} ({} healthy, {} unhealthy)",
+                    health.status(), health.getHealthyCount(), health.getUnhealthyCount());
 
-                    // Metrics summary
-                    var metrics = manager.getMetrics().getSummary();
-                    logger.info("  Messages: {} sent, {} processed, {} failed ({}% success rate)",
-                        (long)metrics.getMessagesSent(), (long)metrics.getMessagesProcessed(),
-                        (long)metrics.getMessagesFailed(), metrics.getSuccessRate());
+                // Metrics summary
+                var metrics = manager.getMetrics().getSummary();
+                logger.info("  Messages: {} sent, {} processed, {} failed ({}% success rate)",
+                    (long)metrics.getMessagesSent(), (long)metrics.getMessagesProcessed(),
+                    (long)metrics.getMessagesFailed(), metrics.getSuccessRate());
 
-                    // Backpressure status
-                    var backpressure = manager.getBackpressureManager().getMetrics();
-                    logger.info("  Backpressure: {} active operations (max: {})",
-                        backpressure.getActiveOperations(), backpressure.getMaxConcurrentOperations());
+                // Backpressure status
+                var backpressure = manager.getBackpressureManager().getMetrics();
+                logger.info("  Backpressure: {} active operations (max: {})",
+                    backpressure.getActiveOperations(), backpressure.getMaxConcurrentOperations());
 
-                    // DLQ status
-                    DeadLetterStatsInfo dlqStats = manager.getDeadLetterQueueManager().getStatistics().join();
-                    logger.info("  Dead Letter Queue: {} total messages", dlqStats.totalMessages());
+                // DLQ status
+                DeadLetterStatsInfo dlqStats = manager.getDeadLetterQueueManager().getStatistics().join();
+                logger.info("  Dead Letter Queue: {} total messages", dlqStats.totalMessages());
 
-                } catch (Exception e) {
-                    logger.warn("Error during system monitoring: {}", e.getMessage());
-                }
-            }, 0, 5, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                logger.warn("Error during system monitoring: {}", e.getMessage());
+            }
 
-            // Wait for monitoring period
-            Thread.sleep(30000);
-
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            logger.info("System monitoring interrupted");
-        } finally {
-            shutdownExecutorGracefully(monitor, "system-monitor");
-        }
-
-        logger.info("System monitoring completed");
+            if (monitorCount.incrementAndGet() >= totalChecks) {
+                vertx.cancelTimer(timerId);
+                logger.info("System monitoring completed");
+                testContext.verify(() -> {
+                    assertTrue(true, "System monitoring demonstration completed");
+                });
+                testContext.completeNow();
+                logger.info("✅ System monitoring test completed successfully!");
+            }
+        });
     }
 
     /**

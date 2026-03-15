@@ -16,6 +16,7 @@ import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.LockSupport;
 import java.util.function.Predicate;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -119,7 +120,7 @@ public class CircuitBreakerRecoveryTest {
         
         // Wait for circuit breaker timeout
         logger.info("⏳ Waiting for circuit breaker timeout...");
-        Thread.sleep(250); // Wait longer than timeout
+        LockSupport.parkNanos(250_000_000L); // Wait longer than timeout
         
         // Phase 2: Test recovery - should transition to HALF_OPEN
         logger.info("🔄 PHASE 2: Testing recovery (should transition to HALF_OPEN)");
@@ -249,7 +250,7 @@ public class CircuitBreakerRecoveryTest {
 
         // Switch to partial recovery phase
         phase.set(2);
-        Thread.sleep(250); // Wait for timeout
+        LockSupport.parkNanos(250_000_000L); // Wait for timeout
 
         // Phase 2: Attempt recovery that will fail
         logger.info("🔄 PHASE 2: Attempting partial recovery (will fail)");
@@ -269,7 +270,7 @@ public class CircuitBreakerRecoveryTest {
         
         // Switch to full recovery phase
         phase.set(3);
-        Thread.sleep(250); // Wait for timeout again
+        LockSupport.parkNanos(250_000_000L); // Wait for timeout again
         
         // Phase 3: Successful recovery
         logger.info("🔄 PHASE 3: Attempting full recovery (should succeed)");

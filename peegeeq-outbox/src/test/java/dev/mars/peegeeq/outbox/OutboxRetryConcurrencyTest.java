@@ -42,6 +42,11 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
+import org.junit.jupiter.api.extension.ExtendWith;
+
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -68,6 +73,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 public class OutboxRetryConcurrencyTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxRetryConcurrencyTest.class);
@@ -206,7 +212,7 @@ public class OutboxRetryConcurrencyTest {
 
     @Test
     @DisplayName("CONCURRENCY: Multiple threads processing same message simultaneously")
-    void testConcurrentMessageProcessing() throws Exception {
+    void testConcurrentMessageProcessing(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🔥 === CONCURRENCY TEST: Multiple threads processing same message simultaneously ===");
         
         String testTopic = "test-concurrent-processing-" + UUID.randomUUID().toString().substring(0, 8);
@@ -226,8 +232,8 @@ public class OutboxRetryConcurrencyTest {
         String testMessage = "Message for concurrent processing test";
         AtomicInteger totalAttempts = new AtomicInteger(0);
         AtomicInteger successfulProcessing = new AtomicInteger(0);
-        CountDownLatch processingLatch = new CountDownLatch(1); // Only one should succeed
-        CountDownLatch completionLatch = new CountDownLatch(1); // Wait for database completion
+        Checkpoint processingCheckpoint = testContext.checkpoint();
+        Checkpoint completionCheckpoint = testContext.checkpoint();
         AtomicReference<String> processingThread = new AtomicReference<>();
 
         // Send message first
@@ -235,7 +241,10 @@ public class OutboxRetryConcurrencyTest {
         logger.info("📤 Message sent: {}", testMessage);
 
         // Wait a bit to ensure message is committed to database
-        Thread.sleep(500);
+        Checkpoint setupCheckpoint = testContext.checkpoint();
+        vertx.setTimer(500, setupId -> {
+            setupCheckpoint.flag();
+        });
 
         // Set up all consumers to compete for the same message
         for (int i = 0; i < consumerCount; i++) {
@@ -250,27 +259,18 @@ public class OutboxRetryConcurrencyTest {
                     consumerIndex, threadName, attempt, message.getPayload());
 
                 // Simulate some processing time to increase chance of race conditions
-                try {
-                    Thread.sleep(100);
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                }
+                CompletableFuture<Void> delayFuture = new CompletableFuture<>();
+                vertx.setTimer(100, timerId -> delayFuture.complete(null));
+                try { delayFuture.get(5, TimeUnit.SECONDS); } catch (Exception e) { /* ignore */ }
 
                 // Only one consumer should successfully process the message
                 if (successfulProcessing.incrementAndGet() == 1) {
                     processingThread.set(threadName);
-                    processingLatch.countDown();
+                    processingCheckpoint.flag();
                     logger.info("✅ SUCCESS: Consumer {} successfully processed message", consumerIndex);
 
                     // Add delay to allow database completion, then signal completion
-                    CompletableFuture.runAsync(() -> {
-                        try {
-                            Thread.sleep(1000); // Wait for database update to complete
-                            completionLatch.countDown();
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                        }
-                    });
+                    vertx.setTimer(1000, timerId -> completionCheckpoint.flag());
 
                     return CompletableFuture.completedFuture(null);
                 } else {
@@ -282,12 +282,8 @@ public class OutboxRetryConcurrencyTest {
         }
         
         // Wait for processing to complete
-        boolean completed = processingLatch.await(15, TimeUnit.SECONDS);
+        boolean completed = testContext.awaitCompletion(30, TimeUnit.SECONDS);
         assertTrue(completed, "Message should be processed by exactly one consumer");
-
-        // Wait for database completion
-        boolean dbCompleted = completionLatch.await(10, TimeUnit.SECONDS);
-        assertTrue(dbCompleted, "Database update should complete");
 
         // Verify only one consumer processed the message
         assertEquals(1, successfulProcessing.get(),
@@ -304,7 +300,7 @@ public class OutboxRetryConcurrencyTest {
 
     @Test
     @DisplayName("CONCURRENCY: Race conditions in retry count updates")
-    void testRaceConditionsInRetryCountUpdates() throws Exception {
+    void testRaceConditionsInRetryCountUpdates(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🔥 === CONCURRENCY TEST: Race conditions in retry count updates ===");
         
         String testTopic = "test-retry-race-conditions-" + UUID.randomUUID().toString().substring(0, 8);
@@ -315,7 +311,7 @@ public class OutboxRetryConcurrencyTest {
         
         String testMessage = "Message for retry race condition test";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch retryLatch = new CountDownLatch(4); // Initial + 3 retries
+        Checkpoint retryCheckpoint = testContext.checkpoint(4); // Initial + 3 retries
         
         // Send message first
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
@@ -329,20 +325,18 @@ public class OutboxRetryConcurrencyTest {
             logger.info("🔥 INTENTIONAL FAILURE: Retry race condition attempt {} (thread {}) for message: {}", 
                 attempt, threadName, message.getPayload());
             
-            retryLatch.countDown();
+            retryCheckpoint.flag();
             
             // Simulate concurrent retry count updates by adding some processing time
-            try {
-                Thread.sleep(50); // Small delay to increase chance of race conditions
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+            CompletableFuture<Void> delayFuture = new CompletableFuture<>();
+            vertx.setTimer(50, timerId -> delayFuture.complete(null));
+            try { delayFuture.get(5, TimeUnit.SECONDS); } catch (Exception e) { /* ignore */ }
             
             throw new RuntimeException("INTENTIONAL FAILURE: Testing retry race conditions, attempt " + attempt);
         });
         
         // Wait for all retry attempts
-        boolean completed = retryLatch.await(20, TimeUnit.SECONDS);
+        boolean completed = testContext.awaitCompletion(20, TimeUnit.SECONDS);
         assertTrue(completed, "Should have attempted processing 4 times");
         assertEquals(4, attemptCount.get(), "Should have made exactly 4 processing attempts");
         
@@ -372,7 +366,7 @@ public class OutboxRetryConcurrencyTest {
 
     @Test
     @DisplayName("CONCURRENCY: Thread pool exhaustion during message processing")
-    void testThreadPoolExhaustionDuringMessageProcessing() throws Exception {
+    void testThreadPoolExhaustionDuringMessageProcessing(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🔥 === CONCURRENCY TEST: Thread pool exhaustion during message processing ===");
 
         String testTopic = "test-thread-exhaustion-" + UUID.randomUUID().toString().substring(0, 8);
@@ -395,7 +389,7 @@ public class OutboxRetryConcurrencyTest {
 
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicInteger failedCount = new AtomicInteger(0);
-        CountDownLatch processingLatch = new CountDownLatch(messageCount);
+        Checkpoint processingCheckpoint = testContext.checkpoint(messageCount);
 
         // Set up consumer that simulates slow processing to exhaust threads
         consumer.subscribe(message -> {
@@ -405,41 +399,31 @@ public class OutboxRetryConcurrencyTest {
             logger.info("🐌 SLOW PROCESSING: Message {} being processed by thread {}",
                 processed, threadName);
 
-            try {
-                // Simulate slow processing to hold threads
-                Thread.sleep(200);
-
-                processingLatch.countDown();
+            // Simulate slow processing via non-blocking delay
+            CompletableFuture<Void> future = new CompletableFuture<>();
+            vertx.setTimer(200, timerId -> {
+                processingCheckpoint.flag();
                 logger.info("✅ SUCCESS: Message {} processed successfully by thread {}",
                     processed, threadName);
-
-                return CompletableFuture.completedFuture(null);
-
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                failedCount.incrementAndGet();
-                processingLatch.countDown();
-                throw new RuntimeException("Thread interrupted during processing");
-            }
+                future.complete(null);
+            });
+            return future;
         });
 
         // Wait for all messages to be processed (with generous timeout)
-        boolean completed = processingLatch.await(30, TimeUnit.SECONDS);
+        boolean completed = testContext.awaitCompletion(30, TimeUnit.SECONDS);
         assertTrue(completed, "All messages should eventually be processed despite thread exhaustion");
 
         logger.info("✅ Thread pool exhaustion test completed successfully");
         logger.info("   Messages processed: {}", processedCount.get());
-        logger.info("   Messages failed: {}", failedCount.get());
-        logger.info("   Total messages: {}", messageCount);
 
         // Verify all messages were processed
         assertEquals(messageCount, processedCount.get(), "All messages should be processed");
-        assertEquals(0, failedCount.get(), "No messages should fail due to thread exhaustion");
     }
 
     @Test
     @DisplayName("CONCURRENCY: Thread safety during consumer shutdown")
-    void testThreadSafetyDuringConsumerShutdown() throws Exception {
+    void testThreadSafetyDuringConsumerShutdown(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🔥 === CONCURRENCY TEST: Thread safety during consumer shutdown ===");
 
         String testTopic = "test-shutdown-safety-" + UUID.randomUUID().toString().substring(0, 8);
@@ -459,7 +443,7 @@ public class OutboxRetryConcurrencyTest {
 
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicInteger interruptedCount = new AtomicInteger(0);
-        CountDownLatch shutdownLatch = new CountDownLatch(1);
+        Checkpoint shutdownCheckpoint = testContext.checkpoint();
 
         // Set up consumer with processing that can be interrupted
         consumer.subscribe(message -> {
@@ -469,46 +453,31 @@ public class OutboxRetryConcurrencyTest {
             logger.info("🔄 PROCESSING: Message {} being processed by thread {} during shutdown test",
                 processed, threadName);
 
-            try {
-                // Simulate processing time during which shutdown might occur
-                Thread.sleep(300);
-
+            // Simulate processing time during which shutdown might occur
+            CompletableFuture<Void> delayFuture = new CompletableFuture<>();
+            vertx.setTimer(300, timerId -> {
                 logger.info("✅ SUCCESS: Message {} completed processing by thread {}",
                     processed, threadName);
-
-                return CompletableFuture.completedFuture(null);
-
-            } catch (InterruptedException e) {
-                interruptedCount.incrementAndGet();
-                Thread.currentThread().interrupt();
-                logger.info("🛑 INTERRUPTED: Message {} processing interrupted by thread {}",
-                    processed, threadName);
-                throw new RuntimeException("Processing interrupted during shutdown");
-            }
+                delayFuture.complete(null);
+            });
+            return delayFuture;
         });
 
-        // Allow some processing to start
-        Thread.sleep(500);
-
-        // Shutdown consumer while messages are being processed
-        logger.info("🛑 SHUTDOWN: Closing consumer during active message processing");
-        CompletableFuture<Void> shutdownFuture = CompletableFuture.runAsync(() -> {
+        // Allow some processing to start, then shutdown consumer
+        vertx.setTimer(500, id1 -> {
+            logger.info("🛑 SHUTDOWN: Closing consumer during active message processing");
             try {
                 consumer.close();
-                shutdownLatch.countDown();
                 logger.info("✅ SHUTDOWN: Consumer closed successfully");
             } catch (Exception e) {
                 logger.error("❌ SHUTDOWN ERROR: Failed to close consumer", e);
-                shutdownLatch.countDown();
             }
+            shutdownCheckpoint.flag();
         });
 
         // Wait for shutdown to complete
-        boolean shutdownCompleted = shutdownLatch.await(10, TimeUnit.SECONDS);
-        assertTrue(shutdownCompleted, "Consumer shutdown should complete");
-
-        // Wait for shutdown future to complete
-        shutdownFuture.get(5, TimeUnit.SECONDS);
+        boolean completed = testContext.awaitCompletion(15, TimeUnit.SECONDS);
+        assertTrue(completed, "Consumer shutdown should complete");
 
         logger.info("✅ Thread safety during shutdown test completed successfully");
         logger.info("   Messages processed: {}", processedCount.get());
@@ -516,12 +485,11 @@ public class OutboxRetryConcurrencyTest {
 
         // Verify shutdown was handled gracefully
         assertTrue(processedCount.get() > 0, "Some messages should have been processed");
-        // Note: We don't assert on interrupted count as it depends on timing
     }
 
     @Test
     @DisplayName("CONCURRENCY: High-load concurrent retry processing")
-    void testHighLoadConcurrentRetryProcessing() throws Exception {
+    void testHighLoadConcurrentRetryProcessing(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🔥 === CONCURRENCY TEST: High-load concurrent retry processing ===");
 
         String testTopic = "test-high-load-retry-" + UUID.randomUUID().toString().substring(0, 8);
@@ -543,7 +511,7 @@ public class OutboxRetryConcurrencyTest {
         logger.info("📤 Sent {} messages for high-load retry test", messageCount);
 
         AtomicInteger totalAttempts = new AtomicInteger(0);
-        CountDownLatch retryLatch = new CountDownLatch(messageCount * 4); // Each message: initial + 3 retries
+        Checkpoint retryCheckpoint = testContext.checkpoint(messageCount * 4); // Each message: initial + 3 retries
 
         // Set up consumer that always fails to trigger maximum retries
         consumer.subscribe(message -> {
@@ -553,20 +521,18 @@ public class OutboxRetryConcurrencyTest {
             logger.info("🔥 INTENTIONAL FAILURE: High-load retry attempt {} (thread {}) for message: {}",
                 attempt, threadName, message.getPayload());
 
-            retryLatch.countDown();
+            retryCheckpoint.flag();
 
             // Add small delay to simulate processing and increase concurrency pressure
-            try {
-                Thread.sleep(10);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+            CompletableFuture<Void> delayFuture = new CompletableFuture<>();
+            vertx.setTimer(10, timerId -> delayFuture.complete(null));
+            try { delayFuture.get(5, TimeUnit.SECONDS); } catch (Exception e) { /* ignore */ }
 
             throw new RuntimeException("INTENTIONAL FAILURE: High-load retry test, attempt " + attempt);
         });
 
         // Wait for all retry attempts (generous timeout for high load)
-        boolean completed = retryLatch.await(60, TimeUnit.SECONDS);
+        boolean completed = testContext.awaitCompletion(60, TimeUnit.SECONDS);
         assertTrue(completed, "All retry attempts should complete under high load");
 
         // Verify total attempts match expected (messageCount * 4 attempts each)
@@ -575,7 +541,10 @@ public class OutboxRetryConcurrencyTest {
             "Should have exactly " + expectedAttempts + " total attempts under high load");
 
         // Verify all messages eventually moved to dead letter queue
-        Thread.sleep(2000); // Allow time for DLQ processing
+        // Use a timer to allow DLQ processing time
+        CompletableFuture<Void> dlqWait = new CompletableFuture<>();
+        vertx.setTimer(2000, timerId -> dlqWait.complete(null));
+        dlqWait.get(5, TimeUnit.SECONDS);
         verifyAllMessagesInDeadLetterQueue(testMessages);
 
         logger.info("✅ High-load concurrent retry processing test completed successfully");

@@ -143,10 +143,10 @@
             <scope>test</scope>
         </dependency>
 
-        <!-- Test Utilities -->
+        <!-- Vert.x Test Support -->
         <dependency>
-            <groupId>org.awaitility</groupId>
-            <artifactId>awaitility</artifactId>
+            <groupId>io.vertx</groupId>
+            <artifactId>vertx-junit5</artifactId>
             <scope>test</scope>
         </dependency>
 

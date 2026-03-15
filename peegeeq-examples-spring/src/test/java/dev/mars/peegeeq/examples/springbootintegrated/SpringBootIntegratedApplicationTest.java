@@ -26,11 +26,14 @@ import dev.mars.peegeeq.examples.springbootintegrated.service.OrderService;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
 import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -69,6 +72,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @SpringBootTest(properties = {"test.context.unique=SpringBootIntegratedApplicationTest"})
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 class SpringBootIntegratedApplicationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(SpringBootIntegratedApplicationTest.class);
@@ -125,7 +129,7 @@ class SpringBootIntegratedApplicationTest {
     }
 
     @Test
-    void testIntegratedTransactionSuccess() throws Exception {
+    void testIntegratedTransactionSuccess(Vertx vertx) throws Exception {
         logger.info("=== Testing Integrated Transaction Success ===");
         
         // Create order request
@@ -141,7 +145,9 @@ class SpringBootIntegratedApplicationTest {
         logger.info("Order created: {}", orderId);
         
         // Wait a bit for async operations
-        Thread.sleep(500);
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(500, id -> delay.complete(null));
+        delay.join();
         
         // Verify 1: Order saved to database
         boolean orderExists = verifyOrderInDatabase(orderId);
@@ -226,11 +232,13 @@ class SpringBootIntegratedApplicationTest {
     }
     
     @Test
-    void testPointInTimeQuery() throws Exception {
+    void testPointInTimeQuery(Vertx vertx) throws Exception {
         logger.info("=== Testing Point-in-Time Query ===");
         
         Instant beforeOrders = Instant.now();
-        Thread.sleep(100);
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(100, id -> delay.complete(null));
+        delay.join();
         
         // Create order
         CreateOrderRequest request = new CreateOrderRequest();

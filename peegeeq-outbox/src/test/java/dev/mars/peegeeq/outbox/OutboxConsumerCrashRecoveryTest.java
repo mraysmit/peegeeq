@@ -43,6 +43,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.LockSupport;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
@@ -162,7 +163,7 @@ public class OutboxConsumerCrashRecoveryTest {
 
         // Wait for message to be persisted
         logger.info("🔧 DEBUG: Waiting for message to be persisted...");
-        Thread.sleep(1000);
+        LockSupport.parkNanos(1_000_000_000L);
 
         // Verify message exists in PENDING state
         logger.info("🔧 DEBUG: About to verify message exists in PENDING state...");
@@ -185,7 +186,7 @@ public class OutboxConsumerCrashRecoveryTest {
         // the recovery mechanism should detect and recover this message quickly
 
         // Wait a moment for the recovery mechanism to potentially run
-        Thread.sleep(2000);
+        LockSupport.parkNanos(2_000_000_000L);
 
         // Check the current state - it might be recovered already or still processing
         String currentStatus = getCurrentMessageStatus(testMessage);

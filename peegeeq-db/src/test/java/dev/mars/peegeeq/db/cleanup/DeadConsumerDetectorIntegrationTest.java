@@ -23,8 +23,9 @@ import org.slf4j.LoggerFactory;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+
+import io.vertx.junit5.VertxTestContext;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -56,7 +57,7 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
     private SubscriptionManager subscriptionManager;
 
     @BeforeEach
-    public void setUp() throws Exception {
+    public void setUp(VertxTestContext testContext) throws Exception {
         super.setUpBaseIntegration();
 
         // Create connection manager using the shared Vertx instance
@@ -87,7 +88,7 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    public void testDetectDeadSubscription() throws Exception {
+    public void testDetectDeadSubscription(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST: testDetectDeadSubscription STARTED ===");
 
         String topic = "test-dead-detection-" + UUID.randomUUID().toString().substring(0, 8);
@@ -98,9 +99,6 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                 .topic(topic)
                 .semantics(TopicSemantics.PUB_SUB)
                 .build();
-
-        CountDownLatch latch = new CountDownLatch(1);
-
         topicConfigService.createTopic(topicConfig)
                 .compose(v -> {
                     // Subscribe with 60 second timeout
@@ -139,20 +137,16 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                     assertNotNull(subscription, "Subscription should exist");
                     assertEquals(SubscriptionState.DEAD, subscription.state(),
                             "Subscription should be marked as DEAD");
-                    latch.countDown();
+                    testContext.completeNow();
                 })
-                .onFailure(error -> {
-                    logger.error("Test failed", error);
-                    fail("Test failed: " + error.getMessage());
-                    latch.countDown();
-                });
+                .onFailure(testContext::failNow);
 
-        assertTrue(latch.await(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         logger.info("=== TEST: testDetectDeadSubscription PASSED ===");
     }
 
     @Test
-    public void testDoesNotMarkActiveSubscription() throws Exception {
+    public void testDoesNotMarkActiveSubscription(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST: testDoesNotMarkActiveSubscription STARTED ===");
 
         String topic = "test-active-subscription-" + UUID.randomUUID().toString().substring(0, 8);
@@ -163,9 +157,6 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                 .topic(topic)
                 .semantics(TopicSemantics.PUB_SUB)
                 .build();
-
-        CountDownLatch latch = new CountDownLatch(1);
-
         topicConfigService.createTopic(topicConfig)
                 .compose(v -> {
                     // Subscribe with 60 second timeout
@@ -194,20 +185,16 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                     assertNotNull(subscription, "Subscription should exist");
                     assertEquals(SubscriptionState.ACTIVE, subscription.state(),
                             "Subscription should remain ACTIVE");
-                    latch.countDown();
+                    testContext.completeNow();
                 })
-                .onFailure(error -> {
-                    logger.error("Test failed", error);
-                    fail("Test failed: " + error.getMessage());
-                    latch.countDown();
-                });
+                .onFailure(testContext::failNow);
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Test should complete within 10 seconds");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         logger.info("=== TEST: testDoesNotMarkActiveSubscription PASSED ===");
     }
 
     @Test
-    public void testDetectAllDeadSubscriptions() throws Exception {
+    public void testDetectAllDeadSubscriptions(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST: testDetectAllDeadSubscriptions STARTED ===");
 
         String suffix = UUID.randomUUID().toString().substring(0, 8);
@@ -226,9 +213,6 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                 .topic(topic2)
                 .semantics(TopicSemantics.PUB_SUB)
                 .build();
-
-        CountDownLatch latch = new CountDownLatch(1);
-
         topicConfigService.createTopic(topicConfig1)
                 .compose(v -> topicConfigService.createTopic(topicConfig2))
                 .compose(v -> {
@@ -280,20 +264,16 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                 .onSuccess(sub2 -> {
                     assertEquals(SubscriptionState.DEAD, sub2.state(),
                             topic2 + "/" + group2 + " should be DEAD");
-                    latch.countDown();
+                    testContext.completeNow();
                 })
-                .onFailure(error -> {
-                    logger.error("Test failed", error);
-                    fail("Test failed: " + error.getMessage());
-                    latch.countDown();
-                });
+                .onFailure(testContext::failNow);
 
-        assertTrue(latch.await(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         logger.info("=== TEST: testDetectAllDeadSubscriptions PASSED ===");
     }
 
     @Test
-    public void testCountDeadSubscriptions() throws Exception {
+    public void testCountDeadSubscriptions(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST: testCountDeadSubscriptions STARTED ===");
 
         String topic = "test-count-dead-" + UUID.randomUUID().toString().substring(0, 8);
@@ -305,9 +285,6 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                 .topic(topic)
                 .semantics(TopicSemantics.PUB_SUB)
                 .build();
-
-        CountDownLatch latch = new CountDownLatch(1);
-
         topicConfigService.createTopic(topicConfig)
                 .compose(v -> {
                     // Subscribe two groups
@@ -351,15 +328,11 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                 .onSuccess(count -> {
                     logger.info("Found {} DEAD subscriptions", count);
                     assertEquals(1L, count, "Should find 1 DEAD subscription");
-                    latch.countDown();
+                    testContext.completeNow();
                 })
-                .onFailure(error -> {
-                    logger.error("Test failed", error);
-                    fail("Test failed: " + error.getMessage());
-                    latch.countDown();
-                });
+                .onFailure(testContext::failNow);
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Test should complete within 10 seconds");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         logger.info("=== TEST: testCountDeadSubscriptions PASSED ===");
     }
 }

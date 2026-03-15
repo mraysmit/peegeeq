@@ -244,11 +244,11 @@ public class ResourceLeakDetectionTest {
         testManager = null;
 
         // Give threads time to shut down - increased wait time for HikariCP and Vert.x cleanup
-        Thread.sleep(3000);
+        testManager.getVertx().timer(3000).toCompletionStage().toCompletableFuture().join();
 
         // Force garbage collection to clean up any weak references
         System.gc();
-        Thread.sleep(1000);
+        testManager.getVertx().timer(1000).toCompletionStage().toCompletableFuture().join();
 
         // Wait for any remaining HikariCP threads from previous tests to terminate
         waitForHikariCPThreadsToTerminate();
@@ -303,11 +303,11 @@ public class ResourceLeakDetectionTest {
         testManager = null;
 
         // Give threads time to shut down - increased wait time for Vert.x cleanup
-        Thread.sleep(3000);
+        testManager.getVertx().timer(3000).toCompletionStage().toCompletableFuture().join();
 
         // Force garbage collection
         System.gc();
-        Thread.sleep(1000);
+        testManager.getVertx().timer(1000).toCompletionStage().toCompletableFuture().join();
 
         // Wait for any remaining HikariCP threads from previous tests to terminate
         waitForHikariCPThreadsToTerminate();
@@ -359,11 +359,11 @@ public class ResourceLeakDetectionTest {
         testManager = null;
 
         // Give threads time to shut down - increased wait time for HikariCP cleanup
-        Thread.sleep(3000);
+        testManager.getVertx().timer(3000).toCompletionStage().toCompletableFuture().join();
 
         // Force garbage collection
         System.gc();
-        Thread.sleep(1000);
+        testManager.getVertx().timer(1000).toCompletionStage().toCompletableFuture().join();
 
         // Wait for any remaining HikariCP threads from previous tests to terminate
         waitForHikariCPThreadsToTerminate();
@@ -431,13 +431,13 @@ public class ResourceLeakDetectionTest {
             manager.closeReactive().toCompletionStage().toCompletableFuture().join();
 
             // Give threads time to shut down - increased wait time
-            Thread.sleep(2000);
+            testManager.getVertx().timer(2000).toCompletionStage().toCompletableFuture().join();
         }
 
         // Final cleanup wait - increased for thorough cleanup
-        Thread.sleep(3000);
+        testManager.getVertx().timer(3000).toCompletionStage().toCompletableFuture().join();
         System.gc();
-        Thread.sleep(1000);
+        testManager.getVertx().timer(1000).toCompletionStage().toCompletableFuture().join();
 
         // Ensure background Vert.x cleanup from closeReactive has completed.
         waitForVertxThreadsToTerminate();
@@ -497,13 +497,7 @@ public class ResourceLeakDetectionTest {
                 break;
             }
 
-            try {
-                Thread.sleep(waitInterval);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                logger.warn("Interrupted while waiting for HikariCP threads to terminate");
-                break;
-            }
+            testManager.getVertx().timer(waitInterval).toCompletionStage().toCompletableFuture().join();
             totalWaitTime += waitInterval;
         }
 
@@ -542,13 +536,7 @@ public class ResourceLeakDetectionTest {
                 break;
             }
 
-            try {
-                Thread.sleep(waitInterval);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                logger.warn("Interrupted while waiting for Vert.x threads to terminate");
-                break;
-            }
+            testManager.getVertx().timer(waitInterval).toCompletionStage().toCompletableFuture().join();
             totalWaitTime += waitInterval;
         }
 

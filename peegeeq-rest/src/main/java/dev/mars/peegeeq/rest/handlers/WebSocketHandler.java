@@ -3,6 +3,7 @@ package dev.mars.peegeeq.rest.handlers;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
+import dev.mars.peegeeq.api.messaging.TopicNameValidator;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
 import io.vertx.core.http.ServerWebSocket;
@@ -45,6 +46,12 @@ public class WebSocketHandler {
     public void handleQueueStream(ServerWebSocket webSocket) {
         String setupId = webSocket.path().split("/")[3]; // /ws/queues/{setupId}/{queueName}
         String queueName = webSocket.path().split("/")[4];
+
+        if (!TopicNameValidator.isValid(queueName)) {
+            webSocket.close((short) 4000, "Invalid queue name");
+            return;
+        }
+
         String connectionId = "ws-" + connectionIdCounter.incrementAndGet();
 
         logger.info("WebSocket connection established: {} for queue {} in setup {}",

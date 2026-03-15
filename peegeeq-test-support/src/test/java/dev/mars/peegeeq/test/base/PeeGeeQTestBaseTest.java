@@ -2,8 +2,11 @@ package dev.mars.peegeeq.test.base;
 
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -158,13 +161,14 @@ class PeeGeeQTestBaseTest extends PeeGeeQTestBase {
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 class ParameterizedPerformanceTestBaseTest extends ParameterizedPerformanceTestBase {
     
     private static final Logger logger = LoggerFactory.getLogger(ParameterizedPerformanceTestBaseTest.class);
     
     @ParameterizedTest
     @EnumSource(value = PerformanceProfile.class, names = {"BASIC", "STANDARD", "HIGH_PERFORMANCE"})
-    void testPerformanceAcrossProfiles(PerformanceProfile profile) {
+    void testPerformanceAcrossProfiles(PerformanceProfile profile, Vertx vertx) {
         System.err.println("=== TEST METHOD STARTED: testPerformanceAcrossProfiles(" + profile + ") ===");
         System.err.flush();
         
@@ -172,7 +176,7 @@ class ParameterizedPerformanceTestBaseTest extends ParameterizedPerformanceTestB
         
         PerformanceTestResult result = runTestWithProfile(profile, () -> {
             // Simulate some work
-            Thread.sleep(50);
+            vertx.timer(50).toCompletionStage().toCompletableFuture().join();
             
             // Return some mock performance metrics
             return createPerformanceMetrics(

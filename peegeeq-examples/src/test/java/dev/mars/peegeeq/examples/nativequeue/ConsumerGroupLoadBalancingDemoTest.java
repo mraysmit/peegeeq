@@ -22,13 +22,16 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -46,6 +49,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class ConsumerGroupLoadBalancingDemoTest {
 
@@ -215,7 +219,7 @@ class ConsumerGroupLoadBalancingDemoTest {
     @Test
     @Order(1)
     @DisplayName("Round Robin Load Balancing - Even Distribution Across Consumers")
-    void testRoundRobinLoadBalancing() throws Exception {
+    void testRoundRobinLoadBalancing(Vertx vertx, VertxTestContext testContext) throws Exception {
         System.out.println("\n🔄 Testing Round Robin Load Balancing");
 
         String queueName = "loadbalancing-roundrobin-queue";
@@ -223,7 +227,7 @@ class ConsumerGroupLoadBalancingDemoTest {
         int numMessages = 15; // Should distribute 5 messages per consumer
 
         List<ConsumerMetrics> consumerMetrics = new ArrayList<>();
-        CountDownLatch latch = new CountDownLatch(numMessages);
+        var processedCheckpoint = testContext.checkpoint(numMessages);
 
         // Create producer
         MessageProducer<WorkItem> producer = queueFactory.createProducer(queueName, WorkItem.class);
@@ -244,26 +248,19 @@ class ConsumerGroupLoadBalancingDemoTest {
                 WorkItem work = message.getPayload();
                 long startTime = System.currentTimeMillis();
 
-                try {
-                    // 🚨 DEMO WORKAROUND: Thread.sleep for processing simulation
-                    // 🚨 PRODUCTION NOTE: Replace with actual business logic
-                    Thread.sleep(work.processingTimeMs);
-
+                CompletableFuture<Void> future = new CompletableFuture<>();
+                vertx.setTimer(work.processingTimeMs, timerId -> {
                     long processingTime = System.currentTimeMillis() - startTime;
                     metrics.processedCount.incrementAndGet();
                     metrics.totalProcessingTime.addAndGet(processingTime);
 
-                    System.out.println("🔄 " + consumerId + " processed work: " + work.workId +
+                    System.out.println("\uD83D\uDD04 " + consumerId + " processed work: " + work.workId +
                                      " (processing time: " + processingTime + "ms)");
 
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    metrics.failureCount.incrementAndGet();
-                    System.err.println("❌ " + consumerId + " failed to process work: " + work.workId);
-                }
-
-                latch.countDown();
-                return CompletableFuture.completedFuture(null);
+                    processedCheckpoint.flag();
+                    future.complete(null);
+                });
+                return future;
             };
 
             // 🔄 **Add Consumer without Filter**: Enables automatic round-robin distribution
@@ -288,7 +285,7 @@ class ConsumerGroupLoadBalancingDemoTest {
         }
 
         // Wait for all work items to be processed
-        assertTrue(latch.await(30, TimeUnit.SECONDS), "Should process all work items");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Should process all work items");
 
         // Verify round-robin distribution
         System.out.println("📊 Round Robin Distribution Results:");
@@ -321,7 +318,7 @@ class ConsumerGroupLoadBalancingDemoTest {
     @Test
     @Order(2)
     @DisplayName("Weighted Load Balancing - Distribution Based on Consumer Capacity")
-    void testWeightedLoadBalancing() throws Exception {
+    void testWeightedLoadBalancing(Vertx vertx, VertxTestContext testContext) throws Exception {
         System.out.println("\n⚖️ Testing Weighted Load Balancing");
 
         String queueName = "loadbalancing-weighted-queue";
@@ -330,7 +327,7 @@ class ConsumerGroupLoadBalancingDemoTest {
         // Consumer weights: 1:2:3 ratio (total weight = 6)
         int[] weights = {1, 2, 3};
         List<ConsumerMetrics> consumerMetrics = new ArrayList<>();
-        CountDownLatch latch = new CountDownLatch(numMessages);
+        var processedCheckpoint = testContext.checkpoint(numMessages);
 
         // Create producer
         MessageProducer<WorkItem> producer = queueFactory.createProducer(queueName, WorkItem.class);
@@ -351,27 +348,22 @@ class ConsumerGroupLoadBalancingDemoTest {
                 WorkItem work = message.getPayload();
                 long startTime = System.currentTimeMillis();
 
-                try {
-                    // Simulate processing time inversely proportional to weight
-                    int processingTime = work.processingTimeMs / weights[consumerIndex];
-                    Thread.sleep(processingTime);
-
+                // Simulate processing time inversely proportional to weight
+                int processingTime = work.processingTimeMs / weights[consumerIndex];
+                CompletableFuture<Void> future = new CompletableFuture<>();
+                vertx.setTimer(processingTime, timerId -> {
                     long actualProcessingTime = System.currentTimeMillis() - startTime;
                     metrics.processedCount.incrementAndGet();
                     metrics.totalProcessingTime.addAndGet(actualProcessingTime);
 
-                    System.out.println("⚖️ " + consumerId + " (weight=" + weights[consumerIndex] +
+                    System.out.println("\u2696\uFE0F " + consumerId + " (weight=" + weights[consumerIndex] +
                                      ") processed work: " + work.workId +
                                      " (processing time: " + actualProcessingTime + "ms)");
 
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    metrics.failureCount.incrementAndGet();
-                    System.err.println("❌ " + consumerId + " failed to process work: " + work.workId);
-                }
-
-                latch.countDown();
-                return CompletableFuture.completedFuture(null);
+                    processedCheckpoint.flag();
+                    future.complete(null);
+                });
+                return future;
             });
         }
 
@@ -390,7 +382,7 @@ class ConsumerGroupLoadBalancingDemoTest {
         }
 
         // Wait for all work items to be processed
-        assertTrue(latch.await(45, TimeUnit.SECONDS), "Should process all work items");
+        assertTrue(testContext.awaitCompletion(45, TimeUnit.SECONDS), "Should process all work items");
 
         // Verify weighted distribution
         System.out.println("📊 Weighted Distribution Results:");
@@ -441,7 +433,7 @@ class ConsumerGroupLoadBalancingDemoTest {
     @Test
     @Order(3)
     @DisplayName("Sticky Session Load Balancing - Session Affinity for Stateful Processing")
-    void testStickySessionLoadBalancing() throws Exception {
+    void testStickySessionLoadBalancing(Vertx vertx, VertxTestContext testContext) throws Exception {
         System.out.println("\n🔗 Testing Sticky Session Load Balancing");
 
         String queueName = "loadbalancing-sticky-queue";
@@ -457,7 +449,7 @@ class ConsumerGroupLoadBalancingDemoTest {
         sessionToConsumerMapping.put("session-3", "sticky-consumer-3");
 
         Map<String, ConsumerMetrics> consumerMetricsMap = new HashMap<>();
-        CountDownLatch latch = new CountDownLatch(totalMessages);
+        var processedCheckpoint = testContext.checkpoint(totalMessages);
 
         // Create producer
         MessageProducer<WorkItem> producer = queueFactory.createProducer(queueName, WorkItem.class);
@@ -480,27 +472,20 @@ class ConsumerGroupLoadBalancingDemoTest {
                 WorkItem work = message.getPayload();
                 long startTime = System.currentTimeMillis();
 
-                try {
-                    // 🚨 DEMO WORKAROUND: Thread.sleep for processing simulation
-                    // 🚨 PRODUCTION NOTE: Replace with actual business logic
-                    Thread.sleep(work.processingTimeMs);
-
+                CompletableFuture<Void> future = new CompletableFuture<>();
+                vertx.setTimer(work.processingTimeMs, timerId -> {
                     long processingTime = System.currentTimeMillis() - startTime;
                     metrics.processedCount.incrementAndGet();
                     metrics.totalProcessingTime.addAndGet(processingTime);
 
-                    System.out.println("🔗 " + consumerId + " processed work: " + work.workId +
+                    System.out.println("\uD83D\uDD17 " + consumerId + " processed work: " + work.workId +
                                      " for session: " + work.sessionId +
                                      " (processing time: " + processingTime + "ms)");
 
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    metrics.failureCount.incrementAndGet();
-                    System.err.println("❌ " + consumerId + " failed to process work: " + work.workId);
-                }
-
-                latch.countDown();
-                return CompletableFuture.completedFuture(null);
+                    processedCheckpoint.flag();
+                    future.complete(null);
+                });
+                return future;
             };
 
             // 🔗 **Add Consumer with Session Filter**: Only processes messages for this session
@@ -541,7 +526,7 @@ class ConsumerGroupLoadBalancingDemoTest {
 
         // Wait for all work items to be processed
         // Each message takes 150ms + network overhead, so 15 messages * 200ms + buffer = ~5 seconds minimum
-        assertTrue(latch.await(60, TimeUnit.SECONDS), "Should process all work items");
+        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Should process all work items");
 
         // Verify sticky session behavior
         System.out.println("📊 Sticky Session Distribution Results:");
@@ -575,7 +560,7 @@ class ConsumerGroupLoadBalancingDemoTest {
     @Test
     @Order(4)
     @DisplayName("Dynamic Load Balancing - Adaptive Distribution Based on Performance")
-    void testDynamicLoadBalancing() throws Exception {
+    void testDynamicLoadBalancing(Vertx vertx, VertxTestContext testContext) throws Exception {
         System.out.println("\n📈 Testing Dynamic Load Balancing");
 
         String queueName = "loadbalancing-dynamic-queue";
@@ -583,7 +568,7 @@ class ConsumerGroupLoadBalancingDemoTest {
         int numMessages = 18;
 
         List<ConsumerMetrics> consumerMetrics = new ArrayList<>();
-        CountDownLatch latch = new CountDownLatch(numMessages);
+        var processedCheckpoint = testContext.checkpoint(numMessages);
 
         // Create producer
         MessageProducer<WorkItem> producer = queueFactory.createProducer(queueName, WorkItem.class);
@@ -606,10 +591,9 @@ class ConsumerGroupLoadBalancingDemoTest {
                 WorkItem work = message.getPayload();
                 long startTime = System.currentTimeMillis();
 
-                try {
-                    // Simulate different processing speeds
-                    Thread.sleep(processingDelays[consumerIndex]);
-
+                // Simulate different processing speeds
+                CompletableFuture<Void> future = new CompletableFuture<>();
+                vertx.setTimer(processingDelays[consumerIndex], timerId -> {
                     long processingTime = System.currentTimeMillis() - startTime;
                     metrics.processedCount.incrementAndGet();
                     metrics.totalProcessingTime.addAndGet(processingTime);
@@ -621,19 +605,14 @@ class ConsumerGroupLoadBalancingDemoTest {
                     String performanceLevel = processingDelays[consumerIndex] <= 100 ? "FAST" :
                                             processingDelays[consumerIndex] <= 200 ? "MEDIUM" : "SLOW";
 
-                    System.out.println("📈 " + consumerId + " (" + performanceLevel + ") processed work: " +
+                    System.out.println("\uD83D\uDCC8 " + consumerId + " (" + performanceLevel + ") processed work: " +
                                      work.workId + " (processing time: " + processingTime + "ms, " +
                                      "avg: " + String.format("%.1f", avgTime) + "ms)");
 
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    metrics.failureCount.incrementAndGet();
-                    metrics.isHealthy = false;
-                    System.err.println("❌ " + consumerId + " failed to process work: " + work.workId);
-                }
-
-                latch.countDown();
-                return CompletableFuture.completedFuture(null);
+                    processedCheckpoint.flag();
+                    future.complete(null);
+                });
+                return future;
             });
         }
 
@@ -652,7 +631,7 @@ class ConsumerGroupLoadBalancingDemoTest {
         }
 
         // Wait for all work items to be processed
-        assertTrue(latch.await(45, TimeUnit.SECONDS), "Should process all work items");
+        assertTrue(testContext.awaitCompletion(45, TimeUnit.SECONDS), "Should process all work items");
 
         // Analyze dynamic distribution results
         System.out.println("📊 Dynamic Load Balancing Results:");

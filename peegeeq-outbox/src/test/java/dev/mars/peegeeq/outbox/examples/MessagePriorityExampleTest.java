@@ -31,10 +31,15 @@ import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -46,7 +51,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -66,6 +70,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 public class MessagePriorityExampleTest {
     
     private static final Logger logger = LoggerFactory.getLogger(MessagePriorityExampleTest.class);
@@ -136,7 +141,7 @@ public class MessagePriorityExampleTest {
      * Validates that higher priority messages are processed first
      */
     @Test
-    void testBasicPriorityOrdering() throws Exception {
+    void testBasicPriorityOrdering(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Basic Priority Ordering ===");
         
         // Create producer and consumer for priority queue
@@ -145,7 +150,7 @@ public class MessagePriorityExampleTest {
         
         // Track processing order
         AtomicInteger processedCount = new AtomicInteger(0);
-        CountDownLatch latch = new CountDownLatch(5);
+        Checkpoint latch = testContext.checkpoint(5);
         
         // Set up consumer to track processing order
         consumer.subscribe(message -> {
@@ -153,7 +158,7 @@ public class MessagePriorityExampleTest {
             PriorityMessage payload = message.getPayload();
             logger.info("Processed #{}: {} (Priority: {})",
                 order, payload.getContent(), payload.getPriorityLabel());
-            latch.countDown();
+            latch.flag();
             return CompletableFuture.completedFuture(null);
         });
         
@@ -167,7 +172,7 @@ public class MessagePriorityExampleTest {
         sendPriorityMessage(producer, "msg-5", "CRITICAL", "Security alert", PRIORITY_CRITICAL);
         
         // Wait for processing
-        boolean completed = latch.await(30, TimeUnit.SECONDS);
+        boolean completed = testContext.awaitCompletion(30, TimeUnit.SECONDS);
         assertTrue(completed, "All messages should be processed within timeout");
         
         // Verify all messages were processed
@@ -184,14 +189,14 @@ public class MessagePriorityExampleTest {
      * Validates different priority levels and their use cases
      */
     @Test
-    void testPriorityLevels() throws Exception {
+    void testPriorityLevels(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Priority Levels ===");
         
         MessageProducer<PriorityMessage> producer = factory.createProducer("priority-levels", PriorityMessage.class);
         MessageConsumer<PriorityMessage> consumer = factory.createConsumer("priority-levels", PriorityMessage.class);
         
         AtomicInteger processedCount = new AtomicInteger(0);
-        CountDownLatch latch = new CountDownLatch(5);
+        Checkpoint latch = testContext.checkpoint(5);
         
         // Consumer that shows priority level handling
         consumer.subscribe(message -> {
@@ -205,7 +210,7 @@ public class MessagePriorityExampleTest {
             assertTrue(payload.getPriorityLabel().matches("CRITICAL|HIGH|NORMAL|LOW|BULK"), 
                 "Priority label should be valid");
             
-            latch.countDown();
+            latch.flag();
             return CompletableFuture.completedFuture(null);
         });
         
@@ -217,7 +222,7 @@ public class MessagePriorityExampleTest {
         sendPriorityMessage(producer, "bulk-1", "ANALYTICS", "Daily report generation", PRIORITY_BULK);
         
         // Wait for processing
-        boolean completed = latch.await(30, TimeUnit.SECONDS);
+        boolean completed = testContext.awaitCompletion(30, TimeUnit.SECONDS);
         assertTrue(completed, "All messages should be processed within timeout");
         
         // Verify all messages were processed
@@ -234,14 +239,14 @@ public class MessagePriorityExampleTest {
      * Validates priority-based message handling and ordering
      */
     @Test
-    void testMessageProcessing() throws Exception {
+    void testMessageProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Message Processing ===");
         
         MessageProducer<PriorityMessage> producer = factory.createProducer("priority-processing", PriorityMessage.class);
         MessageConsumer<PriorityMessage> consumer = factory.createConsumer("priority-processing", PriorityMessage.class);
         
         AtomicInteger processedCount = new AtomicInteger(0);
-        CountDownLatch latch = new CountDownLatch(3);
+        Checkpoint latch = testContext.checkpoint(3);
         
         // Consumer that validates message structure
         consumer.subscribe(message -> {
@@ -260,7 +265,7 @@ public class MessagePriorityExampleTest {
                 order, payload.getContent(), payload.getMessageId(), 
                 payload.getMessageType(), payload.getPriority());
             
-            latch.countDown();
+            latch.flag();
             return CompletableFuture.completedFuture(null);
         });
         
@@ -274,7 +279,7 @@ public class MessagePriorityExampleTest {
         sendPriorityMessageWithMetadata(producer, "proc-3", "PROCESS", "Process cleanup", PRIORITY_LOW, metadata);
         
         // Wait for processing
-        boolean completed = latch.await(30, TimeUnit.SECONDS);
+        boolean completed = testContext.awaitCompletion(30, TimeUnit.SECONDS);
         assertTrue(completed, "All messages should be processed within timeout");
         
         // Verify all messages were processed

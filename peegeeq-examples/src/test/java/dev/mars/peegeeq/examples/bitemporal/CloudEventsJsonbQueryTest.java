@@ -76,6 +76,14 @@ public class CloudEventsJsonbQueryTest {
     private static EventStore<CloudEvent> eventStore;
     private static Pool pool;
 
+    private static <T> T await(io.vertx.core.Future<T> future) {
+        try {
+            return future.toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            throw new RuntimeException("Timed out waiting for async operation", e);
+        }
+    }
+
     @BeforeAll
     static void setup() throws Exception {
         logger.info("Setting up CloudEvents JSONB query test with PostgreSQL container");
@@ -280,12 +288,12 @@ public class CloudEventsJsonbQueryTest {
             .build();
 
         // Store events with appropriate valid times
-        eventStore.append("TradeNew", event1New, baseTime).get(5, TimeUnit.SECONDS);
-        eventStore.append("TradeAffirmed", event1Affirmed, baseTime.plus(30, ChronoUnit.MINUTES)).get(5, TimeUnit.SECONDS);
-        eventStore.append("TradeSettled", event1Settled, baseTime.plus(2, ChronoUnit.DAYS)).get(5, TimeUnit.SECONDS);
-        eventStore.append("TradeNew", event2New, baseTime.plus(1, ChronoUnit.HOURS)).get(5, TimeUnit.SECONDS);
-        eventStore.append("TradeAffirmed", event2Affirmed, baseTime.plus(2, ChronoUnit.HOURS)).get(5, TimeUnit.SECONDS);
-        eventStore.append("TradeNew", event3New, baseTime.plus(3, ChronoUnit.HOURS)).get(5, TimeUnit.SECONDS);
+        await(eventStore.append("TradeNew", event1New, baseTime));
+        await(eventStore.append("TradeAffirmed", event1Affirmed, baseTime.plus(30, ChronoUnit.MINUTES)));
+        await(eventStore.append("TradeSettled", event1Settled, baseTime.plus(2, ChronoUnit.DAYS)));
+        await(eventStore.append("TradeNew", event2New, baseTime.plus(1, ChronoUnit.HOURS)));
+        await(eventStore.append("TradeAffirmed", event2Affirmed, baseTime.plus(2, ChronoUnit.HOURS)));
+        await(eventStore.append("TradeNew", event3New, baseTime.plus(3, ChronoUnit.HOURS)));
 
         logger.info("✅ Stored 6 trade lifecycle CloudEvents (3 trades in various stages)");
     }

@@ -43,6 +43,9 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxTestContext;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -112,7 +115,7 @@ class PeeGeeQPerformanceTest {
     }
 
     @Test
-    void testHighThroughputMetricsRecording() throws Exception {
+    void testHighThroughputMetricsRecording(VertxTestContext testContext) throws Exception {
         PeeGeeQMetrics metrics = manager.getMetrics();
         metrics.bindTo(manager.getMeterRegistry());
 
@@ -121,7 +124,7 @@ class PeeGeeQPerformanceTest {
         int totalOperations = threadCount * operationsPerThread;
 
         ExecutorService executor = Executors.newFixedThreadPool(threadCount);
-        CountDownLatch latch = new CountDownLatch(threadCount);
+        Checkpoint latch = testContext.checkpoint(threadCount);
         AtomicLong totalTime = new AtomicLong(0);
 
         Instant startTime = Instant.now();
@@ -144,12 +147,12 @@ class PeeGeeQPerformanceTest {
                     Instant threadEnd = Instant.now();
                     totalTime.addAndGet(Duration.between(threadStart, threadEnd).toMillis());
                 } finally {
-                    latch.countDown();
+                    latch.flag();
                 }
             });
         }
 
-        assertTrue(latch.await(30, TimeUnit.SECONDS));
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         executor.shutdown();
 
         Instant endTime = Instant.now();
@@ -169,13 +172,13 @@ class PeeGeeQPerformanceTest {
     }
 
     @Test
-    void testBackpressureUnderLoad() throws Exception {
+    void testBackpressureUnderLoad(VertxTestContext testContext) throws Exception {
         BackpressureManager backpressureManager = manager.getBackpressureManager();
         
         int threadCount = 20;
         int operationsPerThread = 100;
         ExecutorService executor = Executors.newFixedThreadPool(threadCount);
-        CountDownLatch latch = new CountDownLatch(threadCount);
+        Checkpoint latch = testContext.checkpoint(threadCount);
         
         AtomicInteger successCount = new AtomicInteger(0);
         AtomicInteger rejectedCount = new AtomicInteger(0);
@@ -190,7 +193,7 @@ class PeeGeeQPerformanceTest {
                         try {
                             String result = backpressureManager.execute("perf-test", () -> {
                                 // Simulate work
-                                Thread.sleep(10);
+                                manager.getVertx().timer(10).toCompletionStage().toCompletableFuture().join();
                                 return "success";
                             });
                             if ("success".equals(result)) {
@@ -207,12 +210,12 @@ class PeeGeeQPerformanceTest {
                 } catch (Exception e) {
                     // Handle unexpected exceptions
                 } finally {
-                    latch.countDown();
+                    latch.flag();
                 }
             });
         }
 
-        assertTrue(latch.await(60, TimeUnit.SECONDS));
+        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
         executor.shutdown();
 
         Instant endTime = Instant.now();
@@ -234,13 +237,13 @@ class PeeGeeQPerformanceTest {
     }
 
     @Test
-    void testConcurrentHealthChecks() throws Exception {
+    void testConcurrentHealthChecks(VertxTestContext testContext) throws Exception {
         var healthManager = manager.getHealthCheckManager();
         
         int threadCount = 10;
         int checksPerThread = 50;
         ExecutorService executor = Executors.newFixedThreadPool(threadCount);
-        CountDownLatch latch = new CountDownLatch(threadCount);
+        Checkpoint latch = testContext.checkpoint(threadCount);
         
         AtomicInteger healthyCount = new AtomicInteger(0);
         AtomicLong totalCheckTime = new AtomicLong(0);
@@ -262,12 +265,12 @@ class PeeGeeQPerformanceTest {
                         }
                     }
                 } finally {
-                    latch.countDown();
+                    latch.flag();
                 }
             });
         }
 
-        assertTrue(latch.await(30, TimeUnit.SECONDS));
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         executor.shutdown();
 
         Instant endTime = Instant.now();
@@ -290,11 +293,11 @@ class PeeGeeQPerformanceTest {
     }
 
     @Test
-    void testDatabaseConnectionPoolPerformance() throws Exception {
+    void testDatabaseConnectionPoolPerformance(VertxTestContext testContext) throws Exception {
         int threadCount = 20;
         int queriesPerThread = 100;
         ExecutorService executor = Executors.newFixedThreadPool(threadCount);
-        CountDownLatch latch = new CountDownLatch(threadCount);
+        Checkpoint latch = testContext.checkpoint(threadCount);
 
         AtomicInteger successfulQueries = new AtomicInteger(0);
         AtomicLong totalQueryTime = new AtomicLong(0);
@@ -329,12 +332,12 @@ class PeeGeeQPerformanceTest {
                 } catch (Exception e) {
                     // Handle database errors
                 } finally {
-                    latch.countDown();
+                    latch.flag();
                 }
             });
         }
 
-        assertTrue(latch.await(60, TimeUnit.SECONDS));
+        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
         executor.shutdown();
 
         Instant endTime = Instant.now();
@@ -362,7 +365,7 @@ class PeeGeeQPerformanceTest {
         
         // Force garbage collection and get baseline
         System.gc();
-        Thread.sleep(1000);
+        manager.getVertx().timer(1000).toCompletionStage().toCompletableFuture().join();
         long baselineMemory = runtime.totalMemory() - runtime.freeMemory();
         
         PeeGeeQMetrics metrics = manager.getMetrics();
@@ -388,7 +391,7 @@ class PeeGeeQPerformanceTest {
         
         // Final memory check
         System.gc();
-        Thread.sleep(1000);
+        manager.getVertx().timer(1000).toCompletionStage().toCompletableFuture().join();
         long finalMemory = runtime.totalMemory() - runtime.freeMemory();
         long totalIncrease = finalMemory - baselineMemory;
         
