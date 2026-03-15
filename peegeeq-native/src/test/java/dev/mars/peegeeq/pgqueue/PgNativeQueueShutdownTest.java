@@ -28,17 +28,21 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.lang.reflect.Field;
 import java.util.Properties;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -53,6 +57,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 class PgNativeQueueShutdownTest {
 
@@ -129,66 +134,107 @@ class PgNativeQueueShutdownTest {
     }
 
     @Test
-    void testBasicShutdownWithoutErrors() throws Exception {
+    void testBasicShutdownWithoutErrors(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Step 1: Send a simple message
         String testMessage = "Basic shutdown test";
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
 
         // Step 2: Process the message
         AtomicBoolean messageReceived = new AtomicBoolean(false);
-        CountDownLatch processedLatch = new CountDownLatch(1);
 
         consumer.subscribe(message -> {
             messageReceived.set(true);
-            processedLatch.countDown();
+            testContext.completeNow();
             return CompletableFuture.completedFuture(null);
         });
 
         // Step 3: Wait for processing
-        assertTrue(processedLatch.await(10, TimeUnit.SECONDS));
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         assertTrue(messageReceived.get());
 
         // Step 4: Close consumer (this should not produce "Pool closed" errors)
         consumer.close();
-
-        // The key validation is that no ERROR level "Pool closed" messages appear in logs
-        // This test validates the shutdown race condition fix
     }
 
     @Test
-    void testShutdownDuringMessageProcessing() throws Exception {
+    void testShutdownDuringMessageProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Step 1: Send a message
         String testMessage = "Shutdown during processing test";
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
 
         // Step 2: Set up consumer that will trigger shutdown during processing
         AtomicBoolean messageReceived = new AtomicBoolean(false);
-        CountDownLatch shutdownLatch = new CountDownLatch(1);
 
         consumer.subscribe(message -> {
             messageReceived.set(true);
 
             // Initiate shutdown immediately after receiving message
-            // This tests the race condition scenario
-            new Thread(() -> {
+            vertx.setTimer(10, id -> {
                 try {
-                    Thread.sleep(10); // Small delay to let processing start
                     consumer.close();
-                    shutdownLatch.countDown();
+                    testContext.completeNow();
                 } catch (Exception e) {
                     // Ignore
                 }
-            }).start();
+            });
 
             return CompletableFuture.completedFuture(null);
         });
 
         // Step 3: Wait for shutdown
-        assertTrue(shutdownLatch.await(10, TimeUnit.SECONDS));
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         assertTrue(messageReceived.get());
+    }
 
-        // The key validation is that no ERROR level "Pool closed" messages appear in logs
-        // This specifically tests the shutdown race condition fix
+    @Test
+    void testFactoryCloseClosesCreatedConsumers(Vertx vertx, VertxTestContext testContext) throws Exception {
+        consumer.subscribe(message -> CompletableFuture.completedFuture(null));
+
+        PgNativeQueueConsumer<?> concrete = (PgNativeQueueConsumer<?>) consumer;
+
+        // Wait for consumer to be in open state
+        vertx.setPeriodic(100, openCheckId -> {
+            try {
+                if (!isClosed(concrete)) {
+                    vertx.cancelTimer(openCheckId);
+
+                    // Now close factory
+                    queueFactory.close();
+
+                    // Wait for consumer to be closed
+                    vertx.setPeriodic(100, closeCheckId -> {
+                        try {
+                            if (isClosed(concrete)) {
+                                vertx.cancelTimer(closeCheckId);
+                                testContext.verify(() -> {
+                                    assertTrue(isClosed(concrete), "Factory close must close consumers it created");
+                                    assertEquals(-1L, getListenReconnectTimerId(concrete), "Closed consumers must not retain LISTEN reconnect timers");
+                                });
+                                testContext.completeNow();
+                            }
+                        } catch (Exception e) {
+                            testContext.failNow(e);
+                        }
+                    });
+                }
+            } catch (Exception e) {
+                testContext.failNow(e);
+            }
+        });
+
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+    }
+
+    private static boolean isClosed(PgNativeQueueConsumer<?> consumer) throws Exception {
+        Field field = PgNativeQueueConsumer.class.getDeclaredField("closed");
+        field.setAccessible(true);
+        return ((AtomicBoolean) field.get(consumer)).get();
+    }
+
+    private static long getListenReconnectTimerId(PgNativeQueueConsumer<?> consumer) throws Exception {
+        Field field = PgNativeQueueConsumer.class.getDeclaredField("listenReconnectTimerId");
+        field.setAccessible(true);
+        return field.getLong(consumer);
     }
 }
 

@@ -1,0 +1,390 @@
+[INFO] Scanning for projects...
+[INFO] 
+[INFO] ---------------------< dev.mars:peegeeq-examples >----------------------
+[INFO] Building PeeGeeQ Examples 1.0-SNAPSHOT
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- toolchains:3.1.0:toolchain (default) @ peegeeq-examples ---
+[INFO] Required toolchain: jdk [ version='21' ]
+[INFO] Found matching toolchain for type jdk: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] 
+[INFO] --- enforcer:3.4.1:enforce (enforce-maven-version) @ peegeeq-examples ---
+[INFO] Rule 0: org.apache.maven.enforcer.rules.version.RequireMavenVersion passed
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ peegeeq-examples ---
+[INFO] Copying 18 resources from src\main\resources to target\classes
+[INFO] 
+[INFO] --- compiler:3.11.0:compile (default-compile) @ peegeeq-examples ---
+[INFO] Toolchain in maven-compiler-plugin: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] Nothing to compile - all classes are up to date
+[INFO] 
+[INFO] --- resources:3.3.1:testResources (default-testResources) @ peegeeq-examples ---
+[INFO] Copying 2 resources from src\test\resources to target\test-classes
+[INFO] 
+[INFO] --- compiler:3.11.0:testCompile (default-testCompile) @ peegeeq-examples ---
+[INFO] Toolchain in maven-compiler-plugin: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] Nothing to compile - all classes are up to date
+[INFO] 
+[INFO] --- surefire:3.2.5:test (default-test) @ peegeeq-examples ---
+[INFO] Toolchain in maven-surefire-plugin: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
+[INFO] 
+[INFO] -------------------------------------------------------
+[INFO]  T E S T S
+[INFO] -------------------------------------------------------
+21:56:13,061 |-INFO in ch.qos.logback.classic.LoggerContext[default] - This is logback-classic version 1.5.18
+21:56:13,063 |-INFO in ch.qos.logback.classic.util.ContextInitializer@1e44b638 - Here is a list of configurators discovered as a service, by rank: 
+21:56:13,063 |-INFO in ch.qos.logback.classic.util.ContextInitializer@1e44b638 -   org.springframework.boot.logging.logback.RootLogLevelConfigurator
+21:56:13,063 |-INFO in ch.qos.logback.classic.util.ContextInitializer@1e44b638 - They will be invoked in order until ExecutionStatus.DO_NOT_INVOKE_NEXT_IF_ANY is returned.
+21:56:13,063 |-INFO in ch.qos.logback.classic.util.ContextInitializer@1e44b638 - Constructed configurator of type class org.springframework.boot.logging.logback.RootLogLevelConfigurator
+21:56:13,069 |-INFO in ch.qos.logback.classic.util.ContextInitializer@1e44b638 - org.springframework.boot.logging.logback.RootLogLevelConfigurator.configure() call lasted 1 milliseconds. ExecutionStatus=INVOKE_NEXT_IF_ANY
+21:56:13,069 |-INFO in ch.qos.logback.classic.util.ContextInitializer@1e44b638 - Trying to configure with ch.qos.logback.classic.joran.SerializedModelConfigurator
+21:56:13,070 |-INFO in ch.qos.logback.classic.util.ContextInitializer@1e44b638 - Constructed configurator of type class ch.qos.logback.classic.joran.SerializedModelConfigurator
+21:56:13,070 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Could NOT find resource [logback-test.scmo]
+21:56:13,070 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Could NOT find resource [logback.scmo]
+21:56:13,070 |-INFO in ch.qos.logback.classic.util.ContextInitializer@1e44b638 - ch.qos.logback.classic.joran.SerializedModelConfigurator.configure() call lasted 0 milliseconds. ExecutionStatus=INVOKE_NEXT_IF_ANY
+21:56:13,070 |-INFO in ch.qos.logback.classic.util.ContextInitializer@1e44b638 - Trying to configure with ch.qos.logback.classic.util.DefaultJoranConfigurator
+21:56:13,071 |-INFO in ch.qos.logback.classic.util.ContextInitializer@1e44b638 - Constructed configurator of type class ch.qos.logback.classic.util.DefaultJoranConfigurator
+21:56:13,075 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Found resource [logback-test.xml] at [file:/C:/Users/mraysmit/dev/idea-projects/peegeeq/peegeeq-examples/target/test-classes/logback-test.xml]
+21:56:13,149 |-WARN in ch.qos.logback.core.joran.action.ConversionRuleAction - [converterClass] attribute is deprecated and replaced by [class]. See element [conversionRule] near line 4
+21:56:13,149 |-WARN in ch.qos.logback.core.joran.action.ConversionRuleAction - [converterClass] attribute is deprecated and replaced by [class]. See element [conversionRule] near line 6
+21:56:13,186 |-INFO in ch.qos.logback.core.model.processor.ConversionRuleModelHandler - registering conversion word vxTrace with class [dev.mars.peegeeq.api.logging.VertxTraceIdConverter]
+21:56:13,186 |-INFO in ch.qos.logback.core.model.processor.ConversionRuleModelHandler - registering conversion word vxSpan with class [dev.mars.peegeeq.api.logging.VertxSpanIdConverter]
+21:56:13,193 |-INFO in ch.qos.logback.core.model.processor.AppenderModelHandler - Processing appender named [CONSOLE]
+21:56:13,193 |-INFO in ch.qos.logback.core.model.processor.AppenderModelHandler - About to instantiate appender of type [ch.qos.logback.core.ConsoleAppender]
+21:56:13,201 |-INFO in ch.qos.logback.core.model.processor.ImplicitModelHandler - Assuming default type [ch.qos.logback.classic.encoder.PatternLayoutEncoder] for [encoder] property
+21:56:13,240 |-INFO in ch.qos.logback.core.ConsoleAppender[CONSOLE] - BEWARE: Writing to the console can be very slow. Avoid logging to the 
+21:56:13,240 |-INFO in ch.qos.logback.core.ConsoleAppender[CONSOLE] - console in production environments, especially in high volume systems.
+21:56:13,240 |-INFO in ch.qos.logback.core.ConsoleAppender[CONSOLE] - See also https://logback.qos.ch/codes.html#slowConsole
+21:56:13,240 |-INFO in ch.qos.logback.classic.model.processor.RootLoggerModelHandler - Setting level of ROOT logger to INFO
+21:56:13,240 |-INFO in ch.qos.logback.core.model.processor.AppenderRefModelHandler - Attaching appender named [CONSOLE] to Logger[ROOT]
+21:56:13,244 |-INFO in ch.qos.logback.classic.model.processor.LoggerModelHandler - Setting level of logger [dev.mars.peegeeq.examples] to INFO
+21:56:13,244 |-INFO in ch.qos.logback.classic.model.processor.LoggerModelHandler - Setting level of logger [dev.mars.peegeeq] to WARN
+21:56:13,244 |-INFO in ch.qos.logback.classic.model.processor.LoggerModelHandler - Setting level of logger [dev.mars.peegeeq.outbox.OutboxConsumerGroupMember] to ERROR
+21:56:13,244 |-INFO in ch.qos.logback.classic.model.processor.LoggerModelHandler - Setting additivity of logger [dev.mars.peegeeq.outbox.OutboxConsumerGroupMember] to false
+21:56:13,244 |-INFO in ch.qos.logback.core.model.processor.AppenderRefModelHandler - Attaching appender named [CONSOLE] to Logger[dev.mars.peegeeq.outbox.OutboxConsumerGroupMember]
+21:56:13,244 |-INFO in ch.qos.logback.classic.model.processor.LoggerModelHandler - Setting level of logger [org.testcontainers] to WARN
+21:56:13,244 |-INFO in ch.qos.logback.classic.model.processor.LoggerModelHandler - Setting level of logger [com.github.dockerjava] to WARN
+21:56:13,244 |-INFO in ch.qos.logback.classic.model.processor.LoggerModelHandler - Setting level of logger [tc] to WARN
+21:56:13,244 |-INFO in ch.qos.logback.classic.model.processor.LoggerModelHandler - Setting level of logger [org.flywaydb.core.internal.sqlscript.DefaultSqlScriptExecutor] to ERROR
+21:56:13,244 |-INFO in ch.qos.logback.classic.model.processor.LoggerModelHandler - Setting level of logger [io.vertx] to WARN
+21:56:13,244 |-INFO in ch.qos.logback.classic.model.processor.LoggerModelHandler - Setting level of logger [com.zaxxer.hikari] to WARN
+21:56:13,244 |-INFO in ch.qos.logback.core.model.processor.DefaultProcessor@7393222f - End of configuration.
+21:56:13,246 |-INFO in ch.qos.logback.classic.joran.JoranConfigurator@babafc2 - Registering current configuration as safe fallback point
+21:56:13,246 |-INFO in ch.qos.logback.classic.util.ContextInitializer@1e44b638 - ch.qos.logback.classic.util.DefaultJoranConfigurator.configure() call lasted 175 milliseconds. ExecutionStatus=DO_NOT_INVOKE_NEXT_IF_ANY
+
+[INFO] Running dev.mars.peegeeq.examples.nativequeue.DistributedSystemResilienceDemoTest
+21:56:13.388 [main] INFO  d.m.p.e.shared.SharedTestContainers - [trace=- span=-] Creating shared PostgreSQL container with high-performance configuration
+21:56:15.401 [main] WARN  tc.postgres:15.13-alpine3.20 - [trace=- span=-] Reuse was requested but the environment does not support the reuse of containers
+To enable reuse of containers, you must set 'testcontainers.reuse.enable=true' in a file located at C:\Users\mraysmit\.testcontainers.properties
+21:56:17.950 [main] INFO  d.m.p.e.shared.SharedTestContainers - [trace=- span=-] Shared PostgreSQL container created and started successfully
+21:56:17.951 [main] INFO  d.m.p.e.shared.SharedTestContainers - [trace=- span=-] Container details: host=127.0.0.1, port=53835, database=peegeeq_shared_test, username=peegeeq_test
+
+?? Setting up Distributed System Resilience Demo Test
+? Initializing database schema for distributed system resilience test
+21:56:18.411 [main] INFO  org.flywaydb.core.FlywayExecutor - [trace=- span=-] Database: jdbc:postgresql://127.0.0.1:53835/peegeeq_shared_test?loggerLevel=OFF (PostgreSQL 15.13)
+21:56:18.522 [main] INFO  o.f.c.i.s.JdbcTableSchemaHistory - [trace=- span=-] Schema history table "public"."flyway_schema_history" does not exist yet
+21:56:18.788 [main] INFO  o.f.c.i.s.JdbcTableSchemaHistory - [trace=- span=-] Schema history table "public"."flyway_schema_history" does not exist yet
+21:56:18.796 [main] INFO  o.f.core.internal.command.DbValidate - [trace=- span=-] Successfully validated 4 migrations (execution time 00:00.016s)
+21:56:18.824 [main] INFO  org.flywaydb.core.Flyway - [trace=- span=-] All configured schemas are empty; baseline operation skipped. A baseline or migration script with a lower version than the baseline version may execute if available. Check the Schemas parameter if this is not intended.
+21:56:18.854 [main] INFO  o.f.c.i.s.JdbcTableSchemaHistory - [trace=- span=-] Creating Schema History table "public"."flyway_schema_history" ...
+21:56:19.047 [main] INFO  o.f.core.internal.command.DbMigrate - [trace=- span=-] Current version of schema "public": << Empty Schema >>
+21:56:19.060 [main] INFO  o.f.core.internal.command.DbMigrate - [trace=- span=-] Migrating schema "public" to version "001 - Create Base Tables" [non-transactional]
+21:56:19.424 [main] INFO  o.f.core.internal.command.DbMigrate - [trace=- span=-] Migrating schema "public" to version "010 - Create Consumer Group Fanout Tables"
+21:56:19.619 [main] INFO  o.f.core.internal.command.DbMigrate - [trace=- span=-] Migrating schema "public" to version "011 - Post Fanout Consolidation"
+21:56:19.722 [main] INFO  o.f.core.internal.command.DbMigrate - [trace=- span=-] Migrating schema "public" to version "012 - Create Bitemporal Durable Subscriptions"
+21:56:19.777 [main] INFO  o.f.core.internal.command.DbMigrate - [trace=- span=-] Successfully applied 4 migrations to schema "public", now at version v012 (execution time 00:00.539s)
+? Database schema initialized successfully using centralized schema initializer (ALL components)
+? Setup complete - Ready for distributed system resilience pattern testing
+
+?? Testing Circuit Breaker Pattern
+? Sending requests to trigger circuit breaker...
+? PRODUCER: About to send NOTIFY on channel: public_queue_resilience-request-queue with payload: 7
+? PRODUCER: About to send NOTIFY on channel: public_queue_resilience-request-queue with payload: 6
+? PRODUCER: About to send NOTIFY on channel: public_queue_resilience-request-queue with payload: 9
+? PRODUCER: About to send NOTIFY on channel: public_queue_resilience-request-queue with payload: 8
+? PRODUCER: About to send NOTIFY on channel: public_queue_resilience-request-queue with payload: 3
+? PRODUCER: About to send NOTIFY on channel: public_queue_resilience-request-queue with payload: 10
+? PRODUCER: About to send NOTIFY on channel: public_queue_resilience-request-queue with payload: 5
+? PRODUCER: About to send NOTIFY on channel: public_queue_resilience-request-queue with payload: 4
+? PRODUCER: About to send NOTIFY on channel: public_queue_resilience-request-queue with payload: 1
+? PRODUCER: About to send NOTIFY on channel: public_queue_resilience-request-queue with payload: 2
+? PRODUCER: NOTIFY sent successfully for message: 4057c82c-e5d3-46e2-843d-00820a920f15 (DB ID: 8)
+? PRODUCER: NOTIFY sent successfully for message: 1b045b6d-5f83-4bbb-82bc-fb1ab1c30d55 (DB ID: 9)
+? PRODUCER: NOTIFY sent successfully for message: 22f818fe-2020-4cea-b502-9cfcdd24bbb9 (DB ID: 10)
+? PRODUCER: NOTIFY sent successfully for message: bc6bcf42-67a0-4447-8c88-fd9c1172a601 (DB ID: 2)
+? PRODUCER: NOTIFY sent successfully for message: acd2df50-a54a-4b9a-9a5f-9045cffad85a (DB ID: 3)
+? PRODUCER: NOTIFY sent successfully for message: c87ccb1f-9b77-4125-a0f5-860fec4f31b0 (DB ID: 5)
+? PRODUCER: NOTIFY sent successfully for message: 994d7666-a286-4e5d-bc22-e3ab5dd7743c (DB ID: 6)
+? PRODUCER: NOTIFY sent successfully for message: fee40c1e-311e-463f-be73-3b053f12c98b (DB ID: 1)
+? PRODUCER: NOTIFY sent successfully for message: 91dd099f-f215-42fd-89be-f2055badbbd9 (DB ID: 4)
+? PRODUCER: NOTIFY sent successfully for message: f5e90763-a958-4093-8347-b96d3cde60b6 (DB ID: 7)
+?? Processing request: req-004 (Circuit state: CLOSED)
+?? Processing request: req-006 (Circuit state: CLOSED)
+?? Processing request: req-010 (Circuit state: CLOSED)
+?? Processing request: req-003 (Circuit state: OPEN)
+? PRODUCER: About to send NOTIFY on channel: public_queue_resilience-response-queue with payload: 11
+? PRODUCER: About to send NOTIFY on channel: public_queue_resilience-response-queue with payload: 12
+? PRODUCER: NOTIFY sent successfully for message: 7329c384-f6e5-4ffa-8c69-6ccbac256787 (DB ID: 11)
+?? Processing request: req-005 (Circuit state: OPEN)
+?? Processing request: req-007 (Circuit state: OPEN)
+?? Processing request: req-002 (Circuit state: OPEN)
+?? Processing request: req-009 (Circuit state: OPEN)
+? PRODUCER: NOTIFY sent successfully for message: e2c9c958-ea92-4d37-b3e0-6a71d6c1a079 (DB ID: 12)
+?? Processing request: req-001 (Circuit state: OPEN)
+?? Processing request: req-008 (Circuit state: OPEN)
+? PRODUCER: About to send NOTIFY on channel: public_queue_resilience-response-queue with payload: 14
+? PRODUCER: About to send NOTIFY on channel: public_queue_resilience-response-queue with payload: 13
+? PRODUCER: About to send NOTIFY on channel: public_queue_resilience-response-queue with payload: 15
+? PRODUCER: About to send NOTIFY on channel: public_queue_resilience-response-queue with payload: 17
+? PRODUCER: About to send NOTIFY on channel: public_queue_resilience-response-queue with payload: 18
+? PRODUCER: About to send NOTIFY on channel: public_queue_resilience-response-queue with payload: 16
+? PRODUCER: NOTIFY sent successfully for message: ec73ca47-fe11-4eb3-a63a-50c6e4339c56 (DB ID: 14)
+? PRODUCER: NOTIFY sent successfully for message: 48f03900-074f-4817-b6e0-e4f29ab3a957 (DB ID: 13)
+? PRODUCER: NOTIFY sent successfully for message: cb3eaea1-b99d-4d93-b3df-d6a83348725b (DB ID: 15)
+? PRODUCER: NOTIFY sent successfully for message: a943d63a-bb46-4119-9afa-4ae0d2aa704b (DB ID: 17)
+? PRODUCER: NOTIFY sent successfully for message: a49ecc4a-2a6c-4d00-98ce-362ec447f99e (DB ID: 18)
+? PRODUCER: NOTIFY sent successfully for message: c0696d3a-2ac4-4c13-b6ae-a6a768e621c8 (DB ID: 16)
+? PRODUCER: About to send NOTIFY on channel: public_queue_resilience-response-queue with payload: 19
+?? Received response: req-004 (Success: false, Error: Simulated service failure)
+?? Received response: req-010 (Success: false, Error: Simulated service failure)
+? PRODUCER: NOTIFY sent successfully for message: e7e3d7f5-2e3c-4d37-923d-9659f77492bf (DB ID: 19)
+?? Received response: req-006 (Success: false, Error: Simulated service failure)
+?? Received response: req-003 (Success: false, Error: Circuit breaker is OPEN)
+? PRODUCER: About to send NOTIFY on channel: public_queue_resilience-response-queue with payload: 20
+?? Received response: req-005 (Success: false, Error: Circuit breaker is OPEN)
+?? Received response: req-009 (Success: false, Error: Circuit breaker is OPEN)
+?? Received response: req-008 (Success: false, Error: Circuit breaker is OPEN)
+?? Received response: req-002 (Success: false, Error: Circuit breaker is OPEN)
+?? Received response: req-001 (Success: false, Error: Circuit breaker is OPEN)
+? PRODUCER: NOTIFY sent successfully for message: 93c58c52-0b47-4633-b158-bfd58e245da1 (DB ID: 20)
+?? Received response: req-007 (Success: false, Error: Circuit breaker is OPEN)
+? Circuit Breaker Results:
+  Total requests: 10
+  Successful responses: 0
+  Failed responses: 10
+  Circuit breaker rejections: 7
+  Final circuit state: OPEN
+  Service metrics: {
+  "serviceId" : "payment-service",
+  "requestCount" : 10,
+  "successCount" : 0,
+  "failureCount" : 10,
+  "timeoutCount" : 0,
+  "successRate" : 0.0,
+  "circuitBreaker" : {
+    "name" : "payment-service-circuit",
+    "state" : "OPEN",
+    "failureCount" : 3,
+    "successCount" : 0,
+    "failureThreshold" : 3
+  }
+}
+? Circuit Breaker Pattern test completed successfully
+? Cleaning up Distributed System Resilience Demo Test
+? Cleanup complete
+[INFO] Tests run: 1, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 8.443 s -- in dev.mars.peegeeq.examples.nativequeue.DistributedSystemResilienceDemoTest
+[INFO] Running dev.mars.peegeeq.examples.outbox.MultiConfigurationIntegrationTest
+21:56:24.003 [main] INFO  d.m.p.e.o.MultiConfigurationIntegrationTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] PostgreSQL container started: jdbc:postgresql://127.0.0.1:53879/peegeeq_test?loggerLevel=OFF
+21:56:24.003 [main] INFO  d.m.p.e.o.MultiConfigurationIntegrationTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Initializing database schema for multi-configuration outbox test
+21:56:24.042 [main] INFO  org.flywaydb.core.FlywayExecutor - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Database: jdbc:postgresql://127.0.0.1:53879/peegeeq_test?loggerLevel=OFF (PostgreSQL 15.13)
+21:56:24.071 [main] INFO  o.f.c.i.s.JdbcTableSchemaHistory - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Schema history table "public"."flyway_schema_history" does not exist yet
+21:56:24.136 [main] INFO  o.f.c.i.s.JdbcTableSchemaHistory - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Schema history table "public"."flyway_schema_history" does not exist yet
+21:56:24.138 [main] INFO  o.f.core.internal.command.DbValidate - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Successfully validated 4 migrations (execution time 00:00.008s)
+21:56:24.149 [main] INFO  org.flywaydb.core.Flyway - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] All configured schemas are empty; baseline operation skipped. A baseline or migration script with a lower version than the baseline version may execute if available. Check the Schemas parameter if this is not intended.
+21:56:24.156 [main] INFO  o.f.c.i.s.JdbcTableSchemaHistory - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Creating Schema History table "public"."flyway_schema_history" ...
+21:56:24.194 [main] INFO  o.f.core.internal.command.DbMigrate - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Current version of schema "public": << Empty Schema >>
+21:56:24.196 [main] INFO  o.f.core.internal.command.DbMigrate - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Migrating schema "public" to version "001 - Create Base Tables" [non-transactional]
+21:56:24.438 [main] INFO  o.f.core.internal.command.DbMigrate - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Migrating schema "public" to version "010 - Create Consumer Group Fanout Tables"
+21:56:24.548 [main] INFO  o.f.core.internal.command.DbMigrate - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Migrating schema "public" to version "011 - Post Fanout Consolidation"
+21:56:24.602 [main] INFO  o.f.core.internal.command.DbMigrate - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Migrating schema "public" to version "012 - Create Bitemporal Durable Subscriptions"
+21:56:24.638 [main] INFO  o.f.core.internal.command.DbMigrate - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Successfully applied 4 migrations to schema "public", now at version v012 (execution time 00:00.370s)
+21:56:24.660 [main] INFO  d.m.p.e.o.MultiConfigurationIntegrationTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Database schema initialized successfully using centralized schema initializer (ALL components)
+21:56:24.660 [main] INFO  d.m.p.e.o.MultiConfigurationIntegrationTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Configuring system properties for TestContainer database...
+21:56:24.660 [main] INFO  d.m.p.e.o.MultiConfigurationIntegrationTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Configuration complete
+21:56:24.882 [main] INFO  d.m.p.e.o.MultiConfigurationIntegrationTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Testing configuration builder integration
+21:56:24.921 [peegeeq-health-check-worker-2] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: dead-letter-queue - Reactive dead letter queue health check failed: null
+21:56:24.925 [peegeeq-health-check-worker-4] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: outbox-queue - Reactive outbox queue health check failed: null
+21:56:24.926 [peegeeq-health-check-worker-2] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: dead-letter-queue - Reactive dead letter queue health check failed: null
+21:56:24.926 [peegeeq-health-check-worker-4] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: native-queue - Skipped ù health check manager stopped
+21:56:24.926 [peegeeq-health-check-worker-2] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: memory - Skipped ù health check manager stopped
+21:56:24.922 [peegeeq-health-check-worker-2] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: memory - Skipped ù health check manager stopped
+21:56:24.926 [peegeeq-health-check-worker-3] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: outbox-queue - Skipped ù health check manager stopped
+21:56:24.927 [peegeeq-health-check-worker-2] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: outbox-queue - Skipped ù health check manager stopped
+21:56:24.927 [peegeeq-health-check-worker-2] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: outbox-queue - Skipped ù health check manager stopped
+21:56:24.928 [peegeeq-health-check-worker-3] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: native-queue - Skipped ù health check manager stopped
+21:56:24.930 [peegeeq-health-check-worker-2] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: native-queue - Skipped ù health check manager stopped
+21:56:24.930 [peegeeq-health-check-worker-2] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: native-queue - Skipped ù health check manager stopped
+21:56:27.548 [main] INFO  d.m.p.e.o.MultiConfigurationIntegrationTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] PostgreSQL container started: jdbc:postgresql://127.0.0.1:53910/peegeeq_test?loggerLevel=OFF
+21:56:27.549 [main] INFO  d.m.p.e.o.MultiConfigurationIntegrationTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Initializing database schema for multi-configuration outbox test
+21:56:27.590 [main] INFO  org.flywaydb.core.FlywayExecutor - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Database: jdbc:postgresql://127.0.0.1:53910/peegeeq_test?loggerLevel=OFF (PostgreSQL 15.13)
+21:56:27.611 [main] INFO  o.f.c.i.s.JdbcTableSchemaHistory - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Schema history table "public"."flyway_schema_history" does not exist yet
+21:56:27.685 [main] INFO  o.f.c.i.s.JdbcTableSchemaHistory - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Schema history table "public"."flyway_schema_history" does not exist yet
+21:56:27.689 [main] INFO  o.f.core.internal.command.DbValidate - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Successfully validated 4 migrations (execution time 00:00.009s)
+21:56:27.701 [main] INFO  org.flywaydb.core.Flyway - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] All configured schemas are empty; baseline operation skipped. A baseline or migration script with a lower version than the baseline version may execute if available. Check the Schemas parameter if this is not intended.
+21:56:27.708 [main] INFO  o.f.c.i.s.JdbcTableSchemaHistory - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Creating Schema History table "public"."flyway_schema_history" ...
+21:56:27.758 [main] INFO  o.f.core.internal.command.DbMigrate - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Current version of schema "public": << Empty Schema >>
+21:56:27.763 [main] INFO  o.f.core.internal.command.DbMigrate - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Migrating schema "public" to version "001 - Create Base Tables" [non-transactional]
+21:56:27.986 [main] INFO  o.f.core.internal.command.DbMigrate - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Migrating schema "public" to version "010 - Create Consumer Group Fanout Tables"
+21:56:28.130 [main] INFO  o.f.core.internal.command.DbMigrate - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Migrating schema "public" to version "011 - Post Fanout Consolidation"
+21:56:28.193 [main] INFO  o.f.core.internal.command.DbMigrate - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Migrating schema "public" to version "012 - Create Bitemporal Durable Subscriptions"
+21:56:28.243 [main] INFO  o.f.core.internal.command.DbMigrate - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Successfully applied 4 migrations to schema "public", now at version v012 (execution time 00:00.388s)
+21:56:28.271 [main] INFO  d.m.p.e.o.MultiConfigurationIntegrationTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Database schema initialized successfully using centralized schema initializer (ALL components)
+21:56:28.271 [main] INFO  d.m.p.e.o.MultiConfigurationIntegrationTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Configuring system properties for TestContainer database...
+21:56:28.271 [main] INFO  d.m.p.e.o.MultiConfigurationIntegrationTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Configuration complete
+21:56:28.501 [main] INFO  d.m.p.e.o.MultiConfigurationIntegrationTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Testing concurrent multi-configuration usage
+21:56:32.310 [main] INFO  d.m.p.e.o.MultiConfigurationIntegrationTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] PostgreSQL container started: jdbc:postgresql://127.0.0.1:53958/peegeeq_test?loggerLevel=OFF
+21:56:32.310 [main] INFO  d.m.p.e.o.MultiConfigurationIntegrationTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Initializing database schema for multi-configuration outbox test
+21:56:32.349 [main] INFO  org.flywaydb.core.FlywayExecutor - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Database: jdbc:postgresql://127.0.0.1:53958/peegeeq_test?loggerLevel=OFF (PostgreSQL 15.13)
+21:56:32.370 [main] INFO  o.f.c.i.s.JdbcTableSchemaHistory - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Schema history table "public"."flyway_schema_history" does not exist yet
+21:56:32.434 [main] INFO  o.f.c.i.s.JdbcTableSchemaHistory - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Schema history table "public"."flyway_schema_history" does not exist yet
+21:56:32.435 [main] INFO  o.f.core.internal.command.DbValidate - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Successfully validated 4 migrations (execution time 00:00.006s)
+21:56:32.448 [main] INFO  org.flywaydb.core.Flyway - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] All configured schemas are empty; baseline operation skipped. A baseline or migration script with a lower version than the baseline version may execute if available. Check the Schemas parameter if this is not intended.
+21:56:32.456 [main] INFO  o.f.c.i.s.JdbcTableSchemaHistory - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Creating Schema History table "public"."flyway_schema_history" ...
+21:56:32.519 [main] INFO  o.f.core.internal.command.DbMigrate - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Current version of schema "public": << Empty Schema >>
+21:56:32.528 [main] INFO  o.f.core.internal.command.DbMigrate - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Migrating schema "public" to version "001 - Create Base Tables" [non-transactional]
+21:56:32.791 [main] INFO  o.f.core.internal.command.DbMigrate - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Migrating schema "public" to version "010 - Create Consumer Group Fanout Tables"
+21:56:32.901 [main] INFO  o.f.core.internal.command.DbMigrate - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Migrating schema "public" to version "011 - Post Fanout Consolidation"
+21:56:32.946 [main] INFO  o.f.core.internal.command.DbMigrate - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Migrating schema "public" to version "012 - Create Bitemporal Durable Subscriptions"
+21:56:32.975 [main] INFO  o.f.core.internal.command.DbMigrate - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Successfully applied 4 migrations to schema "public", now at version v012 (execution time 00:00.393s)
+21:56:32.995 [main] INFO  d.m.p.e.o.MultiConfigurationIntegrationTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Database schema initialized successfully using centralized schema initializer (ALL components)
+21:56:32.995 [main] INFO  d.m.p.e.o.MultiConfigurationIntegrationTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Configuring system properties for TestContainer database...
+21:56:32.995 [main] INFO  d.m.p.e.o.MultiConfigurationIntegrationTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Configuration complete
+21:56:33.258 [main] INFO  d.m.p.e.o.MultiConfigurationIntegrationTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Testing multiple queue configurations in same application
+21:56:33.259 [main] INFO  d.m.p.e.o.MultiConfigurationIntegrationTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Testing batch processing queue
+21:56:37.856 [main] INFO  d.m.p.e.o.MultiConfigurationIntegrationTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Testing real-time processing queue
+21:56:37.889 [outbox-processor-realtime-events-127074885983200-1773582997889] INFO  d.m.p.e.o.MultiConfigurationIntegrationTest - [trace=39e5610431c7f2f81480a52932cbeca1 span=2ec407e7062e8eeb] Real-time processed: RT-1 (latency: 32ms)
+21:56:38.372 [outbox-processor-realtime-events-127074885983200-1773582997889] INFO  d.m.p.e.o.MultiConfigurationIntegrationTest - [trace=53c89a7571a19afcad3b6a9c881216d3 span=ee7e6e1643619010] Real-time processed: RT-2 (latency: 400ms)
+21:56:38.879 [outbox-processor-realtime-events-127074885983200-1773582997889] INFO  d.m.p.e.o.MultiConfigurationIntegrationTest - [trace=7104feb80899006fdbb2643807ec82d4 span=3c1c66f854c6c3d4] Real-time processed: RT-3 (latency: 800ms)
+21:56:38.880 [main] INFO  d.m.p.e.o.MultiConfigurationIntegrationTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Testing transactional processing queue
+21:56:38.903 [outbox-processor-critical-events-127075909829200-1773582998903] INFO  d.m.p.e.o.MultiConfigurationIntegrationTest - [trace=eda0f88863031bfff6bdde2ff65e5ded span=03ee685b1b32018f] Critical processed: CRITICAL-1 (importance: URGENT)
+21:56:39.386 [outbox-processor-critical-events-127075909829200-1773582998903] INFO  d.m.p.e.o.MultiConfigurationIntegrationTest - [trace=a46255b6a9f6c814c843e1323102840d span=98e1f909b3f60981] Critical processed: CRITICAL-2 (importance: URGENT)
+[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 18.07 s -- in dev.mars.peegeeq.examples.outbox.MultiConfigurationIntegrationTest
+[INFO] Running dev.mars.peegeeq.examples.patterns.NativeVsOutboxComparisonTest
+21:56:39.875 [main] INFO  d.m.p.e.p.NativeVsOutboxComparisonTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Native vs Outbox comparison test setup completed successfully
+? PRODUCER: About to send NOTIFY on channel: public_queue_perf-native-127076947765600 with payload: 21
+? PRODUCER: NOTIFY sent successfully for message: f4ffa62c-6d24-466e-8dc4-17553c13050e (DB ID: 21)
+? PRODUCER: About to send NOTIFY on channel: public_queue_perf-native-127076947765600 with payload: 22
+? PRODUCER: NOTIFY sent successfully for message: 21f078a6-85a7-4fc6-9309-69e237c8ceed (DB ID: 22)
+? PRODUCER: About to send NOTIFY on channel: public_queue_perf-native-127076947765600 with payload: 23
+? PRODUCER: NOTIFY sent successfully for message: 2934d7db-39a2-4105-a0a3-70ad7cbdc19b (DB ID: 23)
+? PRODUCER: About to send NOTIFY on channel: public_queue_perf-native-127076947765600 with payload: 24
+? PRODUCER: NOTIFY sent successfully for message: d13a5a51-a94e-4739-b08b-b279dd281ecd (DB ID: 24)
+? PRODUCER: About to send NOTIFY on channel: public_queue_perf-native-127076947765600 with payload: 25
+? PRODUCER: NOTIFY sent successfully for message: 703a6bb4-80b7-4a17-868b-453cf4eb2141 (DB ID: 25)
+? PRODUCER: About to send NOTIFY on channel: public_queue_perf-native-127076947765600 with payload: 26
+? PRODUCER: NOTIFY sent successfully for message: 514bb583-1630-40b1-af3d-d0a983aa3743 (DB ID: 26)
+? PRODUCER: About to send NOTIFY on channel: public_queue_perf-native-127076947765600 with payload: 27
+? PRODUCER: NOTIFY sent successfully for message: 89ccb121-557e-48ed-b254-41ba979fc0dd (DB ID: 27)
+? PRODUCER: About to send NOTIFY on channel: public_queue_perf-native-127076947765600 with payload: 28
+? PRODUCER: NOTIFY sent successfully for message: f009d2ef-c826-4663-8022-b6ca09b5ab36 (DB ID: 28)
+? PRODUCER: About to send NOTIFY on channel: public_queue_perf-native-127076947765600 with payload: 29
+? PRODUCER: NOTIFY sent successfully for message: 811c0ddb-0e75-4c4f-b1aa-ea9ceea499b7 (DB ID: 29)
+? PRODUCER: About to send NOTIFY on channel: public_queue_perf-native-127076947765600 with payload: 30
+? PRODUCER: NOTIFY sent successfully for message: 0fa3ca5c-e726-4b45-99f7-afbcebf2b07f (DB ID: 30)
+21:56:45.611 [main] INFO  d.m.p.e.p.NativeVsOutboxComparisonTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Performance Comparison Results:
+21:56:45.611 [main] INFO  d.m.p.e.p.NativeVsOutboxComparisonTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Native - Total time: 1121ms, First message latency: 126ms
+21:56:45.611 [main] INFO  d.m.p.e.p.NativeVsOutboxComparisonTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Outbox - Total time: 4572ms, First message latency: 27ms
+21:56:45.615 [main] INFO  d.m.p.e.p.NativeVsOutboxComparisonTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] ? Performance characteristics test passed
+21:56:45.637 [main] INFO  d.m.p.e.p.NativeVsOutboxComparisonTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Native vs Outbox comparison test teardown completed
+21:56:45.742 [main] INFO  d.m.p.e.p.NativeVsOutboxComparisonTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Native vs Outbox comparison test setup completed successfully
+21:56:45.744 [main] INFO  d.m.p.e.p.NativeVsOutboxComparisonTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] ? Implementation type identification test passed
+21:56:45.744 [peegeeq-health-check-worker-1] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: database - Reactive database health check failed: null
+21:56:45.744 [peegeeq-health-check-worker-1] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: dead-letter-queue - Skipped ù health check manager stopped
+21:56:45.745 [peegeeq-health-check-worker-1] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: memory - Skipped ù health check manager stopped
+21:56:45.745 [peegeeq-health-check-worker-1] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: outbox-queue - Skipped ù health check manager stopped
+21:56:45.745 [peegeeq-health-check-worker-1] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: native-queue - Skipped ù health check manager stopped
+21:56:45.746 [vert.x-eventloop-thread-0] ERROR d.m.p.d.c.DeadConsumerDetectionJob - [trace=1442bb12212562f1e7c1ee74b410e793 span=95d0bba695dd05e4] Detection run #1 failed (8ms): Pool closed
+io.vertx.core.VertxException: Pool closed
+21:56:45.777 [main] INFO  d.m.p.e.p.NativeVsOutboxComparisonTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Native vs Outbox comparison test teardown completed
+21:56:45.860 [main] INFO  d.m.p.e.p.NativeVsOutboxComparisonTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Native vs Outbox comparison test setup completed successfully
+? PRODUCER: About to send NOTIFY on channel: public_queue_comparison-native-127082889786100 with payload: 31
+? PRODUCER: NOTIFY sent successfully for message: 42c0f3f3-3888-44b5-add6-15810712419a (DB ID: 31)
+21:56:45.941 [main] INFO  d.m.p.e.p.NativeVsOutboxComparisonTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] ? Basic functionality comparison test passed
+21:56:45.960 [main] INFO  d.m.p.e.p.NativeVsOutboxComparisonTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Native vs Outbox comparison test teardown completed
+21:56:46.038 [main] INFO  d.m.p.e.p.NativeVsOutboxComparisonTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Native vs Outbox comparison test setup completed successfully
+21:56:46.043 [main] INFO  d.m.p.e.p.NativeVsOutboxComparisonTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] ? Health and resource management test passed
+21:56:46.043 [peegeeq-health-check-worker-1] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: database - Reactive database health check failed: null
+21:56:46.044 [peegeeq-health-check-worker-1] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: dead-letter-queue - Skipped ù health check manager stopped
+21:56:46.044 [peegeeq-health-check-worker-1] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: memory - Skipped ù health check manager stopped
+21:56:46.044 [peegeeq-health-check-worker-1] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: outbox-queue - Skipped ù health check manager stopped
+21:56:46.044 [peegeeq-health-check-worker-1] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: native-queue - Skipped ù health check manager stopped
+21:56:46.044 [vert.x-eventloop-thread-0] ERROR d.m.p.d.c.DeadConsumerDetectionJob - [trace=4cfdb4b6b5eab9ddd14bd2243e5a26b2 span=83d5b7ab077d6208] Detection run #1 failed (11ms): Pool closed
+io.vertx.core.VertxException: Pool closed
+21:56:46.064 [main] INFO  d.m.p.e.p.NativeVsOutboxComparisonTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Native vs Outbox comparison test teardown completed
+21:56:46.145 [main] INFO  d.m.p.e.p.NativeVsOutboxComparisonTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Native vs Outbox comparison test setup completed successfully
+? PRODUCER: About to send NOTIFY on channel: public_queue_consumer-group-comparison-127083175944600 with payload: 32
+? PRODUCER: NOTIFY sent successfully for message: 531f407a-4e56-4ed9-b6d7-a3a1076d1861 (DB ID: 32)
+? PRODUCER: About to send NOTIFY on channel: public_queue_consumer-group-comparison-127083175944600 with payload: 33
+? PRODUCER: NOTIFY sent successfully for message: 96d3111f-5b34-4cfe-bdbc-4a0736c69c2e (DB ID: 33)
+? PRODUCER: About to send NOTIFY on channel: public_queue_consumer-group-comparison-127083175944600 with payload: 34
+? PRODUCER: NOTIFY sent successfully for message: 577b5efe-424a-469c-90a0-883862189223 (DB ID: 34)
+? PRODUCER: About to send NOTIFY on channel: public_queue_consumer-group-comparison-127083175944600 with payload: 35
+? PRODUCER: NOTIFY sent successfully for message: a811dd72-c0ec-4a82-b672-cefa12363953 (DB ID: 35)
+? PRODUCER: About to send NOTIFY on channel: public_queue_consumer-group-comparison-127083175944600 with payload: 36
+? PRODUCER: NOTIFY sent successfully for message: 4ec07a65-66ee-4372-8fcb-56059408ca3c (DB ID: 36)
+? PRODUCER: About to send NOTIFY on channel: public_queue_consumer-group-comparison-127083175944600 with payload: 37
+? PRODUCER: NOTIFY sent successfully for message: d16d20a1-639b-4209-9b75-63a4abc716b3 (DB ID: 37)
+21:56:48.838 [main] INFO  d.m.p.e.p.NativeVsOutboxComparisonTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] ? Consumer group comparison test passed
+21:56:48.866 [main] INFO  d.m.p.e.p.NativeVsOutboxComparisonTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Native vs Outbox comparison test teardown completed
+[INFO] Tests run: 5, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 9.049 s -- in dev.mars.peegeeq.examples.patterns.NativeVsOutboxComparisonTest
+[INFO] Running dev.mars.peegeeq.examples.patterns.PeeGeeQExampleTest
+[ERROR] Tests run: 2, Failures: 2, Errors: 0, Skipped: 0, Time elapsed: 5.900 s <<< FAILURE! -- in dev.mars.peegeeq.examples.patterns.PeeGeeQExampleTest
+[ERROR] dev.mars.peegeeq.examples.patterns.PeeGeeQExampleTest.runComprehensivePeeGeeQDemo -- Time elapsed: 3.302 s <<< FAILURE!
+org.opentest4j.AssertionFailedError: Comprehensive demo should complete successfully: Demonstrations failed
+	at org.junit.jupiter.api.AssertionUtils.fail(AssertionUtils.java:38)
+	at org.junit.jupiter.api.Assertions.fail(Assertions.java:138)
+	at dev.mars.peegeeq.examples.patterns.PeeGeeQExampleTest.runComprehensivePeeGeeQDemo(PeeGeeQExampleTest.java:168)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at io.vertx.junit5.VertxExtension.interceptTestMethod(VertxExtension.java:142)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+
+[ERROR] dev.mars.peegeeq.examples.patterns.PeeGeeQExampleTest.testPeeGeeQExampleWithTestContainers -- Time elapsed: 2.591 s <<< FAILURE!
+org.opentest4j.AssertionFailedError: PeeGeeQExample should run without exceptions: Demonstrations failed
+	at org.junit.jupiter.api.AssertionUtils.fail(AssertionUtils.java:38)
+	at org.junit.jupiter.api.Assertions.fail(Assertions.java:138)
+	at dev.mars.peegeeq.examples.patterns.PeeGeeQExampleTest.testPeeGeeQExampleWithTestContainers(PeeGeeQExampleTest.java:135)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at io.vertx.junit5.VertxExtension.interceptTestMethod(VertxExtension.java:142)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+
+[INFO] Running dev.mars.peegeeq.examples.patterns.ShutdownTest
+21:56:54.775 [main] INFO  d.m.p.examples.patterns.ShutdownTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Testing forced executor shutdown
+21:56:59.791 [main] WARN  d.m.p.examples.patterns.ShutdownTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Executor test-forced-executor did not terminate gracefully, forcing shutdown
+21:56:59.792 [main] INFO  d.m.p.examples.patterns.ShutdownTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Forced executor shutdown completed in 5015ms
+21:56:59.851 [main] INFO  d.m.p.examples.patterns.ShutdownTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Testing manual container management
+21:57:02.562 [main] INFO  d.m.p.examples.patterns.ShutdownTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Container started: jdbc:postgresql://127.0.0.1:62386/test_db?loggerLevel=OFF
+21:57:03.576 [main] INFO  d.m.p.examples.patterns.ShutdownTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Stopping container manually
+21:57:04.003 [main] INFO  d.m.p.examples.patterns.ShutdownTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Container stopped
+21:57:04.021 [main] INFO  d.m.p.examples.patterns.ShutdownTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Testing graceful executor shutdown
+21:57:04.238 [main] INFO  d.m.p.examples.patterns.ShutdownTest - [trace=642c1bd3b0bb4049f914f4250bc2d365 span=7ce6320d0cd042b9] Executor shutdown completed in 214ms
+[INFO] Tests run: 3, Failures: 0, Errors: 0, Skipped: 0, Time elapsed: 9.465 s -- in dev.mars.peegeeq.examples.patterns.ShutdownTest
+[INFO] 
+[INFO] Results:
+[INFO] 
+[ERROR] Failures: 
+[ERROR]   PeeGeeQExampleTest.runComprehensivePeeGeeQDemo:168 Comprehensive demo should complete successfully: Demonstrations failed
+[ERROR]   PeeGeeQExampleTest.testPeeGeeQExampleWithTestContainers:135 PeeGeeQExample should run without exceptions: Demonstrations failed
+[INFO] 
+[ERROR] Tests run: 14, Failures: 2, Errors: 0, Skipped: 0
+[INFO] 
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD FAILURE
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  59.661 s
+[INFO] Finished at: 2026-03-15T21:57:04+08:00
+[INFO] ------------------------------------------------------------------------
+[ERROR] Failed to execute goal org.apache.maven.plugins:maven-surefire-plugin:3.2.5:test (default-test) on project peegeeq-examples: There are test failures.
+[ERROR] 
+[ERROR] Please refer to C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-examples\target\surefire-reports for the individual test results.
+[ERROR] Please refer to dump files (if any exist) [date].dump, [date]-jvmRun[N].dump and [date].dumpstream.
+[ERROR] -> [Help 1]
+[ERROR] 
+[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
+[ERROR] Re-run Maven using the -X switch to enable full debug logging.
+[ERROR] 
+[ERROR] For more information about the errors and possible solutions, please read the following articles:
+[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoFailureException

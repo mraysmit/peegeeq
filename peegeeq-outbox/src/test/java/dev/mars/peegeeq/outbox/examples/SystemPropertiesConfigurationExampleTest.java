@@ -28,9 +28,9 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.locks.LockSupport;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
@@ -234,13 +234,11 @@ public class SystemPropertiesConfigurationExampleTest {
             
             // Set up message processing
             AtomicInteger processedCount = new AtomicInteger(0);
-            CountDownLatch latch = new CountDownLatch(5); // Wait for 5 messages
             
             consumer.subscribe(message -> {
                 int count = processedCount.incrementAndGet();
                 logger.info("📨 [{}] Processed message {} in thread: {} - Content: {}", 
                     scenarioName, count, Thread.currentThread().getName(), message.getPayload().content);
-                latch.countDown();
                 return CompletableFuture.completedFuture(null);
             });
             
@@ -262,7 +260,11 @@ public class SystemPropertiesConfigurationExampleTest {
             }
             
             // Wait for processing
-            boolean completed = latch.await(30, TimeUnit.SECONDS);
+            long deadline = System.currentTimeMillis() + 30_000;
+            while (processedCount.get() < 5 && System.currentTimeMillis() < deadline) {
+                LockSupport.parkNanos(50_000_000L);
+            }
+            boolean completed = processedCount.get() >= 5;
             assertTrue(completed, "All messages should be processed within timeout");
             assertEquals(5, processedCount.get(), "Should process exactly 5 messages");
             

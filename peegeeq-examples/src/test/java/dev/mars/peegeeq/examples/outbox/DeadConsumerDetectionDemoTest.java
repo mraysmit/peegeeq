@@ -34,7 +34,10 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.Tag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,6 +47,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -78,6 +82,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @Tag(TestCategories.INTEGRATION)
 class DeadConsumerDetectionDemoTest {
@@ -251,7 +256,7 @@ class DeadConsumerDetectionDemoTest {
      */
     @Test
     @Order(2)
-    void testDeadConsumerDetection() throws Exception {
+    void testDeadConsumerDetection(Vertx vertx) throws Exception {
         logger.info("\n=== DEMO 2: Dead Consumer Detection ===\n");
 
         String topic = "orders.monitoring";
@@ -298,7 +303,9 @@ class DeadConsumerDetectionDemoTest {
 
         // Send periodic heartbeats for healthy consumer during wait period
         for (int i = 0; i < 3; i++) {
-            Thread.sleep(4000); // Wait 4 seconds
+            CompletableFuture<Void> delay = new CompletableFuture<>();
+            vertx.setTimer(4000, id -> delay.complete(null));
+            delay.join();
             subscriptionManager.updateHeartbeat(topic, healthyGroup)
                 .toCompletionStage().toCompletableFuture().get();
             logger.info("  - Heartbeat #{} sent by '{}'", i + 1, healthyGroup);
@@ -365,7 +372,7 @@ class DeadConsumerDetectionDemoTest {
      */
     @Test
     @Order(3)
-    void testConsumerRecovery() throws Exception {
+    void testConsumerRecovery(Vertx vertx) throws Exception {
         logger.info("\n=== DEMO 3: Consumer Recovery ===\n");
 
         String topic = "orders.recovery";
@@ -403,7 +410,9 @@ class DeadConsumerDetectionDemoTest {
 
         // Step 4: Simulate consumer crash (stop sending heartbeats)
         logger.info("\nStep 4: Simulating consumer crash (no heartbeats for 12 seconds)");
-        Thread.sleep(12000); // Wait longer than timeout (10 seconds)
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(12000, id -> delay.complete(null));
+        delay.join();
         logger.info("✓ Consumer has been 'crashed' for 12 seconds");
 
         // Step 5: Run dead consumer detection

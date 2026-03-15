@@ -34,10 +34,15 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import dev.mars.peegeeq.test.categories.TestCategories;
 import org.slf4j.Logger;
@@ -51,7 +56,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -69,6 +73,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 class NativeQueueIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(NativeQueueIntegrationTest.class);
@@ -286,7 +291,7 @@ class NativeQueueIntegrationTest {
     }
 
     @Test
-    void testBasicNativeQueueProducerAndConsumer() throws Exception {
+    void testBasicNativeQueueProducerAndConsumer(Vertx vertx, VertxTestContext testContext) throws Exception {
         String testMessage = "Hello, Native Queue!";
         
         // Send a message
@@ -294,25 +299,25 @@ class NativeQueueIntegrationTest {
         sendFuture.get(5, TimeUnit.SECONDS);
 
         // Consume the message
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint received = testContext.checkpoint(1);
         AtomicInteger receivedCount = new AtomicInteger(0);
         List<String> receivedMessages = new ArrayList<>();
 
         consumer.subscribe(message -> {
             receivedMessages.add(message.getPayload());
             receivedCount.incrementAndGet();
-            latch.countDown();
+            received.flag();
             return CompletableFuture.completedFuture(null);
         });
 
         // Wait for message to be received
-        assertTrue(latch.await(10, TimeUnit.SECONDS));
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         assertEquals(1, receivedCount.get());
         assertEquals(testMessage, receivedMessages.get(0));
     }
 
     @Test
-    void testNativeQueueWithHeaders() throws Exception {
+    void testNativeQueueWithHeaders(Vertx vertx, VertxTestContext testContext) throws Exception {
         String testMessage = "Native queue message with headers";
         Map<String, String> headers = Map.of(
             "content-type", "text/plain",
@@ -325,16 +330,16 @@ class NativeQueueIntegrationTest {
         sendFuture.get(5, TimeUnit.SECONDS);
 
         // Consume and verify headers
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint received = testContext.checkpoint(1);
         List<Message<String>> receivedMessages = new ArrayList<>();
 
         consumer.subscribe(message -> {
             receivedMessages.add(message);
-            latch.countDown();
+            received.flag();
             return CompletableFuture.completedFuture(null);
         });
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS));
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         assertEquals(1, receivedMessages.size());
 
         Message<String> receivedMessage = receivedMessages.get(0);
@@ -345,37 +350,39 @@ class NativeQueueIntegrationTest {
     }
 
     @Test
-    void testNativeQueueListenNotify() throws Exception {
+    void testNativeQueueListenNotify(Vertx vertx, VertxTestContext testContext) throws Exception {
         // This test verifies that LISTEN/NOTIFY works for real-time message delivery
         String testMessage = "Real-time notification test";
         
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint received = testContext.checkpoint(1);
         List<String> receivedMessages = new ArrayList<>();
 
         // Set up consumer first to ensure it's listening
         consumer.subscribe(message -> {
             receivedMessages.add(message.getPayload());
-            latch.countDown();
+            received.flag();
             return CompletableFuture.completedFuture(null);
         });
 
-        // Wait a moment for consumer to start listening
-        Thread.sleep(1000);
+        // Wait a moment for consumer to start listening using Vert.x timer
+        CompletableFuture<Void> setupDelay = new CompletableFuture<>();
+        vertx.setTimer(1000, id -> setupDelay.complete(null));
+        setupDelay.join();
 
         // Send message - should trigger immediate notification
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
 
         // Should receive message quickly due to LISTEN/NOTIFY
-        assertTrue(latch.await(5, TimeUnit.SECONDS));
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
         assertEquals(testMessage, receivedMessages.get(0));
     }
 
     @Test
-    void testNativeQueueVisibilityTimeout() throws Exception {
+    void testNativeQueueVisibilityTimeout(Vertx vertx, VertxTestContext testContext) throws Exception {
         String testMessage = "Visibility timeout test";
         AtomicInteger processingAttempts = new AtomicInteger(0);
-        CountDownLatch firstAttemptLatch = new CountDownLatch(1);
-        CountDownLatch secondAttemptLatch = new CountDownLatch(1);
+        CompletableFuture<Void> firstAttempt = new CompletableFuture<>();
+        CompletableFuture<Void> secondAttempt = new CompletableFuture<>();
 
         // Send the message
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
@@ -384,27 +391,27 @@ class NativeQueueIntegrationTest {
         consumer.subscribe(message -> {
             int attempt = processingAttempts.incrementAndGet();
             if (attempt == 1) {
-                firstAttemptLatch.countDown();
+                firstAttempt.complete(null);
                 // Simulate processing failure by not completing the future
                 return new CompletableFuture<>(); // Never completes
             } else {
-                secondAttemptLatch.countDown();
+                secondAttempt.complete(null);
                 return CompletableFuture.completedFuture(null);
             }
         });
 
         // Wait for first attempt
-        assertTrue(firstAttemptLatch.await(10, TimeUnit.SECONDS));
+        firstAttempt.orTimeout(10, TimeUnit.SECONDS).join();
 
         // Wait for visibility timeout to expire and message to become available again
         // This should be longer than the configured visibility timeout
-        assertTrue(secondAttemptLatch.await(45, TimeUnit.SECONDS));
+        secondAttempt.orTimeout(45, TimeUnit.SECONDS).join();
         
         assertTrue(processingAttempts.get() >= 2);
     }
 
     @Test
-    void testNativeQueueMultipleConsumers() throws Exception {
+    void testNativeQueueMultipleConsumers(Vertx vertx, VertxTestContext testContext) throws Exception {
         int messageCount = 10;
         int consumerCount = 3;
         
@@ -420,7 +427,7 @@ class NativeQueueIntegrationTest {
             consumers.add(additionalFactory.createConsumer("test-native-topic", String.class));
         }
 
-        CountDownLatch latch = new CountDownLatch(messageCount);
+        Checkpoint allReceived = testContext.checkpoint(messageCount);
         AtomicInteger totalReceived = new AtomicInteger(0);
         List<String> allReceivedMessages = new ArrayList<>();
 
@@ -431,7 +438,7 @@ class NativeQueueIntegrationTest {
                     allReceivedMessages.add(message.getPayload());
                 }
                 totalReceived.incrementAndGet();
-                latch.countDown();
+                allReceived.flag();
                 return CompletableFuture.completedFuture(null);
             });
         }
@@ -442,7 +449,7 @@ class NativeQueueIntegrationTest {
         }
 
         // Wait for all messages to be processed
-        assertTrue(latch.await(30, TimeUnit.SECONDS));
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         assertEquals(messageCount, totalReceived.get());
         assertEquals(messageCount, allReceivedMessages.size());
 
@@ -462,12 +469,11 @@ class NativeQueueIntegrationTest {
     }
 
     @Test
-    void testNativeQueueMessageLocking() throws Exception {
+    void testNativeQueueMessageLocking(Vertx vertx, VertxTestContext testContext) throws Exception {
         // This test verifies that messages are properly locked during processing
         String testMessage = "Locking test message";
         AtomicInteger processingCount = new AtomicInteger(0);
-        CountDownLatch startProcessingLatch = new CountDownLatch(2);
-        CountDownLatch finishProcessingLatch = new CountDownLatch(1);
+        CompletableFuture<Void> finishProcessing = new CompletableFuture<>();
 
         // Send the message
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
@@ -481,10 +487,9 @@ class NativeQueueIntegrationTest {
             // Set up first consumer with slow processing
             consumer.subscribe(message -> {
                 processingCount.incrementAndGet();
-                startProcessingLatch.countDown();
                 try {
-                    finishProcessingLatch.await(30, TimeUnit.SECONDS);
-                } catch (InterruptedException e) {
+                    finishProcessing.get(30, TimeUnit.SECONDS);
+                } catch (Exception e) {
                     Thread.currentThread().interrupt();
                 }
                 return CompletableFuture.completedFuture(null);
@@ -493,23 +498,26 @@ class NativeQueueIntegrationTest {
             // Set up second consumer
             consumer2.subscribe(message -> {
                 processingCount.incrementAndGet();
-                startProcessingLatch.countDown();
                 return CompletableFuture.completedFuture(null);
             });
 
-            // Wait for consumers to start and process the message
-            // Need to wait longer than the polling interval (5 seconds) for HYBRID mode
-            Thread.sleep(7000);
-
-            // Only one consumer should have picked up the message
-            // (The other should be blocked by the lock)
-            assertEquals(1, processingCount.get());
+            // Wait for one consumer to pick up the message (the other should be blocked by the lock)
+            CompletableFuture<Void> oneProcessed = new CompletableFuture<>();
+            long pollTimer = vertx.setPeriodic(100, id -> {
+                if (processingCount.get() == 1) {
+                    oneProcessed.complete(null);
+                }
+            });
+            oneProcessed.orTimeout(15, TimeUnit.SECONDS).join();
+            vertx.cancelTimer(pollTimer);
 
             // Allow first consumer to finish
-            finishProcessingLatch.countDown();
+            finishProcessing.complete(null);
 
             // Wait a bit more to ensure no additional processing
-            Thread.sleep(2000);
+            CompletableFuture<Void> delay = new CompletableFuture<>();
+            vertx.setTimer(2000, id -> delay.complete(null));
+            delay.join();
             assertEquals(1, processingCount.get());
 
         } finally {
@@ -523,10 +531,10 @@ class NativeQueueIntegrationTest {
     }
 
     @Test
-    void testNativeQueueFailureAndRetry() throws Exception {
+    void testNativeQueueFailureAndRetry(Vertx vertx, VertxTestContext testContext) throws Exception {
         String testMessage = "Retry test message";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch successLatch = new CountDownLatch(1);
+        CompletableFuture<Void> success = new CompletableFuture<>();
 
         // Send the message
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
@@ -540,18 +548,18 @@ class NativeQueueIntegrationTest {
                     new RuntimeException("Simulated processing failure, attempt " + attempt));
             } else {
                 // Succeed on the 3rd attempt
-                successLatch.countDown();
+                success.complete(null);
                 return CompletableFuture.completedFuture(null);
             }
         });
 
         // Wait for successful processing
-        assertTrue(successLatch.await(60, TimeUnit.SECONDS));
+        success.orTimeout(60, TimeUnit.SECONDS).join();
         assertTrue(attemptCount.get() >= 3);
     }
 
     @Test
-    void testNativeQueueDeadLetterIntegration() throws Exception {
+    void testNativeQueueDeadLetterIntegration(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Configure a message that will exceed retry limits
         String testMessage = "Dead letter test message";
         AtomicInteger attemptCount = new AtomicInteger(0);
@@ -566,34 +574,42 @@ class NativeQueueIntegrationTest {
                 new RuntimeException("Always fails"));
         });
 
-        // Wait for multiple retry attempts
-        Thread.sleep(30000); // Wait long enough for retries to exhaust
-
-        // Verify the message was moved to dead letter queue
-        DeadLetterStatsInfo dlqStats = manager.getDeadLetterQueueManager().getStatistics().join();
-        assertTrue(dlqStats.totalMessages() > 0);
+        // Wait for the message to be moved to dead letter queue after retries
+        CompletableFuture<Void> inDlq = new CompletableFuture<>();
+        long pollTimer = vertx.setPeriodic(100, id -> {
+            try {
+                DeadLetterStatsInfo stats = manager.getDeadLetterQueueManager().getStatistics().join();
+                if (stats.totalMessages() > 0) {
+                    inDlq.complete(null);
+                }
+            } catch (Exception e) {
+                // ignore polling errors
+            }
+        });
+        inDlq.orTimeout(30, TimeUnit.SECONDS).join();
+        vertx.cancelTimer(pollTimer);
         assertTrue(attemptCount.get() > 1);
     }
 
     @Test
-    void testNativeQueueMetricsIntegration() throws Exception {
+    void testNativeQueueMetricsIntegration(Vertx vertx, VertxTestContext testContext) throws Exception {
         String testMessage = "Metrics integration test";
 
         // Send a message
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
 
         // Set up consumer
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint received = testContext.checkpoint(1);
         logger.debug("TEST: About to subscribe consumer to topic: test-native-topic");
         consumer.subscribe(message -> {
             logger.debug("TEST: Consumer received message: {}", message.getId());
-            latch.countDown();
+            received.flag();
             return CompletableFuture.completedFuture(null);
         });
         logger.debug("TEST: Consumer subscription completed");
 
         // Wait for processing
-        assertTrue(latch.await(10, TimeUnit.SECONDS));
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
 
         // Verify metrics were recorded
         var metrics = manager.getMetrics().getSummary();
@@ -604,23 +620,21 @@ class NativeQueueIntegrationTest {
     }
 
     @Test
-    void testNativeQueueHealthCheckIntegration() throws Exception {
+    void testNativeQueueHealthCheckIntegration(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Verify system is healthy
         assertTrue(manager.isHealthy());
 
         // Poll briefly until the native-queue component is present (health checks run asynchronously)
         var hcm = manager.getHealthCheckManager();
-        boolean seenNative = false;
-        for (int i = 0; i < 30; i++) { // up to ~3s
-            OverallHealthInfo hs = hcm.getOverallHealth();
-            if (hs.components().containsKey("native-queue")) {
-                assertTrue(hs.isHealthy());
-                seenNative = true;
-                break;
+        CompletableFuture<Void> componentReady = new CompletableFuture<>();
+        long pollTimer = vertx.setPeriodic(100, id -> {
+            if (hcm.getOverallHealth().components().containsKey("native-queue")) {
+                componentReady.complete(null);
             }
-            Thread.sleep(100);
-        }
-        assertTrue(seenNative);
+        });
+        componentReady.orTimeout(5, TimeUnit.SECONDS).join();
+        vertx.cancelTimer(pollTimer);
+        assertTrue(hcm.getOverallHealth().isHealthy());
     }
 
     @Test
@@ -641,12 +655,12 @@ class NativeQueueIntegrationTest {
     }
 
     @Test
-    void testNativeQueueConcurrentProducers() throws Exception {
+    void testNativeQueueConcurrentProducers(Vertx vertx, VertxTestContext testContext) throws Exception {
         int producerCount = 3;
         int messagesPerProducer = 5;
         int totalMessages = producerCount * messagesPerProducer;
 
-        CountDownLatch latch = new CountDownLatch(totalMessages);
+        Checkpoint allReceived = testContext.checkpoint(totalMessages);
         List<String> receivedMessages = new ArrayList<>();
 
         // Set up consumer
@@ -654,7 +668,7 @@ class NativeQueueIntegrationTest {
             synchronized (receivedMessages) {
                 receivedMessages.add(message.getPayload());
             }
-            latch.countDown();
+            allReceived.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -674,7 +688,7 @@ class NativeQueueIntegrationTest {
             .get(15, TimeUnit.SECONDS);
 
         // Wait for all messages to be received
-        assertTrue(latch.await(30, TimeUnit.SECONDS));
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         assertEquals(totalMessages, receivedMessages.size());
     }
 }

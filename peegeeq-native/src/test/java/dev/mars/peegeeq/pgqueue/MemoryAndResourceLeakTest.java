@@ -13,10 +13,13 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -31,7 +34,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -59,6 +61,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * - Use threshold-based detection to distinguish real leaks from normal variance
  */
 @Tag(TestCategories.SLOW)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 class MemoryAndResourceLeakTest {
     private static final Logger logger = LoggerFactory.getLogger(MemoryAndResourceLeakTest.class);
@@ -145,7 +148,7 @@ class MemoryAndResourceLeakTest {
     }
 
     @Test
-    void testSustainedHighLoadMemoryLeakDetection() throws Exception {
+    void testSustainedHighLoadMemoryLeakDetection(Vertx vertx) throws Exception {
         logger.info("🧪 Testing sustained high-load memory leak detection");
 
         String topicName = "test-memory-leak";
@@ -206,9 +209,6 @@ class MemoryAndResourceLeakTest {
             // Wait for batch to be sent
             CompletableFuture.allOf(sendFutures.toArray(new CompletableFuture[0])).get(10, TimeUnit.SECONDS);
 
-            // Allow some processing time
-            Thread.sleep(100);
-
             // Monitor memory every few batches
             if (batch % 5 == 0) {
                 MemoryUsage currentHeap = memoryBean.getHeapMemoryUsage();
@@ -222,22 +222,24 @@ class MemoryAndResourceLeakTest {
         }
 
         // Wait for all messages to be processed
-        // 🚨 CRITICAL: Increased timeout from 30s to 60s to avoid flaky test failures
-        // High load tests need more time for all async processing to complete
-        long waitStart = System.currentTimeMillis();
-        while (processedCount.get() < messageCount && (System.currentTimeMillis() - waitStart) < 60000) {
-            Thread.sleep(500);
-            logger.debug("Waiting for processing completion: {}/{}", processedCount.get(), messageCount);
-        }
-
-        // Add extra delay to ensure all async operations complete
-        Thread.sleep(2000);
+        CompletableFuture<Void> allProcessed = new CompletableFuture<>();
+        long processingTimer1 = vertx.setPeriodic(200, id -> {
+            if (processedCount.get() >= messageCount) {
+                allProcessed.complete(null);
+            }
+        });
+        allProcessed.orTimeout(60, TimeUnit.SECONDS).join();
+        vertx.cancelTimer(processingTimer1);
 
         // Force garbage collection to clean up any eligible objects
-        System.gc();
-        Thread.sleep(1000);
-        System.gc();
-        Thread.sleep(1000);
+        vertx.executeBlocking(() -> {
+            // GC-settle: sleeps run on Vert.x worker thread, not event loop
+            System.gc();
+            Thread.sleep(1000);
+            System.gc();
+            Thread.sleep(1000);
+            return null;
+        }).toCompletionStage().toCompletableFuture().join();
 
         // Record final memory usage
         MemoryUsage finalHeap = memoryBean.getHeapMemoryUsage();
@@ -278,7 +280,7 @@ class MemoryAndResourceLeakTest {
     }
 
     @Test
-    void testThreadLeakDetectionForRapidConsumerCreationDestruction() throws Exception {
+    void testThreadLeakDetectionForRapidConsumerCreationDestruction(Vertx vertx) throws Exception {
         logger.info("🧪 Testing thread leak detection for rapid consumer creation/destruction");
 
         String topicName = "test-thread-leak";
@@ -314,7 +316,7 @@ class MemoryAndResourceLeakTest {
             createdConsumerIds.add(consumerId);
 
             AtomicInteger cycleProcessedCount = new AtomicInteger(0);
-            CountDownLatch cycleLatch = new CountDownLatch(messagesPerConsumer);
+            CompletableFuture<Void> cycleComplete = new CompletableFuture<>();
 
             // Subscribe consumer
             consumer.subscribe(message -> {
@@ -323,19 +325,20 @@ class MemoryAndResourceLeakTest {
                         // Simulate minimal work to avoid timeouts
                         cycleProcessedCount.incrementAndGet();
                         totalProcessedCount.incrementAndGet();
-                        cycleLatch.countDown();
+                        cycleComplete.complete(null);
                         logger.debug("Consumer {} processed message: {}", consumerId, message.getPayload());
                         return null;
                     } catch (Exception e) {
                         logger.error("Error in consumer {}: {}", consumerId, e.getMessage());
-                        cycleLatch.countDown(); // Count down even on error to prevent hanging
+                        cycleComplete.complete(null); // Complete even on error to prevent hanging
                         return null;
                     }
                 });
             });
 
             // Wait for messages to be processed with longer timeout
-            boolean processed = cycleLatch.await(10, TimeUnit.SECONDS);
+            boolean processed = cycleComplete.orTimeout(10, TimeUnit.SECONDS)
+                .handle((v, ex) -> ex == null).join();
             if (!processed) {
                 logger.warn("Consumer {} timed out waiting for messages", consumerId);
             }
@@ -363,18 +366,31 @@ class MemoryAndResourceLeakTest {
 
             // Small delay between cycles to allow cleanup
             if (cycle % 5 == 0) {
-                Thread.sleep(100);
+                CompletableFuture<Void> cycleDelay = new CompletableFuture<>();
+                vertx.setTimer(100, id -> cycleDelay.complete(null));
+                cycleDelay.join();
             }
         }
 
-        // Allow time for cleanup
-        Thread.sleep(2000);
+        // Allow time for thread cleanup
+        CompletableFuture<Void> threadsSettled = new CompletableFuture<>();
+        long threadCheckTimer = vertx.setPeriodic(200, id -> {
+            if (threadBean.getThreadCount() <= initialThreadCount + 30) {
+                threadsSettled.complete(null);
+            }
+        });
+        threadsSettled.orTimeout(10, TimeUnit.SECONDS).handle((v, ex) -> null).join();
+        vertx.cancelTimer(threadCheckTimer);
 
         // Force garbage collection
-        System.gc();
-        Thread.sleep(1000);
-        System.gc();
-        Thread.sleep(1000);
+        vertx.executeBlocking(() -> {
+            // GC-settle: sleeps run on Vert.x worker thread, not event loop
+            System.gc();
+            Thread.sleep(1000);
+            System.gc();
+            Thread.sleep(1000);
+            return null;
+        }).toCompletionStage().toCompletableFuture().join();
 
         // Record final thread count
         int finalThreadCount = threadBean.getThreadCount();
@@ -421,7 +437,7 @@ class MemoryAndResourceLeakTest {
     }
 
     @Test
-    void testResourceCleanupUnderStressConditions() throws Exception {
+    void testResourceCleanupUnderStressConditions(Vertx vertx) throws Exception {
         logger.info("🧪 Testing resource cleanup under stress conditions");
 
         String topicName = "test-resource-cleanup";
@@ -480,7 +496,15 @@ class MemoryAndResourceLeakTest {
             }
 
             // Allow processing time
-            Thread.sleep(5000);
+            int expectedMessages = resourceCount * messagesPerResource;
+            CompletableFuture<Void> enoughProcessed = new CompletableFuture<>();
+            long processingTimer3 = vertx.setPeriodic(200, id -> {
+                if (totalProcessedCount.get() >= expectedMessages * 0.8) {
+                    enoughProcessed.complete(null);
+                }
+            });
+            enoughProcessed.orTimeout(15, TimeUnit.SECONDS).handle((v, ex) -> null).join();
+            vertx.cancelTimer(processingTimer3);
 
             // Monitor resource usage during stress
             MemoryUsage stressHeap = memoryBean.getHeapMemoryUsage();
@@ -511,13 +535,24 @@ class MemoryAndResourceLeakTest {
         }
 
         // Allow cleanup time
-        Thread.sleep(3000);
+        CompletableFuture<Void> cleanupSettled = new CompletableFuture<>();
+        long cleanupTimer = vertx.setPeriodic(200, id -> {
+            if (threadBean.getThreadCount() <= initialThreadCount + 25) {
+                cleanupSettled.complete(null);
+            }
+        });
+        cleanupSettled.orTimeout(10, TimeUnit.SECONDS).handle((v, ex) -> null).join();
+        vertx.cancelTimer(cleanupTimer);
 
         // Force garbage collection
-        System.gc();
-        Thread.sleep(1000);
-        System.gc();
-        Thread.sleep(1000);
+        vertx.executeBlocking(() -> {
+            // GC-settle: sleeps run on Vert.x worker thread, not event loop
+            System.gc();
+            Thread.sleep(1000);
+            System.gc();
+            Thread.sleep(1000);
+            return null;
+        }).toCompletionStage().toCompletableFuture().join();
 
         // Record final resource state
         MemoryUsage finalHeap = memoryBean.getHeapMemoryUsage();
@@ -559,7 +594,7 @@ class MemoryAndResourceLeakTest {
     }
 
     @Test
-    void testMemoryUsageMonitoringDuringIntensiveOperations() throws Exception {
+    void testMemoryUsageMonitoringDuringIntensiveOperations(Vertx vertx) throws Exception {
         logger.info("🧪 Testing memory usage monitoring during intensive operations");
 
         String topicName = "test-memory-monitoring";
@@ -622,20 +657,30 @@ class MemoryAndResourceLeakTest {
                 // Trigger GC periodically to test cleanup
                 if (i % (monitoringInterval * 2) == 0) {
                     System.gc();
-                    Thread.sleep(100);
+                    CompletableFuture<Void> gcDelay = new CompletableFuture<>();
+                    vertx.setTimer(100, id -> gcDelay.complete(null));
+                    gcDelay.join();
                 }
             }
         }
 
         // Wait for processing to complete
-        long waitStart = System.currentTimeMillis();
-        while (processedCount.get() < messageCount && (System.currentTimeMillis() - waitStart) < 30000) {
-            Thread.sleep(500);
-        }
+        CompletableFuture<Void> allProcessed4 = new CompletableFuture<>();
+        long processingTimer4 = vertx.setPeriodic(200, id -> {
+            if (processedCount.get() >= messageCount) {
+                allProcessed4.complete(null);
+            }
+        });
+        allProcessed4.orTimeout(30, TimeUnit.SECONDS).join();
+        vertx.cancelTimer(processingTimer4);
 
         // Final memory check
-        System.gc();
-        Thread.sleep(1000);
+        vertx.executeBlocking(() -> {
+            // GC-settle: sleep runs on Vert.x worker thread, not event loop
+            System.gc();
+            Thread.sleep(1000);
+            return null;
+        }).toCompletionStage().toCompletableFuture().join();
         MemoryUsage finalHeap = memoryBean.getHeapMemoryUsage();
         memorySnapshots.add(finalHeap.getUsed());
 

@@ -14,10 +14,15 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -29,7 +34,6 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.SQLException;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -57,6 +61,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * - Test resilience under realistic failure conditions
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 class PostgreSQLErrorHandlingTest {
     private static final Logger logger = LoggerFactory.getLogger(PostgreSQLErrorHandlingTest.class);
@@ -134,7 +139,7 @@ class PostgreSQLErrorHandlingTest {
     }
 
     @Test
-    void testSerializationFailureRecovery() throws Exception {
+    void testSerializationFailureRecovery(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing PostgreSQL serialization failure recovery (40001 error code)");
 
         String topicName = "test-serialization-failure";
@@ -145,7 +150,7 @@ class PostgreSQLErrorHandlingTest {
 
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicInteger failureCount = new AtomicInteger(0);
-        CountDownLatch completionLatch = new CountDownLatch(2);
+        Checkpoint completionCheckpoint = testContext.checkpoint(2);
         AtomicReference<Exception> lastException = new AtomicReference<>();
 
         // Create two consumers that will compete for the same message
@@ -155,40 +160,27 @@ class PostgreSQLErrorHandlingTest {
         // Consumer 1: Simulate long-running transaction that could cause serialization conflicts
         consumer1.subscribe(message -> {
             logger.info("Consumer 1 processing message: {}", message.getPayload());
-            return CompletableFuture.supplyAsync(() -> {
-                try {
-                    // Simulate work that could cause serialization conflicts
-                    Thread.sleep(100);
-                    processedCount.incrementAndGet();
-                    completionLatch.countDown();
-                    logger.info("Consumer 1 completed processing");
-                    return null;
-                } catch (Exception e) {
-                    failureCount.incrementAndGet();
-                    lastException.set(e);
-                    logger.error("Consumer 1 failed: {}", e.getMessage());
-                    throw new RuntimeException(e);
-                }
+            CompletableFuture<Void> future = new CompletableFuture<>();
+            vertx.setTimer(100, timerId -> {
+                processedCount.incrementAndGet();
+                completionCheckpoint.flag();
+                logger.info("Consumer 1 completed processing");
+                future.complete(null);
             });
+            return future;
         });
 
         // Consumer 2: Competing consumer
         consumer2.subscribe(message -> {
             logger.info("Consumer 2 processing message: {}", message.getPayload());
-            return CompletableFuture.supplyAsync(() -> {
-                try {
-                    Thread.sleep(50);
-                    processedCount.incrementAndGet();
-                    completionLatch.countDown();
-                    logger.info("Consumer 2 completed processing");
-                    return null;
-                } catch (Exception e) {
-                    failureCount.incrementAndGet();
-                    lastException.set(e);
-                    logger.error("Consumer 2 failed: {}", e.getMessage());
-                    throw new RuntimeException(e);
-                }
+            CompletableFuture<Void> future = new CompletableFuture<>();
+            vertx.setTimer(50, timerId -> {
+                processedCount.incrementAndGet();
+                completionCheckpoint.flag();
+                logger.info("Consumer 2 completed processing");
+                future.complete(null);
             });
+            return future;
         });
 
         // Send messages that will trigger competition
@@ -196,7 +188,7 @@ class PostgreSQLErrorHandlingTest {
         producer.send("Competing message 2").get(5, TimeUnit.SECONDS);
 
         // Wait for processing to complete
-        assertTrue(completionLatch.await(30, TimeUnit.SECONDS),
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
             "Should complete processing despite potential serialization conflicts");
 
         // Verify that messages were processed successfully
@@ -213,7 +205,7 @@ class PostgreSQLErrorHandlingTest {
     }
 
     @Test
-    void testDeadlockDetectionAndRecovery() throws Exception {
+    void testDeadlockDetectionAndRecovery(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing PostgreSQL deadlock detection and recovery");
 
         String topicName = "test-deadlock-recovery";
@@ -226,7 +218,7 @@ class PostgreSQLErrorHandlingTest {
 
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicInteger deadlockCount = new AtomicInteger(0);
-        CountDownLatch completionLatch = new CountDownLatch(3);
+        Checkpoint completionCheckpoint = testContext.checkpoint(3);
 
         // Create multiple consumers that could cause deadlocks
         MessageConsumer<String> consumer1 = factory.createConsumer(topicName, String.class);
@@ -234,12 +226,12 @@ class PostgreSQLErrorHandlingTest {
         MessageConsumer<String> consumer3 = factory.createConsumer(topicName, String.class);
 
         // Configure consumers to potentially cause deadlock scenarios
-        configureConsumerForDeadlockTesting(consumer1, "Consumer-1", processedCount, deadlockCount, completionLatch);
-        configureConsumerForDeadlockTesting(consumer2, "Consumer-2", processedCount, deadlockCount, completionLatch);
-        configureConsumerForDeadlockTesting(consumer3, "Consumer-3", processedCount, deadlockCount, completionLatch);
+        configureConsumerForDeadlockTesting(consumer1, "Consumer-1", processedCount, deadlockCount, completionCheckpoint);
+        configureConsumerForDeadlockTesting(consumer2, "Consumer-2", processedCount, deadlockCount, completionCheckpoint);
+        configureConsumerForDeadlockTesting(consumer3, "Consumer-3", processedCount, deadlockCount, completionCheckpoint);
 
-        // Wait for all messages to be processed - increased timeout and more flexible assertion
-        boolean completed = completionLatch.await(20, TimeUnit.SECONDS);
+        // Wait for all messages to be processed
+        boolean completed = testContext.awaitCompletion(20, TimeUnit.SECONDS);
 
         // Clean up first to prevent resource leaks
         consumer1.close();
@@ -263,7 +255,7 @@ class PostgreSQLErrorHandlingTest {
 
     private void configureConsumerForDeadlockTesting(MessageConsumer<String> consumer, String consumerName,
                                                    AtomicInteger processedCount, AtomicInteger deadlockCount,
-                                                   CountDownLatch completionLatch) {
+                                                   Checkpoint completionCheckpoint) {
         consumer.subscribe(message -> {
             logger.info("{} processing message: {}", consumerName, message.getPayload());
             return CompletableFuture.supplyAsync(() -> {
@@ -271,7 +263,7 @@ class PostgreSQLErrorHandlingTest {
                     // Simulate work that could cause deadlocks with database operations
                     simulateDeadlockProneOperation(consumerName);
                     processedCount.incrementAndGet();
-                    completionLatch.countDown();
+                    completionCheckpoint.flag();
                     logger.info("{} completed processing", consumerName);
                     return null;
                 } catch (Exception e) {
@@ -279,12 +271,12 @@ class PostgreSQLErrorHandlingTest {
                     if (errorMsg != null && (errorMsg.contains("deadlock") || errorMsg.contains("40P01"))) {
                         deadlockCount.incrementAndGet();
                         logger.warn("{} detected deadlock, will retry: {}", consumerName, errorMsg);
-                        // Count down latch even on deadlock to prevent test hanging
-                        completionLatch.countDown();
+                        // Flag checkpoint even on deadlock to prevent test hanging
+                        completionCheckpoint.flag();
                     } else {
                         logger.error("{} failed with non-deadlock error: {}", consumerName, errorMsg);
-                        // Count down latch on any error to prevent test hanging
-                        completionLatch.countDown();
+                        // Flag checkpoint on any error to prevent test hanging
+                        completionCheckpoint.flag();
                     }
                     // Don't rethrow - let the system handle retries naturally
                     return null;
@@ -305,8 +297,8 @@ class PostgreSQLErrorHandlingTest {
                 stmt1.setString(1, "test-deadlock-recovery");
                 stmt1.executeQuery();
 
-                // Very small delay to simulate work
-                Thread.sleep(5);
+                // Very small yield to simulate work
+                Thread.yield();
 
                 conn.commit();
                 logger.debug("{} completed deadlock-prone operation successfully", consumerName);
@@ -327,7 +319,7 @@ class PostgreSQLErrorHandlingTest {
     }
 
     @Test
-    void testConnectionTimeoutHandling() throws Exception {
+    void testConnectionTimeoutHandling(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing PostgreSQL connection timeout handling");
 
         String topicName = "test-connection-timeout";
@@ -339,7 +331,7 @@ class PostgreSQLErrorHandlingTest {
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicInteger timeoutCount = new AtomicInteger(0);
         AtomicBoolean connectionRecovered = new AtomicBoolean(false);
-        CountDownLatch completionLatch = new CountDownLatch(1);
+        Checkpoint completionCheckpoint = testContext.checkpoint(1);
 
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class);
 
@@ -351,7 +343,7 @@ class PostgreSQLErrorHandlingTest {
                     simulateConnectionTimeoutScenario();
                     processedCount.incrementAndGet();
                     connectionRecovered.set(true);
-                    completionLatch.countDown();
+                    completionCheckpoint.flag();
                     logger.info("Message processed successfully after potential timeout");
                     return null;
                 } catch (Exception e) {
@@ -362,7 +354,7 @@ class PostgreSQLErrorHandlingTest {
                         timeoutCount.incrementAndGet();
                         logger.warn("Connection timeout detected, system should recover: {}", errorMsg);
                         // Don't rethrow - let the system recover
-                        completionLatch.countDown();
+                        completionCheckpoint.flag();
                         return null;
                     } else {
                         logger.error("Unexpected error during timeout test: {}", errorMsg);
@@ -373,7 +365,7 @@ class PostgreSQLErrorHandlingTest {
         });
 
         // Wait for processing to complete or timeout to be handled
-        assertTrue(completionLatch.await(30, TimeUnit.SECONDS),
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
             "Should complete processing or handle timeout within 30 seconds");
 
         // Verify that either the message was processed or timeout was properly handled
@@ -383,8 +375,10 @@ class PostgreSQLErrorHandlingTest {
         // Test recovery by sending another message
         producer.send("Recovery test message").get(5, TimeUnit.SECONDS);
 
-        // Give system time to recover and process the new message
-        Thread.sleep(2000);
+        // Give system time to recover and process the new message using timer
+        CompletableFuture<Void> recoveryWait = new CompletableFuture<>();
+        vertx.setTimer(2000, id -> recoveryWait.complete(null));
+        recoveryWait.join();
 
         logger.info("✅ Connection timeout handling test completed - processed {} messages, {} timeouts detected",
             processedCount.get(), timeoutCount.get());
@@ -426,7 +420,7 @@ class PostgreSQLErrorHandlingTest {
     }
 
     @Test
-    void testTransactionRollbackAndRetryLogic() throws Exception {
+    void testTransactionRollbackAndRetryLogic(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing transaction rollback and retry logic");
 
         String topicName = "test-transaction-rollback";
@@ -439,7 +433,7 @@ class PostgreSQLErrorHandlingTest {
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicInteger rollbackCount = new AtomicInteger(0);
         AtomicInteger retryCount = new AtomicInteger(0);
-        CountDownLatch completionLatch = new CountDownLatch(2);
+        Checkpoint completionCheckpoint = testContext.checkpoint(2);
 
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class);
 
@@ -453,27 +447,27 @@ class PostgreSQLErrorHandlingTest {
                     if (shouldRollback) {
                         rollbackCount.incrementAndGet();
                         logger.warn("Transaction rollback triggered for message: {}", message.getPayload());
-                        // Count down even on rollback to prevent hanging
-                        completionLatch.countDown();
+                        // Flag checkpoint even on rollback to prevent hanging
+                        completionCheckpoint.flag();
                         return null; // Don't throw - let system handle naturally
                     } else {
                         processedCount.incrementAndGet();
-                        completionLatch.countDown();
+                        completionCheckpoint.flag();
                         logger.info("Message processed successfully: {}", message.getPayload());
                         return null;
                     }
                 } catch (Exception e) {
                     retryCount.incrementAndGet();
                     logger.warn("Message processing failed, will be retried: {}", e.getMessage());
-                    // Count down on error to prevent hanging
-                    completionLatch.countDown();
+                    // Flag checkpoint on error to prevent hanging
+                    completionCheckpoint.flag();
                     return null; // Don't rethrow - let system handle naturally
                 }
             });
         });
 
-        // Wait for processing to complete - reduced timeout
-        boolean completed = completionLatch.await(15, TimeUnit.SECONDS);
+        // Wait for processing to complete
+        boolean completed = testContext.awaitCompletion(15, TimeUnit.SECONDS);
 
         // Clean up first
         consumer.close();
@@ -525,7 +519,7 @@ class PostgreSQLErrorHandlingTest {
     }
 
     @Test
-    void testPostgreSQLSpecificErrorCodes() throws Exception {
+    void testPostgreSQLSpecificErrorCodes(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing PostgreSQL-specific error code handling");
 
         String topicName = "test-error-codes";
@@ -536,7 +530,7 @@ class PostgreSQLErrorHandlingTest {
 
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicInteger errorCodeCount = new AtomicInteger(0);
-        CountDownLatch completionLatch = new CountDownLatch(1);
+        Checkpoint completionCheckpoint = testContext.checkpoint(1);
 
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class);
 
@@ -547,7 +541,7 @@ class PostgreSQLErrorHandlingTest {
                     // Simulate operations that could trigger specific PostgreSQL error codes
                     simulatePostgreSQLErrorCodes();
                     processedCount.incrementAndGet();
-                    completionLatch.countDown();
+                    completionCheckpoint.flag();
                     logger.info("Message processed successfully");
                     return null;
                 } catch (Exception e) {
@@ -573,14 +567,14 @@ class PostgreSQLErrorHandlingTest {
                     }
 
                     // For testing purposes, consider error handling successful
-                    completionLatch.countDown();
+                    completionCheckpoint.flag();
                     return null;
                 }
             });
         });
 
         // Wait for processing to complete
-        assertTrue(completionLatch.await(20, TimeUnit.SECONDS),
+        assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS),
             "Should complete error code handling test");
 
         logger.info("✅ PostgreSQL error code handling test completed - processed {} messages, {} error codes detected",

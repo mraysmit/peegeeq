@@ -30,12 +30,16 @@ import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -45,7 +49,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -67,6 +70,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  * gracefully without losing messages or corrupting retry state.
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 public class OutboxRetryResilienceTest {
 
@@ -187,7 +191,7 @@ public class OutboxRetryResilienceTest {
 
     @Test
     @DisplayName("DATABASE RESILIENCE: Connection timeout during retry processing")
-    void testConnectionTimeoutDuringRetryProcessing() throws Exception {
+    void testConnectionTimeoutDuringRetryProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🔥 === DATABASE RESILIENCE TEST: Connection timeout during retry processing ===");
 
         String testTopic = "test-connection-timeout-" + UUID.randomUUID().toString().substring(0, 8);
@@ -197,7 +201,7 @@ public class OutboxRetryResilienceTest {
         String testMessage = "Message for connection timeout test";
         AtomicInteger attemptCount = new AtomicInteger(0);
         AtomicReference<String> lastError = new AtomicReference<>();
-        CountDownLatch retryLatch = new CountDownLatch(4); // Initial + 3 retries
+        Checkpoint retryCheckpoint = testContext.checkpoint(4); // Initial + 3 retries
 
         logger.info("📤 Sending message: {}", testMessage);
 
@@ -207,7 +211,7 @@ public class OutboxRetryResilienceTest {
             logger.info("🔥 INTENTIONAL FAILURE: Connection timeout simulation attempt {} for message: {}",
                 attempt, message.getPayload());
 
-            retryLatch.countDown();
+            retryCheckpoint.flag();
             lastError.set("INTENTIONAL FAILURE: Simulated connection timeout, attempt " + attempt);
 
             // Simulate connection timeout during message processing
@@ -216,15 +220,15 @@ public class OutboxRetryResilienceTest {
 
         // Send message after consumer is subscribed
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
-        logger.info("✅ Message sent successfully");
+        logger.info("\u2705 Message sent successfully");
 
         // Wait for all retry attempts
-        boolean completed = retryLatch.await(15, TimeUnit.SECONDS);
-        assertTrue(completed, "Should have attempted processing 4 times despite connection issues");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 4 times despite connection issues");
         assertEquals(4, attemptCount.get(), "Should have made exactly 4 processing attempts");
 
         // Verify message eventually moves to dead letter queue
-        Thread.sleep(2000); // Allow time for DLQ processing
+        // GC-settle: allow time for DLQ processing
+        vertx.timer(2000).toCompletionStage().toCompletableFuture().join();
         verifyMessageInDeadLetterQueue(testMessage);
 
         logger.info("✅ Connection timeout resilience test completed successfully");
@@ -234,7 +238,7 @@ public class OutboxRetryResilienceTest {
 
     @Test
     @DisplayName("DATABASE RESILIENCE: Database unavailability during retry cycle")
-    void testDatabaseUnavailabilityDuringRetryProcessing() throws Exception {
+    void testDatabaseUnavailabilityDuringRetryProcessing(VertxTestContext testContext) throws Exception {
         logger.info("🔥 === DATABASE RESILIENCE TEST: Database unavailability during retry cycle ===");
 
         String testTopic = "test-db-unavailable-" + UUID.randomUUID().toString().substring(0, 8);
@@ -243,7 +247,7 @@ public class OutboxRetryResilienceTest {
 
         String testMessage = "Message for database unavailability test";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch retryLatch = new CountDownLatch(4); // Initial + 3 retries
+        Checkpoint retryCheckpoint = testContext.checkpoint(4); // Initial + 3 retries
 
         logger.info("📤 Sending message: {}", testMessage);
 
@@ -253,7 +257,7 @@ public class OutboxRetryResilienceTest {
             logger.info("🔥 INTENTIONAL FAILURE: Database unavailability simulation attempt {} for message: {}",
                 attempt, message.getPayload());
 
-            retryLatch.countDown();
+            retryCheckpoint.flag();
 
             // Simulate database unavailability
             throw new RuntimeException("INTENTIONAL FAILURE: Database connection failed, attempt " + attempt);
@@ -264,8 +268,7 @@ public class OutboxRetryResilienceTest {
         logger.info("✅ Message sent successfully");
 
         // Wait for all retry attempts
-        boolean completed = retryLatch.await(15, TimeUnit.SECONDS);
-        assertTrue(completed, "Should have attempted processing 4 times despite database issues");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 4 times despite database issues");
         assertEquals(4, attemptCount.get(), "Should have made exactly 4 processing attempts");
 
         logger.info("✅ Database unavailability resilience test completed successfully");
@@ -291,7 +294,7 @@ public class OutboxRetryResilienceTest {
 
     @Test
     @DisplayName("DATABASE RESILIENCE: Connection pool exhaustion during retry processing")
-    void testConnectionPoolExhaustionDuringRetryProcessing() throws Exception {
+    void testConnectionPoolExhaustionDuringRetryProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🔥 === DATABASE RESILIENCE TEST: Connection pool exhaustion during retry processing ===");
 
         String testTopic = "test-pool-exhaustion-" + UUID.randomUUID().toString().substring(0, 8);
@@ -300,7 +303,7 @@ public class OutboxRetryResilienceTest {
 
         String testMessage = "Message for connection pool exhaustion test";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch retryLatch = new CountDownLatch(2); // Expect fewer attempts due to pool exhaustion
+        Checkpoint retryCheckpoint = testContext.checkpoint(2); // Expect fewer attempts due to pool exhaustion
 
         // Send message first
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
@@ -315,15 +318,14 @@ public class OutboxRetryResilienceTest {
             logger.info("🔥 INTENTIONAL FAILURE: Pool exhaustion simulation attempt {} for message: {}",
                 attempt, message.getPayload());
 
-            retryLatch.countDown();
+            retryCheckpoint.flag();
 
             // This will fail due to pool exhaustion
             throw new RuntimeException("INTENTIONAL FAILURE: Connection pool exhausted, attempt " + attempt);
         });
 
         // Wait for attempts (may be limited due to pool exhaustion)
-        boolean completed = retryLatch.await(10, TimeUnit.SECONDS);
-        assertTrue(completed, "Should have attempted processing despite pool exhaustion");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should have attempted processing despite pool exhaustion");
         assertTrue(attemptCount.get() >= 1, "Should have made at least 1 processing attempt");
 
         logger.info("✅ Connection pool exhaustion resilience test completed successfully");
@@ -332,7 +334,7 @@ public class OutboxRetryResilienceTest {
 
     @Test
     @DisplayName("DATABASE RESILIENCE: Transaction rollback during retry state update")
-    void testTransactionRollbackDuringRetryStateUpdate() throws Exception {
+    void testTransactionRollbackDuringRetryStateUpdate(VertxTestContext testContext) throws Exception {
         logger.info("🔥 === DATABASE RESILIENCE TEST: Transaction rollback during retry state update ===");
 
         String testTopic = "test-transaction-rollback-" + UUID.randomUUID().toString().substring(0, 8);
@@ -341,7 +343,7 @@ public class OutboxRetryResilienceTest {
 
         String testMessage = "Message for transaction rollback test";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch retryLatch = new CountDownLatch(4); // Initial + 3 retries
+        Checkpoint retryCheckpoint = testContext.checkpoint(4); // Initial + 3 retries
 
         // Send message first
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
@@ -353,15 +355,14 @@ public class OutboxRetryResilienceTest {
             logger.info("🔥 INTENTIONAL FAILURE: Transaction rollback simulation attempt {} for message: {}",
                 attempt, message.getPayload());
 
-            retryLatch.countDown();
+            retryCheckpoint.flag();
 
             // Simulate transaction rollback scenario
             throw new RuntimeException("INTENTIONAL FAILURE: Transaction rollback during retry update, attempt " + attempt);
         });
 
         // Wait for all retry attempts
-        boolean completed = retryLatch.await(15, TimeUnit.SECONDS);
-        assertTrue(completed, "Should have attempted processing 4 times despite transaction issues");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 4 times despite transaction issues");
         assertEquals(4, attemptCount.get(), "Should have made exactly 4 processing attempts");
 
         // Verify retry state consistency after rollbacks
@@ -373,7 +374,7 @@ public class OutboxRetryResilienceTest {
 
     @Test
     @DisplayName("DATABASE RESILIENCE: Database recovery after temporary failure")
-    void testDatabaseRecoveryAfterTemporaryFailure() throws Exception {
+    void testDatabaseRecoveryAfterTemporaryFailure(VertxTestContext testContext) throws Exception {
         logger.info("🔥 === DATABASE RESILIENCE TEST: Database recovery after temporary failure ===");
 
         String testTopic = "test-db-recovery-" + UUID.randomUUID().toString().substring(0, 8);
@@ -383,7 +384,7 @@ public class OutboxRetryResilienceTest {
         String testMessage = "Message for database recovery test";
         AtomicInteger attemptCount = new AtomicInteger(0);
         AtomicInteger successCount = new AtomicInteger(0);
-        CountDownLatch successLatch = new CountDownLatch(1);
+        Checkpoint successCheckpoint = testContext.checkpoint();
 
         // Send message first
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
@@ -405,14 +406,13 @@ public class OutboxRetryResilienceTest {
 
                 // Simulate database recovery - process successfully
                 successCount.incrementAndGet();
-                successLatch.countDown();
+                successCheckpoint.flag();
                 return CompletableFuture.completedFuture(null);
             }
         });
 
         // Wait for successful processing after recovery
-        boolean completed = successLatch.await(15, TimeUnit.SECONDS);
-        assertTrue(completed, "Should eventually succeed after database recovery");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should eventually succeed after database recovery");
         assertTrue(attemptCount.get() >= 3, "Should have made at least 3 attempts (2 failures + 1 success)");
         assertEquals(1, successCount.get(), "Should have succeeded exactly once after recovery");
 
@@ -482,8 +482,8 @@ public class OutboxRetryResilienceTest {
             futures.add(future);
         }
 
-        // Wait a bit for connections to be acquired
-        Thread.sleep(500);
+        // GC-settle: wait for connections to be acquired
+        io.vertx.core.Vertx.vertx().timer(500).toCompletionStage().toCompletableFuture().join();
         logger.info("Connection pool exhaustion simulation initiated");
     }
 }

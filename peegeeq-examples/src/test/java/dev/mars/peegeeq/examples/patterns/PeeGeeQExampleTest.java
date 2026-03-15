@@ -24,10 +24,13 @@ import dev.mars.peegeeq.db.resilience.BackpressureManager;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -35,6 +38,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -63,8 +67,10 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 class PeeGeeQExampleTest {
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQExampleTest.class);
+    private Vertx vertx;
     
     private final ByteArrayOutputStream outContent = new ByteArrayOutputStream();
     private final ByteArrayOutputStream errContent = new ByteArrayOutputStream();
@@ -72,7 +78,8 @@ class PeeGeeQExampleTest {
     private final PrintStream originalErr = System.err;
     
     @BeforeEach
-    void setUpStreams() {
+    void setUpStreams(Vertx vertx) {
+        this.vertx = vertx;
         System.setOut(new PrintStream(outContent));
         System.setErr(new PrintStream(errContent));
     }
@@ -349,7 +356,9 @@ class PeeGeeQExampleTest {
             }
 
             // Wait briefly for operations to complete
-            Thread.sleep(1000);
+            CompletableFuture<Void> delay = new CompletableFuture<>();
+            vertx.setTimer(1000, id -> delay.complete(null));
+            delay.join();
 
             BackpressureManager.BackpressureMetrics metrics = backpressureManager.getMetrics();
             logger.info(">> Total Requests: {}", metrics.getTotalRequests());
@@ -411,7 +420,9 @@ class PeeGeeQExampleTest {
             }, 0, 2, TimeUnit.SECONDS); // Faster for test
 
             // Run monitoring for 5 seconds (shorter for test)
-            Thread.sleep(5000);
+            CompletableFuture<Void> delay = new CompletableFuture<>();
+            vertx.setTimer(5000, id -> delay.complete(null));
+            delay.join();
 
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();

@@ -23,9 +23,10 @@ import org.slf4j.LoggerFactory;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.UUID;
+
+import io.vertx.junit5.VertxTestContext;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -59,7 +60,7 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
     private SubscriptionManager subscriptionManager;
 
     @BeforeEach
-    public void setUp() throws Exception {
+    public void setUp(VertxTestContext testContext) throws Exception {
         super.setUpBaseIntegration();
 
         // Create connection manager using the shared Vertx instance
@@ -90,7 +91,7 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    public void testCleanupCompletedQueueMessages() throws Exception {
+    public void testCleanupCompletedQueueMessages(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST: testCleanupCompletedQueueMessages STARTED ===");
 
         String topic = "test-cleanup-queue";
@@ -101,9 +102,6 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
                 .semantics(TopicSemantics.QUEUE)
                 .messageRetentionHours(1) // 1 hour retention for testing
                 .build();
-
-        CountDownLatch latch = new CountDownLatch(1);
-
         topicConfigService.createTopic(topicConfig)
                 .compose(v -> {
                     // Insert a completed message (trigger will set required_consumer_groups=1 for QUEUE)
@@ -128,19 +126,15 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
                     assertEquals(1, deletedCount, "Should delete 1 completed message");
                     return Future.succeededFuture();
                 })
-                .onSuccess(v -> latch.countDown())
-                .onFailure(error -> {
-                    logger.error("Test failed", error);
-                    latch.countDown();
-                    fail("Test failed: " + error.getMessage());
-                });
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Test should complete within 10 seconds");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         logger.info("=== TEST: testCleanupCompletedQueueMessages PASSED ===");
     }
 
     @Test
-    public void testCleanupCompletedPubSubMessages() throws Exception {
+    public void testCleanupCompletedPubSubMessages(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST: testCleanupCompletedPubSubMessages STARTED ===");
 
         String topic = "test-cleanup-pubsub";
@@ -153,9 +147,6 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
                 .semantics(TopicSemantics.PUB_SUB)
                 .messageRetentionHours(1) // 1 hour retention for testing
                 .build();
-
-        CountDownLatch latch = new CountDownLatch(1);
-
         topicConfigService.createTopic(topicConfig)
                 .compose(v -> {
                     // Subscribe two groups
@@ -200,19 +191,15 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
                     assertEquals(1, deletedCount, "Should delete 1 completed message");
                     return Future.succeededFuture();
                 })
-                .onSuccess(v -> latch.countDown())
-                .onFailure(error -> {
-                    logger.error("Test failed", error);
-                    latch.countDown();
-                    fail("Test failed: " + error.getMessage());
-                });
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Test should complete within 10 seconds");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         logger.info("=== TEST: testCleanupCompletedPubSubMessages PASSED ===");
     }
 
     @Test
-    public void testCleanupRespectsRetentionHours() throws Exception {
+    public void testCleanupRespectsRetentionHours(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST: testCleanupRespectsRetentionHours STARTED ===");
 
         String topic = "test-cleanup-retention";
@@ -223,9 +210,6 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
                 .semantics(TopicSemantics.QUEUE)
                 .messageRetentionHours(24)
                 .build();
-
-        CountDownLatch latch = new CountDownLatch(1);
-
         topicConfigService.createTopic(topicConfig)
                 .compose(v -> {
                     // Insert a completed message processed 1 hour ago (should NOT be deleted)
@@ -250,19 +234,15 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
                     assertEquals(0, deletedCount, "Should NOT delete message within retention period");
                     return Future.succeededFuture();
                 })
-                .onSuccess(v -> latch.countDown())
-                .onFailure(error -> {
-                    logger.error("Test failed", error);
-                    latch.countDown();
-                    fail("Test failed: " + error.getMessage());
-                });
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Test should complete within 10 seconds");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         logger.info("=== TEST: testCleanupRespectsRetentionHours PASSED ===");
     }
 
     @Test
-    public void testCleanupDoesNotDeleteIncompleteMessages() throws Exception {
+    public void testCleanupDoesNotDeleteIncompleteMessages(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST: testCleanupDoesNotDeleteIncompleteMessages STARTED ===");
 
         String topic = "test-cleanup-incomplete";
@@ -275,9 +255,6 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
                 .semantics(TopicSemantics.PUB_SUB)
                 .messageRetentionHours(1) // 1 hour retention for testing
                 .build();
-
-        CountDownLatch latch = new CountDownLatch(1);
-
         topicConfigService.createTopic(topicConfig)
                 .compose(v -> {
                     // Subscribe two groups
@@ -321,19 +298,15 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
                     assertEquals(0, deletedCount, "Should NOT delete incomplete message");
                     return Future.succeededFuture();
                 })
-                .onSuccess(v -> latch.countDown())
-                .onFailure(error -> {
-                    logger.error("Test failed", error);
-                    latch.countDown();
-                    fail("Test failed: " + error.getMessage());
-                });
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Test should complete within 10 seconds");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         logger.info("=== TEST: testCleanupDoesNotDeleteIncompleteMessages PASSED ===");
     }
 
     @Test
-    public void testCleanupAllTopics() throws Exception {
+    public void testCleanupAllTopics(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST: testCleanupAllTopics STARTED ===");
 
         String topic1 = "test-cleanup-all-1";
@@ -351,9 +324,6 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
                 .semantics(TopicSemantics.QUEUE)
                 .messageRetentionHours(1)
                 .build();
-
-        CountDownLatch latch = new CountDownLatch(1);
-
         topicConfigService.createTopic(topicConfig1)
                 .compose(v -> topicConfigService.createTopic(topicConfig2))
                 .compose(v -> {
@@ -379,19 +349,15 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
                     assertEquals(2, totalDeleted, "Should delete 2 messages (1 per topic)");
                     return Future.succeededFuture();
                 })
-                .onSuccess(v -> latch.countDown())
-                .onFailure(error -> {
-                    logger.error("Test failed", error);
-                    latch.countDown();
-                    fail("Test failed: " + error.getMessage());
-                });
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Test should complete within 10 seconds");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         logger.info("=== TEST: testCleanupAllTopics PASSED ===");
     }
 
     @Test
-    public void testCountEligibleForCleanup() throws Exception {
+    public void testCountEligibleForCleanup(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST: testCountEligibleForCleanup STARTED ===");
 
         String topic = "test-cleanup-count";
@@ -402,9 +368,6 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
                 .semantics(TopicSemantics.QUEUE)
                 .messageRetentionHours(1)
                 .build();
-
-        CountDownLatch latch = new CountDownLatch(1);
-
         topicConfigService.createTopic(topicConfig)
                 .compose(v -> {
                     // Insert 3 completed messages (trigger will set required_consumer_groups=1)
@@ -431,19 +394,15 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
                     assertEquals(3L, count, "Should find 3 messages eligible for cleanup");
                     return Future.succeededFuture();
                 })
-                .onSuccess(v -> latch.countDown())
-                .onFailure(error -> {
-                    logger.error("Test failed", error);
-                    latch.countDown();
-                    fail("Test failed: " + error.getMessage());
-                });
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Test should complete within 10 seconds");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         logger.info("=== TEST: testCountEligibleForCleanup PASSED ===");
     }
 
     @Test
-    public void testCleanupAllTopicsIncludesUnconfiguredTopics() throws Exception {
+    public void testCleanupAllTopicsIncludesUnconfiguredTopics(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST: testCleanupAllTopicsIncludesUnconfiguredTopics STARTED ===");
 
         String configuredTopic = "test-cleanup-configured-" + UUID.randomUUID().toString().substring(0, 8);
@@ -454,9 +413,6 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
                 .semantics(TopicSemantics.QUEUE)
                 .messageRetentionHours(1)
                 .build();
-
-        CountDownLatch latch = new CountDownLatch(1);
-
         topicConfigService.createTopic(topicConfig)
                 .compose(v -> {
                     // Insert one eligible completed message for configured topic
@@ -478,19 +434,15 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
                             "cleanupAllTopics should include configured and unconfigured topics");
                     return Future.succeededFuture();
                 })
-                .onSuccess(v -> latch.countDown())
-                .onFailure(error -> {
-                    logger.error("Test failed", error);
-                    latch.countDown();
-                    fail("Test failed: " + error.getMessage());
-                });
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Test should complete within 10 seconds");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         logger.info("=== TEST: testCleanupAllTopicsIncludesUnconfiguredTopics PASSED ===");
     }
 
     @Test
-    public void testZeroSubscriptionRetentionUsesZeroSubscriptionHours() throws Exception {
+    public void testZeroSubscriptionRetentionUsesZeroSubscriptionHours(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST: testZeroSubscriptionRetentionUsesZeroSubscriptionHours STARTED ===");
 
         String topic = "test-cleanup-zero-sub-" + UUID.randomUUID().toString().substring(0, 8);
@@ -503,9 +455,6 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
                 .messageRetentionHours(72)
                 .zeroSubscriptionRetentionHours(1)
                 .build();
-
-        CountDownLatch latch = new CountDownLatch(1);
-
         topicConfigService.createTopic(topicConfig)
                 .compose(v -> {
                     String sql = """
@@ -533,14 +482,10 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
                             "Should delete zero-subscription message based on zero_subscription_retention_hours");
                     return Future.succeededFuture();
                 })
-                .onSuccess(v -> latch.countDown())
-                .onFailure(error -> {
-                    logger.error("Test failed", error);
-                    latch.countDown();
-                    fail("Test failed: " + error.getMessage());
-                });
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Test should complete within 10 seconds");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         logger.info("=== TEST: testZeroSubscriptionRetentionUsesZeroSubscriptionHours PASSED ===");
     }
 }

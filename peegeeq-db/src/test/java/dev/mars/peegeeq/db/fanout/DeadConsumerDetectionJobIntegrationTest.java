@@ -32,9 +32,10 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxTestContext;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -237,7 +238,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
         assertTrue(job.isRunning(), "Job should be running after start");
 
         // Let it run a couple cycles
-        Thread.sleep(1200);
+        manager.getVertx().timer(1200).toCompletionStage().toCompletableFuture().join();
 
         job.stop();
         assertFalse(job.isRunning(), "Job should not be running after stop");
@@ -301,14 +302,14 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
         job = new DeadConsumerDetectionJob(manager.getVertx(), detector, cleanup, 5);
         job.start();
 
-        Thread.sleep(250);
+        manager.getVertx().timer(250).toCompletionStage().toCompletableFuture().join();
         long beforeStopRuns = job.getTotalRunCount();
 
         job.stop();
         assertFalse(job.isRunning(), "Job should report stopped");
 
         // Wait long enough that many timer ticks would have happened if not fenced.
-        Thread.sleep(250);
+        manager.getVertx().timer(250).toCompletionStage().toCompletableFuture().join();
         long afterStopRuns = job.getTotalRunCount();
 
         assertEquals(beforeStopRuns, afterStopRuns,
@@ -473,10 +474,10 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
 
         // Wait for the job to detect and clean up (generous 5-second timeout)
         for (int i = 0; i < 25; i++) {
-            Thread.sleep(200);
+            manager.getVertx().timer(200).toCompletionStage().toCompletableFuture().join();
             if (job.getTotalDeadDetected() >= 1) {
                 // Give cleanup time to complete after detection
-                Thread.sleep(500);
+                manager.getVertx().timer(500).toCompletionStage().toCompletableFuture().join();
                 break;
             }
         }
@@ -550,7 +551,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
         job.start();
 
         // Let the timer fire many times
-        Thread.sleep(2000);
+        manager.getVertx().timer(2000).toCompletionStage().toCompletableFuture().join();
         job.stop();
 
         long runCount = job.getTotalRunCount();

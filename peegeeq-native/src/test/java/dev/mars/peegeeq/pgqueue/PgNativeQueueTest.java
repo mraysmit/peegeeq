@@ -24,20 +24,21 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.streams.ReadStream;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.PoolOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -53,6 +54,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 public class PgNativeQueueTest {
     private static final Logger logger = LoggerFactory.getLogger(PgNativeQueueTest.class);
@@ -68,9 +70,9 @@ public class PgNativeQueueTest {
     private ObjectMapper objectMapper;
 
     @BeforeEach
-    void setUp() {
+    void setUp(Vertx vertx) {
         logger.info("Setting up test environment");
-        vertx = Vertx.vertx();
+        this.vertx = vertx;
         objectMapper = new ObjectMapper();
 
         // Create connection options from TestContainer
@@ -100,25 +102,11 @@ public class PgNativeQueueTest {
     @AfterEach
     void tearDown() throws Exception {
         logger.info("Tearing down test environment");
-        CountDownLatch latch = new CountDownLatch(1);
-
         queue.close()
-            .onComplete(ar -> {
-                logger.debug("Queue closed, now closing Vertx");
-                vertx.close()
-                    .onComplete(v -> {
-                        logger.debug("Vertx closed");
-                        latch.countDown();
-                    });
-            });
-
-        boolean closed = latch.await(5, TimeUnit.SECONDS);
-        if (closed) {
-            logger.info("Test environment teardown complete");
-        } else {
-            logger.error("Failed to close resources within timeout");
-        }
-        assertTrue(closed, "Failed to close resources");
+            .toCompletionStage().toCompletableFuture()
+            .orTimeout(5, TimeUnit.SECONDS)
+            .join();
+        logger.info("Test environment teardown complete");
     }
 
     @Test
@@ -138,62 +126,42 @@ public class PgNativeQueueTest {
     }
 
     @Test
-    void testSendMessage() throws Exception {
+    void testSendMessage(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Arrange
         JsonObject payload = new JsonObject().put("test", "value");
-        CountDownLatch latch = new CountDownLatch(1);
 
         // Act
         queue.send(payload)
-            .onComplete(ar -> {
-                if (ar.succeeded()) {
-                    latch.countDown();
-                } else {
-                    fail("Failed to send message: " + ar.cause().getMessage());
-                }
-            });
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
 
         // Assert
-        assertTrue(latch.await(5, TimeUnit.SECONDS), "Failed to send message");
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Failed to send message");
     }
 
     @Test
-    void testAcknowledgeMessage() throws Exception {
+    void testAcknowledgeMessage(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Arrange
-        String messageId = UUID.randomUUID().toString();
-        CountDownLatch latch = new CountDownLatch(1);
+        String messageId = java.util.UUID.randomUUID().toString();
 
         // Act
         queue.acknowledge(messageId)
-            .onComplete(ar -> {
-                if (ar.succeeded()) {
-                    latch.countDown();
-                } else {
-                    fail("Failed to acknowledge message: " + ar.cause().getMessage());
-                }
-            });
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
 
         // Assert
-        assertTrue(latch.await(5, TimeUnit.SECONDS), "Failed to acknowledge message");
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Failed to acknowledge message");
     }
 
     @Test
-    void testClose() throws Exception {
-        // Arrange
-        CountDownLatch latch = new CountDownLatch(1);
-
+    void testClose(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Act
         queue.close()
-            .onComplete(ar -> {
-                if (ar.succeeded()) {
-                    latch.countDown();
-                } else {
-                    fail("Failed to close queue: " + ar.cause().getMessage());
-                }
-            });
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
 
         // Assert
-        assertTrue(latch.await(5, TimeUnit.SECONDS), "Failed to close queue");
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Failed to close queue");
     }
 
     @Test

@@ -25,11 +25,16 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -37,7 +42,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.ConcurrentHashMap;
@@ -50,6 +54,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 public class OutboxParallelProcessingTest {
 
     @Container
@@ -149,10 +154,10 @@ public class OutboxParallelProcessingTest {
     }
 
     @Test
-    void testParallelConsumerProcessing() throws Exception {
+    void testParallelConsumerProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Use more messages and longer processing time to force parallel execution
         int messageCount = 20;  // Increased from 12
-        CountDownLatch latch = new CountDownLatch(messageCount);
+        Checkpoint completionCheckpoint = testContext.checkpoint(messageCount);
         Set<String> processingThreads = ConcurrentHashMap.newKeySet();
         AtomicInteger processedCount = new AtomicInteger(0);
 
@@ -165,15 +170,13 @@ public class OutboxParallelProcessingTest {
             System.out.println("🔄 Processing message " + count + " on thread: " + threadName + " - " + message.getPayload());
 
             // Longer processing time to ensure parallel execution opportunity
-            try {
-                Thread.sleep(2000);  // Increased from 1000ms to 2000ms
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-
-            System.out.println("✅ Completed message " + count + " on thread: " + threadName);
-            latch.countDown();
-            return CompletableFuture.completedFuture(null);
+            CompletableFuture<Void> delay = new CompletableFuture<>();
+            vertx.setTimer(2000, id -> {
+                System.out.println("✅ Completed message " + count + " on thread: " + threadName);
+                completionCheckpoint.flag();
+                delay.complete(null);
+            });
+            return delay;
         });
 
         // Send all messages quickly to create backlog for parallel processing
@@ -182,12 +185,12 @@ public class OutboxParallelProcessingTest {
             producer.send("Parallel message " + i).get(2, TimeUnit.SECONDS);
             System.out.println("Sent message " + i);
             // Small delay to ensure messages are persisted but create backlog
-            Thread.sleep(10);
+            vertx.timer(10).toCompletionStage().toCompletableFuture().join();
         }
         System.out.println("All messages sent, waiting for parallel processing...");
 
         // Wait for all messages to be processed (longer timeout due to longer processing time)
-        assertTrue(latch.await(90, TimeUnit.SECONDS),  // Increased timeout
+        assertTrue(testContext.awaitCompletion(90, TimeUnit.SECONDS),  // Increased timeout
             "All messages should be processed within timeout");
         assertEquals(messageCount, processedCount.get(),
             "Should process all messages");
@@ -218,9 +221,9 @@ public class OutboxParallelProcessingTest {
     }
 
     @Test
-    void testBatchProcessing() throws Exception {
+    void testBatchProcessing(VertxTestContext testContext) throws Exception {
         int messageCount = 20;
-        CountDownLatch latch = new CountDownLatch(messageCount);
+        Checkpoint completionCheckpoint = testContext.checkpoint(messageCount);
         AtomicInteger processedCount = new AtomicInteger(0);
         Set<String> processingThreads = ConcurrentHashMap.newKeySet();
 
@@ -231,7 +234,7 @@ public class OutboxParallelProcessingTest {
             int count = processedCount.incrementAndGet();
             System.out.println("Batch processing message " + count + " on thread: " + threadName);
             
-            latch.countDown();
+            completionCheckpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -242,7 +245,7 @@ public class OutboxParallelProcessingTest {
         }
 
         // Wait for all messages to be processed
-        assertTrue(latch.await(30, TimeUnit.SECONDS), 
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 
             "All batch messages should be processed within timeout");
         assertEquals(messageCount, processedCount.get(), 
             "Should process all batch messages");
@@ -253,12 +256,12 @@ public class OutboxParallelProcessingTest {
     }
 
     @Test
-    void testConcurrentProducers() throws Exception {
+    void testConcurrentProducers(VertxTestContext testContext) throws Exception {
         int producerCount = 3;
         int messagesPerProducer = 5;
         int totalMessages = producerCount * messagesPerProducer;
         
-        CountDownLatch latch = new CountDownLatch(totalMessages);
+        Checkpoint completionCheckpoint = testContext.checkpoint(totalMessages);
         AtomicInteger processedCount = new AtomicInteger(0);
         Set<String> processingThreads = ConcurrentHashMap.newKeySet();
 
@@ -269,7 +272,7 @@ public class OutboxParallelProcessingTest {
             int count = processedCount.incrementAndGet();
             System.out.println("Concurrent processing message " + count + " on thread: " + threadName);
             
-            latch.countDown();
+            completionCheckpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -298,7 +301,7 @@ public class OutboxParallelProcessingTest {
         System.out.println("All concurrent producers completed");
 
         // Wait for all messages to be processed
-        assertTrue(latch.await(45, TimeUnit.SECONDS), 
+        assertTrue(testContext.awaitCompletion(45, TimeUnit.SECONDS), 
             "All concurrent messages should be processed within timeout");
         assertEquals(totalMessages, processedCount.get(), 
             "Should process all concurrent messages");

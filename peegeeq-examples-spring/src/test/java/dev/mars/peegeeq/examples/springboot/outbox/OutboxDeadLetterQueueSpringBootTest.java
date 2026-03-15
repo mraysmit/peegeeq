@@ -35,13 +35,17 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -85,6 +89,7 @@ import static org.junit.jupiter.api.Assertions.*;
 )
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+@ExtendWith(VertxExtension.class)
 class OutboxDeadLetterQueueSpringBootTest {
     
     private static final Logger logger = LoggerFactory.getLogger(OutboxDeadLetterQueueSpringBootTest.class);
@@ -114,7 +119,7 @@ class OutboxDeadLetterQueueSpringBootTest {
     }
     
     @AfterEach
-    void tearDown() throws InterruptedException {
+    void tearDown(Vertx vertx) throws InterruptedException {
         logger.info("🧹 Cleaning up Dead Letter Queue Spring Boot Test");
         
         // Close all active consumers first
@@ -141,7 +146,9 @@ class OutboxDeadLetterQueueSpringBootTest {
         
         // Wait for connections to be fully released before next test
         logger.info("⏳ Waiting for connections to be released...");
-        Thread.sleep(2000);
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(2000, id -> delay.complete(null));
+        delay.join();
         
         logger.info("✅ Cleanup complete");
     }
@@ -158,7 +165,7 @@ class OutboxDeadLetterQueueSpringBootTest {
     @Test
     @Order(1)
     @DisplayName("Dead Letter Queue - Messages Move to DLQ After Max Retries")
-    void testMessagesMoveToDLQAfterMaxRetries() throws Exception {
+    void testMessagesMoveToDLQAfterMaxRetries(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Messages Move to DLQ After Max Retries ===");
         logger.info("This test verifies that poison messages are moved to DLQ after max retries");
         
@@ -172,14 +179,14 @@ class OutboxDeadLetterQueueSpringBootTest {
         
         // Track retry attempts
         AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch latch = new CountDownLatch(4); // Initial + 3 retries (actual behavior)
+        Checkpoint checkpoint = testContext.checkpoint(4); // Initial + 3 retries (actual behavior)
 
         // Subscribe with handler that always fails
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
             logger.info("Processing attempt #{} for message: {}", attempt, message.getPayload());
             logger.info("❌ Simulating persistent failure on attempt #{}", attempt);
-            latch.countDown();
+            checkpoint.flag();
             return CompletableFuture.failedFuture(
                 new RuntimeException("Simulated persistent failure - poison message"));
         });
@@ -190,11 +197,13 @@ class OutboxDeadLetterQueueSpringBootTest {
         producer.send(poisonMessage).get(5, TimeUnit.SECONDS);
 
         // Wait for all retry attempts
-        boolean completed = latch.await(30, TimeUnit.SECONDS);
+        boolean completed = testContext.awaitCompletion(30, TimeUnit.SECONDS);
         assertTrue(completed, "Should attempt initial + 3 retries");
 
         // Give time for DLQ movement
-        Thread.sleep(2000);
+        CompletableFuture<Void> dlqDelay = new CompletableFuture<>();
+        vertx.setTimer(2000, id -> dlqDelay.complete(null));
+        dlqDelay.join();
 
         // Verify message moved to DLQ
             List<DeadLetterMessageInfo> dlqMessages = manager.getDeadLetterQueueManager()
@@ -232,7 +241,7 @@ class OutboxDeadLetterQueueSpringBootTest {
     @Test
     @Order(2)
     @DisplayName("Dead Letter Queue - DLQ Messages Can Be Inspected")
-    void testDLQMessagesCanBeInspected() throws Exception {
+    void testDLQMessagesCanBeInspected(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing DLQ Messages Can Be Inspected ===");
         logger.info("This test verifies that DLQ messages can be queried and inspected");
         
@@ -247,12 +256,12 @@ class OutboxDeadLetterQueueSpringBootTest {
         
         // Track processing
         AtomicInteger processedCount = new AtomicInteger(0);
-        CountDownLatch latch = new CountDownLatch(messageCount * 4); // Each message: initial + 3 retries
+        Checkpoint checkpoint = testContext.checkpoint(messageCount * 4); // Each message: initial + 3 retries
 
         // Subscribe with handler that always fails
         consumer.subscribe(message -> {
             processedCount.incrementAndGet();
-            latch.countDown();
+            checkpoint.flag();
             return CompletableFuture.failedFuture(
                 new RuntimeException("Test failure for: " + message.getPayload()));
         });
@@ -264,11 +273,13 @@ class OutboxDeadLetterQueueSpringBootTest {
         }
 
         // Wait for all processing attempts
-        boolean completed = latch.await(45, TimeUnit.SECONDS);
+        boolean completed = testContext.awaitCompletion(45, TimeUnit.SECONDS);
         assertTrue(completed, "All messages should be processed and moved to DLQ");
         
         // Give time for DLQ movement
-        Thread.sleep(2000);
+        CompletableFuture<Void> dlqDelay = new CompletableFuture<>();
+        vertx.setTimer(2000, id -> dlqDelay.complete(null));
+        dlqDelay.join();
         
         // Retrieve and inspect DLQ messages
             List<DeadLetterMessageInfo> dlqMessages = manager.getDeadLetterQueueManager()

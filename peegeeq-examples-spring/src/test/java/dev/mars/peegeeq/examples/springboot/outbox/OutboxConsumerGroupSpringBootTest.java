@@ -24,7 +24,12 @@ import dev.mars.peegeeq.outbox.OutboxFactory;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -36,8 +41,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -76,6 +81,7 @@ import static org.junit.jupiter.api.Assertions.*;
 )
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+@ExtendWith(VertxExtension.class)
 class OutboxConsumerGroupSpringBootTest {
     
     private static final Logger logger = LoggerFactory.getLogger(OutboxConsumerGroupSpringBootTest.class);
@@ -102,7 +108,7 @@ class OutboxConsumerGroupSpringBootTest {
     }
     
     @AfterEach
-    void tearDown() throws InterruptedException {
+    void tearDown(Vertx vertx) throws InterruptedException {
         logger.info("🧹 Cleaning up Consumer Group Spring Boot Test");
         
         // Close all active consumer groups first (critical for connection cleanup)
@@ -130,7 +136,9 @@ class OutboxConsumerGroupSpringBootTest {
         
         // Wait for connections to be fully released before next test
         logger.info("⏳ Waiting for connections to be released...");
-        Thread.sleep(2000);
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(2000, id -> delay.complete(null));
+        delay.join();
         
         logger.info("✅ Cleanup complete");
     }
@@ -147,7 +155,7 @@ class OutboxConsumerGroupSpringBootTest {
     @Test
     @Order(1)
     @DisplayName("Consumer Group - Load Balancing Across Multiple Consumers")
-    void testConsumerGroupLoadBalancing() throws Exception {
+    void testConsumerGroupLoadBalancing(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Consumer Group Load Balancing ===");
         logger.info("This test verifies that messages are distributed evenly across consumer group members");
         
@@ -166,7 +174,7 @@ class OutboxConsumerGroupSpringBootTest {
         
         // Track which consumer processed which messages
         Map<String, Set<String>> consumerMessages = new ConcurrentHashMap<>();
-        CountDownLatch latch = new CountDownLatch(messageCount);
+        Checkpoint checkpoint = testContext.checkpoint(messageCount);
         
         // Add multiple consumers to the group
         for (int i = 0; i < consumerCount; i++) {
@@ -176,7 +184,7 @@ class OutboxConsumerGroupSpringBootTest {
             consumerGroup.addConsumer(consumerId, message -> {
                 consumerMessages.get(consumerId).add(message.getPayload());
                 logger.debug("{} processed: {}", consumerId, message.getPayload());
-                latch.countDown();
+                checkpoint.flag();
                 return java.util.concurrent.CompletableFuture.completedFuture(null);
             });
         }
@@ -192,7 +200,7 @@ class OutboxConsumerGroupSpringBootTest {
         }
         
         // Wait for all messages to be processed
-        boolean completed = latch.await(30, TimeUnit.SECONDS);
+        boolean completed = testContext.awaitCompletion(30, TimeUnit.SECONDS);
         assertTrue(completed, "All messages should be processed within timeout");
         
         // Verify distribution
@@ -230,7 +238,7 @@ class OutboxConsumerGroupSpringBootTest {
     @Test
     @Order(2)
     @DisplayName("Consumer Group - Graceful Handling of Consumer Failures")
-    void testConsumerGroupFailureHandling() throws Exception {
+    void testConsumerGroupFailureHandling(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Consumer Group Failure Handling ===");
         logger.info("This test verifies that consumer groups handle individual consumer failures gracefully");
         
@@ -249,13 +257,13 @@ class OutboxConsumerGroupSpringBootTest {
         // Track successful processing
         Set<String> successfullyProcessed = ConcurrentHashMap.newKeySet();
         AtomicInteger failureCount = new AtomicInteger(0);
-        CountDownLatch latch = new CountDownLatch(messageCount);
+        Checkpoint checkpoint = testContext.checkpoint(messageCount);
         
         // Consumer 1: Always succeeds
         consumerGroup.addConsumer("consumer-1", message -> {
             successfullyProcessed.add(message.getPayload());
             logger.debug("Consumer-1 successfully processed: {}", message.getPayload());
-            latch.countDown();
+            checkpoint.flag();
             return java.util.concurrent.CompletableFuture.completedFuture(null);
         });
 
@@ -274,7 +282,7 @@ class OutboxConsumerGroupSpringBootTest {
 
             successfullyProcessed.add(message.getPayload());
             logger.debug("Consumer-2 successfully processed after retries: {}", message.getPayload());
-            latch.countDown();
+            checkpoint.flag();
             return java.util.concurrent.CompletableFuture.completedFuture(null);
         });
         
@@ -289,7 +297,7 @@ class OutboxConsumerGroupSpringBootTest {
         }
         
         // Wait for all messages to be processed
-        boolean completed = latch.await(45, TimeUnit.SECONDS);
+        boolean completed = testContext.awaitCompletion(45, TimeUnit.SECONDS);
         assertTrue(completed, "All messages should eventually be processed despite failures");
         
         // Verify results

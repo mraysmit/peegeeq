@@ -13,11 +13,16 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -25,7 +30,6 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -44,6 +48,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * - Test seamless migration path from old to new API
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 class ConsumerModeBackwardCompatibilityTest {
     private static final Logger logger = LoggerFactory.getLogger(ConsumerModeBackwardCompatibilityTest.class);
@@ -103,7 +108,7 @@ class ConsumerModeBackwardCompatibilityTest {
     }
 
     @Test
-    void testLegacyApiWithoutConsumerConfig() throws Exception {
+    void testLegacyApiWithoutConsumerConfig(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing legacy API without ConsumerConfig (should default to HYBRID)");
 
         String topicName = "test-legacy-api";
@@ -114,26 +119,28 @@ class ConsumerModeBackwardCompatibilityTest {
 
         try {
             AtomicInteger processedCount = new AtomicInteger(0);
-            CountDownLatch latch = new CountDownLatch(3);
+            Checkpoint messagesReceived = testContext.checkpoint(3);
 
             consumer.subscribe(message -> {
                 processedCount.incrementAndGet();
                 logger.info("📨 Legacy API processed message: {}", message.getPayload());
-                latch.countDown();
+                messagesReceived.flag();
                 return CompletableFuture.completedFuture(null);
             });
 
-            // Wait for consumer setup
-            Thread.sleep(1000);
-
-            // Send messages using legacy API
-            producer.send("Legacy message 1").get(5, TimeUnit.SECONDS);
-            producer.send("Legacy message 2").get(5, TimeUnit.SECONDS);
-            producer.send("Legacy message 3").get(5, TimeUnit.SECONDS);
+            // Wait for consumer setup, then send
+            vertx.setTimer(1000, id -> {
+                try {
+                    producer.send("Legacy message 1").get(5, TimeUnit.SECONDS);
+                    producer.send("Legacy message 2").get(5, TimeUnit.SECONDS);
+                    producer.send("Legacy message 3").get(5, TimeUnit.SECONDS);
+                } catch (Exception e) {
+                    testContext.failNow(e);
+                }
+            });
 
             // Wait for message processing
-            boolean received = latch.await(15, TimeUnit.SECONDS);
-            assertTrue(received, "Legacy API should process messages successfully");
+            assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Legacy API should process messages successfully");
             assertEquals(3, processedCount.get(), "Should process exactly 3 messages with legacy API");
 
             logger.info("✅ Legacy API compatibility verified - processed: {} messages", processedCount.get());
@@ -147,7 +154,7 @@ class ConsumerModeBackwardCompatibilityTest {
     }
 
     @Test
-    void testMixedApiUsage() throws Exception {
+    void testMixedApiUsage(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing mixed API usage (legacy and new API together)");
 
         String legacyTopic = "test-mixed-legacy";
@@ -166,34 +173,36 @@ class ConsumerModeBackwardCompatibilityTest {
         try {
             AtomicInteger legacyCount = new AtomicInteger(0);
             AtomicInteger newCount = new AtomicInteger(0);
-            CountDownLatch latch = new CountDownLatch(4); // 2 messages each
+            Checkpoint messagesReceived = testContext.checkpoint(4); // 2 messages each
 
             legacyConsumer.subscribe(message -> {
                 legacyCount.incrementAndGet();
                 logger.info("📨 Legacy consumer processed: {}", message.getPayload());
-                latch.countDown();
+                messagesReceived.flag();
                 return CompletableFuture.completedFuture(null);
             });
 
             newConsumer.subscribe(message -> {
                 newCount.incrementAndGet();
                 logger.info("📨 New consumer processed: {}", message.getPayload());
-                latch.countDown();
+                messagesReceived.flag();
                 return CompletableFuture.completedFuture(null);
             });
 
-            // Wait for consumer setup
-            Thread.sleep(1000);
-
-            // Send messages to both topics
-            legacyProducer.send("Mixed legacy message 1").get(5, TimeUnit.SECONDS);
-            newProducer.send("Mixed new message 1").get(5, TimeUnit.SECONDS);
-            legacyProducer.send("Mixed legacy message 2").get(5, TimeUnit.SECONDS);
-            newProducer.send("Mixed new message 2").get(5, TimeUnit.SECONDS);
+            // Wait for consumer setup, then send
+            vertx.setTimer(1000, id -> {
+                try {
+                    legacyProducer.send("Mixed legacy message 1").get(5, TimeUnit.SECONDS);
+                    newProducer.send("Mixed new message 1").get(5, TimeUnit.SECONDS);
+                    legacyProducer.send("Mixed legacy message 2").get(5, TimeUnit.SECONDS);
+                    newProducer.send("Mixed new message 2").get(5, TimeUnit.SECONDS);
+                } catch (Exception e) {
+                    testContext.failNow(e);
+                }
+            });
 
             // Wait for message processing
-            boolean received = latch.await(15, TimeUnit.SECONDS);
-            assertTrue(received, "Mixed API usage should process all messages");
+            assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Mixed API usage should process all messages");
             assertEquals(2, legacyCount.get(), "Legacy consumer should process 2 messages");
             assertEquals(2, newCount.get(), "New consumer should process 2 messages");
 
@@ -210,7 +219,7 @@ class ConsumerModeBackwardCompatibilityTest {
     }
 
     @Test
-    void testLegacyApiDefaultBehavior() throws Exception {
+    void testLegacyApiDefaultBehavior(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing legacy API default behavior matches HYBRID mode");
 
         String legacyTopic = "test-legacy-default";
@@ -229,34 +238,36 @@ class ConsumerModeBackwardCompatibilityTest {
         try {
             AtomicInteger legacyCount = new AtomicInteger(0);
             AtomicInteger hybridCount = new AtomicInteger(0);
-            CountDownLatch latch = new CountDownLatch(4); // 2 messages each
+            Checkpoint messagesReceived = testContext.checkpoint(4); // 2 messages each
 
             legacyConsumer.subscribe(message -> {
                 legacyCount.incrementAndGet();
                 logger.info("📨 Legacy default processed: {}", message.getPayload());
-                latch.countDown();
+                messagesReceived.flag();
                 return CompletableFuture.completedFuture(null);
             });
 
             hybridConsumer.subscribe(message -> {
                 hybridCount.incrementAndGet();
                 logger.info("📨 Explicit HYBRID processed: {}", message.getPayload());
-                latch.countDown();
+                messagesReceived.flag();
                 return CompletableFuture.completedFuture(null);
             });
 
-            // Wait for consumer setup
-            Thread.sleep(1000);
-
-            // Send messages to both topics
-            legacyProducer.send("Legacy default message 1").get(5, TimeUnit.SECONDS);
-            hybridProducer.send("Explicit hybrid message 1").get(5, TimeUnit.SECONDS);
-            legacyProducer.send("Legacy default message 2").get(5, TimeUnit.SECONDS);
-            hybridProducer.send("Explicit hybrid message 2").get(5, TimeUnit.SECONDS);
+            // Wait for consumer setup, then send
+            vertx.setTimer(1000, id -> {
+                try {
+                    legacyProducer.send("Legacy default message 1").get(5, TimeUnit.SECONDS);
+                    hybridProducer.send("Explicit hybrid message 1").get(5, TimeUnit.SECONDS);
+                    legacyProducer.send("Legacy default message 2").get(5, TimeUnit.SECONDS);
+                    hybridProducer.send("Explicit hybrid message 2").get(5, TimeUnit.SECONDS);
+                } catch (Exception e) {
+                    testContext.failNow(e);
+                }
+            });
 
             // Wait for message processing
-            boolean received = latch.await(15, TimeUnit.SECONDS);
-            assertTrue(received, "Both legacy and explicit HYBRID should process messages");
+            assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Both legacy and explicit HYBRID should process messages");
             assertEquals(2, legacyCount.get(), "Legacy default should process 2 messages");
             assertEquals(2, hybridCount.get(), "Explicit HYBRID should process 2 messages");
 
@@ -274,7 +285,7 @@ class ConsumerModeBackwardCompatibilityTest {
     }
 
     @Test
-    void testGradualMigrationPath() throws Exception {
+    void testGradualMigrationPath(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing gradual migration path from legacy to new API");
 
         String topicName = "test-gradual-migration";
@@ -286,25 +297,27 @@ class ConsumerModeBackwardCompatibilityTest {
         AtomicInteger totalProcessed = new AtomicInteger(0);
 
         try {
-            CountDownLatch legacyLatch = new CountDownLatch(2);
+            Checkpoint legacyMessages = testContext.checkpoint(2);
 
             legacyConsumer.subscribe(message -> {
                 totalProcessed.incrementAndGet();
                 logger.info("📨 Legacy migration processed: {}", message.getPayload());
-                legacyLatch.countDown();
+                legacyMessages.flag();
                 return CompletableFuture.completedFuture(null);
             });
 
-            // Wait for consumer setup
-            Thread.sleep(500);
-
-            // Send messages with legacy consumer
-            producer.send("Migration message 1").get(5, TimeUnit.SECONDS);
-            producer.send("Migration message 2").get(5, TimeUnit.SECONDS);
+            // Wait for consumer setup, then send
+            vertx.setTimer(500, id -> {
+                try {
+                    producer.send("Migration message 1").get(5, TimeUnit.SECONDS);
+                    producer.send("Migration message 2").get(5, TimeUnit.SECONDS);
+                } catch (Exception e) {
+                    testContext.failNow(e);
+                }
+            });
 
             // Wait for processing
-            boolean legacyReceived = legacyLatch.await(10, TimeUnit.SECONDS);
-            assertTrue(legacyReceived, "Legacy consumer should process initial messages");
+            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Legacy consumer should process initial messages");
 
             // Close legacy consumer
             legacyConsumer.close();
@@ -313,24 +326,28 @@ class ConsumerModeBackwardCompatibilityTest {
             MessageConsumer<String> newConsumer = factory.createConsumer(topicName, String.class,
                 ConsumerConfig.builder().mode(ConsumerMode.HYBRID).build());
 
-            CountDownLatch newLatch = new CountDownLatch(2);
+            VertxTestContext phase2 = new VertxTestContext();
+            Checkpoint newMessages = phase2.checkpoint(2);
 
             newConsumer.subscribe(message -> {
                 totalProcessed.incrementAndGet();
                 logger.info("📨 New API migration processed: {}", message.getPayload());
-                newLatch.countDown();
+                newMessages.flag();
                 return CompletableFuture.completedFuture(null);
             });
 
-            // Wait for new consumer setup
-            Thread.sleep(500);
-
-            // Send more messages with new consumer
-            producer.send("Migration message 3").get(5, TimeUnit.SECONDS);
-            producer.send("Migration message 4").get(5, TimeUnit.SECONDS);
+            // Wait for new consumer setup, then send
+            vertx.setTimer(500, id -> {
+                try {
+                    producer.send("Migration message 3").get(5, TimeUnit.SECONDS);
+                    producer.send("Migration message 4").get(5, TimeUnit.SECONDS);
+                } catch (Exception e) {
+                    // Best effort - phase2 will timeout
+                }
+            });
 
             // Wait for processing
-            boolean newReceived = newLatch.await(10, TimeUnit.SECONDS);
+            boolean newReceived = phase2.awaitCompletion(10, TimeUnit.SECONDS);
             assertTrue(newReceived, "New consumer should process migrated messages");
 
             assertEquals(4, totalProcessed.get(), "Should process all 4 messages during migration");
@@ -347,7 +364,7 @@ class ConsumerModeBackwardCompatibilityTest {
     }
 
     @Test
-    void testLegacyApiPerformanceConsistency() throws Exception {
+    void testLegacyApiPerformanceConsistency(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing legacy API performance consistency");
 
         String topicName = "test-legacy-performance";
@@ -358,28 +375,30 @@ class ConsumerModeBackwardCompatibilityTest {
 
         try {
             AtomicInteger processedCount = new AtomicInteger(0);
-            CountDownLatch latch = new CountDownLatch(5); // Process 5 messages
+            Checkpoint messagesReceived = testContext.checkpoint(5);
 
             long startTime = System.currentTimeMillis();
 
             consumer.subscribe(message -> {
                 processedCount.incrementAndGet();
                 logger.debug("📨 Performance test processed: {}", message.getPayload());
-                latch.countDown();
+                messagesReceived.flag();
                 return CompletableFuture.completedFuture(null);
             });
 
-            // Wait for consumer setup
-            Thread.sleep(500);
-
-            // Send messages for performance test
-            for (int i = 1; i <= 5; i++) {
-                producer.send("Performance message " + i).get(5, TimeUnit.SECONDS);
-            }
+            // Wait for consumer setup, then send
+            vertx.setTimer(500, id -> {
+                try {
+                    for (int i = 1; i <= 5; i++) {
+                        producer.send("Performance message " + i).get(5, TimeUnit.SECONDS);
+                    }
+                } catch (Exception e) {
+                    testContext.failNow(e);
+                }
+            });
 
             // Wait for message processing
-            boolean received = latch.await(15, TimeUnit.SECONDS);
-            assertTrue(received, "Legacy API should handle performance test messages");
+            assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Legacy API should handle performance test messages");
 
             long endTime = System.currentTimeMillis();
             long duration = endTime - startTime;

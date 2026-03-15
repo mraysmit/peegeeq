@@ -44,7 +44,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -248,7 +247,7 @@ class RetryAndFailureHandlingExampleTest {
         try (MessageProducer<FailureTestMessage> producer = queueFactory.createProducer(topic, FailureTestMessage.class);
              MessageConsumer<FailureTestMessage> consumer = queueFactory.createConsumer(topic, FailureTestMessage.class)) {
 
-            CountDownLatch latch = new CountDownLatch(1);
+            CompletableFuture<Void> latch = new CompletableFuture<>();
 
             // Set up consumer with failure-prone processor
             consumer.subscribe(message -> {
@@ -258,13 +257,13 @@ class RetryAndFailureHandlingExampleTest {
                     logger.error("🎯 INTENTIONAL TEST FAILURE: Processing failed for message {}: {}",
                         message.getPayload().id, e.getMessage());
                     logger.info("   📋 This failure demonstrates proper retry behavior in PeeGeeQ Outbox pattern");
-                    latch.countDown();
+                    latch.complete(null);
                     return CompletableFuture.failedFuture(e);
                 } finally {
                     // Count down on success too (for eventually successful processor)
                     if (processor instanceof EventuallySuccessfulProcessor &&
                         ((EventuallySuccessfulProcessor) processor).hasSucceeded()) {
-                        latch.countDown();
+                        latch.complete(null);
                     }
                 }
             });
@@ -284,7 +283,13 @@ class RetryAndFailureHandlingExampleTest {
             producer.send(message, headers).join();
 
             // Wait for processing to complete (success or final failure)
-            boolean completed = latch.await(60, TimeUnit.SECONDS);
+            boolean completed;
+            try {
+                latch.get(60, TimeUnit.SECONDS);
+                completed = true;
+            } catch (java.util.concurrent.TimeoutException e) {
+                completed = false;
+            }
             if (completed) {
                 if (processor instanceof EventuallySuccessfulProcessor &&
                     ((EventuallySuccessfulProcessor) processor).hasSucceeded()) {

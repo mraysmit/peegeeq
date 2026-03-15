@@ -13,11 +13,16 @@ import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -28,7 +33,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -52,6 +56,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  * Tests use outbox queue implementation for reliable message processing.
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
 public class IntegrationPatternsExampleTest {
@@ -108,8 +113,6 @@ public class IntegrationPatternsExampleTest {
         if (outboxFactory != null) {
             try {
                 outboxFactory.close();
-                // Give time for resources to close properly
-                Thread.sleep(100);
             } catch (Exception e) {
                 logger.warn("Error closing outbox factory: {}", e.getMessage());
             }
@@ -118,8 +121,6 @@ public class IntegrationPatternsExampleTest {
         if (manager != null) {
             try {
                 manager.closeReactive().toCompletionStage().toCompletableFuture().join();
-                // Give time for manager shutdown to complete
-                Thread.sleep(200);
             } catch (Exception e) {
                 logger.warn("Error closing manager: {}", e.getMessage());
             }
@@ -133,7 +134,7 @@ public class IntegrationPatternsExampleTest {
      * Validates synchronous communication with correlation IDs and timeout handling
      */
     @Test
-    void testRequestReplyPattern() throws Exception {
+    void testRequestReplyPattern(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Request-Reply Pattern ===");
         
         // Create request and reply queues
@@ -144,8 +145,8 @@ public class IntegrationPatternsExampleTest {
         
         AtomicInteger processedRequests = new AtomicInteger(0);
         AtomicInteger receivedReplies = new AtomicInteger(0);
-        CountDownLatch requestLatch = new CountDownLatch(3);
-        CountDownLatch replyLatch = new CountDownLatch(3);
+        Checkpoint requestCheckpoint = testContext.checkpoint(3);
+        Checkpoint replyCheckpoint = testContext.checkpoint(3);
         
         // Set up request processor (simulates order service)
         requestConsumer.subscribe(message -> {
@@ -153,11 +154,9 @@ public class IntegrationPatternsExampleTest {
             logger.info("📨 Processing request: {} from {}", request.getMessageId(), request.getSource());
             
             // Simulate processing
-            try {
-                Thread.sleep(50);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+            CompletableFuture<Void> delayFuture = new CompletableFuture<>();
+            vertx.setTimer(50, id -> delayFuture.complete(null));
+            delayFuture.join();
             
             // Send reply
             IntegrationMessage reply = new IntegrationMessage(
@@ -179,7 +178,7 @@ public class IntegrationPatternsExampleTest {
             }
             
             processedRequests.incrementAndGet();
-            requestLatch.countDown();
+            requestCheckpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
         
@@ -190,7 +189,7 @@ public class IntegrationPatternsExampleTest {
                 reply.getMessageId(), reply.getCorrelationId());
             
             receivedReplies.incrementAndGet();
-            replyLatch.countDown();
+            replyCheckpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
         
@@ -214,12 +213,9 @@ public class IntegrationPatternsExampleTest {
         }
         
         // Wait for processing - increased timeout for integration test
-        boolean requestsCompleted = requestLatch.await(60, TimeUnit.SECONDS);
-        boolean repliesCompleted = replyLatch.await(60, TimeUnit.SECONDS);
+        assertTrue(testContext.awaitCompletion(120, TimeUnit.SECONDS), "Request-reply test should complete within timeout");
         
         // Validate results
-        assertTrue(requestsCompleted, "All requests should be processed");
-        assertTrue(repliesCompleted, "All replies should be received");
         assertEquals(3, processedRequests.get(), "Should process 3 requests");
         assertEquals(3, receivedReplies.get(), "Should receive 3 replies");
         
@@ -241,7 +237,7 @@ public class IntegrationPatternsExampleTest {
      * Validates event broadcasting using separate queues for each subscriber (outbox pattern)
      */
     @Test
-    void testPublishSubscribePattern() throws Exception {
+    void testPublishSubscribePattern(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Publish-Subscribe Pattern ===");
 
         // In outbox pattern, we use separate queues for each subscriber to simulate pub-sub
@@ -257,32 +253,32 @@ public class IntegrationPatternsExampleTest {
         AtomicInteger emailEvents = new AtomicInteger(0);
         AtomicInteger analyticsEvents = new AtomicInteger(0);
         AtomicInteger auditEvents = new AtomicInteger(0);
-        CountDownLatch latch = new CountDownLatch(9); // 3 events × 3 subscribers
+        Checkpoint checkpoint = testContext.checkpoint(9); // 3 events x 3 subscribers
 
         // Email service subscriber
         emailService.subscribe(message -> {
             IntegrationMessage event = message.getPayload();
             logger.info("📧 Email Service received: {} - {}", event.getMessageType(), event.getMessageId());
             emailEvents.incrementAndGet();
-            latch.countDown();
+            checkpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
 
         // Analytics service subscriber
         analyticsService.subscribe(message -> {
             IntegrationMessage event = message.getPayload();
-            logger.info("📊 Analytics Service received: {} - {}", event.getMessageType(), event.getMessageId());
+            logger.info("\ud83d\udcca Analytics Service received: {} - {}", event.getMessageType(), event.getMessageId());
             analyticsEvents.incrementAndGet();
-            latch.countDown();
+            checkpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
 
         // Audit service subscriber
         auditService.subscribe(message -> {
             IntegrationMessage event = message.getPayload();
-            logger.info("📝 Audit Service received: {} - {}", event.getMessageType(), event.getMessageId());
+            logger.info("\ud83d\udcdd Audit Service received: {} - {}", event.getMessageType(), event.getMessageId());
             auditEvents.incrementAndGet();
-            latch.countDown();
+            checkpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -310,10 +306,9 @@ public class IntegrationPatternsExampleTest {
         }
 
         // Wait for all subscribers to process events - increased timeout for integration test
-        boolean completed = latch.await(60, TimeUnit.SECONDS);
+        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "All events should be processed by all subscribers");
 
         // Validate results
-        assertTrue(completed, "All events should be processed by all subscribers");
         assertEquals(3, emailEvents.get(), "Email service should receive 3 events");
         assertEquals(3, analyticsEvents.get(), "Analytics service should receive 3 events");
         assertEquals(3, auditEvents.get(), "Audit service should receive 3 events");
@@ -339,7 +334,7 @@ public class IntegrationPatternsExampleTest {
      * Validates conditional routing based on message headers and content
      */
     @Test
-    void testMessageRouterPattern() throws Exception {
+    void testMessageRouterPattern(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Message Router Pattern ===");
 
         // Create input queue and output queues
@@ -357,7 +352,7 @@ public class IntegrationPatternsExampleTest {
         AtomicInteger domesticCount = new AtomicInteger(0);
         AtomicInteger internationalCount = new AtomicInteger(0);
         AtomicInteger expressCount = new AtomicInteger(0);
-        CountDownLatch latch = new CountDownLatch(6); // Total messages to route
+        Checkpoint checkpoint = testContext.checkpoint(6); // Total messages to route
 
         // Set up router logic
         routerConsumer.subscribe(message -> {
@@ -390,21 +385,21 @@ public class IntegrationPatternsExampleTest {
         domesticConsumer.subscribe(message -> {
             logger.info("🏠 Domestic processor received: {}", message.getPayload().getMessageId());
             domesticCount.incrementAndGet();
-            latch.countDown();
+            checkpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
 
         internationalConsumer.subscribe(message -> {
-            logger.info("🌍 International processor received: {}", message.getPayload().getMessageId());
+            logger.info("\ud83c\udf0d International processor received: {}", message.getPayload().getMessageId());
             internationalCount.incrementAndGet();
-            latch.countDown();
+            checkpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
 
         expressConsumer.subscribe(message -> {
-            logger.info("⚡ Express processor received: {}", message.getPayload().getMessageId());
+            logger.info("\u26a1 Express processor received: {}", message.getPayload().getMessageId());
             expressCount.incrementAndGet();
-            latch.countDown();
+            checkpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -436,23 +431,15 @@ public class IntegrationPatternsExampleTest {
 
         logger.info("📤 All orders sent for routing");
 
-        // Give a moment for messages to be processed
-        Thread.sleep(500);
-
         // Wait for routing to complete - increased timeout for integration test
-        boolean completed = latch.await(60, TimeUnit.SECONDS);
+        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "All messages should be routed within timeout");
 
         // Log current counts for debugging
         logger.info("📊 Current routing counts: domestic={}, international={}, express={}, latch={}",
             domesticCount.get(), internationalCount.get(), expressCount.get(), latch.getCount());
 
         // Validate routing results
-        if (!completed) {
-            logger.error("❌ Routing timeout - remaining latch count: {}", latch.getCount());
-            logger.error("   Domestic: {}, International: {}, Express: {}",
-                domesticCount.get(), internationalCount.get(), expressCount.get());
-        }
-        assertTrue(completed, "All messages should be routed within timeout");
+
         assertEquals(1, domesticCount.get(), "Should route 1 domestic order");
         assertEquals(1, internationalCount.get(), "Should route 1 international order");
         assertEquals(4, expressCount.get(), "Should route 4 express orders");

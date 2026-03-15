@@ -21,12 +21,16 @@ import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.PoolOptions;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import dev.mars.peegeeq.test.categories.TestCategories;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -37,7 +41,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -54,6 +57,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 public class OutboxQueueTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxQueueTest.class);
@@ -68,8 +72,8 @@ public class OutboxQueueTest {
     private OutboxQueue<JsonObject> queue;
 
     @BeforeEach
-    void setUp() {
-        vertx = Vertx.vertx();
+    void setUp(Vertx vertx) {
+        this.vertx = vertx;
 
         // Create connection options from TestContainer
         PgConnectOptions connectOptions = new PgConnectOptions()
@@ -98,48 +102,40 @@ public class OutboxQueueTest {
         } catch (Exception e) {
             logger.warn("Queue cleanup failed, continuing", e);
         }
-
-        try {
-            if (vertx != null) {
-                vertx.close().toCompletionStage().toCompletableFuture().get(2, TimeUnit.SECONDS);
-            }
-        } catch (Exception e) {
-            logger.warn("Vertx cleanup failed, continuing", e);
-        }
     }
 
     @Test
-    void testSendMessage() throws Exception {
+    void testSendMessage(VertxTestContext testContext) throws Exception {
         JsonObject message = new JsonObject().put("test", "value");
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint sent = testContext.checkpoint();
 
         queue.send(message)
-            .onSuccess(v -> latch.countDown())
-            .onFailure(throwable -> fail("Failed to send message: " + throwable.getMessage()));
+            .onSuccess(v -> sent.flag())
+            .onFailure(throwable -> testContext.failNow("Failed to send message: " + throwable.getMessage()));
 
-        assertTrue(latch.await(5, TimeUnit.SECONDS), "Failed to send message");
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Failed to send message");
     }
 
     @Test
-    void testAcknowledgeMessage() throws Exception {
-        CountDownLatch latch = new CountDownLatch(1);
+    void testAcknowledgeMessage(VertxTestContext testContext) throws Exception {
+        Checkpoint acknowledged = testContext.checkpoint();
 
         queue.acknowledge("test-message-id")
             .onComplete(ar -> {
                 if (ar.succeeded()) {
-                    latch.countDown();
+                    acknowledged.flag();
                 } else {
-                    fail("Failed to acknowledge message: " + ar.cause().getMessage());
+                    testContext.failNow("Failed to acknowledge message: " + ar.cause().getMessage());
                 }
             });
 
-        assertTrue(latch.await(5, TimeUnit.SECONDS), "Failed to acknowledge message");
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Failed to acknowledge message");
     }
 
     @Test
-    void testCreateMessage() throws Exception {
+    void testCreateMessage(VertxTestContext testContext) throws Exception {
         JsonObject payload = new JsonObject().put("test", "value");
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint created = testContext.checkpoint();
 
         vertx.runOnContext(v -> {
             try {
@@ -151,12 +147,12 @@ public class OutboxQueueTest {
                 assertNotNull(message.getCreatedAt());
                 assertNotNull(message.getHeaders());
 
-                latch.countDown();
+                created.flag();
             } catch (Exception e) {
-                fail("Failed to create message: " + e.getMessage());
+                testContext.failNow("Failed to create message: " + e.getMessage());
             }
         });
 
-        assertTrue(latch.await(5, TimeUnit.SECONDS), "Failed to create message");
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Failed to create message");
     }
 }

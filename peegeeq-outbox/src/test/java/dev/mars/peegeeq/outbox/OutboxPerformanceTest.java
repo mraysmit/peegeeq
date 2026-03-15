@@ -26,11 +26,16 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -42,10 +47,10 @@ import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.locks.LockSupport;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
@@ -56,6 +61,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  */
 @Tag(TestCategories.PERFORMANCE)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 @EnabledIfSystemProperty(named = "peegeeq.performance.tests", matches = "true")
 public class OutboxPerformanceTest {
 
@@ -136,9 +142,9 @@ public class OutboxPerformanceTest {
     }
 
     @Test
-    void testThroughputPerformance() throws Exception {
+    void testThroughputPerformance(Vertx vertx, VertxTestContext testContext) throws Exception {
         int messageCount = 1000;
-        CountDownLatch latch = new CountDownLatch(messageCount);
+        Checkpoint allProcessed = testContext.checkpoint(messageCount);
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicLong totalProcessingTime = new AtomicLong(0);
 
@@ -154,7 +160,7 @@ public class OutboxPerformanceTest {
             long endTime = System.nanoTime();
             totalProcessingTime.addAndGet(endTime - startTime);
             
-            latch.countDown();
+            allProcessed.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -172,7 +178,7 @@ public class OutboxPerformanceTest {
         Instant sendCompleteTime = Instant.now();
 
         // Wait for all messages to be processed
-        assertTrue(latch.await(120, TimeUnit.SECONDS), 
+        assertTrue(testContext.awaitCompletion(120, TimeUnit.SECONDS), 
             "All messages should be processed within timeout");
         Instant processCompleteTime = Instant.now();
 
@@ -203,9 +209,9 @@ public class OutboxPerformanceTest {
     }
 
     @Test
-    void testLatencyPerformance() throws Exception {
+    void testLatencyPerformance(Vertx vertx, VertxTestContext testContext) throws Exception {
         int messageCount = 100;
-        CountDownLatch latch = new CountDownLatch(messageCount);
+        Checkpoint allProcessed = testContext.checkpoint(messageCount);
         AtomicLong totalLatency = new AtomicLong(0);
         AtomicLong minLatency = new AtomicLong(Long.MAX_VALUE);
         AtomicLong maxLatency = new AtomicLong(0);
@@ -220,25 +226,28 @@ public class OutboxPerformanceTest {
             minLatency.updateAndGet(current -> Math.min(current, latency));
             maxLatency.updateAndGet(current -> Math.max(current, latency));
             
-            latch.countDown();
+            allProcessed.flag();
             return CompletableFuture.completedFuture(null);
         });
 
         System.out.println("Starting latency test with " + messageCount + " messages...");
 
-        // Send messages with timestamps
-        for (int i = 0; i < messageCount; i++) {
-            long sendTime = System.nanoTime();
-            producer.send("Latency test message " + i, 
-                Map.of("sendTime", String.valueOf(sendTime)))
-                .get(5, TimeUnit.SECONDS);
-            
-            // Small delay between sends to measure individual latencies
-            Thread.sleep(10);
-        }
+        // Send messages with timestamps (with small delays between sends)
+        vertx.executeBlocking(() -> {
+            for (int i = 0; i < messageCount; i++) {
+                long sendTime = System.nanoTime();
+                producer.send("Latency test message " + i, 
+                    Map.of("sendTime", String.valueOf(sendTime)))
+                    .get(5, TimeUnit.SECONDS);
+                
+                // Small delay between sends to measure individual latencies
+                LockSupport.parkNanos(10_000_000L);
+            }
+            return null;
+        }).toCompletionStage().toCompletableFuture().join();
 
         // Wait for all messages to be processed
-        assertTrue(latch.await(60, TimeUnit.SECONDS), 
+        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), 
             "All messages should be processed within timeout");
 
         // Calculate latency metrics
@@ -258,12 +267,12 @@ public class OutboxPerformanceTest {
     }
 
     @Test
-    void testConcurrentProducerPerformance() throws Exception {
+    void testConcurrentProducerPerformance(Vertx vertx, VertxTestContext testContext) throws Exception {
         int producerCount = 5;
         int messagesPerProducer = 200;
         int totalMessages = producerCount * messagesPerProducer;
         
-        CountDownLatch latch = new CountDownLatch(totalMessages);
+        Checkpoint allProcessed = testContext.checkpoint(totalMessages);
         AtomicInteger processedCount = new AtomicInteger(0);
 
         // Set up consumer
@@ -272,7 +281,7 @@ public class OutboxPerformanceTest {
             if (count % 100 == 0) {
                 System.out.println("Processed " + count + " concurrent messages...");
             }
-            latch.countDown();
+            allProcessed.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -308,7 +317,7 @@ public class OutboxPerformanceTest {
         Instant sendCompleteTime = Instant.now();
 
         // Wait for all messages to be processed
-        assertTrue(latch.await(180, TimeUnit.SECONDS), 
+        assertTrue(testContext.awaitCompletion(180, TimeUnit.SECONDS), 
             "All concurrent messages should be processed within timeout");
         Instant processCompleteTime = Instant.now();
 

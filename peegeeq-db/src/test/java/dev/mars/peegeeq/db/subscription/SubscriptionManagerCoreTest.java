@@ -459,7 +459,7 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
         Instant initialHeartbeat = before.lastHeartbeatAt();
 
         // Wait a bit to ensure timestamp changes
-        Thread.sleep(100);
+        manager.getVertx().timer(100).toCompletionStage().toCompletableFuture().join();
 
         // Update heartbeat
         subscriptionManager.updateHeartbeat(topic, groupName)

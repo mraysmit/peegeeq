@@ -19,19 +19,25 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
+import org.junit.jupiter.api.extension.ExtendWith;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 public class OutboxConsumerGroupIntegrationTest {
 
     @Container
@@ -92,34 +98,36 @@ public class OutboxConsumerGroupIntegrationTest {
     }
 
     @Test
-    void testGroupDistribution() throws Exception {
+    void testGroupDistribution(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
         int messageCount = 20;
-        CountDownLatch latch = new CountDownLatch(messageCount);
+        Checkpoint latch = testContext.checkpoint(messageCount);
         List<String> member1Messages = Collections.synchronizedList(new ArrayList<>());
         List<String> member2Messages = Collections.synchronizedList(new ArrayList<>());
 
         ConsumerGroupMember<String> member1 = consumerGroup.addConsumer("member-1", message -> {
             member1Messages.add(message.getPayload());
-            latch.countDown();
+            latch.flag();
             return CompletableFuture.completedFuture(null);
         });
 
         ConsumerGroupMember<String> member2 = consumerGroup.addConsumer("member-2", message -> {
             member2Messages.add(message.getPayload());
-            latch.countDown();
+            latch.flag();
             return CompletableFuture.completedFuture(null);
         });
 
         consumerGroup.start();
 
         // Give group workers a brief moment to fully subscribe before publishing.
-        Thread.sleep(300);
+        CompletableFuture<Void> startWait = new CompletableFuture<>();
+        vertx.setTimer(300, timerId -> startWait.complete(null));
+        startWait.get(5, TimeUnit.SECONDS);
 
         for (int i = 0; i < messageCount; i++) {
             producer.send("Message-" + i).get(5, TimeUnit.SECONDS);
         }
 
-        assertTrue(latch.await(20, TimeUnit.SECONDS), "Did not receive all messages");
+        assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Did not receive all messages");
 
         System.out.println("Member 1 received: " + member1Messages.size());
         System.out.println("Member 2 received: " + member2Messages.size());
@@ -130,16 +138,16 @@ public class OutboxConsumerGroupIntegrationTest {
     }
 
     @Test
-    void testGroupFiltering() throws Exception {
+    void testGroupFiltering(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
         int messageCount = 10;
-        CountDownLatch latch = new CountDownLatch(messageCount / 2); // Expect half
+        Checkpoint latch = testContext.checkpoint(messageCount / 2); // Expect half
         List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
 
         consumerGroup.setGroupFilter(msg -> msg.getPayload().startsWith("Keep"));
 
         consumerGroup.addConsumer("member-1", message -> {
             receivedMessages.add(message.getPayload());
-            latch.countDown();
+            latch.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -153,10 +161,12 @@ public class OutboxConsumerGroupIntegrationTest {
             }
         }
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Did not receive expected messages");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Did not receive expected messages");
         
         // Wait a bit more to ensure no dropped messages are received
-        Thread.sleep(1000);
+        CompletableFuture<Void> extraWait = new CompletableFuture<>();
+        vertx.setTimer(1000, timerId -> extraWait.complete(null));
+        extraWait.get(5, TimeUnit.SECONDS);
 
         assertEquals(messageCount / 2, receivedMessages.size());
         assertTrue(receivedMessages.stream().allMatch(s -> s.startsWith("Keep")));
@@ -165,21 +175,21 @@ public class OutboxConsumerGroupIntegrationTest {
     }
 
     @Test
-    void testMemberFiltering() throws Exception {
+    void testMemberFiltering(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
         int messageCount = 10;
-        CountDownLatch latch = new CountDownLatch(messageCount);
+        Checkpoint latch = testContext.checkpoint(messageCount);
         List<String> member1Messages = Collections.synchronizedList(new ArrayList<>());
         List<String> member2Messages = Collections.synchronizedList(new ArrayList<>());
 
         consumerGroup.addConsumer("member-A", message -> {
             member1Messages.add(message.getPayload());
-            latch.countDown();
+            latch.flag();
             return CompletableFuture.completedFuture(null);
         }, msg -> msg.getPayload().contains("-A-"));
 
         consumerGroup.addConsumer("member-B", message -> {
             member2Messages.add(message.getPayload());
-            latch.countDown();
+            latch.flag();
             return CompletableFuture.completedFuture(null);
         }, msg -> msg.getPayload().contains("-B-"));
 
@@ -190,7 +200,7 @@ public class OutboxConsumerGroupIntegrationTest {
             producer.send("Message-B-" + i);
         }
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Did not receive all messages");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Did not receive all messages");
 
         assertEquals(messageCount / 2, member1Messages.size());
         assertEquals(messageCount / 2, member2Messages.size());
@@ -199,12 +209,12 @@ public class OutboxConsumerGroupIntegrationTest {
     }
     
     @Test
-    void testNoEligibleConsumer() throws Exception {
-        CountDownLatch latch = new CountDownLatch(1);
+    void testNoEligibleConsumer(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+        AtomicInteger processedCount = new AtomicInteger(0);
         
         // Member only accepts "A"
         consumerGroup.addConsumer("member-A", message -> {
-            latch.countDown(); // Should not happen
+            processedCount.incrementAndGet(); // Should not happen
             return CompletableFuture.completedFuture(null);
         }, msg -> msg.getPayload().equals("A"));
         
@@ -213,40 +223,44 @@ public class OutboxConsumerGroupIntegrationTest {
         producer.send("B");
         
         // Wait to ensure it's processed (and filtered)
-        Thread.sleep(2000);
+        CompletableFuture<Void> filterWait = new CompletableFuture<>();
+        vertx.setTimer(2000, timerId -> filterWait.complete(null));
+        filterWait.get(5, TimeUnit.SECONDS);
         
-        assertEquals(1, latch.getCount(), "Message should not have been processed");
+        assertEquals(0, processedCount.get(), "Message should not have been processed");
         assertEquals(1, consumerGroup.getStats().getTotalMessagesFiltered());
+        testContext.completeNow();
     }
     
     @Test
-    void testDynamicMemberManagement() throws Exception {
-        CountDownLatch latch1 = new CountDownLatch(1);
+    void testDynamicMemberManagement(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+        CompletableFuture<Void> signal1 = new CompletableFuture<>();
         consumerGroup.addConsumer("member-1", message -> {
-            latch1.countDown();
+            signal1.complete(null);
             return CompletableFuture.completedFuture(null);
         });
         
         consumerGroup.start();
         
         producer.send("Msg1");
-        assertTrue(latch1.await(5, TimeUnit.SECONDS));
+        signal1.get(5, TimeUnit.SECONDS);
         
         // Remove member
         consumerGroup.removeConsumer("member-1");
         assertEquals(0, consumerGroup.getActiveConsumerCount());
         
         // Add new member
-        CountDownLatch latch2 = new CountDownLatch(1);
+        CompletableFuture<Void> signal2 = new CompletableFuture<>();
         consumerGroup.addConsumer("member-2", message -> {
-            latch2.countDown();
+            signal2.complete(null);
             return CompletableFuture.completedFuture(null);
         });
         
         assertEquals(1, consumerGroup.getActiveConsumerCount());
         
         producer.send("Msg2");
-        assertTrue(latch2.await(5, TimeUnit.SECONDS));
+        signal2.get(5, TimeUnit.SECONDS);
+        testContext.completeNow();
     }
 }
 

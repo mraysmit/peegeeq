@@ -27,10 +27,15 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -38,7 +43,6 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -49,6 +53,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  * Test suite for edge cases and error conditions in outbox exception handling.
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 public class OutboxEdgeCasesTest {
 
@@ -99,12 +104,12 @@ public class OutboxEdgeCasesTest {
     }
 
     @Test
-    void testNullCompletableFutureReturn() throws Exception {
+    void testNullCompletableFutureReturn(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Null CompletableFuture Return ===");
         
         String testMessage = "Message that returns null future";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch errorLatch = new CountDownLatch(1);
+        Checkpoint errorCheckpoint = testContext.checkpoint();
 
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
 
@@ -112,26 +117,25 @@ public class OutboxEdgeCasesTest {
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
             logger.info("INTENTIONAL FAILURE: Processing attempt {} returning null CompletableFuture", attempt);
-            errorLatch.countDown();
+            errorCheckpoint.flag();
             
             // Return null - should cause NPE and be handled as direct exception
             return null;
         });
 
-        boolean completed = errorLatch.await(10, TimeUnit.SECONDS);
-        assertTrue(completed, "Should have attempted processing and failed with null return");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should have attempted processing and failed with null return");
         assertTrue(attemptCount.get() >= 1, "Should have made at least 1 processing attempt");
         
         logger.info("✅ Null CompletableFuture return test completed successfully");
     }
 
     @Test
-    void testExceptionDuringMessageAccess() throws Exception {
+    void testExceptionDuringMessageAccess(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Exception During Message Access ===");
         
         String testMessage = "Message for access exception test";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch errorLatch = new CountDownLatch(3);
+        Checkpoint retryCheckpoint = testContext.checkpoint(3);
 
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
 
@@ -139,7 +143,7 @@ public class OutboxEdgeCasesTest {
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
             logger.info("INTENTIONAL FAILURE: Processing attempt {} with message access exception", attempt);
-            errorLatch.countDown();
+            retryCheckpoint.flag();
             
             // Try to access message properties in a way that might cause exception
             String payload = message.getPayload();
@@ -151,27 +155,26 @@ public class OutboxEdgeCasesTest {
             return CompletableFuture.completedFuture(null);
         });
 
-        boolean completed = errorLatch.await(15, TimeUnit.SECONDS);
-        assertTrue(completed, "Should have attempted processing 3 times");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times");
         assertEquals(3, attemptCount.get(), "Should have made exactly 3 processing attempts");
         
         logger.info("✅ Exception during message access test completed successfully");
     }
 
     @Test
-    void testInterruptedExceptionHandling() throws Exception {
+    void testInterruptedExceptionHandling(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing InterruptedException Handling ===");
         
         String testMessage = "Message that gets interrupted";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch errorLatch = new CountDownLatch(3);
+        Checkpoint retryCheckpoint = testContext.checkpoint(3);
 
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
 
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
             logger.info("INTENTIONAL FAILURE: Processing attempt {} with interruption", attempt);
-            errorLatch.countDown();
+            retryCheckpoint.flag();
             
             // Simulate interrupted exception
             Thread.currentThread().interrupt();
@@ -179,20 +182,19 @@ public class OutboxEdgeCasesTest {
                 new InterruptedException("Simulated interruption"));
         });
 
-        boolean completed = errorLatch.await(15, TimeUnit.SECONDS);
-        assertTrue(completed, "Should have attempted processing 3 times");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times");
         assertEquals(3, attemptCount.get(), "Should have made exactly 3 processing attempts");
         
         logger.info("✅ InterruptedException handling test completed successfully");
     }
 
     @Test
-    void testOutOfMemoryErrorHandling() throws Exception {
+    void testOutOfMemoryErrorHandling(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing OutOfMemoryError Simulation ===");
         
         String testMessage = "Message that simulates OOM";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch errorLatch = new CountDownLatch(1);
+        Checkpoint errorCheckpoint = testContext.checkpoint();
 
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
 
@@ -200,14 +202,13 @@ public class OutboxEdgeCasesTest {
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
             logger.info("INTENTIONAL FAILURE: Processing attempt {} simulating OOM", attempt);
-            errorLatch.countDown();
+            errorCheckpoint.flag();
             
             // Simulate OOM by throwing it directly (safer than actually causing OOM)
             throw new OutOfMemoryError("INTENTIONAL FAILURE: Simulated OOM, attempt " + attempt);
         });
 
-        boolean completed = errorLatch.await(10, TimeUnit.SECONDS);
-        assertTrue(completed, "Should have attempted processing and handled OOM simulation");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should have attempted processing and handled OOM simulation");
         assertTrue(attemptCount.get() >= 1, "Should have made at least 1 processing attempt");
         
         logger.info("✅ OutOfMemoryError simulation test completed successfully");

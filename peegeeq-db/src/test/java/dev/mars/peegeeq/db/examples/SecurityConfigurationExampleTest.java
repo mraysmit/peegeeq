@@ -218,7 +218,7 @@ public class SecurityConfigurationExampleTest {
         assertDoesNotThrow(() -> manager.start());
 
         // Allow time for health checks to initialize and run
-        Thread.sleep(2000);
+        manager.getVertx().timer(2000).toCompletionStage().toCompletableFuture().join();
 
         // Validate health monitoring
         var healthCheckManager = manager.getHealthCheckManager();

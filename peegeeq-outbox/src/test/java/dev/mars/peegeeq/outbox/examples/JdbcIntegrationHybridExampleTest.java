@@ -31,6 +31,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
+import java.util.concurrent.locks.LockSupport;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -300,7 +301,7 @@ public class JdbcIntegrationHybridExampleTest {
         logger.info("📊 Testing JDBC performance...");
         int jdbcOperations = 5;
         for (int i = 0; i < jdbcOperations; i++) {
-            Thread.sleep(1); // Simulate JDBC processing time
+            LockSupport.parkNanos(1_000_000L); // Simulate JDBC processing time
         }
         long jdbcTime = System.currentTimeMillis() - startTime;
         double jdbcPerformance = (double) jdbcOperations / (jdbcTime / 1000.0);
@@ -310,7 +311,7 @@ public class JdbcIntegrationHybridExampleTest {
         logger.info("⚡ Testing reactive performance...");
         int reactiveOperations = 5;
         for (int i = 0; i < reactiveOperations; i++) {
-            Thread.sleep(1); // Simulate reactive processing time
+            LockSupport.parkNanos(1_000_000L); // Simulate reactive processing time
         }
         long reactiveTime = System.currentTimeMillis() - startTime;
         double reactivePerformance = (double) reactiveOperations / (reactiveTime / 1000.0);

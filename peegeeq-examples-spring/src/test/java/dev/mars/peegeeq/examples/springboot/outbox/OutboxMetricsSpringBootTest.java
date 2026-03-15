@@ -19,12 +19,16 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -54,6 +58,7 @@ import static org.junit.jupiter.api.Assertions.*;
 )
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+@ExtendWith(VertxExtension.class)
 class OutboxMetricsSpringBootTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxMetricsSpringBootTest.class);
@@ -83,7 +88,7 @@ class OutboxMetricsSpringBootTest {
     private final List<MessageConsumer<?>> activeConsumers = new ArrayList<>();
 
     @AfterEach
-    void tearDown() throws InterruptedException {
+    void tearDown(Vertx vertx) throws InterruptedException {
         logger.info("Cleaning up test resources...");
         
         // Close all active consumers first
@@ -107,13 +112,15 @@ class OutboxMetricsSpringBootTest {
         activeProducers.clear();
         
         // Wait for connections to be released
-        Thread.sleep(2000);
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(2000, id -> delay.complete(null));
+        delay.join();
     }
 
     @Test
     @Order(1)
     @DisplayName("Test 1: Message Count Metrics - Verify sent/received/processed counts")
-    void testMessageCountMetrics() throws Exception {
+    void testMessageCountMetrics(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("\n=== TEST 1: Message Count Metrics ===");
         
         String topicName = "metrics-count-topic";
@@ -135,10 +142,10 @@ class OutboxMetricsSpringBootTest {
             initialSent, initialReceived, initialProcessed);
         
         // Set up consumer
-        CountDownLatch latch = new CountDownLatch(messageCount);
+        Checkpoint checkpoint = testContext.checkpoint(messageCount);
         consumer.subscribe(message -> {
             logger.debug("Processing message: {}", message.getPayload());
-            latch.countDown();
+            checkpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
         
@@ -148,11 +155,13 @@ class OutboxMetricsSpringBootTest {
         }
         
         // Wait for processing
-        assertTrue(latch.await(30, TimeUnit.SECONDS), 
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 
             "All messages should be processed within timeout");
         
         // Allow time for metrics to be updated
-        Thread.sleep(2000);
+        CompletableFuture<Void> metricsDelay = new CompletableFuture<>();
+        vertx.setTimer(2000, id -> metricsDelay.complete(null));
+        metricsDelay.join();
         
         // Verify metrics increased
         PeeGeeQMetrics.MetricsSummary finalMetrics = manager.getMetrics().getSummary();
@@ -176,7 +185,7 @@ class OutboxMetricsSpringBootTest {
     @Test
     @Order(2)
     @DisplayName("Test 2: Error Rate Metrics - Verify error tracking")
-    void testErrorRateMetrics() throws Exception {
+    void testErrorRateMetrics(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("\n=== TEST 2: Error Rate Metrics ===");
         
         String topicName = "metrics-error-topic";
@@ -195,10 +204,10 @@ class OutboxMetricsSpringBootTest {
         logger.info("Initial error count: {}", initialErrors);
         
         // Set up consumer that always fails
-        CountDownLatch errorLatch = new CountDownLatch(errorCount);
+        Checkpoint errorCheckpoint = testContext.checkpoint(errorCount);
         consumer.subscribe(message -> {
             logger.info("INTENTIONAL FAILURE: Processing message that will fail: {}", message.getPayload());
-            errorLatch.countDown();
+            errorCheckpoint.flag();
             return CompletableFuture.failedFuture(
                 new RuntimeException("Intentional error for metrics testing"));
         });
@@ -209,11 +218,13 @@ class OutboxMetricsSpringBootTest {
         }
         
         // Wait for errors to occur
-        assertTrue(errorLatch.await(30, TimeUnit.SECONDS), 
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 
             "All errors should occur within timeout");
         
         // Allow time for error metrics to be updated
-        Thread.sleep(3000);
+        CompletableFuture<Void> errorDelay = new CompletableFuture<>();
+        vertx.setTimer(3000, id -> errorDelay.complete(null));
+        errorDelay.join();
         
         // Verify error metrics increased
         PeeGeeQMetrics.MetricsSummary finalMetrics = manager.getMetrics().getSummary();
@@ -230,7 +241,7 @@ class OutboxMetricsSpringBootTest {
     @Test
     @Order(3)
     @DisplayName("Test 3: Processing Time Metrics - Verify timing measurements")
-    void testProcessingTimeMetrics() throws Exception {
+    void testProcessingTimeMetrics(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("\n=== TEST 3: Processing Time Metrics ===");
         
         String topicName = "metrics-timing-topic";
@@ -244,20 +255,16 @@ class OutboxMetricsSpringBootTest {
         activeConsumers.add(consumer);
         
         // Set up consumer with deliberate processing delay
-        CountDownLatch latch = new CountDownLatch(messageCount);
+        Checkpoint checkpoint = testContext.checkpoint(messageCount);
         consumer.subscribe(message -> {
-            return CompletableFuture.supplyAsync(() -> {
-                try {
-                    logger.debug("Processing message with {}ms delay: {}", 
-                        processingDelayMs, message.getPayload());
-                    Thread.sleep(processingDelayMs);
-                    latch.countDown();
-                    return null;
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    throw new RuntimeException(e);
-                }
+            CompletableFuture<Void> result = new CompletableFuture<>();
+            vertx.setTimer(processingDelayMs, id -> {
+                logger.debug("Processing message with {}ms delay: {}", 
+                    processingDelayMs, message.getPayload());
+                checkpoint.flag();
+                result.complete(null);
             });
+            return result;
         });
         
         // Send messages
@@ -266,11 +273,13 @@ class OutboxMetricsSpringBootTest {
         }
         
         // Wait for processing
-        assertTrue(latch.await(30, TimeUnit.SECONDS), 
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 
             "All messages should be processed within timeout");
         
         // Allow time for metrics to be updated
-        Thread.sleep(2000);
+        CompletableFuture<Void> timingDelay = new CompletableFuture<>();
+        vertx.setTimer(2000, id -> timingDelay.complete(null));
+        timingDelay.join();
         
         // Verify metrics were collected (we can't easily verify exact timing in integration test)
         PeeGeeQMetrics.MetricsSummary metrics = manager.getMetrics().getSummary();

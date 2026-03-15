@@ -20,12 +20,15 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Handler;
 import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -40,15 +43,16 @@ import static org.junit.jupiter.api.Assertions.*;
  * PgNotificationStream is a ReadStream adapter that doesn't directly touch the database.
  */
 @Tag(TestCategories.CORE)
+@ExtendWith(VertxExtension.class)
 public class PgNotificationStreamCoreTest {
 
     private Vertx vertx;
     private ObjectMapper objectMapper;
 
     @BeforeEach
-    void setUp() {
+    void setUp(Vertx vertx) {
         System.err.println("=== PgNotificationStreamCoreTest SETUP STARTED ===");
-        vertx = Vertx.vertx();
+        this.vertx = vertx;
         objectMapper = new ObjectMapper();
         System.err.println("=== PgNotificationStreamCoreTest SETUP COMPLETED ===");
     }
@@ -56,9 +60,6 @@ public class PgNotificationStreamCoreTest {
     @AfterEach
     void tearDown() {
         System.err.println("=== PgNotificationStreamCoreTest TEARDOWN STARTED ===");
-        if (vertx != null) {
-            vertx.close();
-        }
         System.err.println("=== PgNotificationStreamCoreTest TEARDOWN COMPLETED ===");
     }
 
@@ -148,23 +149,23 @@ public class PgNotificationStreamCoreTest {
     }
 
     @Test
-    void testHandleNotification() throws Exception {
+    void testHandleNotification(VertxTestContext testContext) throws Exception {
         System.err.println("=== TEST: testHandleNotification STARTED ===");
         
         PgNotificationStream<String> stream = new PgNotificationStream<>(vertx, String.class, objectMapper);
         
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint messageCheckpoint = testContext.checkpoint();
         AtomicReference<String> receivedMessage = new AtomicReference<>();
         
         stream.handler(message -> {
             receivedMessage.set(message);
-            latch.countDown();
+            messageCheckpoint.flag();
         });
         
         String testMessage = "Test notification";
         stream.handleNotification(testMessage);
         
-        assertTrue(latch.await(5, TimeUnit.SECONDS), "Should receive notification");
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should receive notification");
         assertEquals(testMessage, receivedMessage.get(), "Should receive correct message");
         
         System.err.println("=== TEST: testHandleNotification COMPLETED ===");
@@ -189,7 +190,7 @@ public class PgNotificationStreamCoreTest {
         stream.handleNotification("Message while paused");
         
         // Wait a bit
-        Thread.sleep(1000);
+        vertx.timer(1000).toCompletionStage().toCompletableFuture().join();
         
         // Should not have received the message
         assertEquals(0, messageCount.get(), "Should not receive messages while paused");
@@ -198,17 +199,17 @@ public class PgNotificationStreamCoreTest {
     }
 
     @Test
-    void testHandleNotificationAfterResume() throws Exception {
+    void testHandleNotificationAfterResume(VertxTestContext testContext) throws Exception {
         System.err.println("=== TEST: testHandleNotificationAfterResume STARTED ===");
         
         PgNotificationStream<String> stream = new PgNotificationStream<>(vertx, String.class, objectMapper);
         
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint messageCheckpoint = testContext.checkpoint();
         AtomicReference<String> receivedMessage = new AtomicReference<>();
         
         stream.handler(message -> {
             receivedMessage.set(message);
-            latch.countDown();
+            messageCheckpoint.flag();
         });
         
         // Pause then resume
@@ -219,25 +220,25 @@ public class PgNotificationStreamCoreTest {
         String testMessage = "Message after resume";
         stream.handleNotification(testMessage);
         
-        assertTrue(latch.await(5, TimeUnit.SECONDS), "Should receive notification after resume");
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should receive notification after resume");
         assertEquals(testMessage, receivedMessage.get(), "Should receive correct message");
         
         System.err.println("=== TEST: testHandleNotificationAfterResume COMPLETED ===");
     }
 
     @Test
-    void testHandleMultipleNotifications() throws Exception {
+    void testHandleMultipleNotifications(VertxTestContext testContext) throws Exception {
         System.err.println("=== TEST: testHandleMultipleNotifications STARTED ===");
         
         PgNotificationStream<String> stream = new PgNotificationStream<>(vertx, String.class, objectMapper);
         
         int notificationCount = 5;
-        CountDownLatch latch = new CountDownLatch(notificationCount);
+        Checkpoint messageCheckpoint = testContext.checkpoint(notificationCount);
         AtomicInteger receivedCount = new AtomicInteger(0);
         
         stream.handler(message -> {
             receivedCount.incrementAndGet();
-            latch.countDown();
+            messageCheckpoint.flag();
         });
         
         // Send multiple notifications
@@ -245,50 +246,50 @@ public class PgNotificationStreamCoreTest {
             stream.handleNotification("Notification " + i);
         }
         
-        assertTrue(latch.await(5, TimeUnit.SECONDS), "Should receive all notifications");
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should receive all notifications");
         assertEquals(notificationCount, receivedCount.get(), "Should receive correct number of notifications");
         
         System.err.println("=== TEST: testHandleMultipleNotifications COMPLETED ===");
     }
 
     @Test
-    void testHandleError() throws Exception {
+    void testHandleError(VertxTestContext testContext) throws Exception {
         System.err.println("=== TEST: testHandleError STARTED ===");
         
         PgNotificationStream<String> stream = new PgNotificationStream<>(vertx, String.class, objectMapper);
         
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint errorCheckpoint = testContext.checkpoint();
         AtomicReference<Throwable> receivedError = new AtomicReference<>();
         
         stream.exceptionHandler(error -> {
             receivedError.set(error);
-            latch.countDown();
+            errorCheckpoint.flag();
         });
         
         RuntimeException testError = new RuntimeException("Test error");
         stream.handleError(testError);
         
-        assertTrue(latch.await(5, TimeUnit.SECONDS), "Should receive error");
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should receive error");
         assertEquals(testError, receivedError.get(), "Should receive correct error");
         
         System.err.println("=== TEST: testHandleError COMPLETED ===");
     }
 
     @Test
-    void testHandleEnd() throws Exception {
+    void testHandleEnd(VertxTestContext testContext) throws Exception {
         System.err.println("=== TEST: testHandleEnd STARTED ===");
         
         PgNotificationStream<String> stream = new PgNotificationStream<>(vertx, String.class, objectMapper);
         
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint endCheckpoint = testContext.checkpoint();
         
         stream.endHandler(v -> {
-            latch.countDown();
+            endCheckpoint.flag();
         });
         
         stream.handleEnd();
         
-        assertTrue(latch.await(5, TimeUnit.SECONDS), "Should receive end signal");
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should receive end signal");
         
         System.err.println("=== TEST: testHandleEnd COMPLETED ===");
     }

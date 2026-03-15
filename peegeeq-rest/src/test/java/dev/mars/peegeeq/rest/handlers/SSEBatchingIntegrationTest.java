@@ -25,6 +25,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -208,12 +209,16 @@ public class SSEBatchingIntegrationTest {
             .onFailure(testContext::failNow);
         
         // Wait for connection to be established
-        Thread.sleep(1000);
+        CompletableFuture<Void> delay1 = new CompletableFuture<>();
+        vertx.setTimer(1000, id -> delay1.complete(null));
+        delay1.join();
         
         // Send exactly batchSize messages
         for (int i = 1; i <= batchSize; i++) {
             sendMessage(vertx, "batch-test-" + i, 100);
-            Thread.sleep(100); // Small delay between messages
+            CompletableFuture<Void> delay2 = new CompletableFuture<>();
+            vertx.setTimer(100, id -> delay2.complete(null));
+            delay2.join();
         }
         
         logger.info("✓ Sent {} messages via REST API", batchSize);
@@ -234,7 +239,9 @@ public class SSEBatchingIntegrationTest {
         
         // Close connection
         responseRef.get().request().connection().close();
-        Thread.sleep(500);
+        CompletableFuture<Void> delay3 = new CompletableFuture<>();
+        vertx.setTimer(500, id -> delay3.complete(null));
+        delay3.join();
         
         testContext.completeNow();
     }
@@ -292,14 +299,18 @@ public class SSEBatchingIntegrationTest {
             .onFailure(testContext::failNow);
 
         // Wait for connection to be established
-        Thread.sleep(1000);
+        CompletableFuture<Void> delay1 = new CompletableFuture<>();
+        vertx.setTimer(1000, id -> delay1.complete(null));
+        delay1.join();
 
         long sendStartTime = System.currentTimeMillis();
 
         // Send fewer messages than batch size
         for (int i = 1; i <= messagesToSend; i++) {
             sendMessage(vertx, "timeout-test-" + i, 200);
-            Thread.sleep(100);
+            CompletableFuture<Void> delay2 = new CompletableFuture<>();
+            vertx.setTimer(100, id -> delay2.complete(null));
+            delay2.join();
         }
 
         logger.info("✓ Sent {} messages (less than batch size {})", messagesToSend, batchSize);
@@ -324,7 +335,9 @@ public class SSEBatchingIntegrationTest {
 
         // Close connection
         responseRef.get().request().connection().close();
-        Thread.sleep(500);
+        CompletableFuture<Void> delay3 = new CompletableFuture<>();
+        vertx.setTimer(500, id -> delay3.complete(null));
+        delay3.join();
 
         testContext.completeNow();
     }
@@ -371,12 +384,16 @@ public class SSEBatchingIntegrationTest {
             .onFailure(testContext::failNow);
 
         // Wait for connection to be established
-        Thread.sleep(1000);
+        CompletableFuture<Void> delay1 = new CompletableFuture<>();
+        vertx.setTimer(1000, id -> delay1.complete(null));
+        delay1.join();
 
         // Send messages
         for (int i = 1; i <= messagesToSend; i++) {
             sendMessage(vertx, "single-test-" + i, 300);
-            Thread.sleep(200);
+            CompletableFuture<Void> delay2 = new CompletableFuture<>();
+            vertx.setTimer(200, id -> delay2.complete(null));
+            delay2.join();
         }
 
         logger.info("✓ Sent {} messages via REST API", messagesToSend);
@@ -393,7 +410,9 @@ public class SSEBatchingIntegrationTest {
 
         // Close connection
         responseRef.get().request().connection().close();
-        Thread.sleep(500);
+        CompletableFuture<Void> delay3 = new CompletableFuture<>();
+        vertx.setTimer(500, id -> delay3.complete(null));
+        delay3.join();
 
         testContext.completeNow();
     }

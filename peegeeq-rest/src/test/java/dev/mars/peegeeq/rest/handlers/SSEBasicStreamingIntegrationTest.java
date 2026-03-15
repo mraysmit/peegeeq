@@ -27,6 +27,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -292,7 +293,9 @@ class SSEBasicStreamingIntegrationTest {
             responseRef.get().request().connection().close();
             logger.info("🔌 Closed SSE connection for Test 1");
             // Wait for connection to fully close
-            Thread.sleep(500);
+            CompletableFuture<Void> delay = new CompletableFuture<>();
+            vertx.setTimer(500, id -> delay.complete(null));
+            delay.join();
         }
 
         testContext.completeNow();
@@ -355,7 +358,9 @@ class SSEBasicStreamingIntegrationTest {
             responseRef.get().request().connection().close();
             logger.info("🔌 Closed SSE connection for Test 2");
             // Wait for connection to fully close
-            Thread.sleep(500);
+            CompletableFuture<Void> delay = new CompletableFuture<>();
+            vertx.setTimer(500, id -> delay.complete(null));
+            delay.join();
         }
 
         testContext.completeNow();
@@ -425,7 +430,9 @@ class SSEBasicStreamingIntegrationTest {
             responseRef.get().request().connection().close();
             logger.info("🔌 Closed SSE connection for Test 3");
             // Wait for connection to fully close
-            Thread.sleep(500);
+            CompletableFuture<Void> delay = new CompletableFuture<>();
+            vertx.setTimer(500, id -> delay.complete(null));
+            delay.join();
         }
 
         testContext.completeNow();
@@ -492,7 +499,9 @@ class SSEBasicStreamingIntegrationTest {
             responseRef.get().request().connection().close();
             logger.info("🔌 Closed SSE connection for Test 4");
             // Wait for connection to fully close
-            Thread.sleep(500);
+            CompletableFuture<Void> delay = new CompletableFuture<>();
+            vertx.setTimer(500, id -> delay.complete(null));
+            delay.join();
         }
 
         testContext.completeNow();

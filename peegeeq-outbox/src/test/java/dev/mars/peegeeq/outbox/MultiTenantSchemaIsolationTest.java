@@ -25,10 +25,15 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -38,7 +43,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -49,6 +53,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 public class MultiTenantSchemaIsolationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(MultiTenantSchemaIsolationTest.class);
@@ -128,40 +133,37 @@ public class MultiTenantSchemaIsolationTest {
     }
 
     @Test
-    void testMessageIsolationBetweenTenants() throws Exception {
+    void testMessageIsolationBetweenTenants(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Tenant A sends a message
         MessageProducer<String> producerA = factoryTenantA.createProducer("test-topic", String.class);
         producerA.send("tenant-a-message").get(5, TimeUnit.SECONDS);
 
         // Tenant B creates a consumer - should NOT receive tenant A's message
         MessageConsumer<String> consumerB = factoryTenantB.createConsumer("test-topic", String.class);
-        CountDownLatch latchB = new CountDownLatch(1);
         List<String> receivedMessagesB = new ArrayList<>();
 
         consumerB.subscribe(message -> {
             receivedMessagesB.add(message.getPayload());
-            latchB.countDown();
             return CompletableFuture.completedFuture(null);
         });
 
         // Wait a bit to ensure no messages are received
-        boolean receivedB = latchB.await(3, TimeUnit.SECONDS);
-        assertFalse(receivedB, "Tenant B should NOT receive tenant A's message");
+        vertx.timer(3000).toCompletionStage().toCompletableFuture().join();
         assertTrue(receivedMessagesB.isEmpty(), "Tenant B should have no messages");
 
         // Tenant A creates a consumer - should receive its own message
         MessageConsumer<String> consumerA = factoryTenantA.createConsumer("test-topic", String.class);
-        CountDownLatch latchA = new CountDownLatch(1);
+        Checkpoint messageReceivedA = testContext.checkpoint();
         List<String> receivedMessagesA = new ArrayList<>();
 
         consumerA.subscribe(message -> {
             receivedMessagesA.add(message.getPayload());
-            latchA.countDown();
+            messageReceivedA.flag();
             return CompletableFuture.completedFuture(null);
         });
 
         // Tenant A should receive its own message
-        assertTrue(latchA.await(10, TimeUnit.SECONDS), "Tenant A should receive its own message");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Tenant A should receive its own message");
         assertEquals(1, receivedMessagesA.size(), "Tenant A should have exactly 1 message");
         assertEquals("tenant-a-message", receivedMessagesA.get(0), "Tenant A should receive correct message");
 
@@ -196,7 +198,7 @@ public class MultiTenantSchemaIsolationTest {
     }
 
     @Test
-    void testSameTopicNameAcrossTenants() throws Exception {
+    void testSameTopicNameAcrossTenants(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Both tenants use the same topic name but should be isolated
         String sharedTopicName = "shared-topic-name";
 
@@ -206,33 +208,33 @@ public class MultiTenantSchemaIsolationTest {
         producerA.send("message-from-tenant-a").get(5, TimeUnit.SECONDS);
         producerB.send("message-from-tenant-b").get(5, TimeUnit.SECONDS);
 
+        // Use a shared context with 2 checkpoints (one per tenant)
+        Checkpoint tenantAReceived = testContext.checkpoint();
+        Checkpoint tenantBReceived = testContext.checkpoint();
+
         // Tenant A consumer should only receive tenant A's message
         MessageConsumer<String> consumerA = factoryTenantA.createConsumer(sharedTopicName, String.class);
-        CountDownLatch latchA = new CountDownLatch(1);
         List<String> receivedA = new ArrayList<>();
 
         consumerA.subscribe(message -> {
             receivedA.add(message.getPayload());
-            latchA.countDown();
+            tenantAReceived.flag();
             return CompletableFuture.completedFuture(null);
         });
 
-        assertTrue(latchA.await(10, TimeUnit.SECONDS), "Tenant A should receive message");
-        assertEquals(1, receivedA.size(), "Tenant A should receive exactly 1 message");
-        assertEquals("message-from-tenant-a", receivedA.get(0), "Tenant A should receive its own message");
-
         // Tenant B consumer should only receive tenant B's message
         MessageConsumer<String> consumerB = factoryTenantB.createConsumer(sharedTopicName, String.class);
-        CountDownLatch latchB = new CountDownLatch(1);
         List<String> receivedB = new ArrayList<>();
 
         consumerB.subscribe(message -> {
             receivedB.add(message.getPayload());
-            latchB.countDown();
+            tenantBReceived.flag();
             return CompletableFuture.completedFuture(null);
         });
 
-        assertTrue(latchB.await(10, TimeUnit.SECONDS), "Tenant B should receive message");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Both tenants should receive messages");
+        assertEquals(1, receivedA.size(), "Tenant A should receive exactly 1 message");
+        assertEquals("message-from-tenant-a", receivedA.get(0), "Tenant A should receive its own message");
         assertEquals(1, receivedB.size(), "Tenant B should receive exactly 1 message");
         assertEquals("message-from-tenant-b", receivedB.get(0), "Tenant B should receive its own message");
 

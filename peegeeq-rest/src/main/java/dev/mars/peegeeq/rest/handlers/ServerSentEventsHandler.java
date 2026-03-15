@@ -5,6 +5,7 @@ import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.messaging.StartPosition;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.messaging.TopicNameValidator;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
 import io.vertx.core.Future;
@@ -58,6 +59,14 @@ public class ServerSentEventsHandler {
     public void handleQueueStream(RoutingContext ctx) {
         String setupId = ctx.pathParam("setupId");
         String queueName = ctx.pathParam("queueName");
+
+        if (!TopicNameValidator.isValid(queueName)) {
+            ctx.response().setStatusCode(400)
+                    .putHeader("content-type", "application/json")
+                    .end(new JsonObject().put("error", "Invalid queue name").encode());
+            return;
+        }
+
         String connectionId = "sse-" + connectionIdCounter.incrementAndGet();
         
         logger.info("SSE connection established: {} for queue {} in setup {}", 

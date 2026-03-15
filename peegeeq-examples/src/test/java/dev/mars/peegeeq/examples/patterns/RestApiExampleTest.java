@@ -38,7 +38,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
@@ -113,21 +112,14 @@ public class RestApiExampleTest {
         // Create and deploy REST server
         restServer = new PeeGeeQRestServer(restConfig, setupService);
         
-        CountDownLatch deployLatch = new CountDownLatch(1);
-        vertx.deployVerticle(restServer)
-                .onSuccess(id -> {
-                    logger.info("✓ REST server deployed with ID: {}", id);
-                    deployLatch.countDown();
-                })
-                .onFailure(err -> {
-                    logger.error("✗ Failed to deploy REST server", err);
-                    deployLatch.countDown();
-                });
-
-        assertTrue(deployLatch.await(10, TimeUnit.SECONDS), "REST server should deploy within 10 seconds");
+        String deploymentId = vertx.deployVerticle(restServer)
+                .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+        logger.info("\u2713 REST server deployed with ID: {}", deploymentId);
         
         // Give server a moment to fully initialize
-        Thread.sleep(500);
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(500, id -> delay.complete(null));
+        delay.join();
         
         logger.info("✓ REST API Example Test setup completed on port {}", REST_PORT);
     }

@@ -13,11 +13,16 @@ import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -31,7 +36,6 @@ import java.math.BigDecimal;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -51,6 +55,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
 public class ConsumerGroupExampleTest {
 
@@ -115,7 +120,7 @@ public class ConsumerGroupExampleTest {
      * Validates producer/consumer message handling
      */
     @Test
-    void testBasicMessageProcessing() throws Exception {
+    void testBasicMessageProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Basic Message Processing ===");
 
         // Create message producer and consumer
@@ -124,13 +129,13 @@ public class ConsumerGroupExampleTest {
 
         // Track processed messages
         AtomicInteger processedCount = new AtomicInteger(0);
-        CountDownLatch processedLatch = new CountDownLatch(3); // Expect 3 messages total
+        Checkpoint processedLatch = testContext.checkpoint(3); // Expect 3 messages total
 
         // Subscribe to messages
         consumer.subscribe(message -> {
             OrderEvent event = message.getPayload();
             processedCount.incrementAndGet();
-            processedLatch.countDown();
+            processedLatch.flag();
 
             logger.info("✅ Processed order: {} (amount: ${})",
                 event.getOrderId(), event.getAmount());
@@ -144,7 +149,7 @@ public class ConsumerGroupExampleTest {
         producer.send(new OrderEvent("ORDER-003", "customer-3", new BigDecimal("200.00"), "SHIPPED")).join();
 
         // Wait for all messages to be processed
-        assertTrue(processedLatch.await(10, TimeUnit.SECONDS), "All messages should be processed within 10 seconds");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "All messages should be processed within 10 seconds");
 
         // Verify message processing
         assertEquals(3, processedCount.get(), "Should have processed 3 messages");
@@ -161,7 +166,7 @@ public class ConsumerGroupExampleTest {
      * Validates message header handling and metadata
      */
     @Test
-    void testMessageHeadersProcessing() throws Exception {
+    void testMessageHeadersProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Message Headers Processing ===");
 
         // Create message producer and consumer
@@ -170,14 +175,14 @@ public class ConsumerGroupExampleTest {
 
         // Track processed messages with headers
         AtomicInteger processedCount = new AtomicInteger(0);
-        CountDownLatch processedLatch = new CountDownLatch(2); // Expect 2 messages total
+        Checkpoint processedLatch = testContext.checkpoint(2); // Expect 2 messages total
 
         // Subscribe to messages and verify headers
         consumer.subscribe(message -> {
             OrderEvent event = message.getPayload();
             Map<String, String> headers = message.getHeaders();
             processedCount.incrementAndGet();
-            processedLatch.countDown();
+            processedLatch.flag();
 
             logger.info("✅ Processed payment for order: {} (priority: {})",
                 event.getOrderId(), headers.get("priority"));
@@ -196,7 +201,7 @@ public class ConsumerGroupExampleTest {
             Map.of("priority", "NORMAL")).join();
 
         // Wait for all messages to be processed
-        assertTrue(processedLatch.await(10, TimeUnit.SECONDS), "All messages should be processed within 10 seconds");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "All messages should be processed within 10 seconds");
 
         // Verify message processing
         assertEquals(2, processedCount.get(), "Should have processed 2 messages");
@@ -213,7 +218,7 @@ public class ConsumerGroupExampleTest {
      * Validates proper JSON serialization/deserialization of complex objects
      */
     @Test
-    void testMessageSerializationDeserialization() throws Exception {
+    void testMessageSerializationDeserialization(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Message Serialization and Deserialization ===");
 
         // Create message producer and consumer
@@ -222,13 +227,13 @@ public class ConsumerGroupExampleTest {
 
         // Track processed messages
         AtomicInteger processedCount = new AtomicInteger(0);
-        CountDownLatch processedLatch = new CountDownLatch(2); // Expect 2 messages total
+        Checkpoint processedLatch = testContext.checkpoint(2); // Expect 2 messages total
 
         // Subscribe to messages and verify serialization
         consumer.subscribe(message -> {
             OrderEvent event = message.getPayload();
             processedCount.incrementAndGet();
-            processedLatch.countDown();
+            processedLatch.flag();
 
             logger.info("✅ Deserialized order: {} (customer: {}, amount: ${}, status: {})",
                 event.getOrderId(), event.getCustomerId(), event.getAmount(), event.getStatus());
@@ -247,7 +252,7 @@ public class ConsumerGroupExampleTest {
         producer.send(new OrderEvent("ANA-002", "standard-customer-2", new BigDecimal("0.01"), "COMPLETED")).join();
 
         // Wait for all messages to be processed
-        assertTrue(processedLatch.await(10, TimeUnit.SECONDS), "All messages should be processed within 10 seconds");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "All messages should be processed within 10 seconds");
 
         // Verify message processing
         assertEquals(2, processedCount.get(), "Should have processed 2 messages");

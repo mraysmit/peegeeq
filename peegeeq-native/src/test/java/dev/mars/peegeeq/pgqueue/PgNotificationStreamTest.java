@@ -26,7 +26,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -121,15 +120,14 @@ public class PgNotificationStreamTest {
     }
 
     @Test
-    void testResume() throws InterruptedException {
+    void testResume(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Arrange
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicInteger callCount = new AtomicInteger(0);
         AtomicReference<String> receivedMessage = new AtomicReference<>();
         Handler<String> handler = message -> {
             callCount.incrementAndGet();
             receivedMessage.set(message);
-            latch.countDown();
+            testContext.completeNow();
         };
         stream.handler(handler);
         stream.pause();
@@ -144,7 +142,7 @@ public class PgNotificationStreamTest {
         stream.handleNotification("test");
 
         // Wait for async execution and verify handler was called
-        assertTrue(latch.await(1, TimeUnit.SECONDS), "Handler should be called within 1 second when stream is resumed");
+        assertTrue(testContext.awaitCompletion(1, TimeUnit.SECONDS), "Handler should be called within 1 second when stream is resumed");
         assertEquals(1, callCount.get(), "Handler should be called when stream is resumed");
         assertEquals("test", receivedMessage.get(), "Handler should receive the correct message");
     }
@@ -174,15 +172,14 @@ public class PgNotificationStreamTest {
     }
 
     @Test
-    void testHandleNotification() throws InterruptedException {
+    void testHandleNotification(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Arrange
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicInteger callCount = new AtomicInteger(0);
         AtomicReference<String> receivedMessage = new AtomicReference<>();
         Handler<String> handler = message -> {
             callCount.incrementAndGet();
             receivedMessage.set(message);
-            latch.countDown();
+            testContext.completeNow();
         };
         stream.handler(handler);
 
@@ -190,7 +187,7 @@ public class PgNotificationStreamTest {
         stream.handleNotification("test");
 
         // Assert - wait for async execution
-        assertTrue(latch.await(1, TimeUnit.SECONDS), "Handler should be called within 1 second");
+        assertTrue(testContext.awaitCompletion(1, TimeUnit.SECONDS), "Handler should be called within 1 second");
         assertEquals(1, callCount.get(), "Handler should be called once");
         assertEquals("test", receivedMessage.get(), "Handler should receive the correct message");
     }
@@ -218,15 +215,14 @@ public class PgNotificationStreamTest {
      * NOTE: The ERROR log that appears during this test is EXPECTED and INTENTIONAL.
      */
     @Test
-    void testHandleError() throws InterruptedException {
+    void testHandleError(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Arrange
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Throwable> receivedError = new AtomicReference<>();
         AtomicInteger callCount = new AtomicInteger(0);
         Handler<Throwable> handler = error -> {
             callCount.incrementAndGet();
             receivedError.set(error);
-            latch.countDown();
+            testContext.completeNow();
         };
         stream.exceptionHandler(handler);
 
@@ -237,21 +233,20 @@ public class PgNotificationStreamTest {
         stream.handleError(error);
 
         // Assert - wait for async execution
-        assertTrue(latch.await(1, TimeUnit.SECONDS), "Exception handler should be called within 1 second");
+        assertTrue(testContext.awaitCompletion(1, TimeUnit.SECONDS), "Exception handler should be called within 1 second");
         assertEquals(1, callCount.get(), "Exception handler should be called once");
         assertSame(error, receivedError.get(), "Exception handler should receive the correct error");
     }
 
     @Test
-    void testHandleEnd() throws InterruptedException {
+    void testHandleEnd(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Arrange
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicBoolean handlerCalled = new AtomicBoolean(false);
         AtomicInteger callCount = new AtomicInteger(0);
         Handler<Void> handler = voidValue -> {
             callCount.incrementAndGet();
             handlerCalled.set(true);
-            latch.countDown();
+            testContext.completeNow();
         };
         stream.endHandler(handler);
 
@@ -259,7 +254,7 @@ public class PgNotificationStreamTest {
         stream.handleEnd();
 
         // Assert - wait for async execution
-        assertTrue(latch.await(1, TimeUnit.SECONDS), "End handler should be called within 1 second");
+        assertTrue(testContext.awaitCompletion(1, TimeUnit.SECONDS), "End handler should be called within 1 second");
         assertEquals(1, callCount.get(), "End handler should be called once");
         assertTrue(handlerCalled.get(), "End handler should be called");
     }

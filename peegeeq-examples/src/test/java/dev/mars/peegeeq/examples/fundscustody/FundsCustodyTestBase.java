@@ -16,16 +16,20 @@ import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
 import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -46,8 +50,11 @@ import java.util.concurrent.TimeUnit;
  * system property conflicts during parallel execution.
  */
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 @Execution(ExecutionMode.SAME_THREAD)
 public abstract class FundsCustodyTestBase {
+
+    protected Vertx vertx;
 
     // Get fresh container reference in setUp() instead of static initialization
     // to avoid stale port numbers when container is restarted between test classes
@@ -106,7 +113,11 @@ public abstract class FundsCustodyTestBase {
             cleanupPool.close().toCompletionStage().toCompletableFuture().get(3, TimeUnit.SECONDS);
             
             // Wait for async operations to complete
-            Thread.sleep(200);
+            if (vertx != null) {
+                CompletableFuture<Void> delay = new CompletableFuture<>();
+                vertx.setTimer(200, id -> delay.complete(null));
+                delay.join();
+            }
 
         } catch (Exception e) {
             // Cleanup failures are often expected (table doesn't exist yet)
@@ -119,7 +130,8 @@ public abstract class FundsCustodyTestBase {
     }
     
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(Vertx vertx) throws Exception {
+        this.vertx = vertx;
         // CRITICAL: Clear any system properties set by previous tests to avoid stale configuration
         clearSystemProperties();
 

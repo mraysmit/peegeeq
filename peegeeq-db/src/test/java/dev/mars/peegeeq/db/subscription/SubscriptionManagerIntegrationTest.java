@@ -288,7 +288,7 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
         Instant initialHeartbeat = initialSubscription.lastHeartbeatAt();
 
         // Wait a bit to ensure timestamp difference
-        Thread.sleep(100);
+        manager.getVertx().timer(100).toCompletionStage().toCompletableFuture().join();
 
         // Update heartbeat
         subscriptionManager.updateHeartbeat(topic, groupName)
@@ -401,7 +401,7 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
         Instant deadHeartbeat = dead.lastHeartbeatAt();
 
         // Wait a bit for timestamp difference
-        Thread.sleep(100);
+        manager.getVertx().timer(100).toCompletionStage().toCompletableFuture().join();
 
         // Send heartbeat — should auto-resurrect DEAD → ACTIVE
         subscriptionManager.updateHeartbeat(topic, groupName)

@@ -1,0 +1,63 @@
+[INFO] Scanning for projects...
+[INFO] 
+[INFO] ------------------< dev.mars:peegeeq-examples-spring >------------------
+[INFO] Building PeeGeeQ Examples Spring 1.0-SNAPSHOT
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ peegeeq-examples-spring ---
+[INFO] Deleting C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-examples-spring\target
+[INFO] 
+[INFO] --- toolchains:3.1.0:toolchain (default) @ peegeeq-examples-spring ---
+[INFO] Required toolchain: jdk [ version='21' ]
+[INFO] Found matching toolchain for type jdk: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] 
+[INFO] --- enforcer:3.4.1:enforce (enforce-maven-version) @ peegeeq-examples-spring ---
+[INFO] Rule 0: org.apache.maven.enforcer.rules.version.RequireMavenVersion passed
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ peegeeq-examples-spring ---
+[INFO] Copying 18 resources from src\main\resources to target\classes
+[INFO] 
+[INFO] --- compiler:3.11.0:compile (default-compile) @ peegeeq-examples-spring ---
+[INFO] Toolchain in maven-compiler-plugin: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] Changes detected - recompiling the module! :source
+[INFO] Compiling 140 source files with javac [forked debug release 21] to target\classes
+[INFO] 
+[INFO] --- resources:3.3.1:testResources (default-testResources) @ peegeeq-examples-spring ---
+[INFO] skip non existing resourceDirectory C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-examples-spring\src\test\resources
+[INFO] 
+[INFO] --- compiler:3.11.0:testCompile (default-testCompile) @ peegeeq-examples-spring ---
+[INFO] Toolchain in maven-compiler-plugin: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] Changes detected - recompiling the module! :dependency
+[INFO] Compiling 30 source files with javac [forked debug release 21] to target\test-classes
+[INFO] -------------------------------------------------------------
+[ERROR] COMPILATION ERROR : 
+[INFO] -------------------------------------------------------------
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-examples-spring\src\test\java\dev\mars\peegeeq\examples\springboot\outbox\OutboxDeadLetterQueueSpringBootTest.java:[210,56] error: cannot find symbol
+  symbol:   method join()
+  location: interface List<DeadLetterMessageInfo>
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-examples-spring\src\test\java\dev\mars\peegeeq\examples\springboot\outbox\OutboxDeadLetterQueueSpringBootTest.java:[286,56] error: cannot find symbol
+  symbol:   method join()
+  location: interface List<DeadLetterMessageInfo>
+[INFO] 2 errors 
+[INFO] -------------------------------------------------------------
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD FAILURE
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  18.923 s
+[INFO] Finished at: 2026-03-15T21:44:08+08:00
+[INFO] ------------------------------------------------------------------------
+[ERROR] Failed to execute goal org.apache.maven.plugins:maven-compiler-plugin:3.11.0:testCompile (default-testCompile) on project peegeeq-examples-spring: Compilation failure: Compilation failure: 
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-examples-spring\src\test\java\dev\mars\peegeeq\examples\springboot\outbox\OutboxDeadLetterQueueSpringBootTest.java:[210,56] error: cannot find symbol
+[ERROR]   symbol:   method join()
+[ERROR]   location: interface List<DeadLetterMessageInfo>
+[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-examples-spring\src\test\java\dev\mars\peegeeq\examples\springboot\outbox\OutboxDeadLetterQueueSpringBootTest.java:[286,56] error: cannot find symbol
+[ERROR]   symbol:   method join()
+[ERROR]   location: interface List<DeadLetterMessageInfo>
+[ERROR] -> [Help 1]
+[ERROR] 
+[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
+[ERROR] Re-run Maven using the -X switch to enable full debug logging.
+[ERROR] 
+[ERROR] For more information about the errors and possible solutions, please read the following articles:
+[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoFailureException

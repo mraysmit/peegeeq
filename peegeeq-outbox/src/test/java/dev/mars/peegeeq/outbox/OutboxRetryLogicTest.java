@@ -26,11 +26,16 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -38,7 +43,6 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -50,6 +54,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 public class OutboxRetryLogicTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxRetryLogicTest.class);
@@ -94,7 +99,7 @@ public class OutboxRetryLogicTest {
     }
 
     @Test
-    void testRetryCountIncrementsCorrectly() throws Exception {
+    void testRetryCountIncrementsCorrectly(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Retry Count Increments ===");
 
         String topicName = "retry-count-test-" + System.currentTimeMillis();
@@ -104,7 +109,7 @@ public class OutboxRetryLogicTest {
         try {
             String testMessage = "Message for retry count test";
             AtomicInteger attemptCount = new AtomicInteger(0);
-            CountDownLatch retryLatch = new CountDownLatch(4); // Initial + 3 retries
+            Checkpoint retryCheckpoint = testContext.checkpoint(4); // Initial + 3 retries
 
             producer.send(testMessage).get(5, TimeUnit.SECONDS);
 
@@ -113,14 +118,13 @@ public class OutboxRetryLogicTest {
                 int attempt = attemptCount.incrementAndGet();
                 logger.info("INTENTIONAL FAILURE: Retry attempt {} for message: {}",
                     attempt, message.getPayload());
-                retryLatch.countDown();
+                retryCheckpoint.flag();
 
                 throw new RuntimeException("INTENTIONAL FAILURE: Always fail for retry test, attempt " + attempt);
             });
 
             // Wait for all retry attempts
-            boolean completed = retryLatch.await(20, TimeUnit.SECONDS);
-            assertTrue(completed, "Should have attempted processing 4 times (initial + 3 retries)");
+            assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Should have attempted processing 4 times (initial + 3 retries)");
             assertEquals(4, attemptCount.get(), "Should have made exactly 4 processing attempts");
 
             logger.info("✅ Retry count increment test completed successfully");
@@ -131,7 +135,7 @@ public class OutboxRetryLogicTest {
     }
 
     @Test
-    void testMaxRetriesThresholdRespected() throws Exception {
+    void testMaxRetriesThresholdRespected(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Max Retries Threshold ===");
 
         String topicName = "max-retries-test-" + System.currentTimeMillis();
@@ -141,7 +145,7 @@ public class OutboxRetryLogicTest {
         try {
             String testMessage = "Message for max retries test";
             AtomicInteger attemptCount = new AtomicInteger(0);
-            CountDownLatch retryLatch = new CountDownLatch(4); // Should stop at 4 (initial + 3 retries)
+            Checkpoint retryCheckpoint = testContext.checkpoint(4); // Should stop at 4 (initial + 3 retries)
 
             producer.send(testMessage).get(5, TimeUnit.SECONDS);
 
@@ -149,18 +153,17 @@ public class OutboxRetryLogicTest {
                 int attempt = attemptCount.incrementAndGet();
                 logger.info("INTENTIONAL FAILURE: Max retries attempt {} for message: {}",
                     attempt, message.getPayload());
-                retryLatch.countDown();
+                retryCheckpoint.flag();
 
                 throw new RuntimeException("INTENTIONAL FAILURE: Testing max retries, attempt " + attempt);
             });
 
             // Wait for all attempts
-            boolean completed = retryLatch.await(20, TimeUnit.SECONDS);
-            assertTrue(completed, "Should have attempted processing exactly 4 times");
+            assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Should have attempted processing exactly 4 times");
             assertEquals(4, attemptCount.get(), "Should respect max retries limit");
 
             // Wait a bit more to ensure no additional attempts
-            Thread.sleep(2000);
+            vertx.timer(2000).toCompletionStage().toCompletableFuture().join();
             assertEquals(4, attemptCount.get(), "Should not exceed max retries");
 
             logger.info("✅ Max retries threshold test completed successfully");
@@ -171,7 +174,7 @@ public class OutboxRetryLogicTest {
     }
 
     @Test
-    void testEventualSuccessAfterRetries() throws Exception {
+    void testEventualSuccessAfterRetries(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Eventual Success After Retries ===");
 
         String topicName = "eventual-success-test-" + System.currentTimeMillis();
@@ -181,7 +184,7 @@ public class OutboxRetryLogicTest {
         try {
             String testMessage = "Message that eventually succeeds";
             AtomicInteger attemptCount = new AtomicInteger(0);
-            CountDownLatch successLatch = new CountDownLatch(1);
+            Checkpoint successCheckpoint = testContext.checkpoint();
 
             producer.send(testMessage).get(5, TimeUnit.SECONDS);
 
@@ -193,13 +196,12 @@ public class OutboxRetryLogicTest {
                     throw new RuntimeException("INTENTIONAL FAILURE: Failing on purpose, attempt " + attempt);
                 } else {
                     logger.info("SUCCESS: Succeeding on attempt {} for eventual success test", attempt);
-                    successLatch.countDown();
+                    successCheckpoint.flag();
                     return CompletableFuture.completedFuture(null);
                 }
             });
 
-            boolean completed = successLatch.await(15, TimeUnit.SECONDS);
-            assertTrue(completed, "Should eventually succeed after retries");
+            assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should eventually succeed after retries");
             assertEquals(3, attemptCount.get(), "Should succeed on 3rd attempt");
 
             logger.info("✅ Eventual success after retries test completed successfully");
@@ -236,7 +238,8 @@ public class OutboxRetryLogicTest {
         try {
             String testMessage = "Message for " + exceptionType + " test";
             AtomicInteger attemptCount = new AtomicInteger(0);
-            CountDownLatch retryLatch = new CountDownLatch(4);
+            AtomicInteger remaining = new AtomicInteger(4);
+            CompletableFuture<Void> done = new CompletableFuture<>();
 
             producer.send(testMessage).get(5, TimeUnit.SECONDS);
 
@@ -244,13 +247,14 @@ public class OutboxRetryLogicTest {
                 int attempt = attemptCount.incrementAndGet();
                 logger.info("INTENTIONAL FAILURE: {} attempt {} for message: {}",
                     exceptionType, attempt, message.getPayload());
-                retryLatch.countDown();
+                if (remaining.decrementAndGet() <= 0) {
+                    done.complete(null);
+                }
 
                 throw exceptionSupplier.get();
             });
 
-            boolean completed = retryLatch.await(15, TimeUnit.SECONDS);
-            assertTrue(completed, "Should have attempted processing 4 times for " + exceptionType);
+            done.get(15, TimeUnit.SECONDS);
             assertEquals(4, attemptCount.get(), "Should have made exactly 4 attempts for " + exceptionType);
         } finally {
             consumer.close();

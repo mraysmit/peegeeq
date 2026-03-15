@@ -189,20 +189,14 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
                                 metrics.recordMessageSent(topic);
 
                                 // Send NOTIFY to wake up consumers using the database-generated ID
-                                System.out.println("🔔 PRODUCER: About to send NOTIFY on channel: " + notifyChannel
-                                        + " with payload: " + generatedId);
-                                return conn.query("SELECT pg_notify('" + notifyChannel + "', '" + generatedId + "')")
-                                        .execute()
+                                return conn.preparedQuery("SELECT pg_notify($1, $2)")
+                                        .execute(Tuple.of(notifyChannel, String.valueOf(generatedId)))
                                         .compose(notifyResult -> {
-                                            System.out.println("✅ PRODUCER: NOTIFY sent successfully for message: " + messageId
-                                                    + " (DB ID: " + generatedId + ")");
                                             logger.debug("Notification sent for message: {} (DB ID: {})", messageId,
                                                     generatedId);
                                             return io.vertx.core.Future.succeededFuture();
                                         })
                                         .recover(notifyError -> {
-                                            System.out.println("❌ PRODUCER: NOTIFY failed for message: " + messageId
-                                                    + " (DB ID: " + generatedId + ") - " + notifyError.getMessage());
                                             logger.warn("Failed to send notification for message {} (DB ID: {}): {}",
                                                     messageId, generatedId, notifyError.getMessage());
                                             // Continue anyway since message was stored
@@ -315,8 +309,8 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
                                 metrics.recordMessageSent(topic);
 
                                 // Send NOTIFY to wake up consumers using the database-generated ID
-                                return conn.query("SELECT pg_notify('" + notifyChannel + "', '" + generatedId + "')")
-                                        .execute()
+                                return conn.preparedQuery("SELECT pg_notify($1, $2)")
+                                        .execute(Tuple.of(notifyChannel, String.valueOf(generatedId)))
                                         .compose(notifyResult -> {
                                             logger.debug("Notification sent for message: {} (DB ID: {})", messageId,
                                                     generatedId);

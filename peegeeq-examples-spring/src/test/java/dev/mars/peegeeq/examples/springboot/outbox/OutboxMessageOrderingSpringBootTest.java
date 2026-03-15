@@ -19,11 +19,16 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.*;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -47,6 +52,7 @@ import static org.junit.jupiter.api.Assertions.*;
     }
 )
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 public class OutboxMessageOrderingSpringBootTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxMessageOrderingSpringBootTest.class);
@@ -76,7 +82,7 @@ public class OutboxMessageOrderingSpringBootTest {
     }
 
     @AfterEach
-    void tearDown() throws InterruptedException {
+    void tearDown(Vertx vertx) throws InterruptedException {
         logger.info("🧹 Cleaning up Message Ordering Spring Boot Test");
         
         // Close all active consumers first
@@ -103,7 +109,9 @@ public class OutboxMessageOrderingSpringBootTest {
         
         // Wait for connections to be fully released before next test
         logger.info("⏳ Waiting for connections to be released...");
-        Thread.sleep(2000);
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(2000, id -> delay.complete(null));
+        delay.join();
         
         logger.info("✅ Cleanup complete");
     }
@@ -115,7 +123,7 @@ public class OutboxMessageOrderingSpringBootTest {
      * The outbox consumer orders by created_at ASC, ensuring first-in-first-out processing.
      */
     @Test
-    void testFIFOMessageOrdering() throws Exception {
+    void testFIFOMessageOrdering(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing FIFO Message Ordering ===");
         logger.info("This test verifies messages are processed in creation order (FIFO)");
 
@@ -123,7 +131,7 @@ public class OutboxMessageOrderingSpringBootTest {
         
         // Track processing order
         List<Integer> processedOrder = Collections.synchronizedList(new ArrayList<>());
-        CountDownLatch latch = new CountDownLatch(10);
+        Checkpoint checkpoint = testContext.checkpoint(10);
         
         // Create consumer
         MessageConsumer<OrderMessage> consumer = outboxFactory.createConsumer(topic, OrderMessage.class);
@@ -133,7 +141,7 @@ public class OutboxMessageOrderingSpringBootTest {
             OrderMessage order = message.getPayload();
             processedOrder.add(order.getSequence());
             logger.info("📦 Processed message sequence: {}", order.getSequence());
-            latch.countDown();
+            checkpoint.flag();
             return java.util.concurrent.CompletableFuture.completedFuture(null);
         });
         
@@ -146,11 +154,13 @@ public class OutboxMessageOrderingSpringBootTest {
         for (int i = 1; i <= 10; i++) {
             OrderMessage message = new OrderMessage("order-" + i, i, "Item " + i);
             producer.send(message).join();
-            Thread.sleep(10); // Small delay to ensure different timestamps
+            CompletableFuture<Void> sendDelay = new CompletableFuture<>();
+            vertx.setTimer(10, id -> sendDelay.complete(null));
+            sendDelay.join(); // Small delay to ensure different timestamps
         }
         
         // Wait for all messages to be processed
-        assertTrue(latch.await(15, TimeUnit.SECONDS), "All messages should be processed within 15 seconds");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "All messages should be processed within 15 seconds");
         
         // Verify FIFO ordering
         logger.info("📊 FIFO Ordering Results:");
@@ -176,7 +186,7 @@ public class OutboxMessageOrderingSpringBootTest {
      * Messages are sent with message_group parameter to test group-based ordering.
      */
     @Test
-    void testMessageGroupOrdering() throws Exception {
+    void testMessageGroupOrdering(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Message Group Ordering ===");
         logger.info("This test verifies messages within same group maintain FIFO order");
 
@@ -184,7 +194,7 @@ public class OutboxMessageOrderingSpringBootTest {
         
         // Track processing order per group
         Map<String, List<Integer>> groupOrders = new ConcurrentHashMap<>();
-        CountDownLatch latch = new CountDownLatch(15);
+        Checkpoint checkpoint = testContext.checkpoint(15);
         
         // Create consumer
         MessageConsumer<OrderMessage> consumer = outboxFactory.createConsumer(topic, OrderMessage.class);
@@ -196,7 +206,7 @@ public class OutboxMessageOrderingSpringBootTest {
             groupOrders.computeIfAbsent(group, k -> Collections.synchronizedList(new ArrayList<>()))
                 .add(order.getSequence());
             logger.info("📦 Processed message sequence: {} for group: {}", order.getSequence(), group);
-            latch.countDown();
+            checkpoint.flag();
             return java.util.concurrent.CompletableFuture.completedFuture(null);
         });
         
@@ -217,12 +227,14 @@ public class OutboxMessageOrderingSpringBootTest {
                 producer.send(message, null, null, customer).join();
                 logger.info("   Sent sequence {} for {}", sequence, customer);
                 sequence++;
-                Thread.sleep(10); // Small delay to ensure different timestamps
+                CompletableFuture<Void> sendDelay = new CompletableFuture<>();
+                vertx.setTimer(10, id -> sendDelay.complete(null));
+                sendDelay.join(); // Small delay to ensure different timestamps
             }
         }
         
         // Wait for all messages to be processed
-        assertTrue(latch.await(20, TimeUnit.SECONDS), "All messages should be processed within 20 seconds");
+        assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "All messages should be processed within 20 seconds");
         
         // Verify ordering within each group
         logger.info("📊 Message Group Ordering Results:");
@@ -251,7 +263,7 @@ public class OutboxMessageOrderingSpringBootTest {
      * without strict ordering guarantees across groups (only within groups).
      */
     @Test
-    void testConcurrentGroupProcessing() throws Exception {
+    void testConcurrentGroupProcessing(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Concurrent Processing of Different Message Groups ===");
         logger.info("This test verifies different groups can be processed concurrently");
 
@@ -260,7 +272,7 @@ public class OutboxMessageOrderingSpringBootTest {
         // Track processing
         AtomicInteger totalProcessed = new AtomicInteger(0);
         Map<String, AtomicInteger> groupCounts = new ConcurrentHashMap<>();
-        CountDownLatch latch = new CountDownLatch(20);
+        Checkpoint checkpoint = testContext.checkpoint(20);
         
         // Create consumer
         MessageConsumer<OrderMessage> consumer = outboxFactory.createConsumer(topic, OrderMessage.class);
@@ -272,7 +284,7 @@ public class OutboxMessageOrderingSpringBootTest {
             groupCounts.computeIfAbsent(group, k -> new AtomicInteger(0)).incrementAndGet();
             totalProcessed.incrementAndGet();
             logger.info("📦 Processed message for group: {} (total: {})", group, totalProcessed.get());
-            latch.countDown();
+            checkpoint.flag();
             return java.util.concurrent.CompletableFuture.completedFuture(null);
         });
         
@@ -292,7 +304,7 @@ public class OutboxMessageOrderingSpringBootTest {
         }
         
         // Wait for all messages to be processed
-        assertTrue(latch.await(20, TimeUnit.SECONDS), "All messages should be processed within 20 seconds");
+        assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "All messages should be processed within 20 seconds");
         
         // Verify all messages were processed
         logger.info("📊 Concurrent Processing Results:");

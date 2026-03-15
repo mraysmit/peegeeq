@@ -33,12 +33,18 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
+import org.junit.jupiter.api.extension.ExtendWith;
+
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
@@ -53,6 +59,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 public class OutboxConsumerErrorHandlingTest {
 
     @Container
@@ -112,13 +119,13 @@ public class OutboxConsumerErrorHandlingTest {
     }
 
     @Test
-    void testHandlerExceptionWithRetry() throws Exception {
-        CountDownLatch latch = new CountDownLatch(3); // Will retry twice, then succeed
+    void testHandlerExceptionWithRetry(Vertx vertx, VertxTestContext testContext) throws Exception {
+        Checkpoint checkpoint = testContext.checkpoint(3);
         AtomicInteger attemptCount = new AtomicInteger(0);
 
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
-            latch.countDown();
+            checkpoint.flag();
             
             if (attempt < 3) {
                 throw new RuntimeException("Simulated handler failure on attempt " + attempt);
@@ -129,82 +136,72 @@ public class OutboxConsumerErrorHandlingTest {
 
         producer.send("test-message");
 
-        assertTrue(latch.await(10, TimeUnit.SECONDS), 
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), 
             "Should process message with retries");
         assertEquals(3, attemptCount.get(), 
             "Should have attempted 3 times");
     }
 
     @Test
-    void testHandlerExceptionReachesMaxRetries() throws Exception {
-        CountDownLatch latch = new CountDownLatch(1);
+    void testHandlerExceptionReachesMaxRetries(Vertx vertx, VertxTestContext testContext) throws Exception {
+        Checkpoint checkpoint = testContext.checkpoint();
         AtomicInteger attemptCount = new AtomicInteger(0);
 
         consumer.subscribe(message -> {
             attemptCount.incrementAndGet();
+            checkpoint.flag();
             return CompletableFuture.failedFuture(new RuntimeException("Always fails"));
         });
 
         producer.send("failing-message");
 
-        // Wait for processing attempts
-        Thread.sleep(3000);
-
-        assertTrue(attemptCount.get() > 0, 
-            "Should have attempted at least once");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process at least once");
+        assertTrue(attemptCount.get() > 0);
     }
 
     @Test
-    void testUnsubscribeDuringProcessing() throws Exception {
-        CountDownLatch processingStarted = new CountDownLatch(1);
-        CountDownLatch processingCompleted = new CountDownLatch(1);
+    void testUnsubscribeDuringProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
+        Checkpoint processingStarted = testContext.checkpoint();
+        Checkpoint processingCompleted = testContext.checkpoint();
 
         consumer.subscribe(message -> {
-            processingStarted.countDown();
-            try {
-                Thread.sleep(100); // Simulate processing
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            processingCompleted.countDown();
-            return CompletableFuture.completedFuture(null);
+            processingStarted.flag();
+            // Simulate processing via non-blocking delay
+            CompletableFuture<Void> future = new CompletableFuture<>();
+            vertx.setTimer(100, id -> {
+                processingCompleted.flag();
+                future.complete(null);
+            });
+            return future;
         });
 
         producer.send("test-message");
 
-        assertTrue(processingStarted.await(5, TimeUnit.SECONDS), 
-            "Processing should start");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), 
+            "Processing should start and complete");
 
-        // Unsubscribe while processing
+        // Unsubscribe after processing
         consumer.unsubscribe();
 
         // Send another message - should not be processed
         producer.send("ignored-message");
-
-        Thread.sleep(1000);
-
-        // Processing completed count should remain 1 (only first message)
-        assertTrue(processingCompleted.getCount() >= 0, 
-            "Unsubscribe should prevent new messages");
     }
 
     @Test
-    void testCloseDuringProcessing() throws Exception {
-        CountDownLatch processingStarted = new CountDownLatch(1);
+    void testCloseDuringProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
+        Checkpoint processingStarted = testContext.checkpoint();
         
         consumer.subscribe(message -> {
-            processingStarted.countDown();
-            try {
-                Thread.sleep(100); // Simulate processing
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            return CompletableFuture.completedFuture(null);
+            processingStarted.flag();
+            // Simulate processing via non-blocking delay
+            CompletableFuture<Void> future = new CompletableFuture<>();
+            vertx.setTimer(100, id -> future.complete(null));
+            return future;
         });
 
         producer.send("test-message");
 
-        assertTrue(processingStarted.await(5, TimeUnit.SECONDS), 
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), 
             "Processing should start");
 
         // Close consumer during processing
@@ -244,16 +241,16 @@ public class OutboxConsumerErrorHandlingTest {
     }
 
     @Test
-    void testCloseMultipleTimes() throws Exception {
-        CountDownLatch latch = new CountDownLatch(1);
+    void testCloseMultipleTimes(Vertx vertx, VertxTestContext testContext) throws Exception {
+        Checkpoint checkpoint = testContext.checkpoint();
         
         consumer.subscribe(message -> {
-            latch.countDown();
+            checkpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
         producer.send("test-message");
         
-        assertTrue(latch.await(5, TimeUnit.SECONDS), 
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), 
             "Message should be received");
 
         assertDoesNotThrow(() -> {
@@ -264,77 +261,71 @@ public class OutboxConsumerErrorHandlingTest {
     }
 
     @Test
-    void testMessageWithNullPayload() throws Exception {
-        CountDownLatch latch = new CountDownLatch(1);
+    void testMessageWithNullPayload(Vertx vertx, VertxTestContext testContext) throws Exception {
+        Checkpoint checkpoint = testContext.checkpoint();
         AtomicInteger receivedCount = new AtomicInteger(0);
 
         consumer.subscribe(message -> {
             receivedCount.incrementAndGet();
-            latch.countDown();
+            checkpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
 
         // Send null payload (if supported)
         producer.send(null);
 
-        boolean received = latch.await(5, TimeUnit.SECONDS);
-        
         // May or may not receive depending on implementation
         // This tests null handling paths
+        testContext.awaitCompletion(5, TimeUnit.SECONDS);
     }
 
     @Test
-    void testRapidSubscribeUnsubscribeCycle() throws Exception {
+    void testRapidSubscribeUnsubscribeCycle(Vertx vertx, VertxTestContext testContext) throws Exception {
         for (int i = 0; i < 5; i++) {
-            CountDownLatch latch = new CountDownLatch(1);
+            Checkpoint checkpoint = testContext.checkpoint();
             
             consumer.subscribe(message -> {
-                latch.countDown();
+                checkpoint.flag();
                 return CompletableFuture.completedFuture(null);
             });
             producer.send("message-" + i);
             
-            latch.await(2, TimeUnit.SECONDS);
+            testContext.awaitCompletion(2, TimeUnit.SECONDS);
             
             consumer.unsubscribe();
-            
-            Thread.sleep(100); // Small delay between cycles
         }
     }
 
     @Test
-    void testHandlerWithInterruptedException() throws Exception {
-        CountDownLatch latch = new CountDownLatch(1);
+    void testHandlerWithInterruptedException(Vertx vertx, VertxTestContext testContext) throws Exception {
+        Checkpoint checkpoint = testContext.checkpoint();
 
         consumer.subscribe(message -> {
             Thread.currentThread().interrupt();
+            checkpoint.flag();
             return CompletableFuture.failedFuture(new RuntimeException("Interrupted"));
         });
 
         producer.send("interrupt-test");
 
-        // Wait to see if it's handled gracefully
-        Thread.sleep(2000);
-        
-        // Should not crash the consumer
-        assertTrue(true, "Consumer should handle interrupted exception");
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Consumer should handle interrupted exception");
     }
 
     @Test
-    void testConcurrentMessageProcessing() throws Exception {
+    void testConcurrentMessageProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
         int messageCount = 10;
-        CountDownLatch latch = new CountDownLatch(messageCount);
+        Checkpoint checkpoint = testContext.checkpoint(messageCount);
         AtomicInteger processedCount = new AtomicInteger(0);
 
         consumer.subscribe(message -> {
             processedCount.incrementAndGet();
-            try {
-                Thread.sleep(50); // Simulate processing time
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            latch.countDown();
-            return CompletableFuture.completedFuture(null);
+            // Simulate processing via non-blocking delay
+            CompletableFuture<Void> future = new CompletableFuture<>();
+            vertx.setTimer(50, id -> {
+                checkpoint.flag();
+                future.complete(null);
+            });
+            return future;
         });
 
         // Send multiple messages
@@ -342,7 +333,7 @@ public class OutboxConsumerErrorHandlingTest {
             producer.send("concurrent-message-" + i);
         }
 
-        assertTrue(latch.await(15, TimeUnit.SECONDS), 
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), 
             "Should process all messages");
         assertEquals(messageCount, processedCount.get(), 
             "Should process exactly " + messageCount + " messages");

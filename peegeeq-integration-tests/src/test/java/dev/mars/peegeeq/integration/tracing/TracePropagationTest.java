@@ -194,11 +194,7 @@ public class TracePropagationTest {
                     }
                     
                     // Simulate some work to increase chance of race conditions
-                    try {
-                        Thread.sleep(5);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    }
+                    vertx.timer(5).toCompletionStage().toCompletableFuture().join();
                     
                     return "done-" + index;
                 }).onComplete(ar -> {

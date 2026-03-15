@@ -13,11 +13,16 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -25,8 +30,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -43,6 +48,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * - Follow existing patterns from ConsumerModeIntegrationTest
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 class ListenNotifyOnlyEdgeCaseTest {
     private static final Logger logger = LoggerFactory.getLogger(ListenNotifyOnlyEdgeCaseTest.class);
@@ -102,7 +108,7 @@ class ListenNotifyOnlyEdgeCaseTest {
     }
 
     @Test
-    void testExistingMessagesProcessingAfterListenSetup() throws Exception {
+    void testExistingMessagesProcessingAfterListenSetup(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing existing messages processing after LISTEN setup");
 
         String topicName = "test-existing-messages";
@@ -110,7 +116,6 @@ class ListenNotifyOnlyEdgeCaseTest {
         // First, send messages BEFORE setting up the consumer
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        // Send multiple messages before consumer exists
         producer.send("Message 1 - Before Consumer").get(5, TimeUnit.SECONDS);
         producer.send("Message 2 - Before Consumer").get(5, TimeUnit.SECONDS);
         producer.send("Message 3 - Before Consumer").get(5, TimeUnit.SECONDS);
@@ -125,20 +130,18 @@ class ListenNotifyOnlyEdgeCaseTest {
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class, config);
 
         AtomicInteger messageCount = new AtomicInteger(0);
-        CountDownLatch latch = new CountDownLatch(1); // Expect at least 1 existing message
+        Checkpoint atLeastOneReceived = testContext.checkpoint();
 
-        // Subscribe to messages
         consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             logger.info("📨 Received existing message {}: {}", count, message.getPayload());
-            latch.countDown();
+            atLeastOneReceived.flag();
             return CompletableFuture.completedFuture(null);
         });
 
-        // Wait for existing messages to be processed
-        boolean receivedSome = latch.await(15, TimeUnit.SECONDS);
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS),
+            "Should receive at least 1 existing message via LISTEN_NOTIFY_ONLY mode");
 
-        assertTrue(receivedSome, "Should receive at least 1 existing message via LISTEN_NOTIFY_ONLY mode");
         assertTrue(messageCount.get() >= 1, "Should have processed at least 1 message, got: " + messageCount.get());
 
         consumer.close();
@@ -147,11 +150,10 @@ class ListenNotifyOnlyEdgeCaseTest {
     }
 
     @Test
-    void testChannelNameSpecialCharacters() throws Exception {
+    void testChannelNameSpecialCharacters(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing channel name with special characters");
 
-        // Test topic with special characters that could cause channel name issues
-        String topicName = "test-special_chars.with@symbols#and$numbers123";
+        String topicName = "test-special_chars.with-numbers123";
 
         ConsumerConfig config = ConsumerConfig.builder()
                 .mode(ConsumerMode.LISTEN_NOTIFY_ONLY)
@@ -160,23 +162,21 @@ class ListenNotifyOnlyEdgeCaseTest {
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class, config);
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint messageReceived = testContext.checkpoint();
         AtomicReference<String> receivedMessage = new AtomicReference<>();
 
         consumer.subscribe(message -> {
             receivedMessage.set(message.getPayload());
-            latch.countDown();
+            messageReceived.flag();
             return CompletableFuture.completedFuture(null);
         });
 
-        // Wait for LISTEN setup
-        Thread.sleep(1000);
+        // Wait for LISTEN setup, then send
+        vertx.setTimer(1000, id -> {
+            producer.send("Special characters test message");
+        });
 
-        // Send message
-        producer.send("Special characters test message");
-
-        // Wait for message
-        assertTrue(latch.await(10, TimeUnit.SECONDS),
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS),
             "Should receive message even with special characters in topic name");
         assertEquals("Special characters test message", receivedMessage.get());
 
@@ -186,7 +186,7 @@ class ListenNotifyOnlyEdgeCaseTest {
     }
 
     @Test
-    void testLargePayloadProcessing() throws Exception {
+    void testLargePayloadProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing large payload processing");
 
         String topicName = "test-large-payload";
@@ -205,23 +205,21 @@ class ListenNotifyOnlyEdgeCaseTest {
         }
         String largePayload = largeMessage.toString();
 
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint messageReceived = testContext.checkpoint();
         AtomicReference<String> receivedMessage = new AtomicReference<>();
 
         consumer.subscribe(message -> {
             receivedMessage.set(message.getPayload());
-            latch.countDown();
+            messageReceived.flag();
             return CompletableFuture.completedFuture(null);
         });
 
-        // Wait for LISTEN setup
-        Thread.sleep(1000);
+        // Wait for LISTEN setup, then send
+        vertx.setTimer(1000, id -> {
+            producer.send(largePayload);
+        });
 
-        // Send large message
-        producer.send(largePayload);
-
-        // Wait for message (longer timeout for large message)
-        assertTrue(latch.await(30, TimeUnit.SECONDS),
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
             "Should receive large message via LISTEN_NOTIFY_ONLY mode");
         assertEquals(largePayload, receivedMessage.get(), "Large payload should be received intact");
 
@@ -231,7 +229,7 @@ class ListenNotifyOnlyEdgeCaseTest {
     }
 
     @Test
-    void testConcurrentProducerScenarios() throws Exception {
+    void testConcurrentProducerScenarios(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing concurrent producer scenarios");
 
         String topicName = "test-concurrent-producers";
@@ -243,44 +241,33 @@ class ListenNotifyOnlyEdgeCaseTest {
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class, config);
 
         AtomicInteger messageCount = new AtomicInteger(0);
-        CountDownLatch latch = new CountDownLatch(10); // Expect 10 messages from concurrent producers
+        Checkpoint messagesReceived = testContext.checkpoint(10);
 
         consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             logger.info("📨 Received concurrent message {}: {}", count, message.getPayload());
-            latch.countDown();
+            messagesReceived.flag();
             return CompletableFuture.completedFuture(null);
         });
 
-        // Wait for LISTEN setup
-        Thread.sleep(1000);
+        // Wait for LISTEN setup, then launch concurrent producers
+        vertx.setTimer(1000, id -> {
+            for (int i = 0; i < 5; i++) {
+                final int producerId = i;
+                CompletableFuture.runAsync(() -> {
+                    try {
+                        MessageProducer<String> producer = factory.createProducer(topicName, String.class);
+                        producer.send("Message from producer " + producerId + " - msg 1").get(5, TimeUnit.SECONDS);
+                        producer.send("Message from producer " + producerId + " - msg 2").get(5, TimeUnit.SECONDS);
+                        producer.close();
+                    } catch (Exception e) {
+                        testContext.failNow(e);
+                    }
+                });
+            }
+        });
 
-        // Create multiple producers concurrently
-        CompletableFuture<Void>[] producerTasks = (CompletableFuture<Void>[]) new CompletableFuture[5];
-
-        for (int i = 0; i < 5; i++) {
-            final int producerId = i;
-            producerTasks[i] = CompletableFuture.runAsync(() -> {
-                try {
-                    MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-
-                    // Each producer sends 2 messages
-                    producer.send("Message from producer " + producerId + " - msg 1").get(5, TimeUnit.SECONDS);
-                    producer.send("Message from producer " + producerId + " - msg 2").get(5, TimeUnit.SECONDS);
-
-                    producer.close();
-                } catch (Exception e) {
-                    logger.error("Producer {} failed", producerId, e);
-                    throw new RuntimeException(e);
-                }
-            });
-        }
-
-        // Wait for all producers to complete
-        CompletableFuture.allOf(producerTasks).get(15, TimeUnit.SECONDS);
-
-        // Wait for all messages to be received
-        assertTrue(latch.await(20, TimeUnit.SECONDS),
+        assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS),
             "Should receive all 10 messages from concurrent producers");
         assertEquals(10, messageCount.get(), "Should have processed exactly 10 messages");
 
@@ -289,7 +276,7 @@ class ListenNotifyOnlyEdgeCaseTest {
     }
 
     @Test
-    void testShutdownDuringMessageProcessing() throws Exception {
+    void testShutdownDuringMessageProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing shutdown during message processing");
 
         String topicName = "test-shutdown-during-processing";
@@ -302,40 +289,39 @@ class ListenNotifyOnlyEdgeCaseTest {
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         AtomicInteger processedCount = new AtomicInteger(0);
-        CountDownLatch processingStarted = new CountDownLatch(1);
+        AtomicBoolean processingStarted = new AtomicBoolean(false);
+        Checkpoint testComplete = testContext.checkpoint();
 
         consumer.subscribe(message -> {
-            processingStarted.countDown();
-            try {
-                // Simulate slow message processing
-                Thread.sleep(2000);
+            processingStarted.set(true);
+            // Simulate slow message processing via timer
+            CompletableFuture<Void> future = new CompletableFuture<>();
+            vertx.setTimer(2000, tid -> {
                 processedCount.incrementAndGet();
                 logger.info("📨 Processed message: {}", message.getPayload());
-            } catch (InterruptedException e) {
-                logger.info("Message processing interrupted during shutdown");
-                Thread.currentThread().interrupt();
-            }
-            return CompletableFuture.completedFuture(null);
+                future.complete(null);
+            });
+            return future;
         });
 
-        // Wait for LISTEN setup
-        Thread.sleep(1000);
+        // Wait for LISTEN setup, send message, then close during processing
+        vertx.setTimer(1000, id -> {
+            producer.send("Message for shutdown test");
 
-        // Send message
-        producer.send("Message for shutdown test");
+            // Give time for message to arrive and processing to start
+            vertx.setTimer(1000, id2 -> {
+                logger.info("🔄 Closing consumer during message processing");
+                consumer.close();
+                producer.close();
 
-        // Wait for processing to start
-        assertTrue(processingStarted.await(5, TimeUnit.SECONDS),
-            "Message processing should start");
+                testContext.verify(() -> {
+                    assertTrue(processedCount.get() >= 0, "Should handle shutdown gracefully");
+                });
+                testComplete.flag();
+            });
+        });
 
-        // Close consumer while message is being processed
-        logger.info("🔄 Closing consumer during message processing");
-        consumer.close();
-
-        // Verify graceful shutdown
-        assertTrue(processedCount.get() >= 0, "Should handle shutdown gracefully");
-
-        producer.close();
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
         logger.info("✅ LISTEN_NOTIFY_ONLY handles shutdown during processing gracefully");
     }
 }

@@ -41,6 +41,9 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
@@ -48,6 +51,7 @@ import java.util.Set;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -72,6 +76,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.PERFORMANCE)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 class HighFrequencyProducerConsumerTest {
     private static final Logger logger = LoggerFactory.getLogger(HighFrequencyProducerConsumerTest.class);
     static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
@@ -155,7 +160,7 @@ class HighFrequencyProducerConsumerTest {
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown(Vertx vertx) {
         if (producer != null) {
             producer.close();
         }
@@ -173,10 +178,12 @@ class HighFrequencyProducerConsumerTest {
         // CRITICAL: Wait for connection pools to be fully released
         // This prevents connection pool exhaustion between tests
         try {
-            Thread.sleep(2000);
+            CompletableFuture<Void> delay = new CompletableFuture<>();
+            vertx.setTimer(2000, id -> delay.complete(null));
+            delay.join();
             logger.debug("Connection pool cleanup wait completed");
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
+        } catch (Exception e) {
+            // ignore
         }
 
         // Clear system properties
@@ -189,13 +196,13 @@ class HighFrequencyProducerConsumerTest {
      * Test high-frequency message production with throughput measurement.
      */
     @Test
-    void testHighFrequencyProduction() throws Exception {
+    void testHighFrequencyProduction(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Testing high-frequency message production");
 
         final int messageCount = 1000;
         final int concurrentProducers = 5;
         final AtomicLong sentMessages = new AtomicLong(0);
-        final CountDownLatch completionLatch = new CountDownLatch(messageCount);
+        var sendCheckpoint = testContext.checkpoint(messageCount);
 
         Instant startTime = Instant.now();
 
@@ -212,21 +219,22 @@ class HighFrequencyProducerConsumerTest {
 
                         producer.send(event, headers, "perf-" + messageId, getMessageGroup(headers))
                             .whenComplete((result, error) -> {
-                                if (error == null) {
-                                    sentMessages.incrementAndGet();
+                                if (error != null) {
+                                    testContext.failNow(error);
+                                    return;
                                 }
-                                completionLatch.countDown();
+                                sentMessages.incrementAndGet();
+                                sendCheckpoint.flag();
                             });
                     } catch (Exception e) {
-                        logger.error("Error sending message: {}", e.getMessage());
-                        completionLatch.countDown();
+                        testContext.failNow(e);
                     }
                 }
             });
         }
 
         // Wait for completion
-        assertTrue(completionLatch.await(60, TimeUnit.SECONDS),
+        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS),
             "All messages should be sent within timeout");
 
         Duration duration = Duration.between(startTime, Instant.now());
@@ -248,7 +256,7 @@ class HighFrequencyProducerConsumerTest {
      * Test consumer group performance under high load.
      */
     @Test
-    void testConsumerGroupPerformanceUnderLoad() throws Exception {
+    void testConsumerGroupPerformanceUnderLoad(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Testing consumer group performance under high load");
 
         // Create multiple consumer groups for load distribution with unique names
@@ -267,11 +275,11 @@ class HighFrequencyProducerConsumerTest {
         // Add multiple consumers to each group for parallel processing
         for (int i = 0; i < 3; i++) {
             orderGroup.addConsumer("order-consumer-" + i,
-                createPerformanceHandler("ORDER", orderProcessedCount, totalProcessingTime),
+                createPerformanceHandler("ORDER", orderProcessedCount, totalProcessingTime, vertx),
                 MessageFilter.acceptAll());
 
             paymentGroup.addConsumer("payment-consumer-" + i,
-                createPerformanceHandler("PAYMENT", paymentProcessedCount, totalProcessingTime),
+                createPerformanceHandler("PAYMENT", paymentProcessedCount, totalProcessingTime, vertx),
                 MessageFilter.acceptAll());
         }
 
@@ -289,47 +297,46 @@ class HighFrequencyProducerConsumerTest {
             producer.send(event, headers, "load-" + i, getMessageGroup(headers)).join();
         }
 
-        // Wait for processing to complete using CompletableFuture
-        CompletableFuture.runAsync(() -> {
-            try { Thread.sleep(30000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-        }).join();
+        // Wait for processing to complete using Vert.x timer
+        vertx.setTimer(30000, timerId -> {
+            try {
+                Duration duration = Duration.between(startTime, Instant.now());
+                int totalProcessed = orderProcessedCount.get() + paymentProcessedCount.get();
+                double processingThroughput = totalProcessed / (duration.toMillis() / 1000.0);
+                double avgProcessingTime = totalProcessed > 0 ? totalProcessingTime.get() / (double) totalProcessed : 0;
 
-        Duration duration = Duration.between(startTime, Instant.now());
-        int totalProcessed = orderProcessedCount.get() + paymentProcessedCount.get();
-        double processingThroughput = totalProcessed / (duration.toMillis() / 1000.0);
-        double avgProcessingTime = totalProcessingTime.get() / (double) totalProcessed;
+                logger.info("Consumer group performance results:");
+                logger.info("  Total messages processed: {}", totalProcessed);
+                logger.info("  Order group processed: {}", orderProcessedCount.get());
+                logger.info("  Payment group processed: {}", paymentProcessedCount.get());
+                logger.info("  Processing throughput: {} messages/second", String.format("%.2f", processingThroughput));
+                logger.info("  Average processing time: {} ms", String.format("%.2f", avgProcessingTime));
 
-        logger.info("Consumer group performance results:");
-        logger.info("  Total messages processed: {}", totalProcessed);
-        logger.info("  Order group processed: {}", orderProcessedCount.get());
-        logger.info("  Payment group processed: {}", paymentProcessedCount.get());
-        logger.info("  Processing throughput: {:.2f} messages/second", processingThroughput);
-        logger.info("  Average processing time: {:.2f} ms", avgProcessingTime);
+                assertTrue(totalProcessed >= messageCount * 0.2,
+                    "At least 20% of messages should be processed");
+                assertTrue(totalProcessed <= messageCount,
+                    "Total messages processed should not exceed messages sent");
+                assertTrue(processingThroughput > 1,
+                    "Processing throughput should exceed 1 message/second");
+                assertTrue(avgProcessingTime < 2000,
+                    "Average processing time should be under 2 seconds");
 
-        // Verify performance expectations with queue semantics
-        // In queue semantics, consumer groups compete for messages
-        // With high message volume, processing may be limited by polling frequency
-        assertTrue(totalProcessed >= messageCount * 0.2,
-            "At least 20% of messages should be processed");
+                orderGroup.close();
+                paymentGroup.close();
+                testContext.completeNow();
+            } catch (Throwable t) {
+                testContext.failNow(t);
+            }
+        });
 
-        // Allow for some tolerance in message processing due to timing
-        assertTrue(totalProcessed <= messageCount,
-            "Total messages processed should not exceed messages sent");
-        assertTrue(processingThroughput > 1,
-            "Processing throughput should exceed 1 message/second");
-        assertTrue(avgProcessingTime < 2000,
-            "Average processing time should be under 2 seconds");
-
-        // Clean up
-        orderGroup.close();
-        paymentGroup.close();
+        testContext.awaitCompletion(35, TimeUnit.SECONDS);
     }
 
     /**
      * Test message routing performance with complex filtering.
      */
     @Test
-    void testMessageRoutingPerformance() throws Exception {
+    void testMessageRoutingPerformance(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Testing message routing performance with complex filtering");
 
         // Create a single consumer group with different filtering strategies using unique names
@@ -349,26 +356,26 @@ class HighFrequencyProducerConsumerTest {
 
         // Add region-based consumers
         routingGroup.addConsumer("us-consumer",
-            createRoutingHandler("US", usCount),
+            createRoutingHandler("US", usCount, vertx),
             MessageFilter.byRegion(Set.of("US")));
         routingGroup.addConsumer("eu-consumer",
-            createRoutingHandler("EU", euCount),
+            createRoutingHandler("EU", euCount, vertx),
             MessageFilter.byRegion(Set.of("EU")));
         routingGroup.addConsumer("asia-consumer",
-            createRoutingHandler("ASIA", asiaCount),
+            createRoutingHandler("ASIA", asiaCount, vertx),
             MessageFilter.byRegion(Set.of("ASIA")));
 
         // Add priority-based consumers
         routingGroup.addConsumer("high-priority-consumer",
-            createRoutingHandler("HIGH", highPriorityCount),
+            createRoutingHandler("HIGH", highPriorityCount, vertx),
             MessageFilter.byPriority("HIGH"));
         routingGroup.addConsumer("normal-priority-consumer",
-            createRoutingHandler("NORMAL", normalPriorityCount),
+            createRoutingHandler("NORMAL", normalPriorityCount, vertx),
             MessageFilter.byHeader("priority", "NORMAL"));
 
         // Add analytics consumer with complex filtering
         routingGroup.addConsumer("analytics-consumer",
-            createRoutingHandler("ANALYTICS", analyticsCount),
+            createRoutingHandler("ANALYTICS", analyticsCount, vertx),
             MessageFilter.and(
                 MessageFilter.byType(Set.of("PREMIUM")),
                 MessageFilter.byPriority("HIGH")
@@ -383,48 +390,48 @@ class HighFrequencyProducerConsumerTest {
 
         sendRoutingPerformanceMessages(messageCount);
 
-        // Wait for processing using CompletableFuture
-        CompletableFuture.runAsync(() -> {
-            try { Thread.sleep(20000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-        }).join();
+        // Wait for processing using Vert.x timer
+        vertx.setTimer(20000, timerId -> {
+            try {
+                Duration duration = Duration.between(startTime, Instant.now());
+                int totalRouted = usCount.get() + euCount.get() + asiaCount.get() +
+                                 highPriorityCount.get() + normalPriorityCount.get() + analyticsCount.get();
 
-        Duration duration = Duration.between(startTime, Instant.now());
-        int totalRouted = usCount.get() + euCount.get() + asiaCount.get() +
-                         highPriorityCount.get() + normalPriorityCount.get() + analyticsCount.get();
+                logger.info("Message routing performance results:");
+                logger.info("  US messages: {}", usCount.get());
+                logger.info("  EU messages: {}", euCount.get());
+                logger.info("  ASIA messages: {}", asiaCount.get());
+                logger.info("  High priority messages: {}", highPriorityCount.get());
+                logger.info("  Normal priority messages: {}", normalPriorityCount.get());
+                logger.info("  Analytics messages: {}", analyticsCount.get());
+                logger.info("  Total routed messages: {}", totalRouted);
+                logger.info("  Routing duration: {} ms", duration.toMillis());
 
-        logger.info("Message routing performance results:");
-        logger.info("  US messages: {}", usCount.get());
-        logger.info("  EU messages: {}", euCount.get());
-        logger.info("  ASIA messages: {}", asiaCount.get());
-        logger.info("  High priority messages: {}", highPriorityCount.get());
-        logger.info("  Normal priority messages: {}", normalPriorityCount.get());
-        logger.info("  Analytics messages: {}", analyticsCount.get());
-        logger.info("  Total routed messages: {}", totalRouted);
-        logger.info("  Routing duration: {} ms", duration.toMillis());
+                int totalProcessed = usCount.get() + euCount.get() + asiaCount.get() +
+                                   highPriorityCount.get() + normalPriorityCount.get() + analyticsCount.get();
 
-        // Verify routing distribution
-        // Note: In a single consumer group, each message goes to exactly one consumer
-        // based on their filters. We verify that filtering is working correctly.
-        int totalProcessed = usCount.get() + euCount.get() + asiaCount.get() +
-                           highPriorityCount.get() + normalPriorityCount.get() + analyticsCount.get();
+                assertTrue(totalProcessed > 0, "Some messages should be processed");
+                assertTrue(totalProcessed <= messageCount, "Should not process more messages than sent");
 
-        assertTrue(totalProcessed > 0, "Some messages should be processed");
-        assertTrue(totalProcessed <= messageCount, "Should not process more messages than sent");
+                int categoriesWithMessages = 0;
+                if (usCount.get() > 0) categoriesWithMessages++;
+                if (euCount.get() > 0) categoriesWithMessages++;
+                if (asiaCount.get() > 0) categoriesWithMessages++;
+                if (highPriorityCount.get() > 0) categoriesWithMessages++;
+                if (normalPriorityCount.get() > 0) categoriesWithMessages++;
+                if (analyticsCount.get() > 0) categoriesWithMessages++;
 
-        // Verify that at least some filtering categories got messages
-        int categoriesWithMessages = 0;
-        if (usCount.get() > 0) categoriesWithMessages++;
-        if (euCount.get() > 0) categoriesWithMessages++;
-        if (asiaCount.get() > 0) categoriesWithMessages++;
-        if (highPriorityCount.get() > 0) categoriesWithMessages++;
-        if (normalPriorityCount.get() > 0) categoriesWithMessages++;
-        if (analyticsCount.get() > 0) categoriesWithMessages++;
+                assertTrue(categoriesWithMessages >= 3,
+                    "At least 3 different filter categories should process messages");
 
-        assertTrue(categoriesWithMessages >= 3,
-            "At least 3 different filter categories should process messages");
+                routingGroup.close();
+                testContext.completeNow();
+            } catch (Throwable t) {
+                testContext.failNow(t);
+            }
+        });
 
-        // Clean up
-        routingGroup.close();
+        testContext.awaitCompletion(25, TimeUnit.SECONDS);
     }
 
     // Helper Methods
@@ -477,32 +484,35 @@ class HighFrequencyProducerConsumerTest {
      */
     private MessageHandler<OrderEvent> createPerformanceHandler(String handlerName,
                                                                AtomicInteger counter,
-                                                               AtomicLong totalProcessingTime) {
+                                                               AtomicLong totalProcessingTime,
+                                                               Vertx vertx) {
         return message -> {
             long startTime = System.currentTimeMillis();
 
             counter.incrementAndGet();
 
-            // Simulate processing time using CompletableFuture
-            return CompletableFuture.runAsync(() -> {
-                try { Thread.sleep(50); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+            // Simulate processing time using Vert.x timer
+            CompletableFuture<Void> future = new CompletableFuture<>();
+            vertx.setTimer(50, id -> {
                 long processingTime = System.currentTimeMillis() - startTime;
                 totalProcessingTime.addAndGet(processingTime);
+                future.complete(null);
             });
+            return future;
         };
     }
 
     /**
      * Creates a routing-specific message handler.
      */
-    private MessageHandler<OrderEvent> createRoutingHandler(String routeName, AtomicInteger counter) {
+    private MessageHandler<OrderEvent> createRoutingHandler(String routeName, AtomicInteger counter, Vertx vertx) {
         return message -> {
             counter.incrementAndGet();
 
-            // Minimal processing time for routing tests using CompletableFuture
-            return CompletableFuture.runAsync(() -> {
-                try { Thread.sleep(10); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-            });
+            // Minimal processing time for routing tests using Vert.x timer
+            CompletableFuture<Void> future = new CompletableFuture<>();
+            vertx.setTimer(10, id -> future.complete(null));
+            return future;
         };
     }
 

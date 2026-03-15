@@ -35,15 +35,21 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -56,6 +62,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 class ConsumerGroupTest {
 
@@ -111,7 +118,7 @@ class ConsumerGroupTest {
     }
 
     @Test
-    void testBasicConsumerGroupFunctionality() throws Exception {
+    void testBasicConsumerGroupFunctionality(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Create consumer group
         ConsumerGroup<String> consumerGroup = factory.createConsumerGroup(
             "TestGroup", "test-topic", String.class);
@@ -154,25 +161,34 @@ class ConsumerGroupTest {
         producer.send("Message 3").join();
 
         // Wait for processing - increase time for async operations
-        Thread.sleep(5000);
+        vertx.setPeriodic(200, id -> {
+            if (consumer1Count.get() + consumer2Count.get() >= 2) {
+                vertx.cancelTimer(id);
 
-        // Verify messages were processed
-        int totalProcessed = consumer1Count.get() + consumer2Count.get();
-        assertTrue(totalProcessed >= 2, "At least 2 messages should be processed, got: " + totalProcessed);
+                // Verify messages were processed
+                int totalProcessed = consumer1Count.get() + consumer2Count.get();
+                testContext.verify(() -> {
+                    assertTrue(totalProcessed >= 2, "At least 2 messages should be processed, got: " + totalProcessed);
 
-        // Verify statistics
-        ConsumerGroupStats stats = consumerGroup.getStats();
-        assertEquals("TestGroup", stats.getGroupName());
-        assertEquals("test-topic", stats.getTopic());
-        assertEquals(2, stats.getActiveConsumerCount());
-        assertTrue(stats.getTotalMessagesProcessed() >= 3);
+                    // Verify statistics
+                    ConsumerGroupStats stats = consumerGroup.getStats();
+                    assertEquals("TestGroup", stats.getGroupName());
+                    assertEquals("test-topic", stats.getTopic());
+                    assertEquals(2, stats.getActiveConsumerCount());
+                    assertTrue(stats.getTotalMessagesProcessed() >= 3);
+                });
 
-        // Clean up
-        consumerGroup.close();
+                // Clean up
+                consumerGroup.close();
+                testContext.completeNow();
+            }
+        });
+
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     @Test
-    void testMessageFilteringByHeaders() throws Exception {
+    void testMessageFilteringByHeaders(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Create consumer group
         ConsumerGroup<String> consumerGroup = factory.createConsumerGroup(
             "FilterGroup", "test-topic", String.class);
@@ -214,18 +230,21 @@ class ConsumerGroupTest {
         producer.send("ASIA Message").join();
 
         // Wait for processing
-        Thread.sleep(5000);
+        vertx.setPeriodic(200, id -> {
+            if (allCount.get() >= 3) {
+                vertx.cancelTimer(id);
+                testContext.verify(() ->
+                    assertTrue(allCount.get() >= 3, "All consumer should process at least 3 messages, got: " + allCount.get()));
+                consumerGroup.close();
+                testContext.completeNow();
+            }
+        });
 
-        // For now, verify that messages are being processed by the "all" consumer
-        // TODO: Fix header-based routing once producer encoding issue is resolved
-        assertTrue(allCount.get() >= 3, "All consumer should process at least 3 messages, got: " + allCount.get());
-
-        // Clean up
-        consumerGroup.close();
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     @Test
-    void testConsumerGroupWithGroupLevelFilter() throws Exception {
+    void testConsumerGroupWithGroupLevelFilter(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Create consumer group without group-level filter for now
         // TODO: Test group-level filtering once header support is fixed
         ConsumerGroup<String> consumerGroup = factory.createConsumerGroup(
@@ -252,18 +271,21 @@ class ConsumerGroupTest {
         producer.send("Test Message 3").join();
 
         // Wait for processing with longer timeout to avoid flaky test failures
-        // 🚨 CRITICAL: Increased from 5s to 10s to ensure all async processing completes
-        Thread.sleep(10000);
+        vertx.setPeriodic(200, id -> {
+            if (processedCount.get() >= 3) {
+                vertx.cancelTimer(id);
+                testContext.verify(() ->
+                    assertTrue(processedCount.get() >= 3, "At least 3 messages should be processed, got: " + processedCount.get()));
+                consumerGroup.close();
+                testContext.completeNow();
+            }
+        });
 
-        // Verify that messages are being processed (without group filter)
-        assertTrue(processedCount.get() >= 3, "At least 3 messages should be processed, got: " + processedCount.get());
-
-        // Clean up
-        consumerGroup.close();
+        assertTrue(testContext.awaitCompletion(25, TimeUnit.SECONDS));
     }
 
     @Test
-    void testConsumerGroupStatistics() throws Exception {
+    void testConsumerGroupStatistics(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Create consumer group
         ConsumerGroup<String> consumerGroup = factory.createConsumerGroup(
             "StatsGroup", "test-topic", String.class);
@@ -285,42 +307,42 @@ class ConsumerGroupTest {
             producer.send("Message " + i).join();
         }
 
-        // Wait for processing with retry logic
-        int maxWaitSeconds = 10;
-        int waitedSeconds = 0;
-        while (waitedSeconds < maxWaitSeconds && processedCount.get() < 3) {
-            Thread.sleep(1000);
-            waitedSeconds++;
-        }
+        // Wait for processing
+        vertx.setPeriodic(200, id -> {
+            if (processedCount.get() >= 3) {
+                vertx.cancelTimer(id);
 
-        // Check group statistics
-        ConsumerGroupStats groupStats = consumerGroup.getStats();
-        assertEquals("StatsGroup", groupStats.getGroupName());
-        assertEquals("test-topic", groupStats.getTopic());
-        assertEquals(1, groupStats.getActiveConsumerCount());
+                testContext.verify(() -> {
+                    // Check group statistics
+                    ConsumerGroupStats groupStats = consumerGroup.getStats();
+                    assertEquals("StatsGroup", groupStats.getGroupName());
+                    assertEquals("test-topic", groupStats.getTopic());
+                    assertEquals(1, groupStats.getActiveConsumerCount());
 
-        // Debug information
-        System.out.println("Debug: processedCount.get() = " + processedCount.get());
-        System.out.println("Debug: groupStats.getTotalMessagesProcessed() = " + groupStats.getTotalMessagesProcessed());
+                    assertTrue(groupStats.getTotalMessagesProcessed() >= 1,
+                        "Expected at least 1 processed message, got: " + groupStats.getTotalMessagesProcessed());
 
-        assertTrue(groupStats.getTotalMessagesProcessed() >= 1,
-            "Expected at least 1 processed message, got: " + groupStats.getTotalMessagesProcessed());
+                    // Check member statistics
+                    ConsumerMemberStats memberStats = member.getStats();
+                    assertEquals("stats-consumer", memberStats.getConsumerId());
+                    assertEquals("StatsGroup", memberStats.getGroupName());
+                    assertEquals("test-topic", memberStats.getTopic());
+                    assertTrue(memberStats.isActive());
+                    assertTrue(memberStats.getMessagesProcessed() >= 1,
+                        "Expected at least 1 processed message, got: " + memberStats.getMessagesProcessed());
 
-        // Check member statistics
-        ConsumerMemberStats memberStats = member.getStats();
-        assertEquals("stats-consumer", memberStats.getConsumerId());
-        assertEquals("StatsGroup", memberStats.getGroupName());
-        assertEquals("test-topic", memberStats.getTopic());
-        assertTrue(memberStats.isActive());
-        assertTrue(memberStats.getMessagesProcessed() >= 1,
-            "Expected at least 1 processed message, got: " + memberStats.getMessagesProcessed());
+                    // Verify that statistics are consistent
+                    assertEquals(groupStats.getTotalMessagesProcessed(), memberStats.getMessagesProcessed(),
+                        "Group and member statistics should match for single-member group");
+                });
 
-        // Verify that statistics are consistent
-        assertEquals(groupStats.getTotalMessagesProcessed(), memberStats.getMessagesProcessed(),
-            "Group and member statistics should match for single-member group");
+                // Clean up
+                consumerGroup.close();
+                testContext.completeNow();
+            }
+        });
 
-        // Clean up
-        consumerGroup.close();
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     @Test

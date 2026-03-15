@@ -25,11 +25,14 @@ import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
 import io.vertx.sqlclient.Row;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -46,6 +49,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -67,6 +71,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @ActiveProfiles("test")
 @Testcontainers
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
+@ExtendWith(VertxExtension.class)
 public class PaymentProcessorServiceTest {
     
     private static final Logger log = LoggerFactory.getLogger(PaymentProcessorServiceTest.class);
@@ -141,7 +146,7 @@ public class PaymentProcessorServiceTest {
     private TestRestTemplate restTemplate;
     
     @Test
-    public void testSuccessfulPaymentProcessing() throws Exception {
+    public void testSuccessfulPaymentProcessing(Vertx vertx) throws Exception {
         log.info("=== Testing Successful Payment Processing ===");
         
         // Send a payment event that should succeed
@@ -151,7 +156,9 @@ public class PaymentProcessorServiceTest {
         producer.send(event).get(5, TimeUnit.SECONDS);
         
         // Wait for processing
-        Thread.sleep(2000);
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(2000, id -> delay.complete(null));
+        delay.join();
         
         // Verify payment was stored in database
         boolean paymentExists = databaseService.getConnectionProvider()

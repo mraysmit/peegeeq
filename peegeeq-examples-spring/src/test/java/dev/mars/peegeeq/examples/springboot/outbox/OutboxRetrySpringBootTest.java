@@ -33,13 +33,17 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -82,6 +86,7 @@ import static org.junit.jupiter.api.Assertions.*;
 )
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
+@ExtendWith(VertxExtension.class)
 class OutboxRetrySpringBootTest {
     
     private static final Logger logger = LoggerFactory.getLogger(OutboxRetrySpringBootTest.class);
@@ -108,7 +113,7 @@ class OutboxRetrySpringBootTest {
     }
     
     @AfterEach
-    void tearDown() throws InterruptedException {
+    void tearDown(Vertx vertx) throws InterruptedException {
         logger.info("🧹 Cleaning up Retry Spring Boot Test");
         
         // Close all active consumers first
@@ -135,7 +140,9 @@ class OutboxRetrySpringBootTest {
         
         // Wait for connections to be fully released before next test
         logger.info("⏳ Waiting for connections to be released...");
-        Thread.sleep(2000);
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(2000, id -> delay.complete(null));
+        delay.join();
         
         logger.info("✅ Cleanup complete");
     }
@@ -152,7 +159,7 @@ class OutboxRetrySpringBootTest {
     @Test
     @Order(1)
     @DisplayName("Retry Logic - Automatic Retry on Transient Failures")
-    void testAutomaticRetryOnTransientFailures() throws Exception {
+    void testAutomaticRetryOnTransientFailures(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Automatic Retry on Transient Failures ===");
         logger.info("This test verifies that messages are automatically retried on transient failures");
         
@@ -167,7 +174,7 @@ class OutboxRetrySpringBootTest {
         // Track retry attempts
         AtomicInteger attemptCount = new AtomicInteger(0);
         AtomicInteger successCount = new AtomicInteger(0);
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint checkpoint = testContext.checkpoint(1);
         
         // Subscribe with handler that fails first 2 times, then succeeds
         consumer.subscribe(message -> {
@@ -184,7 +191,7 @@ class OutboxRetrySpringBootTest {
             // Succeed on 3rd attempt
             logger.info("✅ Successfully processed on attempt #{}", attempt);
             successCount.incrementAndGet();
-            latch.countDown();
+            checkpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
         
@@ -193,7 +200,7 @@ class OutboxRetrySpringBootTest {
         producer.send("test-message").get(5, TimeUnit.SECONDS);
         
         // Wait for successful processing
-        boolean completed = latch.await(30, TimeUnit.SECONDS);
+        boolean completed = testContext.awaitCompletion(30, TimeUnit.SECONDS);
         assertTrue(completed, "Message should eventually be processed successfully");
         
         // Verify results
@@ -221,7 +228,7 @@ class OutboxRetrySpringBootTest {
     @Test
     @Order(2)
     @DisplayName("Retry Logic - Max Retry Limit Enforcement")
-    void testMaxRetryLimitEnforcement() throws Exception {
+    void testMaxRetryLimitEnforcement(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Max Retry Limit Enforcement ===");
         logger.info("This test verifies that retry count is enforced (max 3 retries configured)");
         
@@ -235,14 +242,14 @@ class OutboxRetrySpringBootTest {
         
         // Track retry attempts
         AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch latch = new CountDownLatch(4); // Initial + 3 retries
+        Checkpoint checkpoint = testContext.checkpoint(4); // Initial + 3 retries
         
         // Subscribe with handler that always fails
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
             logger.info("Processing attempt #{} for message: {}", attempt, message.getPayload());
             logger.info("❌ Simulating persistent failure on attempt #{}", attempt);
-            latch.countDown();
+            checkpoint.flag();
             return CompletableFuture.failedFuture(
                 new RuntimeException("Simulated persistent failure"));
         });
@@ -252,11 +259,13 @@ class OutboxRetrySpringBootTest {
         producer.send("failing-message").get(5, TimeUnit.SECONDS);
         
         // Wait for all retry attempts
-        boolean completed = latch.await(30, TimeUnit.SECONDS);
+        boolean completed = testContext.awaitCompletion(30, TimeUnit.SECONDS);
         assertTrue(completed, "Should attempt initial + 3 retries");
         
         // Give a bit more time to ensure no additional retries
-        Thread.sleep(2000);
+        CompletableFuture<Void> retryDelay = new CompletableFuture<>();
+        vertx.setTimer(2000, id -> retryDelay.complete(null));
+        retryDelay.join();
         
         // Verify results
         logger.info("📊 Max Retry Results:");

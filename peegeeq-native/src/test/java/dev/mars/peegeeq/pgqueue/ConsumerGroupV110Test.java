@@ -29,7 +29,12 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -38,7 +43,11 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.*;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -57,6 +66,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.1.0
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 @DisplayName("Consumer Group v1.1.0 Features")
 class ConsumerGroupV110Test {
@@ -124,14 +134,16 @@ class ConsumerGroupV110Test {
         @Test
         @Disabled("Native queue requires SubscriptionManager integration for start position support - use two-step process with SubscriptionManager.subscribe()")
         @DisplayName("should start with FROM_NOW position")
-        void testStartWithOptions_FromNow() throws Exception {
+        void testStartWithOptions_FromNow(Vertx vertx, VertxTestContext testContext) throws Exception {
             // Arrange
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
             AtomicInteger count = new AtomicInteger(0);
+            Checkpoint messageReceived = testContext.checkpoint();
             group.addConsumer("consumer-1", msg -> {
                 count.incrementAndGet();
+                messageReceived.flag();
                 return CompletableFuture.completedFuture(null);
             });
 
@@ -148,7 +160,7 @@ class ConsumerGroupV110Test {
 
             // Send message after start
             producer.send("Message 1").join();
-            Thread.sleep(2000);
+            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
 
             assertTrue(count.get() >= 1, "Should process messages sent after start");
 
@@ -159,7 +171,7 @@ class ConsumerGroupV110Test {
         @Test
         @Disabled("Native queue requires SubscriptionManager integration for start position support - use two-step process with SubscriptionManager.subscribe()")
         @DisplayName("should start with FROM_BEGINNING position")
-        void testStartWithOptions_FromBeginning() throws Exception {
+        void testStartWithOptions_FromBeginning(Vertx vertx, VertxTestContext testContext) throws Exception {
             // Arrange: Send messages before subscription
             List<String> sentMessages = new ArrayList<>();
             for (int i = 0; i < 5; i++) {
@@ -168,14 +180,14 @@ class ConsumerGroupV110Test {
                 sentMessages.add(msg);
             }
 
-            Thread.sleep(1000); // Ensure messages are committed
-
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
             List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
+            Checkpoint messagesReceived = testContext.checkpoint(3);
             group.addConsumer("consumer-1", msg -> {
                 receivedMessages.add(msg.getPayload());
+                messagesReceived.flag();
                 return CompletableFuture.completedFuture(null);
             });
 
@@ -183,11 +195,13 @@ class ConsumerGroupV110Test {
                 .startPosition(StartPosition.FROM_BEGINNING)
                 .build();
 
-            // Act
-            group.start(options);
+            // Act - start after a delay to ensure messages are committed
+            vertx.setTimer(1000, id -> {
+                group.start(options);
+            });
 
             // Wait for processing
-            Thread.sleep(5000);
+            assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
 
             // Assert
             assertTrue(group.isActive());
@@ -201,31 +215,28 @@ class ConsumerGroupV110Test {
         @Test
         @Disabled("Native queue requires SubscriptionManager integration for start position support - use two-step process with SubscriptionManager.subscribe()")
         @DisplayName("should start with FROM_TIMESTAMP position")
-        void testStartWithOptions_FromTimestamp() throws Exception {
+        void testStartWithOptions_FromTimestamp(Vertx vertx, VertxTestContext testContext) throws Exception {
             // Arrange: Send messages and capture timestamp
             Instant beforeTimestamp = Instant.now();
-            Thread.sleep(1000);
 
             for (int i = 0; i < 3; i++) {
                 producer.send("Before-" + i).join();
             }
 
-            Thread.sleep(1000);
             Instant cutoffTimestamp = Instant.now();
-            Thread.sleep(1000);
 
             for (int i = 0; i < 3; i++) {
                 producer.send("After-" + i).join();
             }
 
-            Thread.sleep(1000); // Ensure messages are committed
-
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
             List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
+            Checkpoint messageReceived = testContext.checkpoint();
             group.addConsumer("consumer-1", msg -> {
                 receivedMessages.add(msg.getPayload());
+                messageReceived.flag();
                 return CompletableFuture.completedFuture(null);
             });
 
@@ -234,11 +245,13 @@ class ConsumerGroupV110Test {
                 .startFromTimestamp(cutoffTimestamp)
                 .build();
 
-            // Act
-            group.start(options);
+            // Act - start after a delay to ensure messages are committed
+            vertx.setTimer(1000, id -> {
+                group.start(options);
+            });
 
             // Wait for processing
-            Thread.sleep(5000);
+            assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
 
             // Assert
             assertTrue(group.isActive());
@@ -309,14 +322,16 @@ class ConsumerGroupV110Test {
         @Test
         @Disabled("Native queue requires SubscriptionManager integration for start position support - use two-step process with SubscriptionManager.subscribe()")
         @DisplayName("should delegate to standard start() method")
-        void testStartWithOptions_DelegatesToStandardStart() throws Exception {
+        void testStartWithOptions_DelegatesToStandardStart(Vertx vertx, VertxTestContext testContext) throws Exception {
             // Arrange
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
             AtomicInteger count = new AtomicInteger(0);
+            Checkpoint messageReceived = testContext.checkpoint();
             group.addConsumer("consumer-1", msg -> {
                 count.incrementAndGet();
+                messageReceived.flag();
                 return CompletableFuture.completedFuture(null);
             });
 
@@ -331,7 +346,7 @@ class ConsumerGroupV110Test {
 
             // Send message
             producer.send("Test").join();
-            Thread.sleep(2000);
+            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
 
             assertTrue(count.get() >= 1);
 
@@ -427,17 +442,19 @@ class ConsumerGroupV110Test {
 
         @Test
         @DisplayName("should process messages correctly")
-        void testSetMessageHandler_ProcessesMessages() throws Exception {
+        void testSetMessageHandler_ProcessesMessages(Vertx vertx, VertxTestContext testContext) throws Exception {
             // Arrange
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
             AtomicInteger count = new AtomicInteger(0);
             List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
+            Checkpoint messagesReceived = testContext.checkpoint(2);
 
             group.setMessageHandler(msg -> {
                 count.incrementAndGet();
                 receivedMessages.add(msg.getPayload());
+                messagesReceived.flag();
                 return CompletableFuture.completedFuture(null);
             });
 
@@ -450,7 +467,7 @@ class ConsumerGroupV110Test {
             producer.send("Message-3").join();
 
             // Wait for processing
-            Thread.sleep(5000);
+            assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
 
             // Assert
             assertTrue(count.get() >= 2,
@@ -513,14 +530,16 @@ class ConsumerGroupV110Test {
 
         @Test
         @DisplayName("should work with start() method")
-        void testSetMessageHandler_IntegrationWithStart() throws Exception {
+        void testSetMessageHandler_IntegrationWithStart(Vertx vertx, VertxTestContext testContext) throws Exception {
             // Arrange
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
             AtomicInteger count = new AtomicInteger(0);
+            Checkpoint messageReceived = testContext.checkpoint();
             group.setMessageHandler(msg -> {
                 count.incrementAndGet();
+                messageReceived.flag();
                 return CompletableFuture.completedFuture(null);
             });
 
@@ -531,7 +550,7 @@ class ConsumerGroupV110Test {
             producer.send("Test-1").join();
             producer.send("Test-2").join();
 
-            Thread.sleep(3000);
+            assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
 
             // Assert
             assertTrue(group.isActive());
@@ -545,19 +564,20 @@ class ConsumerGroupV110Test {
         @Test
         @Disabled("Native queue requires SubscriptionManager integration for start position support - use two-step process with SubscriptionManager.subscribe()")
         @DisplayName("should work with start(SubscriptionOptions)")
-        void testSetMessageHandler_IntegrationWithStartOptions() throws Exception {
+        void testSetMessageHandler_IntegrationWithStartOptions(Vertx vertx, VertxTestContext testContext) throws Exception {
             // Arrange: Send historical messages
             for (int i = 0; i < 3; i++) {
                 producer.send("Historical-" + i).join();
             }
-            Thread.sleep(1000);
 
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
             AtomicInteger count = new AtomicInteger(0);
+            Checkpoint messagesReceived = testContext.checkpoint(2);
             group.setMessageHandler(msg -> {
                 count.incrementAndGet();
+                messagesReceived.flag();
                 return CompletableFuture.completedFuture(null);
             });
 
@@ -565,11 +585,13 @@ class ConsumerGroupV110Test {
                 .startPosition(StartPosition.FROM_BEGINNING)
                 .build();
 
-            // Act
-            group.start(options);
+            // Act - start after a delay to ensure messages are committed
+            vertx.setTimer(1000, id -> {
+                group.start(options);
+            });
 
             // Wait for processing
-            Thread.sleep(5000);
+            assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
 
             // Assert
             assertTrue(group.isActive());
@@ -582,14 +604,16 @@ class ConsumerGroupV110Test {
 
         @Test
         @DisplayName("should track statistics correctly")
-        void testSetMessageHandler_Statistics() throws Exception {
+        void testSetMessageHandler_Statistics(Vertx vertx, VertxTestContext testContext) throws Exception {
             // Arrange
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
             AtomicInteger count = new AtomicInteger(0);
+            Checkpoint messagesReceived = testContext.checkpoint(3);
             ConsumerGroupMember<String> member = group.setMessageHandler(msg -> {
                 count.incrementAndGet();
+                messagesReceived.flag();
                 return CompletableFuture.completedFuture(null);
             });
 
@@ -600,7 +624,7 @@ class ConsumerGroupV110Test {
                 producer.send("Message-" + i).join();
             }
 
-            Thread.sleep(5000);
+            assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
 
             // Assert
             ConsumerGroupStats groupStats = group.getStats();
@@ -626,7 +650,7 @@ class ConsumerGroupV110Test {
                 "test-group", "test-topic", String.class);
 
             ExecutorService executor = Executors.newFixedThreadPool(5);
-            CountDownLatch startLatch = new CountDownLatch(1);
+            CompletableFuture<Void> startSignal = new CompletableFuture<>();
 
             AtomicInteger successCount = new AtomicInteger(0);
             AtomicInteger failureCount = new AtomicInteger(0);
@@ -637,7 +661,7 @@ class ConsumerGroupV110Test {
             for (int i = 0; i < 5; i++) {
                 futures.add(executor.submit(() -> {
                     try {
-                        startLatch.await();
+                        startSignal.join();
                         group.setMessageHandler(msg -> CompletableFuture.completedFuture(null));
                         successCount.incrementAndGet();
                     } catch (IllegalStateException e) {
@@ -650,7 +674,7 @@ class ConsumerGroupV110Test {
             }
 
             // Release all threads simultaneously
-            startLatch.countDown();
+            startSignal.complete(null);
 
             // Wait for completion
             for (Future<?> future : futures) {

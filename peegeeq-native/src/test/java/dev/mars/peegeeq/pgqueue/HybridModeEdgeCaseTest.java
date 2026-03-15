@@ -13,11 +13,16 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -26,7 +31,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -45,6 +49,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * - Keep tests focused and lightweight to avoid resource exhaustion
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 class HybridModeEdgeCaseTest {
     private static final Logger logger = LoggerFactory.getLogger(HybridModeEdgeCaseTest.class);
@@ -104,42 +109,41 @@ class HybridModeEdgeCaseTest {
     }
 
     @Test
-    void testHybridModeListenNotifyPrimary() throws Exception {
+    void testHybridModeListenNotifyPrimary(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing HYBRID mode with LISTEN/NOTIFY as primary mechanism");
 
         String topicName = "test-hybrid-listen-primary";
 
-        // Create HYBRID consumer (default mode)
         ConsumerConfig config = ConsumerConfig.builder()
                 .mode(ConsumerMode.HYBRID)
-                .pollingInterval(Duration.ofSeconds(10)) // Long polling interval to test LISTEN/NOTIFY priority
+                .pollingInterval(Duration.ofSeconds(10))
                 .build();
 
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class, config);
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         AtomicInteger messageCount = new AtomicInteger(0);
-        CountDownLatch latch = new CountDownLatch(3); // Expect 3 messages
+        Checkpoint messagesReceived = testContext.checkpoint(3);
 
         consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             logger.info("📨 Received HYBRID message {}: {}", count, message.getPayload());
-            latch.countDown();
+            messagesReceived.flag();
             return CompletableFuture.completedFuture(null);
         });
 
-        // Wait a moment for consumer to set up LISTEN/NOTIFY
-        Thread.sleep(500);
+        // Wait for LISTEN/NOTIFY setup, then send
+        vertx.setTimer(500, id -> {
+            try {
+                producer.send("HYBRID message 1").get(5, TimeUnit.SECONDS);
+                producer.send("HYBRID message 2").get(5, TimeUnit.SECONDS);
+                producer.send("HYBRID message 3").get(5, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                testContext.failNow(e);
+            }
+        });
 
-        // Send messages - should be delivered via LISTEN/NOTIFY (fast)
-        producer.send("HYBRID message 1").get(5, TimeUnit.SECONDS);
-        producer.send("HYBRID message 2").get(5, TimeUnit.SECONDS);
-        producer.send("HYBRID message 3").get(5, TimeUnit.SECONDS);
-
-        // Should receive messages quickly via LISTEN/NOTIFY, not waiting for polling
-        boolean receivedAll = latch.await(5, TimeUnit.SECONDS);
-
-        assertTrue(receivedAll, "Should receive all 3 messages quickly via LISTEN/NOTIFY");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive all 3 messages quickly via LISTEN/NOTIFY");
         assertEquals(3, messageCount.get(), "Should have processed exactly 3 messages");
 
         consumer.close();
@@ -148,7 +152,7 @@ class HybridModeEdgeCaseTest {
     }
 
     @Test
-    void testHybridModePollingFallback() throws Exception {
+    void testHybridModePollingFallback(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing HYBRID mode polling fallback for existing messages");
 
         String topicName = "test-hybrid-polling-fallback";
@@ -158,28 +162,24 @@ class HybridModeEdgeCaseTest {
         producer.send("Existing message 1").get(5, TimeUnit.SECONDS);
         producer.send("Existing message 2").get(5, TimeUnit.SECONDS);
 
-        // Create HYBRID consumer after messages exist
         ConsumerConfig config = ConsumerConfig.builder()
                 .mode(ConsumerMode.HYBRID)
-                .pollingInterval(Duration.ofSeconds(1)) // Fast polling to test fallback
+                .pollingInterval(Duration.ofSeconds(1))
                 .build();
 
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class, config);
 
         AtomicInteger messageCount = new AtomicInteger(0);
-        CountDownLatch latch = new CountDownLatch(2); // Expect 2 existing messages
+        Checkpoint messagesReceived = testContext.checkpoint(2);
 
         consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             logger.info("📨 Received existing message {}: {}", count, message.getPayload());
-            latch.countDown();
+            messagesReceived.flag();
             return CompletableFuture.completedFuture(null);
         });
 
-        // Should receive existing messages via polling fallback
-        boolean receivedAll = latch.await(10, TimeUnit.SECONDS);
-
-        assertTrue(receivedAll, "Should receive existing messages via polling fallback");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive existing messages via polling fallback");
         assertEquals(2, messageCount.get(), "Should have processed exactly 2 existing messages");
 
         consumer.close();
@@ -188,7 +188,7 @@ class HybridModeEdgeCaseTest {
     }
 
     @Test
-    void testHybridModeBothMechanisms() throws Exception {
+    void testHybridModeBothMechanisms(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing HYBRID mode with both LISTEN/NOTIFY and polling active");
 
         String topicName = "test-hybrid-both-mechanisms";
@@ -198,36 +198,35 @@ class HybridModeEdgeCaseTest {
         producer.send("Pre-existing message 1").get(5, TimeUnit.SECONDS);
         producer.send("Pre-existing message 2").get(5, TimeUnit.SECONDS);
 
-        // Create HYBRID consumer
         ConsumerConfig config = ConsumerConfig.builder()
                 .mode(ConsumerMode.HYBRID)
-                .pollingInterval(Duration.ofSeconds(2)) // Reasonable polling interval
+                .pollingInterval(Duration.ofSeconds(2))
                 .build();
 
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class, config);
 
         AtomicInteger messageCount = new AtomicInteger(0);
-        CountDownLatch latch = new CountDownLatch(5); // Expect 5 total messages
+        Checkpoint allMessages = testContext.checkpoint(5);
 
         consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             logger.info("📨 Received hybrid message {}: {}", count, message.getPayload());
-            latch.countDown();
+            allMessages.flag();
             return CompletableFuture.completedFuture(null);
         });
 
-        // Wait for consumer to pick up existing messages via polling
-        Thread.sleep(3000);
+        // Wait for existing messages to be polled, then send new messages via LISTEN/NOTIFY
+        vertx.setTimer(5000, id -> {
+            try {
+                producer.send("New message 1").get(5, TimeUnit.SECONDS);
+                producer.send("New message 2").get(5, TimeUnit.SECONDS);
+                producer.send("New message 3").get(5, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                testContext.failNow(e);
+            }
+        });
 
-        // Send new messages - should be delivered via LISTEN/NOTIFY
-        producer.send("New message 1").get(5, TimeUnit.SECONDS);
-        producer.send("New message 2").get(5, TimeUnit.SECONDS);
-        producer.send("New message 3").get(5, TimeUnit.SECONDS);
-
-        // Should receive all messages (existing via polling + new via LISTEN/NOTIFY)
-        boolean receivedAll = latch.await(10, TimeUnit.SECONDS);
-
-        assertTrue(receivedAll, "Should receive all 5 messages via both mechanisms");
+        assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Should receive all 5 messages via both mechanisms");
         assertEquals(5, messageCount.get(), "Should have processed exactly 5 messages");
 
         consumer.close();
@@ -236,12 +235,11 @@ class HybridModeEdgeCaseTest {
     }
 
     @Test
-    void testHybridModeResourceCleanup() throws Exception {
+    void testHybridModeResourceCleanup(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing HYBRID mode resource cleanup");
 
         String topicName = "test-hybrid-resource-cleanup";
 
-        // Create HYBRID consumer
         ConsumerConfig config = ConsumerConfig.builder()
                 .mode(ConsumerMode.HYBRID)
                 .pollingInterval(Duration.ofMillis(500))
@@ -252,21 +250,21 @@ class HybridModeEdgeCaseTest {
 
         AtomicInteger messageCount = new AtomicInteger(0);
         AtomicReference<String> lastMessage = new AtomicReference<>();
+        Checkpoint messageReceived = testContext.checkpoint();
 
         consumer.subscribe(message -> {
             messageCount.incrementAndGet();
             lastMessage.set(message.getPayload());
             logger.info("📨 Received cleanup test message: {}", message.getPayload());
+            messageReceived.flag();
             return CompletableFuture.completedFuture(null);
         });
 
         // Send a message to verify consumer is working
         producer.send("Cleanup test message").get(5, TimeUnit.SECONDS);
 
-        // Wait for message processing
-        Thread.sleep(2000);
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
 
-        // Verify message was processed
         assertEquals(1, messageCount.get(), "Should have processed the test message");
         assertEquals("Cleanup test message", lastMessage.get(), "Should have received correct message");
 
@@ -274,17 +272,15 @@ class HybridModeEdgeCaseTest {
         consumer.close();
         producer.close();
 
-        // Verify resources are cleaned up (no exceptions during close)
         logger.info("✅ HYBRID mode resource cleanup completed successfully");
     }
 
     @Test
-    void testHybridModeMessageOrdering() throws Exception {
+    void testHybridModeMessageOrdering(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing HYBRID mode message ordering consistency");
 
         String topicName = "test-hybrid-message-ordering";
 
-        // Create HYBRID consumer
         ConsumerConfig config = ConsumerConfig.builder()
                 .mode(ConsumerMode.HYBRID)
                 .pollingInterval(Duration.ofSeconds(1))
@@ -294,32 +290,21 @@ class HybridModeEdgeCaseTest {
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         AtomicInteger messageCount = new AtomicInteger(0);
-        CountDownLatch latch = new CountDownLatch(6); // Expect 6 messages
+        Checkpoint messagesReceived = testContext.checkpoint(6);
 
         consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             logger.info("📨 Received ordered message {}: {}", count, message.getPayload());
-            latch.countDown();
+            messagesReceived.flag();
             return CompletableFuture.completedFuture(null);
         });
 
         // Send messages in sequence
-        producer.send("Message 1").get(5, TimeUnit.SECONDS);
-        Thread.sleep(100);
-        producer.send("Message 2").get(5, TimeUnit.SECONDS);
-        Thread.sleep(100);
-        producer.send("Message 3").get(5, TimeUnit.SECONDS);
-        Thread.sleep(100);
-        producer.send("Message 4").get(5, TimeUnit.SECONDS);
-        Thread.sleep(100);
-        producer.send("Message 5").get(5, TimeUnit.SECONDS);
-        Thread.sleep(100);
-        producer.send("Message 6").get(5, TimeUnit.SECONDS);
+        for (int i = 1; i <= 6; i++) {
+            producer.send("Message " + i).get(5, TimeUnit.SECONDS);
+        }
 
-        // Wait for all messages to be processed
-        boolean receivedAll = latch.await(15, TimeUnit.SECONDS);
-
-        assertTrue(receivedAll, "Should receive all 6 messages");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should receive all 6 messages");
         assertEquals(6, messageCount.get(), "Should have processed exactly 6 messages");
 
         consumer.close();
@@ -328,45 +313,38 @@ class HybridModeEdgeCaseTest {
     }
 
     @Test
-    void testHybridModePerformanceUnderLoad() throws Exception {
+    void testHybridModePerformanceUnderLoad(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing HYBRID mode performance under moderate load");
 
         String topicName = "test-hybrid-performance";
 
-        // Create HYBRID consumer with reasonable settings
         ConsumerConfig config = ConsumerConfig.builder()
                 .mode(ConsumerMode.HYBRID)
                 .pollingInterval(Duration.ofMillis(500))
-                .consumerThreads(2) // Multiple threads for better performance
+                .consumerThreads(2)
                 .build();
 
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class, config);
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         AtomicInteger messageCount = new AtomicInteger(0);
-        CountDownLatch latch = new CountDownLatch(15); // Moderate load test
+        Checkpoint messagesReceived = testContext.checkpoint(15);
 
         consumer.subscribe(message -> {
             int count = messageCount.incrementAndGet();
             if (count % 3 == 0) {
                 logger.info("📨 Processed {} messages so far", count);
             }
-            latch.countDown();
+            messagesReceived.flag();
             return CompletableFuture.completedFuture(null);
         });
 
-        // Send messages at moderate pace
+        // Send messages
         for (int i = 1; i <= 15; i++) {
             producer.send("Performance test message " + i).get(5, TimeUnit.SECONDS);
-            if (i % 5 == 0) {
-                Thread.sleep(100); // Small pause every 5 messages
-            }
         }
 
-        // Wait for all messages to be processed
-        boolean receivedAll = latch.await(20, TimeUnit.SECONDS);
-
-        assertTrue(receivedAll, "Should handle moderate load efficiently");
+        assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Should handle moderate load efficiently");
         assertEquals(15, messageCount.get(), "Should have processed exactly 15 messages");
 
         consumer.close();

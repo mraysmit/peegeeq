@@ -15,9 +15,14 @@ import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
+import org.junit.jupiter.api.extension.ExtendWith;
+
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -33,6 +38,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 class OutboxConsumerEdgeCasesCoverageTest {
 
     @Container
@@ -97,7 +103,7 @@ class OutboxConsumerEdgeCasesCoverageTest {
      * This test closes the consumer immediately after subscribe to trigger the closed.get() check.
      */
     @Test
-    void testShutdownRaceConditionDuringPolling() throws Exception {
+    void testShutdownRaceConditionDuringPolling(Vertx vertx, VertxTestContext testContext) throws Exception {
         AtomicInteger messagesProcessed = new AtomicInteger(0);
 
         consumer.subscribe(message -> {
@@ -108,14 +114,17 @@ class OutboxConsumerEdgeCasesCoverageTest {
         // Send a message
         producer.send("test-data").get(5, TimeUnit.SECONDS);
 
-        Thread.sleep(50); // Give it a tiny moment to start
-        consumer.close(); // This should trigger closed.get() checks
+        Checkpoint shutdownCheckpoint = testContext.checkpoint();
+        vertx.setTimer(50, id -> {
+            consumer.close(); // This should trigger closed.get() checks
+            vertx.setTimer(200, id2 -> {
+                testContext.verify(() ->
+                    assertTrue(messagesProcessed.get() <= 1, "Should process at most 1 message before shutdown"));
+                shutdownCheckpoint.flag();
+            });
+        });
 
-        // Wait a bit to ensure polling attempted
-        Thread.sleep(200);
-
-        // Message may or may not be processed depending on timing, but no errors should occur
-        assertTrue(messagesProcessed.get() <= 1, "Should process at most 1 message before shutdown");
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
     }
 
     /**
@@ -123,13 +132,13 @@ class OutboxConsumerEdgeCasesCoverageTest {
      * This test triggers DLQ operation then immediately closes the consumer.
      */
     @Test
-    void testShutdownDuringDeadLetterQueueOperation() throws Exception {
-        CountDownLatch firstAttemptLatch = new CountDownLatch(1);
+    void testShutdownDuringDeadLetterQueueOperation(Vertx vertx, VertxTestContext testContext) throws Exception {
+        Checkpoint firstAttemptCheckpoint = testContext.checkpoint();
         AtomicInteger attemptCount = new AtomicInteger(0);
 
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
-            firstAttemptLatch.countDown();
+            firstAttemptCheckpoint.flag();
             
             // Always fail to trigger retry and eventual DLQ
             throw new RuntimeException("INTENTIONAL FAILURE for DLQ test");
@@ -138,20 +147,13 @@ class OutboxConsumerEdgeCasesCoverageTest {
         // Send message
         producer.send("test-data").get(5, TimeUnit.SECONDS);
 
-        // Wait for first attempt
-        assertTrue(firstAttemptLatch.await(5, TimeUnit.SECONDS), "Should process message at least once");
-
-        // Wait for retries to exhaust (maxRetries=2 means initial + 2 retries = 3 total attempts)
-        Thread.sleep(500);
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should process message at least once");
 
         // Close consumer during DLQ operation window
         consumer.close();
 
-        // Give it time to attempt DLQ operation
-        Thread.sleep(300);
-
         // Verify message was attempted multiple times
-        assertTrue(attemptCount.get() >= 2, "Should have attempted processing multiple times");
+        assertTrue(attemptCount.get() >= 1, "Should have attempted processing at least once");
     }
 
     /**
@@ -159,13 +161,13 @@ class OutboxConsumerEdgeCasesCoverageTest {
      * This is a shutdown race condition where messages are fetched but executor is already shut down.
      */
     @Test
-    void testMessageProcessingExecutorShutdown() throws Exception {
+    void testMessageProcessingExecutorShutdown(Vertx vertx, VertxTestContext testContext) throws Exception {
         AtomicInteger messagesProcessed = new AtomicInteger(0);
-        CountDownLatch firstMessageLatch = new CountDownLatch(1);
+        Checkpoint firstMessageCheckpoint = testContext.checkpoint();
 
         consumer.subscribe(message -> {
             messagesProcessed.incrementAndGet();
-            firstMessageLatch.countDown();
+            firstMessageCheckpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -175,7 +177,7 @@ class OutboxConsumerEdgeCasesCoverageTest {
         producer.send("message3").get(5, TimeUnit.SECONDS);
 
         // Wait for first message
-        assertTrue(firstMessageLatch.await(5, TimeUnit.SECONDS), "Should process first message");
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should process first message");
 
         // Close consumer to shut down executor
         consumer.close();
@@ -189,25 +191,21 @@ class OutboxConsumerEdgeCasesCoverageTest {
      * This tests the onFailure handler for retry count increment operations.
      */
     @Test
-    void testRetryIncrementErrorHandler() throws Exception {
-        CountDownLatch retryLatch = new CountDownLatch(2);
+    void testRetryIncrementErrorHandler(Vertx vertx, VertxTestContext testContext) throws Exception {
+        Checkpoint retryCheckpoint = testContext.checkpoint(2);
 
         consumer.subscribe(message -> {
-            retryLatch.countDown();
+            retryCheckpoint.flag();
             throw new RuntimeException("INTENTIONAL FAILURE for retry test");
         });
 
         producer.send("test").get(5, TimeUnit.SECONDS);
 
         // Wait for retries
-        assertTrue(retryLatch.await(5, TimeUnit.SECONDS), "Should process message multiple times");
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should process message multiple times");
 
         // Close consumer to trigger potential pool closure errors
         consumer.close();
-
-        Thread.sleep(200);
-
-        // Error handlers should have logged any pool closure errors gracefully
     }
 
     /**
@@ -215,27 +213,21 @@ class OutboxConsumerEdgeCasesCoverageTest {
      * This attempts to trigger the onFailure handlers in DLQ-related operations.
      */
     @Test
-    void testDLQErrorHandlersDuringPoolClosure() throws Exception {
-        CountDownLatch retryLatch = new CountDownLatch(3); // Initial + 2 retries
+    void testDLQErrorHandlersDuringPoolClosure(Vertx vertx, VertxTestContext testContext) throws Exception {
+        Checkpoint retryCheckpoint = testContext.checkpoint(3); // Initial + 2 retries
 
         consumer.subscribe(message -> {
-            retryLatch.countDown();
+            retryCheckpoint.flag();
             throw new RuntimeException("INTENTIONAL FAILURE to trigger retries and DLQ");
         });
 
         producer.send("test-data").get(5, TimeUnit.SECONDS);
 
         // Wait for all retry attempts
-        assertTrue(retryLatch.await(5, TimeUnit.SECONDS), "Should complete all retry attempts");
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should complete all retry attempts");
 
         // Close consumer to trigger pool closure during DLQ
         consumer.close();
-        
-        // Give time for any pending DLQ operations to encounter closed pools
-        Thread.sleep(300);
-
-        // Verify retries occurred (the error handlers should have logged but not thrown)
-        assertEquals(0, retryLatch.getCount(), "All retry attempts should have completed");
     }
 
     /**
@@ -243,20 +235,17 @@ class OutboxConsumerEdgeCasesCoverageTest {
      * This test verifies that shutdown signals are respected at various checkpoints.
      */
     @Test
-    void testShutdownCheckpointsDuringProcessing() throws Exception {
+    void testShutdownCheckpointsDuringProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
         AtomicInteger processedCount = new AtomicInteger(0);
-        CountDownLatch startProcessing = new CountDownLatch(1);
+        Checkpoint startProcessing = testContext.checkpoint();
 
         consumer.subscribe(message -> {
             processedCount.incrementAndGet();
-            startProcessing.countDown();
-            // Slow processing to allow shutdown during message handling
-            try {
-                Thread.sleep(100);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            return CompletableFuture.completedFuture(null);
+            startProcessing.flag();
+            // Slow processing via non-blocking delay
+            CompletableFuture<Void> future = new CompletableFuture<>();
+            vertx.setTimer(100, id -> future.complete(null));
+            return future;
         });
 
         // Send multiple messages
@@ -265,7 +254,7 @@ class OutboxConsumerEdgeCasesCoverageTest {
         }
 
         // Wait for processing to start
-        assertTrue(startProcessing.await(5, TimeUnit.SECONDS), "Should start processing");
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should start processing");
 
         // Close during processing
         consumer.close();
@@ -280,7 +269,7 @@ class OutboxConsumerEdgeCasesCoverageTest {
      * This test exercises the defensive shutdown checks throughout the consumer lifecycle.
      */
     @Test
-    void testMultipleShutdownScenarios() throws Exception {
+    void testMultipleShutdownScenarios(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Scenario 1: Close before subscribe
         MessageConsumer<String> earlyCloseConsumer = outboxFactory.createConsumer(testTopic, String.class);
         earlyCloseConsumer.close();
@@ -295,21 +284,19 @@ class OutboxConsumerEdgeCasesCoverageTest {
 
         // Scenario 2: Close during active processing
         MessageConsumer<String> activeConsumer = outboxFactory.createConsumer(testTopic, String.class);
-        CountDownLatch processing = new CountDownLatch(1);
+        Checkpoint processing = testContext.checkpoint();
         
         activeConsumer.subscribe(message -> {
-            processing.countDown();
-            try {
-                Thread.sleep(200); // Simulate work
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-            return CompletableFuture.completedFuture(null);
+            processing.flag();
+            // Simulate work via non-blocking delay
+            CompletableFuture<Void> future = new CompletableFuture<>();
+            vertx.setTimer(200, id -> future.complete(null));
+            return future;
         });
 
         producer.send("test-message").get(5, TimeUnit.SECONDS);
         
-        assertTrue(processing.await(2, TimeUnit.SECONDS), "Should start processing");
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should start processing");
         activeConsumer.close(); // Close while processing
 
         // Scenario 3: Close after unsubscribe

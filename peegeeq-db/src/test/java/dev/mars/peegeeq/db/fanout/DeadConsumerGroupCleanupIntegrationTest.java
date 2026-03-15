@@ -478,7 +478,7 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
         List<Long> messageIds = insertMessages(topic, 2);
 
         // Ensure group-b subscription timestamp is after message creation.
-        Thread.sleep(20);
+        manager.getVertx().timer(20).toCompletionStage().toCompletableFuture().join();
         subscribe(topic, "group-b");
 
         markSubscriptionDead(topic, "group-b");

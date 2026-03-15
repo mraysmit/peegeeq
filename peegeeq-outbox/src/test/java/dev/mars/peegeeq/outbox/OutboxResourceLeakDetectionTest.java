@@ -11,11 +11,14 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -28,7 +31,7 @@ import java.lang.management.ThreadMXBean;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletableFuture;\nimport java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -47,6 +50,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  * @since 2025-10-02
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 public class OutboxResourceLeakDetectionTest {
     private static final Logger logger = LoggerFactory.getLogger(OutboxResourceLeakDetectionTest.class);
@@ -128,7 +132,7 @@ public class OutboxResourceLeakDetectionTest {
 
     @Test
     @DisplayName("Should not leak threads after producer close")
-    void testNoThreadLeaksAfterProducerClose() throws Exception {
+    void testNoThreadLeaksAfterProducerClose(Vertx vertx) throws Exception {
         System.err.println("=== TEST: testNoThreadLeaksAfterProducerClose STARTED ===");
         System.err.flush();
 
@@ -142,7 +146,8 @@ public class OutboxResourceLeakDetectionTest {
 
         // Send a message to ensure producer is fully initialized
         producer.send("test message").get();
-        Thread.sleep(500);
+        // GC-settle: allow producer to fully initialize
+        vertx.timer(500).toCompletionStage().toCompletableFuture().join();
 
         // Capture threads while producer is active
         Set<Long> activeThreadIds = getCurrentThreadIds();
@@ -152,8 +157,8 @@ public class OutboxResourceLeakDetectionTest {
         // Close producer
         producer.close();
 
-        // Give time for shutdown
-        Thread.sleep(5000);
+        // GC-settle: give time for shutdown
+        vertx.timer(5000).toCompletionStage().toCompletableFuture().join();
 
         // Capture threads after close
         Set<Long> afterThreadIds = getCurrentThreadIds();
@@ -181,7 +186,7 @@ public class OutboxResourceLeakDetectionTest {
 
     @Test
     @DisplayName("Should not leak threads after consumer close")
-    void testNoThreadLeaksAfterConsumerClose() throws Exception {
+    void testNoThreadLeaksAfterConsumerClose(Vertx vertx) throws Exception {
         System.err.println("=== TEST: testNoThreadLeaksAfterConsumerClose STARTED ===");
         System.err.flush();
 
@@ -197,7 +202,8 @@ public class OutboxResourceLeakDetectionTest {
             return CompletableFuture.completedFuture(null);
         });
 
-        Thread.sleep(1000); // Let consumer start polling
+        // GC-settle: let consumer start polling
+        vertx.timer(1000).toCompletionStage().toCompletableFuture().join();
 
         // Capture threads while consumer is active
         Set<Long> activeThreadIds = getCurrentThreadIds();
@@ -211,8 +217,8 @@ public class OutboxResourceLeakDetectionTest {
         // Close consumer
         consumer.close();
 
-        // Give time for shutdown
-        Thread.sleep(5000); // Give scheduler time to shut down
+        // GC-settle: give scheduler time to shut down
+        vertx.timer(5000).toCompletionStage().toCompletableFuture().join();
 
         // Capture threads after close
         Set<Long> afterThreadIds = getCurrentThreadIds();
@@ -240,7 +246,7 @@ public class OutboxResourceLeakDetectionTest {
 
     @Test
     @DisplayName("Should not leak threads with multiple producer/consumer cycles")
-    void testNoThreadLeaksWithMultipleCycles() throws Exception {
+    void testNoThreadLeaksWithMultipleCycles(Vertx vertx) throws Exception {
         System.err.println("=== TEST: testNoThreadLeaksWithMultipleCycles STARTED ===");
         System.err.flush();
 
@@ -257,20 +263,23 @@ public class OutboxResourceLeakDetectionTest {
             consumer.subscribe(message -> CompletableFuture.completedFuture(null));
             producer.send("test").get();
 
-            Thread.sleep(500);
+            // GC-settle: allow components to initialize
+            vertx.timer(500).toCompletionStage().toCompletableFuture().join();
 
             consumer.close();
             producer.close();
 
             logger.info("Closed producer/consumer pair {}", i);
-            Thread.sleep(1000);
+            // GC-settle: allow shutdown to complete
+            vertx.timer(1000).toCompletionStage().toCompletableFuture().join();
         }
 
         // No shared Vert.x instances to close anymore.
 
         // Force garbage collection
         System.gc();
-        Thread.sleep(1000);
+        // GC-settle: allow GC and thread cleanup
+        vertx.timer(1000).toCompletionStage().toCompletableFuture().join();
 
         // Verify no threads leaked (excluding expected shared infrastructure threads)
         Set<Long> finalIds = getCurrentThreadIds();
@@ -294,7 +303,7 @@ public class OutboxResourceLeakDetectionTest {
 
     @Test
     @DisplayName("Should close shared Vert.x instances when manager closes")
-    void testSharedVertxInstancesClosed() throws Exception {
+    void testSharedVertxInstancesClosed(Vertx vertx) throws Exception {
         System.err.println("=== TEST: testSharedVertxInstancesClosed STARTED ===");
         System.err.flush();
 
@@ -305,7 +314,8 @@ public class OutboxResourceLeakDetectionTest {
         consumer.subscribe(message -> CompletableFuture.completedFuture(null));
         producer.send("test").get();
 
-        Thread.sleep(500);
+        // GC-settle: allow components to initialize
+        vertx.timer(500).toCompletionStage().toCompletableFuture().join();
 
         // Verify Vert.x threads exist
         Set<String> vertxThreads = getVertxThreadNames();
@@ -324,8 +334,8 @@ public class OutboxResourceLeakDetectionTest {
 
         // Additional cleanup is not required; outbox components no longer own static Vert.x resources.
 
-        // Give time for shutdown
-        Thread.sleep(5000);
+        // GC-settle: give time for shutdown
+        vertx.timer(5000).toCompletionStage().toCompletableFuture().join();
 
         // Verify no new Vert.x threads remain compared to initial baseline
         Set<String> remainingVertxThreads = getVertxThreadNames();

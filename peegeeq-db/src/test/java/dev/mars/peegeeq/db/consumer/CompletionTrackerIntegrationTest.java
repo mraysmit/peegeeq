@@ -23,9 +23,10 @@ import org.slf4j.LoggerFactory;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+
+import io.vertx.junit5.VertxTestContext;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -58,7 +59,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
     private SubscriptionManager subscriptionManager;
 
     @BeforeEach
-    public void setUp() throws Exception {
+    public void setUp(VertxTestContext testContext) throws Exception {
         super.setUpBaseIntegration();
 
         // Create connection manager using the shared Vertx instance
@@ -89,7 +90,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    public void testMarkCompletedSingleGroup() throws Exception {
+    public void testMarkCompletedSingleGroup(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST: testMarkCompletedSingleGroup STARTED ===");
 
         String topic = "test-completion-single-" + UUID.randomUUID().toString().substring(0, 8);
@@ -101,8 +102,6 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                 .semantics(TopicSemantics.QUEUE)
                 .build();
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
-
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         topicConfigService.createTopic(topicConfig)
@@ -125,16 +124,16 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                     } catch (Throwable t) {
                         errorRef.set(t);
                     } finally {
-                        latch.countDown();
+                        testContext.completeNow();
                     }
                 })
                 .onFailure(throwable -> {
                     logger.error("Test failed", throwable);
                     errorRef.set(throwable);
-                    latch.countDown();
+                    testContext.completeNow();
                 });
 
-        assertTrue(latch.await(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (errorRef.get() != null) {
             fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
         }
@@ -142,7 +141,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    public void testMarkCompletedMultipleGroups() throws Exception {
+    public void testMarkCompletedMultipleGroups(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST: testMarkCompletedMultipleGroups STARTED ===");
 
         String topic = "test-completion-multiple-" + UUID.randomUUID().toString().substring(0, 8);
@@ -158,8 +157,6 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
 
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder()
                 .build();
-
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         topicConfigService.createTopic(topicConfig)
@@ -203,16 +200,16 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                     } catch (Throwable t) {
                         errorRef.set(t);
                     } finally {
-                        latch.countDown();
+                        testContext.completeNow();
                     }
                 })
                 .onFailure(throwable -> {
                     logger.error("Test failed", throwable);
                     errorRef.set(throwable);
-                    latch.countDown();
+                    testContext.completeNow();
                 });
 
-        assertTrue(latch.await(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (errorRef.get() != null) {
             fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
         }
@@ -220,7 +217,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    public void testMarkCompletedIdempotent() throws Exception {
+    public void testMarkCompletedIdempotent(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST: testMarkCompletedIdempotent STARTED ===");
 
         String topic = "test-completion-idempotent-" + UUID.randomUUID().toString().substring(0, 8);
@@ -231,8 +228,6 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                 .semantics(TopicSemantics.QUEUE)
                 .build();
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
-
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         topicConfigService.createTopic(topicConfig)
@@ -253,16 +248,16 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                     } catch (Throwable t) {
                         errorRef.set(t);
                     } finally {
-                        latch.countDown();
+                        testContext.completeNow();
                     }
                 })
                 .onFailure(throwable -> {
                     logger.error("Test failed", throwable);
                     errorRef.set(throwable);
-                    latch.countDown();
+                    testContext.completeNow();
                 });
 
-        assertTrue(latch.await(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (errorRef.get() != null) {
             fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
         }
@@ -270,7 +265,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    public void testMarkCompletedIdempotentDoesNotOvercountInMultiGroupTopic() throws Exception {
+    public void testMarkCompletedIdempotentDoesNotOvercountInMultiGroupTopic(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST: testMarkCompletedIdempotentDoesNotOvercountInMultiGroupTopic STARTED ===");
 
         String topic = "test-completion-idempotent-multigroup-" + UUID.randomUUID().toString().substring(0, 8);
@@ -283,8 +278,6 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                 .build();
 
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
-
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         topicConfigService.createTopic(topicConfig)
@@ -304,15 +297,15 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                     } catch (Throwable t) {
                         errorRef.set(t);
                     } finally {
-                        latch.countDown();
+                        testContext.completeNow();
                     }
                 })
                 .onFailure(throwable -> {
                     errorRef.set(throwable);
-                    latch.countDown();
+                    testContext.completeNow();
                 });
 
-        assertTrue(latch.await(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (errorRef.get() != null) {
             fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
         }
@@ -320,7 +313,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    public void testMarkFailed() throws Exception {
+    public void testMarkFailed(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST: testMarkFailed STARTED ===");
 
         String topic = "test-completion-failed-" + UUID.randomUUID().toString().substring(0, 8);
@@ -332,8 +325,6 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                 .semantics(TopicSemantics.QUEUE)
                 .build();
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
-
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         topicConfigService.createTopic(topicConfig)
@@ -362,16 +353,16 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                     } catch (Throwable t) {
                         errorRef.set(t);
                     } finally {
-                        latch.countDown();
+                        testContext.completeNow();
                     }
                 })
                 .onFailure(throwable -> {
                     logger.error("Test failed", throwable);
                     errorRef.set(throwable);
-                    latch.countDown();
+                    testContext.completeNow();
                 });
 
-        assertTrue(latch.await(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (errorRef.get() != null) {
             fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
         }
@@ -379,7 +370,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    public void testMarkFailedDoesNotOverrideCompletedState() throws Exception {
+    public void testMarkFailedDoesNotOverrideCompletedState(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST: testMarkFailedDoesNotOverrideCompletedState STARTED ===");
 
         String topic = "test-failed-after-completed-" + UUID.randomUUID().toString().substring(0, 8);
@@ -391,8 +382,6 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                 .build();
                 
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
-
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         topicConfigService.createTopic(topicConfig)
@@ -417,15 +406,15 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                     } catch (Throwable t) {
                         errorRef.set(t);
                     } finally {
-                        latch.countDown();
+                        testContext.completeNow();
                     }
                 })
                 .onFailure(throwable -> {
                     errorRef.set(throwable);
-                    latch.countDown();
+                    testContext.completeNow();
                 });
 
-        assertTrue(latch.await(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (errorRef.get() != null) {
             fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
         }
@@ -433,7 +422,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    public void testMarkCompletedRejectsUnknownGroup() throws Exception {
+    public void testMarkCompletedRejectsUnknownGroup(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST: testMarkCompletedRejectsUnknownGroup STARTED ===");
 
         String topic = "test-completion-unknown-group-" + UUID.randomUUID().toString().substring(0, 8);
@@ -446,7 +435,6 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                 .build();
 
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         topicConfigService.createTopic(topicConfig)
@@ -460,13 +448,13 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                             }
                             return Future.failedFuture(throwable);
                         }))
-                .onSuccess(v -> latch.countDown())
+                .onSuccess(v -> testContext.completeNow())
                 .onFailure(throwable -> {
                     errorRef.set(throwable);
-                    latch.countDown();
+                    testContext.completeNow();
                 });
 
-        assertTrue(latch.await(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (errorRef.get() != null) {
             fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
         }
@@ -474,7 +462,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    public void testLateFailureInMultiGroupDoesNotCreateInconsistentState() throws Exception {
+    public void testLateFailureInMultiGroupDoesNotCreateInconsistentState(VertxTestContext testContext) throws Exception {
         logger.info("=== TEST: testLateFailureInMultiGroupDoesNotCreateInconsistentState STARTED ===");
 
         String topic = "test-late-failure-multigroup-" + UUID.randomUUID().toString().substring(0, 8);
@@ -487,7 +475,6 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                 .build();
 
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         topicConfigService.createTopic(topicConfig)
@@ -518,15 +505,15 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                     } catch (Throwable t) {
                         errorRef.set(t);
                     } finally {
-                        latch.countDown();
+                        testContext.completeNow();
                     }
                 })
                 .onFailure(throwable -> {
                     errorRef.set(throwable);
-                    latch.countDown();
+                    testContext.completeNow();
                 });
 
-        assertTrue(latch.await(30, TimeUnit.SECONDS), "Test should complete within 30 seconds");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (errorRef.get() != null) {
             fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
         }

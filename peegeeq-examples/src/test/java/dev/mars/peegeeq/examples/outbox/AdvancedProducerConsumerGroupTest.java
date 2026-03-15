@@ -41,13 +41,16 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -73,6 +76,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 class AdvancedProducerConsumerGroupTest {
     private static final Logger logger = LoggerFactory.getLogger(AdvancedProducerConsumerGroupTest.class);
     static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
@@ -180,12 +184,12 @@ class AdvancedProducerConsumerGroupTest {
      * Test basic high-frequency message production with routing headers.
      */
     @Test
-    void testHighFrequencyProducerWithRouting() throws Exception {
+    void testHighFrequencyProducerWithRouting(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Testing high-frequency producer with message routing");
         
         final int messageCount = 100;
         final AtomicLong sentMessages = new AtomicLong(0);
-        final CountDownLatch completionLatch = new CountDownLatch(messageCount);
+        var sendCheckpoint = testContext.checkpoint(messageCount);
         
         // Send messages with different routing headers
         for (int i = 1; i <= messageCount; i++) {
@@ -196,16 +200,16 @@ class AdvancedProducerConsumerGroupTest {
             producer.send(event, headers, "correlation-" + messageId, getMessageGroup(headers))
                 .whenComplete((result, error) -> {
                     if (error != null) {
-                        logger.error("Failed to send message {}: {}", messageId, error.getMessage());
-                    } else {
-                        sentMessages.incrementAndGet();
+                        testContext.failNow(error);
+                        return;
                     }
-                    completionLatch.countDown();
+                    sentMessages.incrementAndGet();
+                    sendCheckpoint.flag();
                 });
         }
         
         // Wait for all messages to be sent
-        assertTrue(completionLatch.await(30, TimeUnit.SECONDS), 
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 
             "All messages should be sent within timeout");
         assertEquals(messageCount, sentMessages.get(), 
             "All messages should be sent successfully");
@@ -217,7 +221,7 @@ class AdvancedProducerConsumerGroupTest {
      * Test region-based consumer groups processing messages in parallel.
      */
     @Test
-    void testRegionBasedConsumerGroups() throws Exception {
+    void testRegionBasedConsumerGroups(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Testing region-based consumer groups");
 
         // Create consumer group for order processing with unique name
@@ -232,15 +236,15 @@ class AdvancedProducerConsumerGroupTest {
 
         // Add region-specific consumers
         orderGroup.addConsumer("US-Consumer",
-            createRegionHandler("US", usCount),
+            createRegionHandler("US", usCount, vertx),
             MessageFilter.byRegion(Set.of("US")));
 
         orderGroup.addConsumer("EU-Consumer",
-            createRegionHandler("EU", euCount),
+            createRegionHandler("EU", euCount, vertx),
             MessageFilter.byRegion(Set.of("EU")));
 
         orderGroup.addConsumer("ASIA-Consumer",
-            createRegionHandler("ASIA", asiaCount),
+            createRegionHandler("ASIA", asiaCount, vertx),
             MessageFilter.byRegion(Set.of("ASIA")));
 
         // Start the consumer group
@@ -252,33 +256,34 @@ class AdvancedProducerConsumerGroupTest {
         final int messagesPerRegion = 10;
         sendRegionalMessages(messagesPerRegion);
 
-        // Wait for processing using CompletableFuture
-        CompletableFuture.runAsync(() -> {
-            try { Thread.sleep(10000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-        }).join();
+        // Wait for processing using Vert.x periodic polling
+        vertx.setPeriodic(100, timerId -> {
+            if (usCount.get() + euCount.get() + asiaCount.get() >= messagesPerRegion * 3 * 0.6) {
+                vertx.cancelTimer(timerId);
+                try {
+                    int totalProcessed = usCount.get() + euCount.get() + asiaCount.get();
+                    logger.info("Region-based processing results:");
+                    logger.info("  US consumer processed: {}", usCount.get());
+                    logger.info("  EU consumer processed: {}", euCount.get());
+                    logger.info("  ASIA consumer processed: {}", asiaCount.get());
+                    logger.info("  Total processed: {} (expected: {})", totalProcessed, messagesPerRegion * 3);
 
-        // Log processing results for debugging
-        int totalProcessed = usCount.get() + euCount.get() + asiaCount.get();
-        logger.info("Region-based processing results:");
-        logger.info("  US consumer processed: {}", usCount.get());
-        logger.info("  EU consumer processed: {}", euCount.get());
-        logger.info("  ASIA consumer processed: {}", asiaCount.get());
-        logger.info("  Total processed: {} (expected: {})", totalProcessed, messagesPerRegion * 3);
+                    assertTrue(totalProcessed >= (messagesPerRegion * 3) * 0.6,
+                        "At least 60% of messages should be processed");
 
-        // Verify total messages processed with queue semantics
-        // In queue semantics, consumers within the same group compete for messages
-        // Allow for some tolerance due to timing and processing delays
-        assertTrue(totalProcessed >= (messagesPerRegion * 3) * 0.6,
-            "At least 60% of messages should be processed");
+                    int activeConsumers = (usCount.get() > 0 ? 1 : 0) + (euCount.get() > 0 ? 1 : 0) + (asiaCount.get() > 0 ? 1 : 0);
+                    assertTrue(activeConsumers >= 2, "At least 2 consumers should process some messages");
+                    assertTrue(totalProcessed > 0, "Some messages should be processed");
 
-        // In queue semantics with competing consumers, not all consumers may get messages
-        // due to timing, load balancing, and processing speed differences
-        // At least verify that the system is working and some consumers are processing messages
-        int activeConsumers = (usCount.get() > 0 ? 1 : 0) + (euCount.get() > 0 ? 1 : 0) + (asiaCount.get() > 0 ? 1 : 0);
-        assertTrue(activeConsumers >= 2, "At least 2 consumers should process some messages");
-        assertTrue(totalProcessed > 0, "Some messages should be processed");
+                    orderGroup.close();
+                    testContext.completeNow();
+                } catch (Throwable t) {
+                    testContext.failNow(t);
+                }
+            }
+        });
 
-        orderGroup.close();
+        testContext.awaitCompletion(20, TimeUnit.SECONDS);
         logger.info("Region-based consumer groups test completed successfully");
     }
 
@@ -286,7 +291,7 @@ class AdvancedProducerConsumerGroupTest {
      * Test priority-based consumer groups with different processing speeds.
      */
     @Test
-    void testPriorityBasedConsumerGroups() throws Exception {
+    void testPriorityBasedConsumerGroups(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Testing priority-based consumer groups");
 
         // Create consumer group for payment processing with unique name
@@ -300,11 +305,11 @@ class AdvancedProducerConsumerGroupTest {
 
         // Add priority-based consumers
         paymentGroup.addConsumer("HighPriority-Consumer",
-            createPriorityHandler("HIGH", highPriorityCount, 50),
+            createPriorityHandler("HIGH", highPriorityCount, 50, vertx),
             MessageFilter.byPriority("HIGH"));
 
         paymentGroup.addConsumer("Normal-Consumer",
-            createPriorityHandler("NORMAL", normalPriorityCount, 200),
+            createPriorityHandler("NORMAL", normalPriorityCount, 200, vertx),
             MessageFilter.byPriority("NORMAL"));
 
         // Start the consumer group
@@ -317,31 +322,33 @@ class AdvancedProducerConsumerGroupTest {
         final int normalPriorityMessages = 15;
         sendPriorityMessages(highPriorityMessages, normalPriorityMessages);
 
-        // Wait for processing using CompletableFuture
-        CompletableFuture.runAsync(() -> {
-            try { Thread.sleep(10000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-        }).join();
+        // Wait for processing using Vert.x periodic polling
+        vertx.setPeriodic(100, timerId -> {
+            if (highPriorityCount.get() + normalPriorityCount.get() >= (highPriorityMessages + normalPriorityMessages) * 0.6) {
+                vertx.cancelTimer(timerId);
+                try {
+                    int totalProcessed = highPriorityCount.get() + normalPriorityCount.get();
+                    logger.info("Priority-based processing results:");
+                    logger.info("  High priority consumer processed: {}", highPriorityCount.get());
+                    logger.info("  Normal priority consumer processed: {}", normalPriorityCount.get());
+                    logger.info("  Total processed: {} (expected: {})", totalProcessed, highPriorityMessages + normalPriorityMessages);
 
-        // Log processing results for debugging
-        int totalProcessed = highPriorityCount.get() + normalPriorityCount.get();
-        logger.info("Priority-based processing results:");
-        logger.info("  High priority consumer processed: {}", highPriorityCount.get());
-        logger.info("  Normal priority consumer processed: {}", normalPriorityCount.get());
-        logger.info("  Total processed: {} (expected: {})", totalProcessed, highPriorityMessages + normalPriorityMessages);
+                    assertTrue(totalProcessed >= (highPriorityMessages + normalPriorityMessages) * 0.6,
+                        "At least 60% of messages should be processed");
 
-        // Verify priority-based processing with queue semantics
-        // In queue semantics, consumers within the same group compete for messages
-        // Allow for some tolerance due to timing and processing delays
-        assertTrue(totalProcessed >= (highPriorityMessages + normalPriorityMessages) * 0.6,
-            "At least 60% of messages should be processed");
+                    int activeConsumers = (highPriorityCount.get() > 0 ? 1 : 0) + (normalPriorityCount.get() > 0 ? 1 : 0);
+                    assertTrue(activeConsumers >= 1, "At least 1 consumer should process some messages");
+                    assertTrue(totalProcessed > 0, "Some messages should be processed");
 
-        // In queue semantics, both consumers should ideally process some messages,
-        // but exact distribution depends on timing and load balancing
-        int activeConsumers = (highPriorityCount.get() > 0 ? 1 : 0) + (normalPriorityCount.get() > 0 ? 1 : 0);
-        assertTrue(activeConsumers >= 1, "At least 1 consumer should process some messages");
-        assertTrue(totalProcessed > 0, "Some messages should be processed");
+                    paymentGroup.close();
+                    testContext.completeNow();
+                } catch (Throwable t) {
+                    testContext.failNow(t);
+                }
+            }
+        });
 
-        paymentGroup.close();
+        testContext.awaitCompletion(20, TimeUnit.SECONDS);
         logger.info("Priority-based consumer groups test completed successfully");
     }
 
@@ -349,7 +356,7 @@ class AdvancedProducerConsumerGroupTest {
      * Test multi-header filtering with complex routing logic.
      */
     @Test
-    void testMultiHeaderFilteringConsumerGroups() throws Exception {
+    void testMultiHeaderFilteringConsumerGroups(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Testing multi-header filtering consumer groups");
 
         // Create analytics consumer group with unique name
@@ -364,7 +371,7 @@ class AdvancedProducerConsumerGroupTest {
 
         // Add consumer for US premium orders
         analyticsGroup.addConsumer("US-Premium-Consumer",
-            createAnalyticsHandler("US-PREMIUM", premiumUsCount),
+            createAnalyticsHandler("US-PREMIUM", premiumUsCount, vertx),
             MessageFilter.and(
                 MessageFilter.byRegion(Set.of("US")),
                 MessageFilter.byType(Set.of("PREMIUM"))
@@ -372,12 +379,12 @@ class AdvancedProducerConsumerGroupTest {
 
         // Add consumer for high-priority orders from any region
         analyticsGroup.addConsumer("HighPriority-Consumer",
-            createAnalyticsHandler("HIGH-PRIORITY", highPriorityCount),
+            createAnalyticsHandler("HIGH-PRIORITY", highPriorityCount, vertx),
             MessageFilter.byPriority("HIGH"));
 
         // Add audit consumer that accepts all messages
         analyticsGroup.addConsumer("Audit-Consumer",
-            createAnalyticsHandler("AUDIT", auditCount),
+            createAnalyticsHandler("AUDIT", auditCount, vertx),
             MessageFilter.acceptAll());
 
         // Start the consumer group
@@ -388,25 +395,29 @@ class AdvancedProducerConsumerGroupTest {
         // Send test messages with various combinations
         sendComplexFilteringMessages();
 
-        // Wait for processing using CompletableFuture
-        CompletableFuture.runAsync(() -> {
-            try { Thread.sleep(10000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-        }).join();
+        // Wait for processing using Vert.x periodic polling
+        vertx.setPeriodic(100, timerId -> {
+            if (premiumUsCount.get() + highPriorityCount.get() + auditCount.get() > 0) {
+                vertx.cancelTimer(timerId);
+                try {
+                    int totalProcessed = premiumUsCount.get() + highPriorityCount.get() + auditCount.get();
+                    assertTrue(totalProcessed > 0, "Some messages should be processed");
 
-        // Verify filtering logic with queue semantics
-        // In queue semantics, consumers within the same group compete for messages
-        int totalProcessed = premiumUsCount.get() + highPriorityCount.get() + auditCount.get();
-        assertTrue(totalProcessed > 0, "Some messages should be processed");
+                    logger.info("Multi-header filtering results:");
+                    logger.info("  US Premium consumer processed: {}", premiumUsCount.get());
+                    logger.info("  High priority consumer processed: {}", highPriorityCount.get());
+                    logger.info("  Audit consumer processed: {}", auditCount.get());
+                    logger.info("  Total processed: {}", totalProcessed);
 
-        // Each consumer should process some messages based on their filters and competition
-        // Note: Not all consumers may get messages due to competing consumer behavior
-        logger.info("Multi-header filtering results:");
-        logger.info("  US Premium consumer processed: {}", premiumUsCount.get());
-        logger.info("  High priority consumer processed: {}", highPriorityCount.get());
-        logger.info("  Audit consumer processed: {}", auditCount.get());
-        logger.info("  Total processed: {}", totalProcessed);
+                    analyticsGroup.close();
+                    testContext.completeNow();
+                } catch (Throwable t) {
+                    testContext.failNow(t);
+                }
+            }
+        });
 
-        analyticsGroup.close();
+        testContext.awaitCompletion(20, TimeUnit.SECONDS);
         logger.info("Multi-header filtering test completed successfully");
     }
 
@@ -414,7 +425,7 @@ class AdvancedProducerConsumerGroupTest {
      * Test concurrent consumer groups processing the same message stream.
      */
     @Test
-    void testConcurrentConsumerGroups() throws Exception {
+    void testConcurrentConsumerGroups(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Testing concurrent consumer groups");
 
         // Create multiple consumer groups with unique names that will process the same messages
@@ -435,15 +446,15 @@ class AdvancedProducerConsumerGroupTest {
 
         // Add consumers to each group
         orderGroup.addConsumer("Order-Consumer",
-            createCountingHandler("ORDER", orderProcessedCount),
+            createCountingHandler("ORDER", orderProcessedCount, vertx),
             MessageFilter.acceptAll());
 
         paymentGroup.addConsumer("Payment-Consumer",
-            createCountingHandler("PAYMENT", paymentProcessedCount),
+            createCountingHandler("PAYMENT", paymentProcessedCount, vertx),
             MessageFilter.acceptAll());
 
         analyticsGroup.addConsumer("Analytics-Consumer",
-            createCountingHandler("ANALYTICS", analyticsProcessedCount),
+            createCountingHandler("ANALYTICS", analyticsProcessedCount, vertx),
             MessageFilter.acceptAll());
 
         // Start all consumer groups
@@ -455,26 +466,29 @@ class AdvancedProducerConsumerGroupTest {
         final int messageCount = 20;
         sendSimpleMessages(messageCount);
 
-        // Wait for processing using CompletableFuture
-        CompletableFuture.runAsync(() -> {
-            try { Thread.sleep(15000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-        }).join();
+        // Wait for processing using Vert.x periodic polling
+        vertx.setPeriodic(100, timerId -> {
+            if (orderProcessedCount.get() + paymentProcessedCount.get() + analyticsProcessedCount.get() >= messageCount) {
+                vertx.cancelTimer(timerId);
+                try {
+                    int totalProcessed = orderProcessedCount.get() + paymentProcessedCount.get() + analyticsProcessedCount.get();
+                    assertEquals(messageCount, totalProcessed, "Total messages processed should equal messages sent");
 
-        // Verify messages were distributed among consumer groups (queue behavior)
-        // In a queue-based system, multiple consumer groups compete for messages
-        int totalProcessed = orderProcessedCount.get() + paymentProcessedCount.get() + analyticsProcessedCount.get();
-        assertEquals(messageCount, totalProcessed, "Total messages processed should equal messages sent");
+                    assertTrue(orderProcessedCount.get() > 0, "Order group should process some messages");
+                    assertTrue(paymentProcessedCount.get() > 0, "Payment group should process some messages");
+                    assertTrue(analyticsProcessedCount.get() > 0, "Analytics group should process some messages");
 
-        // Each group should process some messages (competing consumers)
-        assertTrue(orderProcessedCount.get() > 0, "Order group should process some messages");
-        assertTrue(paymentProcessedCount.get() > 0, "Payment group should process some messages");
-        assertTrue(analyticsProcessedCount.get() > 0, "Analytics group should process some messages");
+                    orderGroup.close();
+                    paymentGroup.close();
+                    analyticsGroup.close();
+                    testContext.completeNow();
+                } catch (Throwable t) {
+                    testContext.failNow(t);
+                }
+            }
+        });
 
-        // Clean up
-        orderGroup.close();
-        paymentGroup.close();
-        analyticsGroup.close();
-
+        testContext.awaitCompletion(30, TimeUnit.SECONDS);
         logger.info("Concurrent consumer groups test completed successfully");
     }
 
@@ -526,56 +540,56 @@ class AdvancedProducerConsumerGroupTest {
     /**
      * Creates a region-specific message handler.
      */
-    private MessageHandler<OrderEvent> createRegionHandler(String region, AtomicInteger counter) {
+    private MessageHandler<OrderEvent> createRegionHandler(String region, AtomicInteger counter, Vertx vertx) {
         return message -> {
             counter.incrementAndGet();
 
-            // Simulate minimal processing time using CompletableFuture
-            return CompletableFuture.runAsync(() -> {
-                try { Thread.sleep(10); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-            });
+            // Simulate minimal processing time using Vert.x timer
+            CompletableFuture<Void> future = new CompletableFuture<>();
+            vertx.setTimer(10, id -> future.complete(null));
+            return future;
         };
     }
 
     /**
      * Creates a priority-specific message handler.
      */
-    private MessageHandler<OrderEvent> createPriorityHandler(String priority, AtomicInteger counter, int processingTime) {
+    private MessageHandler<OrderEvent> createPriorityHandler(String priority, AtomicInteger counter, int processingTime, Vertx vertx) {
         return message -> {
             counter.incrementAndGet();
 
-            // Simulate processing time based on priority using CompletableFuture
-            return CompletableFuture.runAsync(() -> {
-                try { Thread.sleep(processingTime); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-            });
+            // Simulate processing time based on priority using Vert.x timer
+            CompletableFuture<Void> future = new CompletableFuture<>();
+            vertx.setTimer(processingTime, id -> future.complete(null));
+            return future;
         };
     }
 
     /**
      * Creates an analytics message handler.
      */
-    private MessageHandler<OrderEvent> createAnalyticsHandler(String type, AtomicInteger counter) {
+    private MessageHandler<OrderEvent> createAnalyticsHandler(String type, AtomicInteger counter, Vertx vertx) {
         return message -> {
             counter.incrementAndGet();
 
-            // Analytics processing is typically fast using CompletableFuture
-            return CompletableFuture.runAsync(() -> {
-                try { Thread.sleep(5); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-            });
+            // Analytics processing is typically fast using Vert.x timer
+            CompletableFuture<Void> future = new CompletableFuture<>();
+            vertx.setTimer(5, id -> future.complete(null));
+            return future;
         };
     }
 
     /**
      * Creates a simple counting message handler.
      */
-    private MessageHandler<OrderEvent> createCountingHandler(String handlerName, AtomicInteger counter) {
+    private MessageHandler<OrderEvent> createCountingHandler(String handlerName, AtomicInteger counter, Vertx vertx) {
         return message -> {
             counter.incrementAndGet();
 
-            // Simulate minimal processing time using CompletableFuture
-            return CompletableFuture.runAsync(() -> {
-                try { Thread.sleep(10); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-            });
+            // Simulate minimal processing time using Vert.x timer
+            CompletableFuture<Void> future = new CompletableFuture<>();
+            vertx.setTimer(10, id -> future.complete(null));
+            return future;
         };
     }
 

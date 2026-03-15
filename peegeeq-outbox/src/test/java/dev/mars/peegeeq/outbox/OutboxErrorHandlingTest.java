@@ -25,18 +25,22 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -47,6 +51,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  * Tests for error handling, retry mechanisms, and failure scenarios in the outbox pattern.
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 public class OutboxErrorHandlingTest {
 
@@ -113,10 +118,10 @@ public class OutboxErrorHandlingTest {
     }
 
     @Test
-    void testMessageProcessingFailureAndRetry() throws Exception {
+    void testMessageProcessingFailureAndRetry(VertxTestContext testContext) throws Exception {
         String testMessage = "Message that will fail initially";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch successLatch = new CountDownLatch(1);
+        Checkpoint successCheckpoint = testContext.checkpoint();
 
         // Send the message first
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
@@ -134,23 +139,23 @@ public class OutboxErrorHandlingTest {
             } else {
                 // Succeed on the 3rd attempt
                 System.out.println("SUCCESS: Processing succeeded on attempt " + attempt);
-                successLatch.countDown();
+                successCheckpoint.flag();
                 return CompletableFuture.completedFuture(null);
             }
         });
 
         // Wait for eventual success (should retry and eventually succeed)
-        assertTrue(successLatch.await(30, TimeUnit.SECONDS), 
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 
             "Message should eventually be processed successfully after retries");
         assertTrue(attemptCount.get() >= 3, 
             "Should have made at least 3 attempts (2 failures + 1 success)");
     }
 
     @Test
-    void testConsumerExceptionHandling() throws Exception {
+    void testConsumerExceptionHandling(VertxTestContext testContext) throws Exception {
         String testMessage = "Message that causes exception";
         AtomicInteger exceptionCount = new AtomicInteger(0);
-        CountDownLatch exceptionLatch = new CountDownLatch(1);
+        Checkpoint exceptionCheckpoint = testContext.checkpoint();
 
         // Send the message
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
@@ -159,12 +164,12 @@ public class OutboxErrorHandlingTest {
         consumer.subscribe(message -> {
             int count = exceptionCount.incrementAndGet();
             System.out.println("INTENTIONAL FAILURE: Processing attempt " + count + ", throwing exception");
-            exceptionLatch.countDown();
+            exceptionCheckpoint.flag();
             throw new RuntimeException("Intentional exception for testing");
         });
 
         // Wait for at least one exception to be thrown
-        assertTrue(exceptionLatch.await(15, TimeUnit.SECONDS), 
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), 
             "Consumer should throw exception when processing message");
         assertTrue(exceptionCount.get() >= 1, 
             "Should have thrown at least one exception");
@@ -194,21 +199,21 @@ public class OutboxErrorHandlingTest {
     }
 
     @Test
-    void testConsumerUnsubscribe() throws Exception {
+    void testConsumerUnsubscribe(Vertx vertx, VertxTestContext testContext) throws Exception {
         AtomicInteger receivedCount = new AtomicInteger(0);
-        CountDownLatch firstMessageLatch = new CountDownLatch(1);
+        Checkpoint firstMessageCheckpoint = testContext.checkpoint();
 
         // Subscribe to messages
         consumer.subscribe(message -> {
             int count = receivedCount.incrementAndGet();
             System.out.println("Received message " + count + ": " + message.getPayload());
-            firstMessageLatch.countDown();
+            firstMessageCheckpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
 
         // Send and receive first message
         producer.send("First message").get(5, TimeUnit.SECONDS);
-        assertTrue(firstMessageLatch.await(10, TimeUnit.SECONDS), 
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), 
             "Should receive first message");
         assertEquals(1, receivedCount.get(), "Should have received exactly one message");
 
@@ -218,28 +223,28 @@ public class OutboxErrorHandlingTest {
         // Send another message
         producer.send("Second message after unsubscribe").get(5, TimeUnit.SECONDS);
 
-        // Wait and verify no additional messages were received
-        Thread.sleep(3000);
+        // GC-settle: wait and verify no additional messages were received
+        vertx.timer(3000).toCompletionStage().toCompletableFuture().join();
         assertEquals(1, receivedCount.get(), 
             "Should not receive messages after unsubscribe");
     }
 
     @Test
-    void testConsumerClose() throws Exception {
+    void testConsumerClose(Vertx vertx, VertxTestContext testContext) throws Exception {
         AtomicInteger receivedCount = new AtomicInteger(0);
-        CountDownLatch firstMessageLatch = new CountDownLatch(1);
+        Checkpoint firstMessageCheckpoint = testContext.checkpoint();
 
         // Subscribe to messages
         consumer.subscribe(message -> {
             int count = receivedCount.incrementAndGet();
             System.out.println("Received message " + count + ": " + message.getPayload());
-            firstMessageLatch.countDown();
+            firstMessageCheckpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
 
         // Send and receive first message
         producer.send("Message before close").get(5, TimeUnit.SECONDS);
-        assertTrue(firstMessageLatch.await(10, TimeUnit.SECONDS), 
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), 
             "Should receive first message");
         assertEquals(1, receivedCount.get(), "Should have received exactly one message");
 
@@ -249,8 +254,8 @@ public class OutboxErrorHandlingTest {
         // Send another message
         producer.send("Message after close").get(5, TimeUnit.SECONDS);
 
-        // Wait and verify no additional messages were received
-        Thread.sleep(3000);
+        // GC-settle: wait and verify no additional messages were received
+        vertx.timer(3000).toCompletionStage().toCompletableFuture().join();
         assertEquals(1, receivedCount.get(), 
             "Should not receive messages after consumer is closed");
     }
@@ -271,7 +276,7 @@ public class OutboxErrorHandlingTest {
     }
 
     @Test
-    void testLargeMessageHandling() throws Exception {
+    void testLargeMessageHandling(VertxTestContext testContext) throws Exception {
         // Create a large message (1MB)
         StringBuilder largeMessage = new StringBuilder();
         for (int i = 0; i < 100000; i++) {
@@ -279,13 +284,13 @@ public class OutboxErrorHandlingTest {
         }
         
         String testMessage = largeMessage.toString();
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint checkpoint = testContext.checkpoint();
         AtomicInteger receivedCount = new AtomicInteger(0);
 
         // Set up consumer
         consumer.subscribe(message -> {
             receivedCount.incrementAndGet();
-            latch.countDown();
+            checkpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -294,7 +299,7 @@ public class OutboxErrorHandlingTest {
         sendFuture.get(10, TimeUnit.SECONDS);
 
         // Wait for message to be received
-        assertTrue(latch.await(15, TimeUnit.SECONDS), 
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), 
             "Large message should be received within timeout");
         assertEquals(1, receivedCount.get(), 
             "Should receive exactly one large message");

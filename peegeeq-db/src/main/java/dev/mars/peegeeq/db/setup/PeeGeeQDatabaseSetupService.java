@@ -106,6 +106,18 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
     private final SqlTemplateProcessor templateProcessor = new SqlTemplateProcessor();
 
     /**
+     * Registers pre-built setup state for a given setupId.
+     * Package-private — intended only for lifecycle tests that need to
+     * verify teardown ordering without running the full setup flow.
+     */
+    void registerSetupForTesting(String setupId, DatabaseSetupResult result,
+                                 DatabaseConfig config, PeeGeeQManager manager) {
+        activeSetups.put(setupId, result);
+        setupDatabaseConfigs.put(setupId, config);
+        activeManagers.put(setupId, manager);
+    }
+
+    /**
      * Creates a new database setup service without EventStore support.
      * Use this constructor when EventStore functionality is not needed.
      */
@@ -553,24 +565,6 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
                 return CompletableFuture.completedFuture(null); // Don't throw error for non-existent setup
             }
 
-            CompletableFuture<Void> shutdownFuture = CompletableFuture.completedFuture(null);
-
-            // Stop manager reactively to avoid blocking/event-loop violations.
-            if (manager != null) {
-                logger.info("Stopping PeeGeeQManager for setup: {}", setupId);
-                shutdownFuture = manager.stopReactive()
-                        .toCompletionStage()
-                        .toCompletableFuture()
-                        .whenComplete((v, e) -> {
-                            if (e != null) {
-                                logger.error("Failed to stop PeeGeeQManager for setup: {}", setupId, e);
-                            } else {
-                                logger.info("PeeGeeQManager stopped successfully for setup: {}", setupId);
-                            }
-                        })
-                        .exceptionally(e -> null);
-            }
-
             final CompletableFuture<Void> closeResourcesFuture = (setup != null)
                     ? CompletableFuture.runAsync(() -> {
                         if (setup.getQueueFactories() != null) {
@@ -595,8 +589,30 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
                     })
                     : CompletableFuture.completedFuture(null);
 
+            CompletableFuture<Void> shutdownFuture = CompletableFuture.completedFuture(null);
+
+            // Close setup-owned resources before shutting down the manager so resource
+            // cleanup can still use its Vert.x and database lifecycle safely.
+            if (manager != null) {
+                shutdownFuture = closeResourcesFuture.thenCompose(v -> {
+                    logger.info("Closing PeeGeeQManager for setup: {}", setupId);
+                    return manager.closeReactive()
+                            .toCompletionStage()
+                            .toCompletableFuture()
+                            .whenComplete((ignored, error) -> {
+                                if (error != null) {
+                                    logger.error("Failed to close PeeGeeQManager for setup: {}", setupId, error);
+                                } else {
+                                    logger.info("PeeGeeQManager closed successfully for setup: {}", setupId);
+                                }
+                            })
+                            .exceptionally(error -> null);
+                });
+            } else {
+                shutdownFuture = closeResourcesFuture;
+            }
+
             return shutdownFuture
-                    .thenCompose(v -> closeResourcesFuture)
                     .thenCompose(v -> {
                         // Drop the database if it's a test setup
                         if (dbConfig != null && setupId.contains("test")) {

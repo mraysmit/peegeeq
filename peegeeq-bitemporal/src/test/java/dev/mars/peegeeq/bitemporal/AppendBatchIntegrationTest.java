@@ -25,7 +25,10 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -51,6 +54,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 class AppendBatchIntegrationTest {
 
     private static <T> T await(io.vertx.core.Future<T> future, long timeout, TimeUnit unit) throws Exception {
@@ -71,6 +75,7 @@ class AppendBatchIntegrationTest {
     private PeeGeeQManager manager;
     private BiTemporalEventStoreFactory factory;
     private PgBiTemporalEventStore<TestEvent> eventStore;
+    private Vertx vertx;
     private final Map<String, String> originalProperties = new HashMap<>();
 
     public static class TestEvent {
@@ -138,7 +143,8 @@ class AppendBatchIntegrationTest {
     }
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(Vertx vertx) throws Exception {
+        this.vertx = vertx;
         cleanupDatabase();
 
         setTestProperty("peegeeq.database.host", postgres.getHost());
@@ -195,7 +201,7 @@ class AppendBatchIntegrationTest {
     }
 
     private void awaitAsyncDelay(long delayMs) throws Exception {
-        TimeUnit.MILLISECONDS.sleep(delayMs);
+        vertx.timer(delayMs).toCompletionStage().toCompletableFuture().get(delayMs + 5000, TimeUnit.MILLISECONDS);
     }
 
     @Test

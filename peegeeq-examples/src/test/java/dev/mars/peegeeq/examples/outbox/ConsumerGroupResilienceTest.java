@@ -39,11 +39,16 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -68,6 +73,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 class ConsumerGroupResilienceTest {
     private static final Logger logger = LoggerFactory.getLogger(ConsumerGroupResilienceTest.class);
     static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
@@ -168,7 +174,7 @@ class ConsumerGroupResilienceTest {
      * certain messages to verify error handling and recovery mechanisms.
      */
     @Test
-    void testConsumerFailureRecovery() throws Exception {
+    void testConsumerFailureRecovery(Vertx vertx, VertxTestContext testContext) throws Exception {
         System.out.println(" ===== RUNNING INTENTIONAL CONSUMER FAILURE RECOVERY TEST ===== ");
         System.out.println(" **INTENTIONAL TEST**  This test deliberately creates failing consumers to test recovery mechanisms");
         logger.info("Testing consumer failure recovery");
@@ -186,12 +192,12 @@ class ConsumerGroupResilienceTest {
         // Add a consumer that fails on certain messages
         System.out.println("INTENTIONAL FAILURE: Adding consumer that will fail on specific messages");
         orderGroup.addConsumer("failing-consumer",
-            createFailingHandler(successfulCount, failedCount),
+            createFailingHandler(successfulCount, failedCount, vertx),
             MessageFilter.byRegion(Set.of("US")));
 
         // Add a backup consumer that processes all messages
         orderGroup.addConsumer("backup-consumer",
-            createBackupHandler(recoveredCount),
+            createBackupHandler(recoveredCount, vertx),
             MessageFilter.acceptAll());
 
         // Start the consumer group
@@ -203,22 +209,29 @@ class ConsumerGroupResilienceTest {
         System.out.println("INTENTIONAL FAILURE: Sending messages that will trigger consumer failures");
         sendFailureTestMessages();
 
-        // Wait for processing and recovery using CompletableFuture
-        CompletableFuture.runAsync(() -> {
-            try { Thread.sleep(10000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-        }).join();
+        // Wait for processing and recovery using Vert.x periodic polling
+        vertx.setPeriodic(100, timerId -> {
+            if (failedCount.get() > 0 && successfulCount.get() > 0 && recoveredCount.get() > 0) {
+                vertx.cancelTimer(timerId);
+                try {
+                    logger.info("Failure recovery results:");
+                    logger.info("  Successful processing: {}", successfulCount.get());
+                    logger.info("  Failed processing: {}", failedCount.get());
+                    logger.info("  Recovered by backup: {}", recoveredCount.get());
 
-        logger.info("Failure recovery results:");
-        logger.info("  Successful processing: {}", successfulCount.get());
-        logger.info("  Failed processing: {}", failedCount.get());
-        logger.info("  Recovered by backup: {}", recoveredCount.get());
+                    assertTrue(failedCount.get() > 0, "Some failures should have occurred");
+                    assertTrue(successfulCount.get() > 0, "Some messages should have been processed successfully");
+                    assertTrue(recoveredCount.get() > 0, "Backup consumer should have processed messages");
 
-        // Verify that failures occurred but system continued processing
-        assertTrue(failedCount.get() > 0, "Some failures should have occurred");
-        assertTrue(successfulCount.get() > 0, "Some messages should have been processed successfully");
-        assertTrue(recoveredCount.get() > 0, "Backup consumer should have processed messages");
+                    orderGroup.close();
+                    testContext.completeNow();
+                } catch (Throwable t) {
+                    testContext.failNow(t);
+                }
+            }
+        });
 
-        orderGroup.close();
+        testContext.awaitCompletion(20, TimeUnit.SECONDS);
         System.out.println("✅ **SUCCESS** ✅ Consumer failure recovery mechanisms worked correctly");
         System.out.println(" ===== INTENTIONAL FAILURE TEST COMPLETED ===== ");
         logger.info("Consumer failure recovery test completed successfully");
@@ -228,7 +241,7 @@ class ConsumerGroupResilienceTest {
      * Test consumer group behavior with invalid message filters.
      */
     @Test
-    void testInvalidMessageFilterHandling() throws Exception {
+    void testInvalidMessageFilterHandling(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Testing invalid message filter handling");
         
         // Create consumer group with unique names
@@ -241,7 +254,7 @@ class ConsumerGroupResilienceTest {
         
         // Add consumer with a filter that might throw exceptions
         testGroup.addConsumer("filter-test-consumer", 
-            createFilterTestHandler(processedCount), 
+            createFilterTestHandler(processedCount, vertx), 
             createExceptionThrowingFilter(filteredCount));
         
         // Start the consumer group
@@ -250,19 +263,23 @@ class ConsumerGroupResilienceTest {
         // Send test messages
         sendFilterTestMessages();
 
-        // Wait for processing using CompletableFuture
-        CompletableFuture.runAsync(() -> {
-            try { Thread.sleep(5000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-        }).join();
-        
-        logger.info("Filter handling results:");
-        logger.info("  Messages processed: {}", processedCount.get());
-        logger.info("  Filter exceptions: {}", filteredCount.get());
-        
-        // Verify that filter exceptions are handled gracefully
-        assertTrue(processedCount.get() >= 0, "Some messages should be processed");
-        
-        testGroup.close();
+        // Wait for processing
+        vertx.setTimer(5000, timerId -> {
+            try {
+                logger.info("Filter handling results:");
+                logger.info("  Messages processed: {}", processedCount.get());
+                logger.info("  Filter exceptions: {}", filteredCount.get());
+
+                assertTrue(processedCount.get() >= 0, "Some messages should be processed");
+
+                testGroup.close();
+                testContext.completeNow();
+            } catch (Throwable t) {
+                testContext.failNow(t);
+            }
+        });
+
+        testContext.awaitCompletion(10, TimeUnit.SECONDS);
         logger.info("Invalid message filter handling test completed successfully");
     }
     
@@ -270,7 +287,7 @@ class ConsumerGroupResilienceTest {
      * Test consumer group statistics and monitoring during failures.
      */
     @Test
-    void testConsumerGroupStatisticsDuringFailures() throws Exception {
+    void testConsumerGroupStatisticsDuringFailures(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Testing consumer group statistics during failures");
         
         // Create consumer group with unique names
@@ -282,7 +299,7 @@ class ConsumerGroupResilienceTest {
         
         // Add consumer that occasionally fails
         ConsumerGroupMember<OrderEvent> member = monitoringGroup.addConsumer("monitoring-consumer", 
-            createMonitoringHandler(processedCount), 
+            createMonitoringHandler(processedCount, vertx), 
             MessageFilter.acceptAll());
         
         // Start the consumer group
@@ -291,26 +308,31 @@ class ConsumerGroupResilienceTest {
         // Send test messages
         sendMonitoringTestMessages();
 
-        // Wait for processing using CompletableFuture
-        CompletableFuture.runAsync(() -> {
-            try { Thread.sleep(8000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-        }).join();
-        
-        // Check consumer group statistics
-        assertTrue(monitoringGroup.isActive(), "Consumer group should be active");
-        assertEquals(1, monitoringGroup.getActiveConsumerCount(), "One consumer should be active");
-        
-        // Check member statistics
-        assertTrue(member.isActive(), "Consumer member should be active");
-        assertTrue(member.getStats().getMessagesProcessed() > 0, "Some messages should have been processed");
+        // Wait for processing using Vert.x periodic polling
+        vertx.setPeriodic(100, timerId -> {
+            if (member.getStats().getMessagesProcessed() > 0) {
+                vertx.cancelTimer(timerId);
+                try {
+                    assertTrue(monitoringGroup.isActive(), "Consumer group should be active");
+                    assertEquals(1, monitoringGroup.getActiveConsumerCount(), "One consumer should be active");
+                    assertTrue(member.isActive(), "Consumer member should be active");
+                    assertTrue(member.getStats().getMessagesProcessed() > 0, "Some messages should have been processed");
 
-        logger.info("Monitoring statistics:");
-        logger.info("  Group active: {}", monitoringGroup.isActive());
-        logger.info("  Active consumers: {}", monitoringGroup.getActiveConsumerCount());
-        logger.info("  Member processed count: {}", member.getStats().getMessagesProcessed());
-        logger.info("  Total processed: {}", processedCount.get());
-        
-        monitoringGroup.close();
+                    logger.info("Monitoring statistics:");
+                    logger.info("  Group active: {}", monitoringGroup.isActive());
+                    logger.info("  Active consumers: {}", monitoringGroup.getActiveConsumerCount());
+                    logger.info("  Member processed count: {}", member.getStats().getMessagesProcessed());
+                    logger.info("  Total processed: {}", processedCount.get());
+
+                    monitoringGroup.close();
+                    testContext.completeNow();
+                } catch (Throwable t) {
+                    testContext.failNow(t);
+                }
+            }
+        });
+
+        testContext.awaitCompletion(15, TimeUnit.SECONDS);
         logger.info("Consumer group statistics test completed successfully");
     }
 
@@ -336,7 +358,7 @@ class ConsumerGroupResilienceTest {
      * INTENTIONAL FAILURE HANDLER: This handler deliberately fails on orders
      * with IDs ending in 5 or 7 to test failure recovery.
      */
-    private MessageHandler<OrderEvent> createFailingHandler(AtomicInteger successCount, AtomicInteger failCount) {
+    private MessageHandler<OrderEvent> createFailingHandler(AtomicInteger successCount, AtomicInteger failCount, Vertx vertx) {
         return message -> {
             OrderEvent event = message.getPayload();
 
@@ -352,45 +374,45 @@ class ConsumerGroupResilienceTest {
 
             successCount.incrementAndGet();
 
-            // Simulate processing delay using CompletableFuture
-            return CompletableFuture.runAsync(() -> {
-                try { Thread.sleep(100); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-            });
+            // Simulate processing delay using Vert.x timer
+            CompletableFuture<Void> future = new CompletableFuture<>();
+            vertx.setTimer(100, id -> future.complete(null));
+            return future;
         };
     }
 
     /**
      * Creates a backup message handler that processes all messages.
      */
-    private MessageHandler<OrderEvent> createBackupHandler(AtomicInteger recoveredCount) {
+    private MessageHandler<OrderEvent> createBackupHandler(AtomicInteger recoveredCount, Vertx vertx) {
         return message -> {
             recoveredCount.incrementAndGet();
 
-            // Simulate recovery processing delay using CompletableFuture
-            return CompletableFuture.runAsync(() -> {
-                try { Thread.sleep(50); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-            });
+            // Simulate recovery processing delay using Vert.x timer
+            CompletableFuture<Void> future = new CompletableFuture<>();
+            vertx.setTimer(50, id -> future.complete(null));
+            return future;
         };
     }
 
     /**
      * Creates a message handler for filter testing.
      */
-    private MessageHandler<OrderEvent> createFilterTestHandler(AtomicInteger processedCount) {
+    private MessageHandler<OrderEvent> createFilterTestHandler(AtomicInteger processedCount, Vertx vertx) {
         return message -> {
             processedCount.incrementAndGet();
 
-            // Simulate filter processing delay using CompletableFuture
-            return CompletableFuture.runAsync(() -> {
-                try { Thread.sleep(25); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-            });
+            // Simulate filter processing delay using Vert.x timer
+            CompletableFuture<Void> future = new CompletableFuture<>();
+            vertx.setTimer(25, id -> future.complete(null));
+            return future;
         };
     }
 
     /**
      * Creates a message handler for monitoring tests.
      */
-    private MessageHandler<OrderEvent> createMonitoringHandler(AtomicInteger processedCount) {
+    private MessageHandler<OrderEvent> createMonitoringHandler(AtomicInteger processedCount, Vertx vertx) {
         return message -> {
             OrderEvent event = message.getPayload();
 
@@ -399,10 +421,10 @@ class ConsumerGroupResilienceTest {
 
             processedCount.incrementAndGet();
 
-            // Simulate monitoring processing delay using CompletableFuture
-            return CompletableFuture.runAsync(() -> {
-                try { Thread.sleep(delay); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-            });
+            // Simulate monitoring processing delay using Vert.x timer
+            CompletableFuture<Void> future = new CompletableFuture<>();
+            vertx.setTimer(delay, id -> future.complete(null));
+            return future;
         };
     }
 

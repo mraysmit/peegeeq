@@ -75,7 +75,7 @@ public class ResilienceSmokeTest extends SmokeTestBase {
                         serviceUnavailable = true;
                         break;
                     }
-                    Thread.sleep(1000);
+                    vertx.timer(1000).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
                 }
                 assertTrue(serviceUnavailable, "Service should return 503 when DB is paused");
 
@@ -100,7 +100,7 @@ public class ResilienceSmokeTest extends SmokeTestBase {
                             break;
                         }
                     } catch (Exception ignored) {}
-                    Thread.sleep(1000);
+                    vertx.timer(1000).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
             }
             assertTrue(recovered, "Service should recover (200 OK) after DB is unpaused");
 
@@ -174,7 +174,7 @@ public class ResilienceSmokeTest extends SmokeTestBase {
                     } catch (Exception ignored) {}
                     
                     // Wait for health check cache to expire (interval is 1s)
-                    Thread.sleep(1100);
+                    vertx.timer(1100).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
                 }
 
                 // 4. Verify Circuit Breaker is OPEN (Fast failure)

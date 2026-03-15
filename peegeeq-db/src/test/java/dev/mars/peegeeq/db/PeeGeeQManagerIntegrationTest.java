@@ -126,11 +126,8 @@ public class PeeGeeQManagerIntegrationTest {
         assertDoesNotThrow(() -> manager.start());
         
         // Wait a moment for initialization
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+                    manager.getVertx().timer(2000).toCompletionStage().toCompletableFuture().join();
+
         
         // Verify system is healthy
         assertTrue(manager.isHealthy(), "System should be healthy after start");
@@ -178,11 +175,8 @@ public class PeeGeeQManagerIntegrationTest {
         manager.start();
         
         // Wait for health checks to run
-        try {
-            Thread.sleep(3000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+                    manager.getVertx().timer(3000).toCompletionStage().toCompletableFuture().join();
+
         
         // Test overall health
         assertTrue(manager.isHealthy());
@@ -259,12 +253,8 @@ public class PeeGeeQManagerIntegrationTest {
         assertNotNull(dlqManager);
 
         // Clean up any existing messages from parallel tests
-        try {
-            dlqManager.cleanupOldMessages(1).join();
-            Thread.sleep(100); // Allow cleanup to complete
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        dlqManager.cleanupOldMessages(1).join();
+        manager.getVertx().timer(100).toCompletionStage().toCompletableFuture().join(); // Allow cleanup to complete
 
         // Test statistics (should be empty after cleanup)
         DeadLetterStatsInfo stats = dlqManager.getStatistics().join();
@@ -303,11 +293,8 @@ public class PeeGeeQManagerIntegrationTest {
         manager.start();
         
         // Wait for components to initialize
-        try {
-            Thread.sleep(2000);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+                    manager.getVertx().timer(2000).toCompletionStage().toCompletableFuture().join();
+
         
         PeeGeeQManager.SystemStatus status = manager.getSystemStatus();
         assertNotNull(status);

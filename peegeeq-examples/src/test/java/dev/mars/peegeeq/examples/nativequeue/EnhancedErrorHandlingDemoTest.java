@@ -13,7 +13,10 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -45,6 +48,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class EnhancedErrorHandlingDemoTest {
 
@@ -171,7 +175,7 @@ class EnhancedErrorHandlingDemoTest {
     @Test
     @Order(1)
     @DisplayName("Demonstrate Enhanced Error Handling with Retry and DLQ")
-    void demonstrateEnhancedErrorHandling() throws Exception {
+    void demonstrateEnhancedErrorHandling(Vertx vertx) throws Exception {
         logger.info("🚀 Step 1: Demonstrating enhanced error handling patterns");
         
         // Create producers and consumers for main queue and DLQ
@@ -291,15 +295,9 @@ class EnhancedErrorHandlingDemoTest {
         CompletableFuture.allOf(producerTasks.toArray(new CompletableFuture[0])).get();
 
         // Wait for processing to complete using CompletableFuture
-        CompletableFuture<Void> processingComplete = CompletableFuture.runAsync(() -> {
-            try {
-                // Wait for message processing to complete
-                Thread.sleep(5000);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
-        });
-        processingComplete.join();
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(5000, id -> delay.complete(null));
+        delay.join();
         
         // Stop consumers
         consumer.close();

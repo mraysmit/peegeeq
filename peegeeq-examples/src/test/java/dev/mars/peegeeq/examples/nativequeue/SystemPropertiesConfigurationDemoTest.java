@@ -21,13 +21,16 @@ import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -45,6 +48,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class SystemPropertiesConfigurationDemoTest {
 
@@ -174,7 +178,7 @@ class SystemPropertiesConfigurationDemoTest {
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown(Vertx vertx) {
         System.out.println("🧹 Cleaning up System Properties Configuration Demo Test");
 
         // CRITICAL: Close all consumers first to stop background polling
@@ -209,7 +213,9 @@ class SystemPropertiesConfigurationDemoTest {
 
                 // CRITICAL: Wait for all resources to be fully released
                 // This prevents connection pool exhaustion in subsequent tests
-                Thread.sleep(2000);
+                CompletableFuture<Void> delay = new CompletableFuture<>();
+                vertx.setTimer(2000, id -> delay.complete(null));
+                delay.join();
                 System.out.println("⏱️ Resource cleanup wait completed");
             } catch (Exception e) {
                 System.err.println("⚠️ Error during manager cleanup: " + e.getMessage());
@@ -230,12 +236,12 @@ class SystemPropertiesConfigurationDemoTest {
     @Test
     @Order(1)
     @DisplayName("Dynamic Configuration Management - Runtime Property Updates")
-    void testDynamicConfigurationManagement() throws Exception {
+    void testDynamicConfigurationManagement(Vertx vertx, VertxTestContext testContext) throws Exception {
         System.out.println("\n🔄 Testing Dynamic Configuration Management");
 
         String queueName = "config-dynamic-queue";
         List<ConfigurationEvent> receivedEvents = new ArrayList<>();
-        CountDownLatch latch = new CountDownLatch(3); // Expect 3 configuration updates
+        var processedCheckpoint = testContext.checkpoint(3); // Expect 3 configuration updates
 
         // Create producer and consumer
         MessageProducer<ConfigurationEvent> producer = queueFactory.createProducer(queueName, ConfigurationEvent.class);
@@ -254,7 +260,7 @@ class SystemPropertiesConfigurationDemoTest {
                              " - Debug: " + event.getDebugEnabled());
             System.out.println("📨 Full event: " + event.toString());
             receivedEvents.add(event);
-            latch.countDown();
+            processedCheckpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -274,7 +280,7 @@ class SystemPropertiesConfigurationDemoTest {
         producer.send(new ConfigurationEvent("config-3", "development", null, null, true, "enabled_debug"));
 
         // Wait for all configuration updates
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Should receive all configuration updates");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive all configuration updates");
 
         // Verify configuration updates
         assertEquals(3, receivedEvents.size(), "Should receive exactly 3 configuration updates");
@@ -318,12 +324,12 @@ class SystemPropertiesConfigurationDemoTest {
     @Test
     @Order(2)
     @DisplayName("Environment-Specific Settings - DEV/STAGING/PROD Configurations")
-    void testEnvironmentSpecificSettings() throws Exception {
+    void testEnvironmentSpecificSettings(Vertx vertx, VertxTestContext testContext) throws Exception {
         System.out.println("\n🌍 Testing Environment-Specific Settings");
 
         String queueName = "config-environment-queue";
         List<ConfigurationEvent> receivedEvents = new ArrayList<>();
-        CountDownLatch latch = new CountDownLatch(Environment.values().length);
+        var processedCheckpoint = testContext.checkpoint(Environment.values().length);
 
         // Create producer and consumer
         MessageProducer<ConfigurationEvent> producer = queueFactory.createProducer(queueName, ConfigurationEvent.class);
@@ -341,7 +347,7 @@ class SystemPropertiesConfigurationDemoTest {
                              ", Timeout: " + event.getTimeoutMs() +
                              ", Debug: " + event.getDebugEnabled());
             receivedEvents.add(event);
-            latch.countDown();
+            processedCheckpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -362,7 +368,7 @@ class SystemPropertiesConfigurationDemoTest {
         }
 
         // Wait for all environment configurations
-        assertTrue(latch.await(15, TimeUnit.SECONDS), "Should receive all environment configurations");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should receive all environment configurations");
 
         // Verify environment configurations
         assertEquals(Environment.values().length, receivedEvents.size(),
@@ -388,13 +394,13 @@ class SystemPropertiesConfigurationDemoTest {
     @Test
     @Order(3)
     @DisplayName("Configuration Validation - Property Validation and Error Handling")
-    void testConfigurationValidation() throws Exception {
+    void testConfigurationValidation(Vertx vertx, VertxTestContext testContext) throws Exception {
         System.out.println("\n✅ Testing Configuration Validation");
 
         String queueName = "config-validation-queue";
         List<ConfigurationEvent> validEvents = new ArrayList<>();
         List<String> validationErrors = new ArrayList<>();
-        CountDownLatch latch = new CountDownLatch(5); // 3 valid + 2 invalid configurations
+        var processedCheckpoint = testContext.checkpoint(5); // 3 valid + 2 invalid configurations
 
         // Create producer and consumer
         MessageProducer<ConfigurationEvent> producer = queueFactory.createProducer(queueName, ConfigurationEvent.class);
@@ -422,7 +428,7 @@ class SystemPropertiesConfigurationDemoTest {
                 System.out.println("⚠️ " + error);
                 validationErrors.add(error);
             }
-            latch.countDown();
+            processedCheckpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -445,7 +451,7 @@ class SystemPropertiesConfigurationDemoTest {
         producer.send(new ConfigurationEvent("invalid-2", "development", 100, 0, true, "zero_timeout"));
 
         // Wait for all validation attempts
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Should process all configuration validations");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process all configuration validations");
 
         // Verify validation results
         assertEquals(3, validEvents.size(), "Should have 3 valid configurations");
@@ -467,13 +473,13 @@ class SystemPropertiesConfigurationDemoTest {
     @Test
     @Order(4)
     @DisplayName("Hot Configuration Reload - Live Configuration Updates")
-    void testHotConfigurationReload() throws Exception {
+    void testHotConfigurationReload(Vertx vertx, VertxTestContext testContext) throws Exception {
         System.out.println("\n🔥 Testing Hot Configuration Reload");
 
         String queueName = "config-hot-reload-queue";
         AtomicInteger reloadCount = new AtomicInteger(0);
         List<ConfigurationEvent> reloadEvents = new ArrayList<>();
-        CountDownLatch latch = new CountDownLatch(4); // 4 hot reloads
+        var processedCheckpoint = testContext.checkpoint(4); // 4 hot reloads
 
         // Create producer and consumer
         MessageProducer<ConfigurationEvent> producer = queueFactory.createProducer(queueName, ConfigurationEvent.class);
@@ -490,7 +496,7 @@ class SystemPropertiesConfigurationDemoTest {
             System.out.println("🔥 Hot reload #" + currentReload + ": " + event.getEventId() +
                              " - Config: " + event.toString());
             reloadEvents.add(event);
-            latch.countDown();
+            processedCheckpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -500,33 +506,35 @@ class SystemPropertiesConfigurationDemoTest {
         // Reload 1: Increase batch size during runtime
         producer.send(new ConfigurationEvent("hot-reload-1", "production", 500, null, null, "performance_optimization"));
 
-        // Use CompletableFuture for async delay instead of Thread.sleep
-        CompletableFuture<Void> delay1 = CompletableFuture.runAsync(() -> {
-            try { Thread.sleep(500); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
+        vertx.setTimer(500, id1 -> {
+            try {
+                // Reload 2: Adjust timeout for better responsiveness
+                producer.send(new ConfigurationEvent("hot-reload-2", "production", null, 15000, null, "responsiveness_improvement"));
+
+                vertx.setTimer(500, id2 -> {
+                    try {
+                        // Reload 3: Enable debug for troubleshooting
+                        producer.send(new ConfigurationEvent("hot-reload-3", "production", null, null, true, "troubleshooting_enabled"));
+
+                        vertx.setTimer(500, id3 -> {
+                            try {
+                                // Reload 4: Complete configuration update
+                                producer.send(new ConfigurationEvent("hot-reload-4", "production", 750, 20000, false, "complete_optimization"));
+                            } catch (Exception e) {
+                                testContext.failNow(e);
+                            }
+                        });
+                    } catch (Exception e) {
+                        testContext.failNow(e);
+                    }
+                });
+            } catch (Exception e) {
+                testContext.failNow(e);
+            }
         });
-        delay1.join();
-
-        // Reload 2: Adjust timeout for better responsiveness
-        producer.send(new ConfigurationEvent("hot-reload-2", "production", null, 15000, null, "responsiveness_improvement"));
-
-        CompletableFuture<Void> delay2 = CompletableFuture.runAsync(() -> {
-            try { Thread.sleep(500); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-        });
-        delay2.join();
-
-        // Reload 3: Enable debug for troubleshooting
-        producer.send(new ConfigurationEvent("hot-reload-3", "production", null, null, true, "troubleshooting_enabled"));
-
-        CompletableFuture<Void> delay3 = CompletableFuture.runAsync(() -> {
-            try { Thread.sleep(500); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
-        });
-        delay3.join();
-
-        // Reload 4: Complete configuration update
-        producer.send(new ConfigurationEvent("hot-reload-4", "production", 750, 20000, false, "complete_optimization"));
 
         // Wait for all hot reloads
-        assertTrue(latch.await(15, TimeUnit.SECONDS), "Should complete all hot reloads");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should complete all hot reloads");
 
         // Verify hot reload results
         assertEquals(4, reloadEvents.size(), "Should have 4 hot reload events");

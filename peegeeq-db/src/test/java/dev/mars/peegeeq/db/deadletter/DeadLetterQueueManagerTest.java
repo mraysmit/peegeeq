@@ -129,7 +129,7 @@ class DeadLetterQueueManagerTest {
             }).toCompletionStage().toCompletableFuture().get(10, java.util.concurrent.TimeUnit.SECONDS);
 
             // Add a small delay to ensure transaction is committed and visible
-            Thread.sleep(100);
+            vertx.timer(100).toCompletionStage().toCompletableFuture().join();
 
             System.out.println("DEBUG: Cleaned up test data for test isolation (SYNCHRONOUS)");
         } catch (Exception e) {
@@ -208,11 +208,8 @@ class DeadLetterQueueManagerTest {
         addTestDeadLetterMessage("topic2", "queue_messages", 3L);
 
         // Add delay to ensure database operations are committed
-        try {
-            Thread.sleep(500); // Increased delay for parallel execution
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+                    vertx.timer(500).toCompletionStage().toCompletableFuture().join(); // Increased delay for parallel execution
+
 
         // Retrieve messages for topic1 with retry logic
         List<DeadLetterMessage> topic1Messages = null;
@@ -224,12 +221,8 @@ class DeadLetterQueueManagerTest {
             if (topic1Messages.size() == 2) {
                 break;
             }
-            try {
-                Thread.sleep(200);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
-            }
+                            vertx.timer(200).toCompletionStage().toCompletableFuture().join();
+
             retries++;
         }
 
@@ -279,12 +272,8 @@ class DeadLetterQueueManagerTest {
             if (!messages.isEmpty()) {
                 break;
             }
-            try {
-                Thread.sleep(200); // Increased delay for parallel execution
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
-            }
+                            vertx.timer(200).toCompletionStage().toCompletableFuture().join(); // Increased delay for parallel execution
+
             retries++;
         }
 
@@ -400,11 +389,8 @@ class DeadLetterQueueManagerTest {
         );
 
         // Add delay to ensure database operations are committed
-        try {
-            Thread.sleep(300);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+                    vertx.timer(300).toCompletionStage().toCompletableFuture().join();
+
 
         // Get statistics with retry logic for race conditions
         DeadLetterQueueStats stats = null;
@@ -417,12 +403,8 @@ class DeadLetterQueueManagerTest {
             if (stats.getTotalMessages() == 4) {
                 break;
             }
-            try {
-                Thread.sleep(300); // Increased delay
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
-            }
+                            vertx.timer(300).toCompletionStage().toCompletableFuture().join(); // Increased delay
+
             retries++;
         }
 
@@ -582,7 +564,7 @@ class DeadLetterQueueManagerTest {
         }
 
         // Add a much longer delay to ensure all database operations are committed and visible in parallel execution
-        Thread.sleep(2000); // Increased to 2 seconds for parallel execution
+        vertx.timer(2000).toCompletionStage().toCompletableFuture().join(); // Increased to 2 seconds for parallel execution
 
         // Log the success count for debugging
         int expectedMessages = threadCount * messagesPerThread;
@@ -600,7 +582,7 @@ class DeadLetterQueueManagerTest {
             if (stats.getTotalMessages() >= actualSuccessCount) {
                 break;
             }
-            Thread.sleep(500); // Increased delay for parallel execution
+            vertx.timer(500).toCompletionStage().toCompletableFuture().join(); // Increased delay for parallel execution
             retries++;
         }
 
@@ -628,11 +610,8 @@ class DeadLetterQueueManagerTest {
         );
 
         // Add a small delay to ensure transaction is committed and visible
-        try {
-            Thread.sleep(150); // Increased delay for parallel execution
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+                    vertx.timer(150).toCompletionStage().toCompletableFuture().join(); // Increased delay for parallel execution
+
     }
 
     private Map<String, String> createTestHeaders() {

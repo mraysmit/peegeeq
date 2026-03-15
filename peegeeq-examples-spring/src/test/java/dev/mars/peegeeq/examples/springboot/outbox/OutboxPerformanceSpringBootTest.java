@@ -19,12 +19,17 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 import java.time.Instant;
 import java.util.*;
-import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -48,6 +53,7 @@ import static org.junit.jupiter.api.Assertions.*;
     }
 )
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 public class OutboxPerformanceSpringBootTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxPerformanceSpringBootTest.class);
@@ -77,7 +83,7 @@ public class OutboxPerformanceSpringBootTest {
     }
 
     @AfterEach
-    void tearDown() throws InterruptedException {
+    void tearDown(Vertx vertx) throws InterruptedException {
         logger.info("🧹 Cleaning up Performance Spring Boot Test");
         
         // Close all active consumers first
@@ -104,7 +110,9 @@ public class OutboxPerformanceSpringBootTest {
         
         // Wait for connections to be fully released before next test
         logger.info("⏳ Waiting for connections to be released...");
-        Thread.sleep(2000);
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(2000, id -> delay.complete(null));
+        delay.join();
         
         logger.info("✅ Cleanup complete");
     }
@@ -116,7 +124,7 @@ public class OutboxPerformanceSpringBootTest {
      * Measures throughput and ensures all messages are processed successfully.
      */
     @Test
-    void testHighVolumeProcessing() throws Exception {
+    void testHighVolumeProcessing(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing High-Volume Message Processing ===");
         logger.info("This test processes 200 messages and measures throughput");
 
@@ -125,7 +133,7 @@ public class OutboxPerformanceSpringBootTest {
         
         // Track processing
         AtomicInteger processedCount = new AtomicInteger(0);
-        CountDownLatch latch = new CountDownLatch(messageCount);
+        Checkpoint checkpoint = testContext.checkpoint(messageCount);
         AtomicLong totalProcessingTime = new AtomicLong(0);
         
         // Create consumer
@@ -141,7 +149,7 @@ public class OutboxPerformanceSpringBootTest {
             if (count % 100 == 0) {
                 logger.info("📦 Processed {} messages", count);
             }
-            latch.countDown();
+            checkpoint.flag();
             return java.util.concurrent.CompletableFuture.completedFuture(null);
         });
         
@@ -173,7 +181,7 @@ public class OutboxPerformanceSpringBootTest {
         logger.info("   Send throughput: {} msg/sec", (messageCount * 1000L) / sendDuration);
         
         // Wait for all messages to be processed (allow 0.5 sec per message + overhead)
-        boolean completed = latch.await(150, TimeUnit.SECONDS);
+        boolean completed = testContext.awaitCompletion(150, TimeUnit.SECONDS);
         Instant processEnd = Instant.now();
 
         assertTrue(completed, "All messages should be processed within 150 seconds");
@@ -205,7 +213,7 @@ public class OutboxPerformanceSpringBootTest {
      * Tests load distribution and concurrent processing capabilities.
      */
     @Test
-    void testConcurrentConsumerPerformance() throws Exception {
+    void testConcurrentConsumerPerformance(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Concurrent Consumer Performance ===");
         logger.info("This test uses multiple consumers to process messages concurrently");
 
@@ -216,7 +224,7 @@ public class OutboxPerformanceSpringBootTest {
         // Track processing per consumer
         Map<String, AtomicInteger> consumerCounts = new java.util.concurrent.ConcurrentHashMap<>();
         AtomicInteger totalProcessed = new AtomicInteger(0);
-        CountDownLatch latch = new CountDownLatch(messageCount);
+        Checkpoint checkpoint = testContext.checkpoint(messageCount);
         
         // Create multiple consumers
         logger.info("🔧 Creating {} consumers", consumerCount);
@@ -233,7 +241,7 @@ public class OutboxPerformanceSpringBootTest {
                 if (count % 50 == 0) {
                     logger.info("📦 Total processed: {}", count);
                 }
-                latch.countDown();
+                checkpoint.flag();
                 return java.util.concurrent.CompletableFuture.completedFuture(null);
             });
             
@@ -258,7 +266,7 @@ public class OutboxPerformanceSpringBootTest {
         }
         
         // Wait for all messages to be processed (allow 0.5 sec per message + overhead)
-        boolean completed = latch.await(120, TimeUnit.SECONDS);
+        boolean completed = testContext.awaitCompletion(120, TimeUnit.SECONDS);
         Instant end = Instant.now();
 
         assertTrue(completed, "All messages should be processed within 120 seconds");
@@ -302,7 +310,7 @@ public class OutboxPerformanceSpringBootTest {
      * Tests the efficiency of processing messages in batches.
      */
     @Test
-    void testBatchProcessingEfficiency() throws Exception {
+    void testBatchProcessingEfficiency(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Batch Processing Efficiency ===");
         logger.info("This test measures batch processing performance");
 
@@ -312,7 +320,7 @@ public class OutboxPerformanceSpringBootTest {
         // Track batch processing
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicInteger batchCount = new AtomicInteger(0);
-        CountDownLatch latch = new CountDownLatch(messageCount);
+        Checkpoint checkpoint = testContext.checkpoint(messageCount);
         List<Integer> batchSizes = Collections.synchronizedList(new ArrayList<>());
         
         // Create consumer
@@ -329,7 +337,7 @@ public class OutboxPerformanceSpringBootTest {
                 logger.info("📦 Processed batch {} (total: {})", batch / 10, count);
             }
             
-            latch.countDown();
+            checkpoint.flag();
             return java.util.concurrent.CompletableFuture.completedFuture(null);
         });
         
@@ -351,13 +359,15 @@ public class OutboxPerformanceSpringBootTest {
             
             // Small burst pattern
             if (i % 50 == 0) {
-                Thread.sleep(100); // Pause between bursts
+                CompletableFuture<Void> burstDelay = new CompletableFuture<>();
+                vertx.setTimer(100, tid -> burstDelay.complete(null));
+                burstDelay.join(); // Pause between bursts
                 logger.info("   Sent {} messages", i);
             }
         }
         
         // Wait for all messages to be processed (allow 0.5 sec per message + overhead)
-        boolean completed = latch.await(90, TimeUnit.SECONDS);
+        boolean completed = testContext.awaitCompletion(90, TimeUnit.SECONDS);
         Instant end = Instant.now();
 
         assertTrue(completed, "All messages should be processed within 90 seconds");

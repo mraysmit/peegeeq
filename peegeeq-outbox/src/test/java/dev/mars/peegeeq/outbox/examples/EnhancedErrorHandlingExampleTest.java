@@ -30,11 +30,16 @@ import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -46,7 +51,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -112,6 +116,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 class EnhancedErrorHandlingExampleTest {
@@ -172,8 +177,6 @@ class EnhancedErrorHandlingExampleTest {
         if (factory != null) {
             try {
                 factory.close();
-                // Give time for resources to close properly
-                Thread.sleep(100);
             } catch (Exception e) {
                 logger.warn("Error closing factory: {}", e.getMessage());
             }
@@ -182,8 +185,6 @@ class EnhancedErrorHandlingExampleTest {
         if (manager != null) {
             try {
                 manager.closeReactive().toCompletionStage().toCompletableFuture().join();
-                // Give time for manager shutdown to complete
-                Thread.sleep(200);
             } catch (Exception e) {
                 logger.warn("Error closing manager: {}", e.getMessage());
             }
@@ -205,7 +206,7 @@ class EnhancedErrorHandlingExampleTest {
     }
     
     @Test
-    void testRetryStrategies() throws Exception {
+    void testRetryStrategies(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Retry Strategies with Exponential Backoff ===");
         
         try (MessageProducer<ErrorTestMessage> producer = factory.createProducer("retry-demo", ErrorTestMessage.class);
@@ -213,7 +214,7 @@ class EnhancedErrorHandlingExampleTest {
             
             AtomicInteger processedCount = new AtomicInteger(0);
             AtomicInteger retryCount = new AtomicInteger(0);
-            CountDownLatch latch = new CountDownLatch(3); // Expecting 3 successful messages
+            Checkpoint checkpoint = testContext.checkpoint(3); // Expecting 3 successful messages
             
             // Consumer with retry logic
             consumer.subscribe(message -> {
@@ -231,7 +232,7 @@ class EnhancedErrorHandlingExampleTest {
                     int processed = processedCount.incrementAndGet();
                     logger.info("✅ EXPECTED SUCCESS: Successfully processed message: {} (total processed: {})",
                         payload.getMessageId(), processed);
-                    latch.countDown();
+                    checkpoint.flag();
                     return CompletableFuture.completedFuture(null);
                     
                 } catch (ProcessingException e) {
@@ -241,16 +242,14 @@ class EnhancedErrorHandlingExampleTest {
                     logger.info("   📋 This failure demonstrates retry mechanism with exponential backoff");
                     
                     if (e.isRetryable() && attempt < 3) {
-                        // Simulate exponential backoff
-                        try {
-                            Thread.sleep(100 * (1L << attempt)); // 100ms, 200ms, 400ms
-                        } catch (InterruptedException ie) {
-                            Thread.currentThread().interrupt();
-                        }
-                        return CompletableFuture.failedFuture(e);
+                        // Simulate exponential backoff using Vert.x timer
+                        CompletableFuture<Void> backoffFuture = new CompletableFuture<>();
+                        long delayMs = 100 * (1L << attempt); // 100ms, 200ms, 400ms
+                        vertx.setTimer(delayMs, id -> backoffFuture.complete(null));
+                        return backoffFuture.thenCompose(v -> CompletableFuture.failedFuture(e));
                     } else {
                         logger.info("✅ EXPECTED FAILURE: Message failed after max retries: {}", payload.getMessageId());
-                        latch.countDown();
+                        checkpoint.flag();
                         return CompletableFuture.failedFuture(e);
                     }
                 }
@@ -262,8 +261,7 @@ class EnhancedErrorHandlingExampleTest {
             sendErrorTestMessage(producer, "retry-003", null, "Success message"); // Should succeed
             
             // Wait for processing - increased timeout for integration test
-            boolean completed = latch.await(60, TimeUnit.SECONDS);
-            assertTrue(completed, "Retry strategies test should complete within timeout");
+            assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Retry strategies test should complete within timeout");
             
             logger.info("✅ Retry strategies test completed successfully!");
             logger.info("   📊 Total processed: {}, Total retries: {}", processedCount.get(), retryCount.get());
@@ -271,7 +269,7 @@ class EnhancedErrorHandlingExampleTest {
     }
 
     @Test
-    void testCircuitBreakerIntegration() throws Exception {
+    void testCircuitBreakerIntegration(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Circuit Breaker Integration ===");
 
         try (MessageProducer<ErrorTestMessage> producer = factory.createProducer("circuit-breaker-demo", ErrorTestMessage.class);
@@ -279,7 +277,7 @@ class EnhancedErrorHandlingExampleTest {
 
             AtomicInteger processedCount = new AtomicInteger(0);
             AtomicInteger failureCount = new AtomicInteger(0);
-            CountDownLatch latch = new CountDownLatch(5); // Expecting 5 messages processed
+            Checkpoint checkpoint = testContext.checkpoint(5); // Expecting 5 messages processed
 
             // Simulate circuit breaker state
             AtomicInteger consecutiveFailures = new AtomicInteger(0);
@@ -295,7 +293,7 @@ class EnhancedErrorHandlingExampleTest {
                     logger.warn("🔥 INTENTIONAL TEST FAILURE: Circuit breaker is OPEN - rejecting message: {}",
                         payload.getMessageId());
                     logger.info("   📋 This demonstrates circuit breaker protection against cascading failures");
-                    latch.countDown();
+                    checkpoint.flag();
                     return CompletableFuture.failedFuture(new RuntimeException("Circuit breaker is OPEN"));
                 }
 
@@ -307,7 +305,7 @@ class EnhancedErrorHandlingExampleTest {
                     int processed = processedCount.incrementAndGet();
                     logger.info("✅ EXPECTED SUCCESS: Circuit breaker processing succeeded: {} (total: {})",
                         payload.getMessageId(), processed);
-                    latch.countDown();
+                    checkpoint.flag();
                     return CompletableFuture.completedFuture(null);
 
                 } catch (ProcessingException e) {
@@ -322,7 +320,7 @@ class EnhancedErrorHandlingExampleTest {
                         logger.warn("🔥 EXPECTED BEHAVIOR: Circuit breaker OPENED after {} consecutive failures", failures);
                     }
 
-                    latch.countDown();
+                    checkpoint.flag();
                     return CompletableFuture.failedFuture(e);
                 }
             });
@@ -335,8 +333,7 @@ class EnhancedErrorHandlingExampleTest {
             sendErrorTestMessage(producer, "cb-005", null, "Success message - but circuit breaker is open");
 
             // Wait for processing - increased timeout for integration test
-            boolean completed = latch.await(60, TimeUnit.SECONDS);
-            assertTrue(completed, "Circuit breaker test should complete within timeout");
+            assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Circuit breaker test should complete within timeout");
 
             logger.info("✅ Circuit breaker integration test completed successfully!");
             logger.info("   📊 Processed: {}, Failures: {}, Circuit breaker trips: {}",
@@ -346,7 +343,7 @@ class EnhancedErrorHandlingExampleTest {
     }
 
     @Test
-    void testDeadLetterQueueManagement() throws Exception {
+    void testDeadLetterQueueManagement(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Dead Letter Queue Management ===");
 
         try (MessageProducer<ErrorTestMessage> producer = factory.createProducer("dlq-demo", ErrorTestMessage.class);
@@ -354,7 +351,7 @@ class EnhancedErrorHandlingExampleTest {
 
             AtomicInteger processedCount = new AtomicInteger(0);
             AtomicInteger dlqCount = new AtomicInteger(0);
-            CountDownLatch latch = new CountDownLatch(4); // Expecting 4 messages processed
+            Checkpoint checkpoint = testContext.checkpoint(4); // Expecting 4 messages processed
 
             consumer.subscribe(message -> {
                 ErrorTestMessage payload = message.getPayload();
@@ -368,7 +365,7 @@ class EnhancedErrorHandlingExampleTest {
                     int processed = processedCount.incrementAndGet();
                     logger.info("✅ EXPECTED SUCCESS: DLQ demo processing succeeded: {} (total: {})",
                         payload.getMessageId(), processed);
-                    latch.countDown();
+                    checkpoint.flag();
                     return CompletableFuture.completedFuture(null);
 
                 } catch (ProcessingException e) {
@@ -378,12 +375,12 @@ class EnhancedErrorHandlingExampleTest {
                         logger.warn("💀 EXPECTED BEHAVIOR: Message moved to dead letter queue: {} (total DLQ: {})",
                             payload.getMessageId(), dlqMessages);
                         logger.info("   📋 This demonstrates proper dead letter queue management");
-                        latch.countDown();
+                        checkpoint.flag();
                         return CompletableFuture.failedFuture(new RuntimeException("Moved to DLQ: " + e.getMessage()));
                     } else {
                         logger.warn("🎯 INTENTIONAL TEST FAILURE: DLQ demo processing failed (will retry): {}",
                             payload.getMessageId());
-                        latch.countDown();
+                        checkpoint.flag();
                         return CompletableFuture.failedFuture(e);
                     }
                 }
@@ -396,8 +393,7 @@ class EnhancedErrorHandlingExampleTest {
             sendErrorTestMessage(producer, "dlq-004", "TRANSIENT_ERROR", "Network timeout");
 
             // Wait for processing - increased timeout for integration test
-            boolean completed = latch.await(60, TimeUnit.SECONDS);
-            assertTrue(completed, "Dead letter queue test should complete within timeout");
+            assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Dead letter queue test should complete within timeout");
 
             logger.info("✅ Dead letter queue management test completed successfully!");
             logger.info("   📊 Processed successfully: {}, Moved to DLQ: {}", processedCount.get(), dlqCount.get());
@@ -405,7 +401,7 @@ class EnhancedErrorHandlingExampleTest {
     }
 
     @Test
-    void testErrorClassificationAndRouting() throws Exception {
+    void testErrorClassificationAndRouting(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Error Classification and Routing ===");
 
         try (MessageProducer<ErrorTestMessage> producer = factory.createProducer("error-routing", ErrorTestMessage.class);
@@ -413,7 +409,7 @@ class EnhancedErrorHandlingExampleTest {
 
             AtomicInteger processedCount = new AtomicInteger(0);
             AtomicInteger routedCount = new AtomicInteger(0);
-            CountDownLatch latch = new CountDownLatch(4); // Expecting 4 messages processed
+            Checkpoint checkpoint = testContext.checkpoint(4); // Expecting 4 messages processed
 
             consumer.subscribe(message -> {
                 ErrorTestMessage payload = message.getPayload();
@@ -445,14 +441,14 @@ class EnhancedErrorHandlingExampleTest {
                     int routed = routedCount.incrementAndGet();
                     logger.info("✅ EXPECTED SUCCESS: Error routing succeeded: {} (processed: {}, routed: {})",
                         payload.getMessageId(), processed, routed);
-                    latch.countDown();
+                    checkpoint.flag();
                     return CompletableFuture.completedFuture(null);
 
                 } catch (ProcessingException e) {
-                    logger.warn("🎯 INTENTIONAL TEST FAILURE: Error routing processing failed: {}",
+                    logger.warn("\ud83c\udfaf INTENTIONAL TEST FAILURE: Error routing processing failed: {}",
                         payload.getMessageId());
-                    logger.info("   📋 This failure demonstrates error classification and routing");
-                    latch.countDown();
+                    logger.info("   \ud83d\udccb This failure demonstrates error classification and routing");
+                    checkpoint.flag();
                     return CompletableFuture.failedFuture(e);
                 }
             });
@@ -464,8 +460,7 @@ class EnhancedErrorHandlingExampleTest {
             sendErrorTestMessage(producer, "route-004", null, "Success message");
 
             // Wait for processing - increased timeout for integration test
-            boolean completed = latch.await(60, TimeUnit.SECONDS);
-            assertTrue(completed, "Error classification and routing test should complete within timeout");
+            assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Error classification and routing test should complete within timeout");
 
             logger.info("✅ Error classification and routing test completed successfully!");
             logger.info("   📊 Total processed: {}, Total routed: {}", processedCount.get(), routedCount.get());
@@ -473,7 +468,7 @@ class EnhancedErrorHandlingExampleTest {
     }
 
     @Test
-    void testPoisonMessageHandling() throws Exception {
+    void testPoisonMessageHandling(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Poison Message Handling ===");
 
         try (MessageProducer<ErrorTestMessage> producer = factory.createProducer("poison-demo", ErrorTestMessage.class);
@@ -481,7 +476,7 @@ class EnhancedErrorHandlingExampleTest {
 
             AtomicInteger processedCount = new AtomicInteger(0);
             AtomicInteger poisonCount = new AtomicInteger(0);
-            CountDownLatch latch = new CountDownLatch(3); // Expecting 3 messages processed
+            Checkpoint checkpoint = testContext.checkpoint(3); // Expecting 3 messages processed
 
             consumer.subscribe(message -> {
                 ErrorTestMessage payload = message.getPayload();
@@ -494,7 +489,7 @@ class EnhancedErrorHandlingExampleTest {
                     logger.warn("☠️ EXPECTED BEHAVIOR: Poison message detected and isolated: {} (total poison: {})",
                         payload.getMessageId(), poisonMessages);
                     logger.info("   📋 This demonstrates poison message detection and isolation");
-                    latch.countDown();
+                    checkpoint.flag();
                     return CompletableFuture.failedFuture(new RuntimeException("Poison message isolated"));
                 }
 
@@ -502,15 +497,15 @@ class EnhancedErrorHandlingExampleTest {
                     simulateProcessing(payload);
 
                     int processed = processedCount.incrementAndGet();
-                    logger.info("✅ EXPECTED SUCCESS: Poison demo processing succeeded: {} (total: {})",
+                    logger.info("\u2705 EXPECTED SUCCESS: Poison demo processing succeeded: {} (total: {})",
                         payload.getMessageId(), processed);
-                    latch.countDown();
+                    checkpoint.flag();
                     return CompletableFuture.completedFuture(null);
 
                 } catch (ProcessingException e) {
                     logger.warn("🎯 INTENTIONAL TEST FAILURE: Poison demo processing failed: {}",
                         payload.getMessageId());
-                    latch.countDown();
+                    checkpoint.flag();
                     return CompletableFuture.failedFuture(e);
                 }
             });
@@ -521,8 +516,7 @@ class EnhancedErrorHandlingExampleTest {
             sendErrorTestMessage(producer, "poison-003", "VALIDATION_ERROR", "Recoverable error");
 
             // Wait for processing - increased timeout for integration test
-            boolean completed = latch.await(60, TimeUnit.SECONDS);
-            assertTrue(completed, "Poison message handling test should complete within timeout");
+            assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Poison message handling test should complete within timeout");
 
             logger.info("✅ Poison message handling test completed successfully!");
             logger.info("   📊 Processed successfully: {}, Poison messages isolated: {}",

@@ -26,6 +26,7 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -196,7 +197,9 @@ public class ServiceDiscoveryExampleTest {
         
         // Simulate service manager health check
         logger.info("🏥 Checking Service Manager health...");
-        Thread.sleep(100); // Simulate health check time
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(100, id -> delay.complete(null));
+        delay.join();
         
         boolean isHealthy = true;
         String status = "UP";
@@ -218,7 +221,9 @@ public class ServiceDiscoveryExampleTest {
         String instanceId = "peegeeq-instance-" + System.currentTimeMillis();
         logger.info("📝 Registering instance: {}", instanceId);
         
-        Thread.sleep(50); // Simulate registration time
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(50, id -> delay.complete(null));
+        delay.join();
         
         boolean registrationSuccessful = true;
         int registeredInstances = 3; // Simulate 3 registered instances
@@ -239,7 +244,9 @@ public class ServiceDiscoveryExampleTest {
         String federationId = "peegeeq-federation-" + System.currentTimeMillis();
         logger.info("🌐 Setting up federation: {}", federationId);
         
-        Thread.sleep(100); // Simulate federation setup time
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(100, id -> delay.complete(null));
+        delay.join();
         
         int federatedInstances = 3;
         int managementOperations = 5; // Simulate 5 management operations
@@ -259,13 +266,19 @@ public class ServiceDiscoveryExampleTest {
         
         // Simulate instance management operations
         logger.info("⚖️ Testing load balancing...");
-        Thread.sleep(50);
+        CompletableFuture<Void> delay1 = new CompletableFuture<>();
+        vertx.setTimer(50, id -> delay1.complete(null));
+        delay1.join();
         
         logger.info("🔄 Testing failover scenarios...");
-        Thread.sleep(50);
+        CompletableFuture<Void> delay2 = new CompletableFuture<>();
+        vertx.setTimer(50, id -> delay2.complete(null));
+        delay2.join();
         
         logger.info("📊 Monitoring instance health...");
-        Thread.sleep(50);
+        CompletableFuture<Void> delay3 = new CompletableFuture<>();
+        vertx.setTimer(50, id -> delay3.complete(null));
+        delay3.join();
         
         int activeInstances = 3;
         int loadBalancingOperations = 10;

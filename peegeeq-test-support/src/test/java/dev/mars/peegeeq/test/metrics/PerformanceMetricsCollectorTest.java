@@ -20,9 +20,12 @@ import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,6 +42,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.CORE)
+@ExtendWith(VertxExtension.class)
 class PerformanceMetricsCollectorTest {
     private static final Logger logger = LoggerFactory.getLogger(PerformanceMetricsCollectorTest.class);
     
@@ -46,9 +50,10 @@ class PerformanceMetricsCollectorTest {
     private SimpleMeterRegistry meterRegistry;
     private PerformanceMetricsCollector collector;
     private String testInstanceId;
+    private Vertx vertx;
     
     @BeforeEach
-    void setUp() {
+    void setUp(Vertx vertx) {
         System.err.println("=== PerformanceMetricsCollectorTest setUp() started ===");
         
         testInstanceId = "test-collector-" + System.currentTimeMillis();
@@ -58,6 +63,7 @@ class PerformanceMetricsCollectorTest {
         baseMetrics.bindTo(meterRegistry);
         
         collector = new PerformanceMetricsCollector(baseMetrics, testInstanceId);
+        this.vertx = vertx;
         
         logger.info("Set up PerformanceMetricsCollector test with instance: {}", testInstanceId);
         System.err.println("=== PerformanceMetricsCollectorTest setUp() completed ===");
@@ -75,11 +81,7 @@ class PerformanceMetricsCollectorTest {
         collector.startTest(testName, profile);
         
         // Simulate some work
-        try {
-            Thread.sleep(50);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        vertx.timer(50).toCompletionStage().toCompletableFuture().join();
         
         // Record some metrics during the test
         collector.recordTestTimer("operation.time", Duration.ofMillis(25), profile, Map.of("operation", "test"));
@@ -115,20 +117,12 @@ class PerformanceMetricsCollectorTest {
         
         // Test with BASIC profile
         collector.startTest(testName, PerformanceProfile.BASIC);
-        try {
-            Thread.sleep(100);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        vertx.timer(100).toCompletionStage().toCompletableFuture().join();
         collector.endTest(testName, PerformanceProfile.BASIC, true, Map.of("throughput", 1000.0));
         
         // Test with HIGH_PERFORMANCE profile
         collector.startTest(testName, PerformanceProfile.HIGH_PERFORMANCE);
-        try {
-            Thread.sleep(50);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        vertx.timer(50).toCompletionStage().toCompletableFuture().join();
         collector.endTest(testName, PerformanceProfile.HIGH_PERFORMANCE, true, Map.of("throughput", 2000.0));
         
         // Get comparisons
@@ -185,11 +179,7 @@ class PerformanceMetricsCollectorTest {
         collector.startTest(testName, profile);
         
         // Simulate work for a known duration
-        try {
-            Thread.sleep(100);
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-        }
+        vertx.timer(100).toCompletionStage().toCompletableFuture().join();
         
         // End test with operations count
         Map<String, Object> metrics = Map.of("operations", 1000L);
@@ -250,11 +240,7 @@ class PerformanceMetricsCollectorTest {
         
         for (PerformanceProfile profile : profiles) {
             collector.startTest(testName, profile);
-            try {
-                Thread.sleep(10);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-            }
+            vertx.timer(10).toCompletionStage().toCompletableFuture().join();
             collector.endTest(testName, profile, true, Map.of("profile_test", profile.name()));
         }
         

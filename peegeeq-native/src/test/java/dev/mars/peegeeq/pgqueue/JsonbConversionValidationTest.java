@@ -38,7 +38,6 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -294,7 +293,7 @@ class JsonbConversionValidationTest {
      */
     @Test
     @Order(3)
-    void testConsumerCanReadJsonbObjects() throws Exception {
+    void testConsumerCanReadJsonbObjects(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Native Queue Consumer JSONB Object Reading ===");
 
         String topic = "jsonb-native-test-consumer";
@@ -311,7 +310,6 @@ class JsonbConversionValidationTest {
         // Consume message
         MessageConsumer<String> consumer = factory.createConsumer(topic, String.class);
         
-        CountDownLatch latch = new CountDownLatch(1);
         AtomicInteger processedCount = new AtomicInteger(0);
         
         consumer.subscribe(message -> {
@@ -328,21 +326,22 @@ class JsonbConversionValidationTest {
                 assertEquals("HIGH", receivedHeaders.get("priority"), "Priority header should match");
                 
                 processedCount.incrementAndGet();
-                latch.countDown();
                 
                 logger.info("✅ Native queue consumer successfully read JSONB objects");
                 logger.info("   Received message: {}", receivedMessage);
                 logger.info("   Received headers: {}", receivedHeaders.size());
                 
+                testContext.completeNow();
                 return java.util.concurrent.CompletableFuture.completedFuture(null);
             } catch (Exception e) {
                 logger.error("Error processing message", e);
+                testContext.failNow(e);
                 throw new RuntimeException(e);
             }
         });
 
         // Wait for message processing
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Message should be processed within 10 seconds");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Message should be processed within 10 seconds");
         assertEquals(1, processedCount.get(), "Should have processed exactly 1 message");
 
         consumer.close();

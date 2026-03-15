@@ -10,10 +10,15 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -22,7 +27,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -34,6 +38,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 public class OutboxConfigurationIntegrationTest {
     
     private static final Logger logger = LoggerFactory.getLogger(OutboxConfigurationIntegrationTest.class);
@@ -88,7 +93,7 @@ public class OutboxConfigurationIntegrationTest {
     }
     
     @Test
-    void testOutboxRespectsMaxRetriesConfiguration() throws Exception {
+    void testOutboxRespectsMaxRetriesConfiguration(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Outbox Respects Max Retries Configuration ===");
         
         // Set up database connection properties (like working tests)
@@ -118,7 +123,7 @@ public class OutboxConfigurationIntegrationTest {
         // Test message and attempt tracking
         String testMessage = "Message for config integration test";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch retryLatch = new CountDownLatch(3); // Expect 3 attempts (initial + 2 retries)
+        Checkpoint retryCheckpoint = testContext.checkpoint(3); // Expect 3 attempts (initial + 2 retries)
 
         // Send message
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
@@ -128,7 +133,7 @@ public class OutboxConfigurationIntegrationTest {
             int attempt = attemptCount.incrementAndGet();
             logger.error("🔥 INTENTIONAL FAILURE: Config integration attempt {} for message: {} (Thread: {})",
                 attempt, message.getPayload(), Thread.currentThread().getName());
-            retryLatch.countDown();
+            retryCheckpoint.flag();
 
             // Return a failed CompletableFuture instead of throwing an exception
             return CompletableFuture.failedFuture(
@@ -136,12 +141,12 @@ public class OutboxConfigurationIntegrationTest {
         });
 
         // Wait for all expected attempts
-        boolean completed = retryLatch.await(15, TimeUnit.SECONDS);
-        assertTrue(completed, "Should have attempted processing exactly 3 times (initial + 2 retries)");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS),
+            "Should have attempted processing exactly 3 times (initial + 2 retries)");
         assertEquals(3, attemptCount.get(), "Should respect max retries configuration of 2");
         
         // Wait a bit more to ensure no additional attempts
-        Thread.sleep(2000);
+        vertx.timer(2000).toCompletionStage().toCompletableFuture().join();
         assertEquals(3, attemptCount.get(), "Should not exceed configured max retries");
         
         logger.info("✅ Outbox configuration integration test completed successfully");
@@ -150,7 +155,7 @@ public class OutboxConfigurationIntegrationTest {
     }
     
     @Test
-    void testOutboxUsesDefaultWhenNoConfigurationSet() throws Exception {
+    void testOutboxUsesDefaultWhenNoConfigurationSet(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Outbox Uses Default Configuration ===");
         
         // Set up database connection properties (like working tests)
@@ -179,14 +184,14 @@ public class OutboxConfigurationIntegrationTest {
         // Test message and attempt tracking
         String testMessage = "Message for default config test";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch retryLatch = new CountDownLatch(4); // Expect 4 attempts (initial + 3 retries from default profile)
+        Checkpoint retryCheckpoint = testContext.checkpoint(4); // Expect 4 attempts (initial + 3 retries from default profile)
 
         // Set up consumer that always fails BEFORE sending the message
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
             logger.error("🔥 INTENTIONAL FAILURE: Default config attempt {} for message: {} (Thread: {})",
                 attempt, message.getPayload(), Thread.currentThread().getName());
-            retryLatch.countDown();
+            retryCheckpoint.flag();
 
             // Return a failed CompletableFuture instead of throwing an exception
             return CompletableFuture.failedFuture(
@@ -204,12 +209,12 @@ public class OutboxConfigurationIntegrationTest {
         }
 
         // Wait for all expected attempts
-        boolean completed = retryLatch.await(20, TimeUnit.SECONDS);
-        assertTrue(completed, "Should have attempted processing exactly 4 times (initial + 3 retries from default profile)");
+        assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS),
+            "Should have attempted processing exactly 4 times (initial + 3 retries from default profile)");
         assertEquals(4, attemptCount.get(), "Should use default max retries from default profile (3)");
 
         // Wait a bit more to ensure no additional attempts
-        Thread.sleep(2000);
+        vertx.timer(2000).toCompletionStage().toCompletableFuture().join();
         assertEquals(4, attemptCount.get(), "Should not exceed default max retries");
 
         logger.info("✅ Outbox default configuration test completed successfully");
@@ -218,7 +223,7 @@ public class OutboxConfigurationIntegrationTest {
     }
 
     @Test
-    void testBasicOutboxMessageProcessing() throws Exception {
+    void testBasicOutboxMessageProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
         System.out.println("=== Testing Basic Outbox Message Processing ===");
 
         // Set up database connection properties (like OutboxBasicTest does)
@@ -256,7 +261,7 @@ public class OutboxConfigurationIntegrationTest {
 
         // Test message and simple processing
         String testMessage = "Basic processing test message";
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint messageProcessed = testContext.checkpoint();
         AtomicInteger processedCount = new AtomicInteger(0);
 
         System.out.println("🔧 Setting up consumer subscription");
@@ -264,7 +269,7 @@ public class OutboxConfigurationIntegrationTest {
         consumer.subscribe(message -> {
             int count = processedCount.incrementAndGet();
             System.out.println("✅ Successfully processed message " + count + " (attempt " + count + "): " + message.getPayload());
-            latch.countDown();
+            messageProcessed.flag();
             return CompletableFuture.completedFuture(null);
         });
         System.out.println("✅ Consumer subscribed successfully");
@@ -282,9 +287,8 @@ public class OutboxConfigurationIntegrationTest {
 
         // Wait for processing
         System.out.println("⏳ Waiting for message processing (10 seconds timeout)...");
-        boolean completed = latch.await(10, TimeUnit.SECONDS);
-        System.out.println("⏰ Wait completed. Result: " + completed + ", Processed count: " + processedCount.get());
-        assertTrue(completed, "Should have processed the message within timeout");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should have processed the message within timeout");
+        System.out.println("⏰ Wait completed. Processed count: " + processedCount.get());
         assertEquals(1, processedCount.get(), "Should process exactly one message");
 
         logger.info("✅ Basic outbox message processing test completed successfully");

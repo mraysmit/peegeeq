@@ -19,6 +19,7 @@ package dev.mars.peegeeq.rest.handlers;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
+import dev.mars.peegeeq.api.messaging.TopicNameValidator;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
 import dev.mars.peegeeq.api.tracing.TraceContextUtil;
@@ -64,6 +65,13 @@ public class QueueHandler {
     public void sendMessage(RoutingContext ctx) {
         String setupId = ctx.pathParam("setupId");
         String queueName = ctx.pathParam("queueName");
+
+        if (!TopicNameValidator.isValid(queueName)) {
+            ctx.response().setStatusCode(400)
+                    .putHeader("content-type", "application/json")
+                    .end(new JsonObject().put("error", "Invalid queue name").encode());
+            return;
+        }
 
         // Set MDC for distributed tracing
         TraceContextUtil.setMDC(TraceContextUtil.MDC_SETUP_ID, setupId);
@@ -188,6 +196,13 @@ public class QueueHandler {
         String setupId = ctx.pathParam("setupId");
         String queueName = ctx.pathParam("queueName");
 
+        if (!TopicNameValidator.isValid(queueName)) {
+            ctx.response().setStatusCode(400)
+                    .putHeader("content-type", "application/json")
+                    .end(new JsonObject().put("error", "Invalid queue name").encode());
+            return;
+        }
+
         // Set MDC for distributed tracing
         TraceContextUtil.setMDC(TraceContextUtil.MDC_SETUP_ID, setupId);
         TraceContextUtil.setMDC(TraceContextUtil.MDC_QUEUE_NAME, queueName);
@@ -302,6 +317,13 @@ public class QueueHandler {
     public void getQueueStats(RoutingContext ctx) {
         String setupId = ctx.pathParam("setupId");
         String queueName = ctx.pathParam("queueName");
+
+        if (!TopicNameValidator.isValid(queueName)) {
+            ctx.response().setStatusCode(400)
+                    .putHeader("content-type", "application/json")
+                    .end(new JsonObject().put("error", "Invalid queue name").encode());
+            return;
+        }
 
         logger.info("Getting stats for queue {} in setup: {}", queueName, setupId);
 

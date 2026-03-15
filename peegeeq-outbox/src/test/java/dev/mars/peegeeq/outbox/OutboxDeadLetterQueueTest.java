@@ -28,10 +28,15 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -39,7 +44,6 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.List;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -51,6 +55,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 public class OutboxDeadLetterQueueTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxDeadLetterQueueTest.class);
@@ -100,12 +105,12 @@ public class OutboxDeadLetterQueueTest {
     }
 
     @Test
-    void testDirectExceptionMovesToDeadLetterQueue() throws Exception {
+    void testDirectExceptionMovesToDeadLetterQueue(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Direct Exception Moves to Dead Letter Queue ===");
         
         String testMessage = "Message that should go to DLQ";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch retryLatch = new CountDownLatch(4); // Initial + 3 retries (max-retries=2 means retry up to 2 times, then one more attempt)
+        Checkpoint retryCheckpoint = testContext.checkpoint(4); // Initial + 3 retries
 
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
 
@@ -114,18 +119,18 @@ public class OutboxDeadLetterQueueTest {
             int attempt = attemptCount.incrementAndGet();
             logger.info("INTENTIONAL FAILURE: DLQ test attempt {} for message: {}", 
                 attempt, message.getPayload());
-            retryLatch.countDown();
+            retryCheckpoint.flag();
             
             throw new RuntimeException("INTENTIONAL FAILURE: Should go to DLQ, attempt " + attempt);
         });
 
         // Wait for all retry attempts
-        boolean completed = retryLatch.await(15, TimeUnit.SECONDS);
-        assertTrue(completed, "Should have attempted processing 3 times before DLQ");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS),
+            "Should have attempted processing 3 times before DLQ");
         assertEquals(4, attemptCount.get(), "Should have made exactly 4 processing attempts (1 initial + 3 retries)");
         
         // Wait for DLQ processing
-        Thread.sleep(2000);
+        vertx.timer(2000).toCompletionStage().toCompletableFuture().join();
         
         // Verify message is in dead letter queue
         List<DeadLetterMessageInfo> dlqMessages = manager.getDeadLetterQueueManager()
@@ -144,13 +149,13 @@ public class OutboxDeadLetterQueueTest {
     }
 
     @Test
-    void testDLQErrorInformationPreservation() throws Exception {
+    void testDLQErrorInformationPreservation(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing DLQ Error Information Preservation ===");
         
         String testMessage = "Message with detailed error info";
         String customErrorMessage = "Custom business validation failed: Invalid order amount";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch retryLatch = new CountDownLatch(3);
+        Checkpoint retryCheckpoint = testContext.checkpoint(3);
 
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
 
@@ -158,16 +163,16 @@ public class OutboxDeadLetterQueueTest {
             int attempt = attemptCount.incrementAndGet();
             logger.info("INTENTIONAL FAILURE: Error info test attempt {} for message: {}", 
                 attempt, message.getPayload());
-            retryLatch.countDown();
+            retryCheckpoint.flag();
             
             throw new IllegalArgumentException(customErrorMessage + " (attempt " + attempt + ")");
         });
 
-        boolean completed = retryLatch.await(15, TimeUnit.SECONDS);
-        assertTrue(completed, "Should complete all retry attempts");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS),
+            "Should complete all retry attempts");
         
         // Wait for DLQ processing
-        Thread.sleep(2000);
+        vertx.timer(2000).toCompletionStage().toCompletableFuture().join();
         
         // Verify error information in DLQ
         List<DeadLetterMessageInfo> dlqMessages = manager.getDeadLetterQueueManager()

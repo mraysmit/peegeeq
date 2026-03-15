@@ -13,7 +13,12 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -22,7 +27,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -42,6 +46,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class EventSourcingCQRSDemoTest {
 
@@ -500,7 +505,7 @@ class EventSourcingCQRSDemoTest {
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown(Vertx vertx) {
         System.out.println("🧹 Cleaning up Event Sourcing & CQRS Demo Test");
 
         if (manager != null) {
@@ -511,7 +516,9 @@ class EventSourcingCQRSDemoTest {
 
                 // CRITICAL: Wait for all resources to be fully released
                 // This prevents connection pool exhaustion between tests
-                Thread.sleep(3000);
+                CompletableFuture<Void> delay = new CompletableFuture<>();
+                vertx.setTimer(3000, id -> delay.complete(null));
+                delay.join();
                 System.out.println("⏱️ Resource cleanup wait completed");
             } catch (Exception e) {
                 System.err.println("⚠️ Error during manager cleanup: " + e.getMessage());
@@ -550,7 +557,7 @@ class EventSourcingCQRSDemoTest {
     @Test
     @Order(1)
     @DisplayName("Event Sourcing - Storing State Changes as Events")
-    void testEventSourcing() throws Exception {
+    void testEventSourcing(Vertx vertx, VertxTestContext testContext) throws Exception {
         System.err.println("=== TEST METHOD STARTED: testEventSourcing ===");
         System.err.flush();
         System.out.println("\n📚 Testing Event Sourcing");
@@ -564,12 +571,12 @@ class EventSourcingCQRSDemoTest {
         Map<String, List<DomainEvent>> eventStore = new HashMap<>();
         Map<String, BankAccountAggregate> aggregates = new HashMap<>();
 
-        // Counters and latches for test coordination
+        // Counters and checkpoints for test coordination
         // 🚨 TEST-ONLY: These are test-specific constructs for synchronization
         AtomicInteger commandsProcessed = new AtomicInteger(0);
         AtomicInteger eventsStored = new AtomicInteger(0);
-        CountDownLatch commandLatch = new CountDownLatch(5);  // Expecting 5 commands
-        CountDownLatch eventLatch = new CountDownLatch(5);    // Expecting 5 events
+        Checkpoint commandCheckpoint = testContext.checkpoint(5);  // Expecting 5 commands
+        Checkpoint eventCheckpoint = testContext.checkpoint(5);    // Expecting 5 events
 
         // Create producers and consumers
         MessageProducer<Command> commandProducer = queueFactory.createProducer(commandQueue, Command.class);
@@ -649,8 +656,8 @@ class EventSourcingCQRSDemoTest {
                 // dead letter queues, and retry mechanisms
             }
 
-            // 🚨 TEST-ONLY: Count down latch for test synchronization
-            commandLatch.countDown();
+            // 🚨 TEST-ONLY: Flag checkpoint for test synchronization
+            commandCheckpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -671,8 +678,8 @@ class EventSourcingCQRSDemoTest {
             eventStore.computeIfAbsent(event.aggregateId, k -> new ArrayList<>()).add(event);
 
             eventsStored.incrementAndGet();
-            // 🚨 TEST-ONLY: Count down latch for test synchronization
-            eventLatch.countDown();
+            // 🚨 TEST-ONLY: Flag checkpoint for test synchronization
+            eventCheckpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -692,71 +699,42 @@ class EventSourcingCQRSDemoTest {
         );
         commandProducer.send(openAccount);
 
-        // 🚨 WORKAROUND: Small delay to ensure OpenAccount is processed first
-        // PRODUCTION NOTE: Real systems would use:
-        // - Proper command ordering mechanisms (sequence numbers, timestamps)
-        // - Saga patterns for complex workflows
-        // - Event-driven state machines
-        // - NOT Thread.sleep() which is unreliable and blocks threads
-        Thread.sleep(100);
-
         // Command 2: Deposit money (first business transaction)
         Map<String, Object> deposit1Data = new HashMap<>();
         deposit1Data.put("amount", 500.0);
-
-        Command deposit1 = new Command(
-            "cmd-002", "Deposit", accountId,
-            deposit1Data,
-            "user-001"
-        );
-        commandProducer.send(deposit1);
-
-        // 🚨 WORKAROUND: Small delay between commands for ordering
-        Thread.sleep(50);
+        Command deposit1 = new Command("cmd-002", "Deposit", accountId, deposit1Data, "user-001");
 
         // Command 3: Withdraw money (test withdrawal logic)
         Map<String, Object> withdraw1Data = new HashMap<>();
         withdraw1Data.put("amount", 200.0);
-
-        Command withdraw1 = new Command(
-            "cmd-003", "Withdraw", accountId,
-            withdraw1Data,
-            "user-001"
-        );
-        commandProducer.send(withdraw1);
-
-        // 🚨 WORKAROUND: Small delay between commands for ordering
-        Thread.sleep(50);
+        Command withdraw1 = new Command("cmd-003", "Withdraw", accountId, withdraw1Data, "user-001");
 
         // Command 4: Another deposit (test multiple deposits)
         Map<String, Object> deposit2Data = new HashMap<>();
         deposit2Data.put("amount", 750.0);
-
-        Command deposit2 = new Command(
-            "cmd-004", "Deposit", accountId,
-            deposit2Data,
-            "user-001"
-        );
-        commandProducer.send(deposit2);
-
-        // 🚨 WORKAROUND: Small delay between commands for ordering
-        Thread.sleep(50);
+        Command deposit2 = new Command("cmd-004", "Deposit", accountId, deposit2Data, "user-001");
 
         // Command 5: Freeze account (administrative action)
         Map<String, Object> freezeAccountData = new HashMap<>();
         freezeAccountData.put("reason", "Suspicious activity detected");
+        Command freezeAccount = new Command("cmd-005", "FreezeAccount", accountId, freezeAccountData, "admin-001");
 
-        Command freezeAccount = new Command(
-            "cmd-005", "FreezeAccount", accountId,
-            freezeAccountData,
-            "admin-001"
-        );
-        commandProducer.send(freezeAccount);
+        // 🚨 WORKAROUND: Pacing delays via Vert.x timers to ensure command ordering
+        vertx.setTimer(100, id1 -> {
+            commandProducer.send(deposit1);
+            vertx.setTimer(50, id2 -> {
+                commandProducer.send(withdraw1);
+                vertx.setTimer(50, id3 -> {
+                    commandProducer.send(deposit2);
+                    vertx.setTimer(50, id4 -> {
+                        commandProducer.send(freezeAccount);
+                    });
+                });
+            });
+        });
 
         // Wait for all commands and events to be processed
-        // 🚨 TEST-ONLY: Using CountDownLatch for synchronization in tests
-        assertTrue(commandLatch.await(30, TimeUnit.SECONDS), "Should process all commands");
-        assertTrue(eventLatch.await(30, TimeUnit.SECONDS), "Should store all events");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Should process all commands and events");
 
         // Verify event sourcing metrics
         assertEquals(5, commandsProcessed.get(), "Should have processed 5 commands");
@@ -832,7 +810,7 @@ class EventSourcingCQRSDemoTest {
     @Test
     @Order(2)
     @DisplayName("CQRS - Command Query Responsibility Segregation")
-    void testCQRS() throws Exception {
+    void testCQRS(Vertx vertx, VertxTestContext testContext) throws Exception {
         System.out.println("\n🔍 Testing CQRS");
 
         // Queue names for command and event streams
@@ -848,8 +826,8 @@ class EventSourcingCQRSDemoTest {
         // Test coordination constructs
         AtomicInteger commandsProcessed = new AtomicInteger(0);
         AtomicInteger eventsProcessed = new AtomicInteger(0);
-        CountDownLatch commandLatch = new CountDownLatch(4);  // Expecting 4 commands
-        CountDownLatch eventLatch = new CountDownLatch(4);    // Expecting 4 events
+        Checkpoint commandCheckpoint = testContext.checkpoint(4);  // Expecting 4 commands
+        Checkpoint eventCheckpoint = testContext.checkpoint(4);    // Expecting 4 events
 
         // Create producers and consumers
         MessageProducer<Command> commandProducer = queueFactory.createProducer(commandQueue, Command.class);
@@ -914,7 +892,7 @@ class EventSourcingCQRSDemoTest {
                 System.err.println("❌ Command processing error: " + e.getMessage());
             }
 
-            commandLatch.countDown();
+            commandCheckpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -946,7 +924,7 @@ class EventSourcingCQRSDemoTest {
             // and may have eventual consistency with the write model
             readModelAggregate.applyEvent(event);
             eventsProcessed.incrementAndGet();
-            eventLatch.countDown();
+            eventCheckpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -968,51 +946,35 @@ class EventSourcingCQRSDemoTest {
         );
         commandProducer.send(openAccount);
 
-        // 🚨 CRITICAL: Add delay to ensure OpenAccount is processed first
-        // This prevents race conditions where Deposit commands are processed before account creation
-        Thread.sleep(100);
-
         // Command 2: Multiple deposits (write side processes, read side gets updated via events)
         Map<String, Object> deposit1Data = new HashMap<>();
         deposit1Data.put("amount", 300.0);
-
-        Command deposit1 = new Command(
-            "cqrs-cmd-002", "Deposit", accountId,
-            deposit1Data,
-            "user-002"
-        );
-        commandProducer.send(deposit1);
+        Command deposit1 = new Command("cqrs-cmd-002", "Deposit", accountId, deposit1Data, "user-002");
 
         // Command 3: Another deposit (demonstrates multiple transactions)
         Map<String, Object> deposit2Data = new HashMap<>();
         deposit2Data.put("amount", 150.0);
-
-        Command deposit2 = new Command(
-            "cqrs-cmd-003", "Deposit", accountId,
-            deposit2Data,
-            "user-002"
-        );
-        commandProducer.send(deposit2);
+        Command deposit2 = new Command("cqrs-cmd-003", "Deposit", accountId, deposit2Data, "user-002");
 
         // Command 4: Withdrawal (final transaction to test read model calculations)
         Map<String, Object> withdraw1Data = new HashMap<>();
         withdraw1Data.put("amount", 400.0);
+        Command withdraw1 = new Command("cqrs-cmd-004", "Withdraw", accountId, withdraw1Data, "user-002");
 
-        Command withdraw1 = new Command(
-            "cqrs-cmd-004", "Withdraw", accountId,
-            withdraw1Data,
-            "user-002"
-        );
-        commandProducer.send(withdraw1);
+        // 🚨 Pacing delay via Vert.x timer to ensure OpenAccount is processed first
+        vertx.setTimer(100, id1 -> {
+            commandProducer.send(deposit1);
+            commandProducer.send(deposit2);
+            commandProducer.send(withdraw1);
+        });
 
         // Wait for processing (test synchronization)
-        assertTrue(commandLatch.await(30, TimeUnit.SECONDS), "Should process all commands");
-        assertTrue(eventLatch.await(30, TimeUnit.SECONDS), "Should process all events");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Should process all commands and events");
 
-        // 🚨 CRITICAL: Add small delay to ensure all async read model updates complete
-        // The latches count down immediately after processing, but read model updates
-        // may still be in progress due to HashMap/volatile field race conditions
-        Thread.sleep(500);
+        // Small delay to ensure all async read model updates complete
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(500, id -> delay.complete(null));
+        delay.join();
 
         // Verify CQRS separation - both sides processed the same number of operations
         assertEquals(4, commandsProcessed.get(), "Should have processed 4 commands");

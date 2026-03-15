@@ -27,10 +27,15 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -38,7 +43,6 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -56,6 +60,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  * direct exceptions are now being caught by the .exceptionally() handler.
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 public class OutboxExceptionHandlingDemonstrationTest {
 
@@ -109,7 +114,7 @@ public class OutboxExceptionHandlingDemonstrationTest {
     }
 
     @Test
-    void demonstrateDirectExceptionHandlingFix() throws Exception {
+    void demonstrateDirectExceptionHandlingFix(VertxTestContext testContext) throws Exception {
         logger.info("=================================================================");
         logger.info("DEMONSTRATION: Direct Exception Handling Fix");
         logger.info("=================================================================");
@@ -120,7 +125,7 @@ public class OutboxExceptionHandlingDemonstrationTest {
         
         String testMessage = "DEMO: Message that throws direct exception";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch retryLatch = new CountDownLatch(3); // Initial + 2 retries
+        Checkpoint retryCheckpoint = testContext.checkpoint(3); // Initial + 2 retries
 
         // Send the test message
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
@@ -131,7 +136,7 @@ public class OutboxExceptionHandlingDemonstrationTest {
             int attempt = attemptCount.incrementAndGet();
             logger.info("INTENTIONAL FAILURE: Processing attempt {} for message: {}", 
                 attempt, message.getPayload());
-            retryLatch.countDown();
+            retryCheckpoint.flag();
             
             // CRITICAL: This throws directly from the handler method
             // Before fix: This would NOT be caught by .exceptionally() handler
@@ -142,26 +147,15 @@ public class OutboxExceptionHandlingDemonstrationTest {
         logger.info("⏳ Waiting for retry attempts to complete...");
         
         // Wait for all retry attempts
-        boolean completed = retryLatch.await(15, TimeUnit.SECONDS);
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times (initial + 2 retries)");
         
         logger.info("=================================================================");
         logger.info("RESULTS:");
-        logger.info("  ✅ Retry attempts completed: {}", completed);
         logger.info("  ✅ Total processing attempts: {}", attemptCount.get());
         logger.info("  ✅ Expected attempts: 3 (initial + 2 retries)");
         logger.info("=================================================================");
         
-        if (completed && attemptCount.get() == 3) {
-            logger.info("SUCCESS: Direct exception handling fix is working correctly!");
-            logger.info("Direct exceptions are now caught and processed through retry logic!");
-        } else {
-            logger.error("FAILURE: Direct exception handling is not working correctly");
-        }
-        
-        logger.info("=================================================================");
-        
         // Assertions
-        assertTrue(completed, "Should have attempted processing 3 times (initial + 2 retries)");
         assertEquals(3, attemptCount.get(), "Should have made exactly 3 processing attempts");
         
         logger.info("✅ DEMONSTRATION TEST COMPLETED SUCCESSFULLY");
@@ -169,7 +163,7 @@ public class OutboxExceptionHandlingDemonstrationTest {
     }
 
     @Test
-    void demonstrateBeforeAndAfterBehavior() throws Exception {
+    void demonstrateBeforeAndAfterBehavior(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=================================================================");
         logger.info("BEFORE vs AFTER COMPARISON");
         logger.info("=================================================================");
@@ -179,14 +173,15 @@ public class OutboxExceptionHandlingDemonstrationTest {
         logger.info("=================================================================");
         
         // Test 1: Direct Exception (now fixed)
-        testDirectExceptionPattern();
+        testDirectExceptionPattern(testContext);
         
         // Reset consumer for next test
         consumer.unsubscribe();
-        Thread.sleep(500);
+        // GC-settle: allow unsubscribe to complete
+        vertx.timer(500).toCompletionStage().toCompletableFuture().join();
         
         // Test 2: CompletableFuture Exception (always worked)
-        testCompletableFuturePattern();
+        testCompletableFuturePattern(testContext);
         
         logger.info("=================================================================");
         logger.info("CONCLUSION: Both patterns now work identically!");
@@ -195,11 +190,11 @@ public class OutboxExceptionHandlingDemonstrationTest {
         logger.info("=================================================================");
     }
 
-    private void testDirectExceptionPattern() throws Exception {
+    private void testDirectExceptionPattern(VertxTestContext testContext) throws Exception {
         logger.info("--- Testing Pattern 1: Direct Exception (FIXED) ---");
         
         AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch retryLatch = new CountDownLatch(3);
+        Checkpoint retryCheckpoint = testContext.checkpoint(3);
 
         producer.send("Direct exception test").get(5, TimeUnit.SECONDS);
 
@@ -207,24 +202,23 @@ public class OutboxExceptionHandlingDemonstrationTest {
             int attempt = attemptCount.incrementAndGet();
             logger.info("INTENTIONAL FAILURE: Direct exception attempt {} for: {}", 
                 attempt, message.getPayload());
-            retryLatch.countDown();
+            retryCheckpoint.flag();
             
             // Pattern 1: Throw exception directly (NOW WORKS)
             throw new RuntimeException("INTENTIONAL FAILURE: Direct exception, attempt " + attempt);
         });
 
-        boolean completed = retryLatch.await(15, TimeUnit.SECONDS);
-        assertTrue(completed, "Direct exceptions should trigger retry logic");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Direct exceptions should trigger retry logic");
         assertEquals(3, attemptCount.get(), "Should have 3 attempts for direct exception");
         
         logger.info("✅ Pattern 1 (Direct Exception): {} attempts - WORKING", attemptCount.get());
     }
 
-    private void testCompletableFuturePattern() throws Exception {
+    private void testCompletableFuturePattern(VertxTestContext testContext) throws Exception {
         logger.info("--- Testing Pattern 2: CompletableFuture Exception (Always worked) ---");
         
         AtomicInteger attemptCount = new AtomicInteger(0);
-        CountDownLatch retryLatch = new CountDownLatch(3);
+        Checkpoint retryCheckpoint = testContext.checkpoint(3);
 
         producer.send("CompletableFuture exception test").get(5, TimeUnit.SECONDS);
 
@@ -232,7 +226,7 @@ public class OutboxExceptionHandlingDemonstrationTest {
             int attempt = attemptCount.incrementAndGet();
             logger.info("INTENTIONAL FAILURE: CompletableFuture exception attempt {} for: {}", 
                 attempt, message.getPayload());
-            retryLatch.countDown();
+            retryCheckpoint.flag();
             
             // Pattern 2: Return failed CompletableFuture (ALWAYS WORKED)
             return CompletableFuture.failedFuture(
@@ -240,8 +234,7 @@ public class OutboxExceptionHandlingDemonstrationTest {
             );
         });
 
-        boolean completed = retryLatch.await(15, TimeUnit.SECONDS);
-        assertTrue(completed, "CompletableFuture exceptions should trigger retry logic");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "CompletableFuture exceptions should trigger retry logic");
         assertEquals(3, attemptCount.get(), "Should have 3 attempts for CompletableFuture exception");
         
         logger.info("✅ Pattern 2 (CompletableFuture Exception): {} attempts - WORKING", attemptCount.get());

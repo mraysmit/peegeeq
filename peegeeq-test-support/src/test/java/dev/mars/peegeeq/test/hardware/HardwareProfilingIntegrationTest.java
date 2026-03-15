@@ -4,9 +4,13 @@ import dev.mars.peegeeq.test.base.PeeGeeQTestBase;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile;
 import dev.mars.peegeeq.test.metrics.PerformanceMetricsCollector;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -29,8 +33,10 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.PERFORMANCE)
+@ExtendWith(VertxExtension.class)
 class HardwareProfilingIntegrationTest extends PeeGeeQTestBase {
     private static final Logger logger = LoggerFactory.getLogger(HardwareProfilingIntegrationTest.class);
+    private Vertx vertx;
     
     @Test
     @DisplayName("Hardware Profile Capture - Should capture comprehensive system specifications")
@@ -223,12 +229,7 @@ class HardwareProfilingIntegrationTest extends PeeGeeQTestBase {
             buffer[0] = 1; // Touch the memory
             
             // Brief pause to allow monitoring
-            try {
-                Thread.sleep(10);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
-            }
+            vertx.timer(10).toCompletionStage().toCompletableFuture().join();
         }
     }
 }

@@ -2,41 +2,23 @@ package dev.mars.peegeeq.pgqueue;
 
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import io.vertx.pgclient.PgConnection;
-import org.awaitility.Awaitility;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
-import java.time.Duration;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 @Tag(TestCategories.CORE)
+@ExtendWith(VertxExtension.class)
 class VertxPoolAdapterFailFastTest {
 
-    private Vertx vertx;
-
-    @BeforeEach
-    void setUp() {
-        vertx = Vertx.vertx();
-    }
-
-    @AfterEach
-    void tearDown() {
-        if (vertx != null) {
-            try {
-                vertx.close().toCompletionStage().toCompletableFuture().orTimeout(5, TimeUnit.SECONDS).join();
-            } catch (Exception ignore) {}
-        }
-    }
-
     @Test
-    void getPoolOrThrow_withNullPool_failsFast() {
+    void getPoolOrThrow_withNullPool_failsFast(Vertx vertx) {
         // Create adapter with null pool
         VertxPoolAdapter adapter = new VertxPoolAdapter(vertx, null, null);
 
@@ -45,18 +27,20 @@ class VertxPoolAdapterFailFastTest {
     }
 
     @Test
-    void connectDedicated_withoutConnectOptionsProvider_failsFast_withClearMessage() {
+    void connectDedicated_withoutConnectOptionsProvider_failsFast_withClearMessage(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Create adapter with null ConnectOptionsProvider
         VertxPoolAdapter adapter = new VertxPoolAdapter(vertx, null, null);
 
-        AtomicReference<Throwable> failure = new AtomicReference<>();
-        CompletableFuture<PgConnection> cf = adapter.connectDedicated().toCompletionStage().toCompletableFuture();
-        cf.whenComplete((conn, err) -> {
-            if (err != null) failure.set(err.getCause() != null ? err.getCause() : err);
-        });
+        adapter.connectDedicated()
+            .onSuccess(conn -> testContext.failNow(new AssertionError("Should have failed")))
+            .onFailure(err -> {
+                Throwable cause = err.getCause() != null ? err.getCause() : err;
+                testContext.verify(() ->
+                    assertTrue(cause.getMessage().contains("No ConnectOptionsProvider available")));
+                testContext.completeNow();
+            });
 
-        Awaitility.await().atMost(Duration.ofSeconds(5)).until(() -> failure.get() != null);
-        assertTrue(failure.get().getMessage().contains("No ConnectOptionsProvider available"));
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
     }
 }
 

@@ -8,8 +8,11 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import org.awaitility.Awaitility;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -17,11 +20,13 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.time.Duration;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile.BASIC;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent.*;
 import static org.junit.jupiter.api.Assertions.*;
 
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 class PgNativeQueueConsumerListenIT {
 
@@ -76,7 +81,7 @@ class PgNativeQueueConsumerListenIT {
     }
 
     @Test
-    void listenNotify_onlyMode_deliversMessage() {
+    void listenNotify_onlyMode_deliversMessage(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Arrange: consumer in LISTEN_NOTIFY_ONLY mode
         ConsumerConfig consumerConfig = ConsumerConfig.builder()
             .mode(ConsumerMode.LISTEN_NOTIFY_ONLY)
@@ -89,16 +94,10 @@ class PgNativeQueueConsumerListenIT {
             adapter, mapper, TOPIC, String.class, null, null, consumerConfig
         );
 
-        CompletableFuture<Void> received = new CompletableFuture<>();
-
         consumer.subscribe(msg -> {
-            try {
-                assertEquals("hello", msg.getPayload());
-                received.complete(null);
-            } catch (AssertionError ae) {
-                received.completeExceptionally(ae);
-            }
-            return received;
+            testContext.verify(() -> assertEquals("hello", msg.getPayload()));
+            testContext.completeNow();
+            return CompletableFuture.completedFuture(null);
         });
 
         // Act: send a message
@@ -108,8 +107,7 @@ class PgNativeQueueConsumerListenIT {
         producer.send("hello", Map.of()).join();
 
         // Assert: message is received within timeout
-        Awaitility.await().atMost(Duration.ofSeconds(10)).until(received::isDone);
-        assertTrue(received.isDone());
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
 
         // Cleanup
         consumer.close();

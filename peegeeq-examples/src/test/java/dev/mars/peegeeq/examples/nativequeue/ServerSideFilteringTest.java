@@ -31,7 +31,12 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -42,7 +47,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.List;
 import java.util.ArrayList;
@@ -54,6 +58,7 @@ import java.util.Collections;
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class ServerSideFilteringTest {
 
@@ -98,7 +103,7 @@ public class ServerSideFilteringTest {
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown(Vertx vertx) {
         logger.info("=== Tearing down ServerSideFilteringTest ===");
         if (nativeFactory != null) {
             try {
@@ -110,7 +115,9 @@ public class ServerSideFilteringTest {
         if (manager != null) {
             try {
                 manager.closeReactive().toCompletionStage().toCompletableFuture().join();
-                Thread.sleep(2000);
+                CompletableFuture<Void> delay = new CompletableFuture<>();
+                vertx.setTimer(2000, id -> delay.complete(null));
+                delay.join();
             } catch (Exception e) {
                 logger.error("Error during manager cleanup", e);
             }
@@ -125,7 +132,7 @@ public class ServerSideFilteringTest {
 
     @Test
     @Order(1)
-    void testServerSideFilterEquals() throws Exception {
+    void testServerSideFilterEquals(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Server-Side Filter EQUALS ===");
         String topic = "filter-equals-test-" + System.currentTimeMillis();
 
@@ -141,25 +148,26 @@ public class ServerSideFilteringTest {
         MessageConsumer<String> consumer = nativeFactory.createConsumer(topic, String.class, config);
 
         List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
-        CountDownLatch latch = new CountDownLatch(2);
+        Checkpoint checkpoint = testContext.checkpoint(2);
 
         consumer.subscribe(message -> {
             logger.info("Received filtered message: {} with headers: {}", message.getPayload(), message.getHeaders());
             receivedMessages.add(message.getPayload());
-            latch.countDown();
+            checkpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
-        Thread.sleep(2000);
 
-        // Send messages with different types
-        producer.send("Order 1", Map.of("type", "ORDER")).get(10, TimeUnit.SECONDS);
-        producer.send("Payment 1", Map.of("type", "PAYMENT")).get(10, TimeUnit.SECONDS);
-        producer.send("Order 2", Map.of("type", "ORDER")).get(10, TimeUnit.SECONDS);
-        producer.send("Payment 2", Map.of("type", "PAYMENT")).get(10, TimeUnit.SECONDS);
-        logger.info("Sent 4 messages: 2 ORDER, 2 PAYMENT");
+        vertx.setTimer(2000, id -> {
+            // Send messages with different types
+            producer.send("Order 1", Map.of("type", "ORDER"));
+            producer.send("Payment 1", Map.of("type", "PAYMENT"));
+            producer.send("Order 2", Map.of("type", "ORDER"));
+            producer.send("Payment 2", Map.of("type", "PAYMENT"));
+            logger.info("Sent 4 messages: 2 ORDER, 2 PAYMENT");
+        });
 
         // Wait for filtered messages
-        boolean received = latch.await(15, TimeUnit.SECONDS);
+        boolean received = testContext.awaitCompletion(15, TimeUnit.SECONDS);
 
         // Verify only ORDER messages were received
         Assertions.assertTrue(received, "Should receive filtered messages");
@@ -175,7 +183,7 @@ public class ServerSideFilteringTest {
 
     @Test
     @Order(2)
-    void testServerSideFilterIn() throws Exception {
+    void testServerSideFilterIn(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Server-Side Filter IN ===");
         String topic = "filter-in-test-" + System.currentTimeMillis();
 
@@ -190,24 +198,25 @@ public class ServerSideFilteringTest {
         MessageConsumer<String> consumer = nativeFactory.createConsumer(topic, String.class, config);
 
         List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
-        CountDownLatch latch = new CountDownLatch(3);
+        Checkpoint checkpoint = testContext.checkpoint(3);
 
         consumer.subscribe(message -> {
             logger.info("Received filtered message: {} with headers: {}", message.getPayload(), message.getHeaders());
             receivedMessages.add(message.getPayload());
-            latch.countDown();
+            checkpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
-        Thread.sleep(2000);
 
-        // Send messages with different types
-        producer.send("Order 1", Map.of("type", "ORDER")).get(10, TimeUnit.SECONDS);
-        producer.send("Payment 1", Map.of("type", "PAYMENT")).get(10, TimeUnit.SECONDS);
-        producer.send("Refund 1", Map.of("type", "REFUND")).get(10, TimeUnit.SECONDS);
-        producer.send("Order 2", Map.of("type", "ORDER")).get(10, TimeUnit.SECONDS);
-        logger.info("Sent 4 messages: 2 ORDER, 1 PAYMENT, 1 REFUND");
+        vertx.setTimer(2000, id -> {
+            // Send messages with different types
+            producer.send("Order 1", Map.of("type", "ORDER"));
+            producer.send("Payment 1", Map.of("type", "PAYMENT"));
+            producer.send("Refund 1", Map.of("type", "REFUND"));
+            producer.send("Order 2", Map.of("type", "ORDER"));
+            logger.info("Sent 4 messages: 2 ORDER, 1 PAYMENT, 1 REFUND");
+        });
 
-        boolean received = latch.await(15, TimeUnit.SECONDS);
+        boolean received = testContext.awaitCompletion(15, TimeUnit.SECONDS);
 
         Assertions.assertTrue(received, "Should receive filtered messages");
         Assertions.assertEquals(3, receivedMessages.size(), "Should receive exactly 3 messages (ORDER + REFUND)");
@@ -220,7 +229,7 @@ public class ServerSideFilteringTest {
 
     @Test
     @Order(3)
-    void testServerSideFilterAnd() throws Exception {
+    void testServerSideFilterAnd(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Server-Side Filter AND ===");
         String topic = "filter-and-test-" + System.currentTimeMillis();
 
@@ -238,23 +247,24 @@ public class ServerSideFilteringTest {
         MessageConsumer<String> consumer = nativeFactory.createConsumer(topic, String.class, config);
 
         List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint checkpoint = testContext.checkpoint(1);
 
         consumer.subscribe(message -> {
             logger.info("Received filtered message: {} with headers: {}", message.getPayload(), message.getHeaders());
             receivedMessages.add(message.getPayload());
-            latch.countDown();
+            checkpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
-        Thread.sleep(2000);
 
-        // Send messages with different combinations
-        producer.send("Order Low", Map.of("type", "ORDER", "priority", "LOW")).get(10, TimeUnit.SECONDS);
-        producer.send("Payment High", Map.of("type", "PAYMENT", "priority", "HIGH")).get(10, TimeUnit.SECONDS);
-        producer.send("Order High", Map.of("type", "ORDER", "priority", "HIGH")).get(10, TimeUnit.SECONDS);
-        logger.info("Sent 3 messages with different type/priority combinations");
+        vertx.setTimer(2000, id -> {
+            // Send messages with different combinations
+            producer.send("Order Low", Map.of("type", "ORDER", "priority", "LOW"));
+            producer.send("Payment High", Map.of("type", "PAYMENT", "priority", "HIGH"));
+            producer.send("Order High", Map.of("type", "ORDER", "priority", "HIGH"));
+            logger.info("Sent 3 messages with different type/priority combinations");
+        });
 
-        boolean received = latch.await(15, TimeUnit.SECONDS);
+        boolean received = testContext.awaitCompletion(15, TimeUnit.SECONDS);
 
         Assertions.assertTrue(received, "Should receive filtered message");
         Assertions.assertEquals(1, receivedMessages.size(), "Should receive exactly 1 message (ORDER + HIGH)");
@@ -268,7 +278,7 @@ public class ServerSideFilteringTest {
 
     @Test
     @Order(4)
-    void testServerSideFilterNotEquals() throws Exception {
+    void testServerSideFilterNotEquals(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Server-Side Filter NOT_EQUALS ===");
         String topic = "filter-not-equals-test-" + System.currentTimeMillis();
 
@@ -283,23 +293,24 @@ public class ServerSideFilteringTest {
         MessageConsumer<String> consumer = nativeFactory.createConsumer(topic, String.class, config);
 
         List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
-        CountDownLatch latch = new CountDownLatch(2);
+        Checkpoint checkpoint = testContext.checkpoint(2);
 
         consumer.subscribe(message -> {
             logger.info("Received filtered message: {} with headers: {}", message.getPayload(), message.getHeaders());
             receivedMessages.add(message.getPayload());
-            latch.countDown();
+            checkpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
-        Thread.sleep(2000);
 
-        // Send messages with different statuses
-        producer.send("Order Active", Map.of("status", "ACTIVE")).get(10, TimeUnit.SECONDS);
-        producer.send("Order Cancelled", Map.of("status", "CANCELLED")).get(10, TimeUnit.SECONDS);
-        producer.send("Order Pending", Map.of("status", "PENDING")).get(10, TimeUnit.SECONDS);
-        logger.info("Sent 3 messages: ACTIVE, CANCELLED, PENDING");
+        vertx.setTimer(2000, id -> {
+            // Send messages with different statuses
+            producer.send("Order Active", Map.of("status", "ACTIVE"));
+            producer.send("Order Cancelled", Map.of("status", "CANCELLED"));
+            producer.send("Order Pending", Map.of("status", "PENDING"));
+            logger.info("Sent 3 messages: ACTIVE, CANCELLED, PENDING");
+        });
 
-        boolean received = latch.await(15, TimeUnit.SECONDS);
+        boolean received = testContext.awaitCompletion(15, TimeUnit.SECONDS);
 
         Assertions.assertTrue(received, "Should receive filtered messages");
         Assertions.assertEquals(2, receivedMessages.size(), "Should receive 2 non-CANCELLED messages");
@@ -315,7 +326,7 @@ public class ServerSideFilteringTest {
 
     @Test
     @Order(5)
-    void testServerSideFilterOr() throws Exception {
+    void testServerSideFilterOr(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Server-Side Filter OR ===");
         String topic = "filter-or-test-" + System.currentTimeMillis();
 
@@ -333,24 +344,25 @@ public class ServerSideFilteringTest {
         MessageConsumer<String> consumer = nativeFactory.createConsumer(topic, String.class, config);
 
         List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
-        CountDownLatch latch = new CountDownLatch(3);
+        Checkpoint checkpoint = testContext.checkpoint(3);
 
         consumer.subscribe(message -> {
             logger.info("Received filtered message: {} with headers: {}", message.getPayload(), message.getHeaders());
             receivedMessages.add(message.getPayload());
-            latch.countDown();
+            checkpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
-        Thread.sleep(2000);
 
-        // Send messages
-        producer.send("Order Normal", Map.of("type", "ORDER", "priority", "NORMAL")).get(10, TimeUnit.SECONDS);
-        producer.send("Payment Urgent", Map.of("type", "PAYMENT", "priority", "URGENT")).get(10, TimeUnit.SECONDS);
-        producer.send("Payment Normal", Map.of("type", "PAYMENT", "priority", "NORMAL")).get(10, TimeUnit.SECONDS);
-        producer.send("Order Urgent", Map.of("type", "ORDER", "priority", "URGENT")).get(10, TimeUnit.SECONDS);
-        logger.info("Sent 4 messages with different type/priority combinations");
+        vertx.setTimer(2000, id -> {
+            // Send messages
+            producer.send("Order Normal", Map.of("type", "ORDER", "priority", "NORMAL"));
+            producer.send("Payment Urgent", Map.of("type", "PAYMENT", "priority", "URGENT"));
+            producer.send("Payment Normal", Map.of("type", "PAYMENT", "priority", "NORMAL"));
+            producer.send("Order Urgent", Map.of("type", "ORDER", "priority", "URGENT"));
+            logger.info("Sent 4 messages with different type/priority combinations");
+        });
 
-        boolean received = latch.await(15, TimeUnit.SECONDS);
+        boolean received = testContext.awaitCompletion(15, TimeUnit.SECONDS);
 
         Assertions.assertTrue(received, "Should receive filtered messages");
         Assertions.assertEquals(3, receivedMessages.size(), "Should receive 3 messages (ORDER or URGENT)");
@@ -364,7 +376,7 @@ public class ServerSideFilteringTest {
 
     @Test
     @Order(6)
-    void testServerSideFilterLike() throws Exception {
+    void testServerSideFilterLike(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Server-Side Filter LIKE ===");
         String topic = "filter-like-test-" + System.currentTimeMillis();
 
@@ -379,23 +391,24 @@ public class ServerSideFilteringTest {
         MessageConsumer<String> consumer = nativeFactory.createConsumer(topic, String.class, config);
 
         List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
-        CountDownLatch latch = new CountDownLatch(2);
+        Checkpoint checkpoint = testContext.checkpoint(2);
 
         consumer.subscribe(message -> {
             logger.info("Received filtered message: {} with headers: {}", message.getPayload(), message.getHeaders());
             receivedMessages.add(message.getPayload());
-            latch.countDown();
+            checkpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
-        Thread.sleep(2000);
 
-        // Send messages with different event types
-        producer.send("Order Created", Map.of("eventType", "order-created")).get(10, TimeUnit.SECONDS);
-        producer.send("Payment Received", Map.of("eventType", "payment-received")).get(10, TimeUnit.SECONDS);
-        producer.send("Order Shipped", Map.of("eventType", "order-shipped")).get(10, TimeUnit.SECONDS);
-        logger.info("Sent 3 messages with different eventType patterns");
+        vertx.setTimer(2000, id -> {
+            // Send messages with different event types
+            producer.send("Order Created", Map.of("eventType", "order-created"));
+            producer.send("Payment Received", Map.of("eventType", "payment-received"));
+            producer.send("Order Shipped", Map.of("eventType", "order-shipped"));
+            logger.info("Sent 3 messages with different eventType patterns");
+        });
 
-        boolean received = latch.await(15, TimeUnit.SECONDS);
+        boolean received = testContext.awaitCompletion(15, TimeUnit.SECONDS);
 
         Assertions.assertTrue(received, "Should receive filtered messages");
         Assertions.assertEquals(2, receivedMessages.size(), "Should receive 2 order-* messages");
@@ -410,7 +423,7 @@ public class ServerSideFilteringTest {
 
     @Test
     @Order(7)
-    void testServerSideFilterMissingHeader() throws Exception {
+    void testServerSideFilterMissingHeader(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Server-Side Filter with Missing Headers ===");
         String topic = "filter-missing-header-test-" + System.currentTimeMillis();
 
@@ -425,23 +438,24 @@ public class ServerSideFilteringTest {
         MessageConsumer<String> consumer = nativeFactory.createConsumer(topic, String.class, config);
 
         List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint checkpoint = testContext.checkpoint(1);
 
         consumer.subscribe(message -> {
             logger.info("Received filtered message: {} with headers: {}", message.getPayload(), message.getHeaders());
             receivedMessages.add(message.getPayload());
-            latch.countDown();
+            checkpoint.flag();
             return CompletableFuture.completedFuture(null);
         });
-        Thread.sleep(2000);
 
-        // Send messages - some without the 'type' header
-        producer.send("No Header", Map.of("other", "value")).get(10, TimeUnit.SECONDS);
-        producer.send("Order With Type", Map.of("type", "ORDER")).get(10, TimeUnit.SECONDS);
-        producer.send("Empty Headers", Map.of()).get(10, TimeUnit.SECONDS);
-        logger.info("Sent 3 messages: 1 with type=ORDER, 2 without type header");
+        vertx.setTimer(2000, id -> {
+            // Send messages - some without the 'type' header
+            producer.send("No Header", Map.of("other", "value"));
+            producer.send("Order With Type", Map.of("type", "ORDER"));
+            producer.send("Empty Headers", Map.of());
+            logger.info("Sent 3 messages: 1 with type=ORDER, 2 without type header");
+        });
 
-        boolean received = latch.await(15, TimeUnit.SECONDS);
+        boolean received = testContext.awaitCompletion(15, TimeUnit.SECONDS);
 
         Assertions.assertTrue(received, "Should receive the ORDER message");
         Assertions.assertEquals(1, receivedMessages.size(), "Should receive only 1 message with type=ORDER");

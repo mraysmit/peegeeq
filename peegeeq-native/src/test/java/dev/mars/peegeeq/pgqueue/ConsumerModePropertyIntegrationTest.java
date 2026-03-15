@@ -13,11 +13,16 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -26,7 +31,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -45,6 +49,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * - Test various property combinations and edge cases
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 class ConsumerModePropertyIntegrationTest {
     private static final Logger logger = LoggerFactory.getLogger(ConsumerModePropertyIntegrationTest.class);
@@ -115,7 +120,7 @@ class ConsumerModePropertyIntegrationTest {
     }
 
     @Test
-    void testPollingIntervalPropertyIntegration() throws Exception {
+    void testPollingIntervalPropertyIntegration(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing polling interval property integration");
 
         // Set custom polling interval via system property
@@ -137,25 +142,27 @@ class ConsumerModePropertyIntegrationTest {
 
         try {
             AtomicInteger processedCount = new AtomicInteger(0);
-            CountDownLatch latch = new CountDownLatch(2);
+            Checkpoint messagesReceived = testContext.checkpoint(2);
 
             consumer.subscribe(message -> {
                 processedCount.incrementAndGet();
                 logger.info("📨 Property integration processed: {}", message.getPayload());
-                latch.countDown();
+                messagesReceived.flag();
                 return CompletableFuture.completedFuture(null);
             });
 
-            // Wait for consumer setup
-            Thread.sleep(1000);
-
-            // Send messages
-            producer.send("Property test message 1").get(5, TimeUnit.SECONDS);
-            producer.send("Property test message 2").get(5, TimeUnit.SECONDS);
+            // Wait for consumer setup, then send
+            vertx.setTimer(1000, id -> {
+                try {
+                    producer.send("Property test message 1").get(5, TimeUnit.SECONDS);
+                    producer.send("Property test message 2").get(5, TimeUnit.SECONDS);
+                } catch (Exception e) {
+                    testContext.failNow(e);
+                }
+            });
 
             // Wait for message processing with polling interval consideration
-            boolean received = latch.await(10, TimeUnit.SECONDS);
-            assertTrue(received, "Should process messages with custom polling interval");
+            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process messages with custom polling interval");
             assertEquals(2, processedCount.get(), "Should process exactly 2 messages");
 
             logger.info("✅ Polling interval property integration verified - processed: {} messages",
@@ -170,7 +177,7 @@ class ConsumerModePropertyIntegrationTest {
     }
 
     @Test
-    void testBatchSizePropertyIntegration() throws Exception {
+    void testBatchSizePropertyIntegration(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing batch size property integration");
 
         // Set custom batch size via system property
@@ -193,26 +200,28 @@ class ConsumerModePropertyIntegrationTest {
 
         try {
             AtomicInteger processedCount = new AtomicInteger(0);
-            CountDownLatch latch = new CountDownLatch(5);
+            Checkpoint messagesReceived = testContext.checkpoint(5);
 
             consumer.subscribe(message -> {
                 processedCount.incrementAndGet();
                 logger.info("📨 Batch property processed: {}", message.getPayload());
-                latch.countDown();
+                messagesReceived.flag();
                 return CompletableFuture.completedFuture(null);
             });
 
-            // Wait for consumer setup
-            Thread.sleep(500);
-
-            // Send messages in batch
-            for (int i = 1; i <= 5; i++) {
-                producer.send("Batch message " + i).get(5, TimeUnit.SECONDS);
-            }
+            // Wait for consumer setup, then send
+            vertx.setTimer(500, id -> {
+                try {
+                    for (int i = 1; i <= 5; i++) {
+                        producer.send("Batch message " + i).get(5, TimeUnit.SECONDS);
+                    }
+                } catch (Exception e) {
+                    testContext.failNow(e);
+                }
+            });
 
             // Wait for message processing
-            boolean received = latch.await(15, TimeUnit.SECONDS);
-            assertTrue(received, "Should process messages with custom batch size");
+            assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should process messages with custom batch size");
             assertEquals(5, processedCount.get(), "Should process exactly 5 messages");
 
             logger.info("✅ Batch size property integration verified - processed: {} messages",
@@ -227,7 +236,7 @@ class ConsumerModePropertyIntegrationTest {
     }
 
     @Test
-    void testVisibilityTimeoutPropertyIntegration() throws Exception {
+    void testVisibilityTimeoutPropertyIntegration(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing visibility timeout property integration");
 
         // Set custom visibility timeout via system property
@@ -248,25 +257,27 @@ class ConsumerModePropertyIntegrationTest {
 
         try {
             AtomicInteger processedCount = new AtomicInteger(0);
-            CountDownLatch latch = new CountDownLatch(2);
+            Checkpoint messagesReceived = testContext.checkpoint(2);
 
             consumer.subscribe(message -> {
                 processedCount.incrementAndGet();
                 logger.info("📨 Visibility timeout processed: {}", message.getPayload());
-                latch.countDown();
+                messagesReceived.flag();
                 return CompletableFuture.completedFuture(null);
             });
 
-            // Wait for consumer setup
-            Thread.sleep(1000);
-
-            // Send messages
-            producer.send("Visibility test message 1").get(5, TimeUnit.SECONDS);
-            producer.send("Visibility test message 2").get(5, TimeUnit.SECONDS);
+            // Wait for consumer setup, then send
+            vertx.setTimer(1000, id -> {
+                try {
+                    producer.send("Visibility test message 1").get(5, TimeUnit.SECONDS);
+                    producer.send("Visibility test message 2").get(5, TimeUnit.SECONDS);
+                } catch (Exception e) {
+                    testContext.failNow(e);
+                }
+            });
 
             // Wait for message processing
-            boolean received = latch.await(15, TimeUnit.SECONDS);
-            assertTrue(received, "Should process messages with custom visibility timeout");
+            assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should process messages with custom visibility timeout");
             assertEquals(2, processedCount.get(), "Should process exactly 2 messages");
 
             logger.info("✅ Visibility timeout property integration verified - processed: {} messages",
@@ -281,7 +292,7 @@ class ConsumerModePropertyIntegrationTest {
     }
 
     @Test
-    void testMultiplePropertyCombinations() throws Exception {
+    void testMultiplePropertyCombinations(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing multiple property combinations");
 
         // Set multiple properties together
@@ -303,26 +314,28 @@ class ConsumerModePropertyIntegrationTest {
 
         try {
             AtomicInteger processedCount = new AtomicInteger(0);
-            CountDownLatch latch = new CountDownLatch(4);
+            Checkpoint messagesReceived = testContext.checkpoint(4);
 
             consumer.subscribe(message -> {
                 processedCount.incrementAndGet();
                 logger.info("📨 Multiple properties processed: {}", message.getPayload());
-                latch.countDown();
+                messagesReceived.flag();
                 return CompletableFuture.completedFuture(null);
             });
 
-            // Wait for consumer setup
-            Thread.sleep(1000);
-
-            // Send messages
-            for (int i = 1; i <= 4; i++) {
-                producer.send("Multi-property message " + i).get(5, TimeUnit.SECONDS);
-            }
+            // Wait for consumer setup, then send
+            vertx.setTimer(1000, id -> {
+                try {
+                    for (int i = 1; i <= 4; i++) {
+                        producer.send("Multi-property message " + i).get(5, TimeUnit.SECONDS);
+                    }
+                } catch (Exception e) {
+                    testContext.failNow(e);
+                }
+            });
 
             // Wait for message processing
-            boolean received = latch.await(15, TimeUnit.SECONDS);
-            assertTrue(received, "Should process messages with multiple property combinations");
+            assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should process messages with multiple property combinations");
             assertEquals(4, processedCount.get(), "Should process exactly 4 messages");
 
             logger.info("✅ Multiple property combinations verified - processed: {} messages",
@@ -337,7 +350,7 @@ class ConsumerModePropertyIntegrationTest {
     }
 
     @Test
-    void testPropertyOverrideScenarios() throws Exception {
+    void testPropertyOverrideScenarios(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("🧪 Testing property override scenarios");
 
         // Set base properties
@@ -359,26 +372,28 @@ class ConsumerModePropertyIntegrationTest {
 
         try {
             AtomicInteger processedCount = new AtomicInteger(0);
-            CountDownLatch latch = new CountDownLatch(3);
+            Checkpoint messagesReceived = testContext.checkpoint(3);
 
             consumer.subscribe(message -> {
                 processedCount.incrementAndGet();
                 logger.info("📨 Property override processed: {}", message.getPayload());
-                latch.countDown();
+                messagesReceived.flag();
                 return CompletableFuture.completedFuture(null);
             });
 
-            // Wait for consumer setup
-            Thread.sleep(500);
-
-            // Send messages
-            for (int i = 1; i <= 3; i++) {
-                producer.send("Override message " + i).get(5, TimeUnit.SECONDS);
-            }
+            // Wait for consumer setup, then send
+            vertx.setTimer(500, id -> {
+                try {
+                    for (int i = 1; i <= 3; i++) {
+                        producer.send("Override message " + i).get(5, TimeUnit.SECONDS);
+                    }
+                } catch (Exception e) {
+                    testContext.failNow(e);
+                }
+            });
 
             // Wait for message processing - should be faster due to override
-            boolean received = latch.await(10, TimeUnit.SECONDS);
-            assertTrue(received, "Should process messages with overridden properties");
+            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process messages with overridden properties");
             assertEquals(3, processedCount.get(), "Should process exactly 3 messages");
 
             logger.info("✅ Property override scenarios verified - processed: {} messages",

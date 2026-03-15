@@ -27,10 +27,15 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -40,7 +45,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -52,6 +56,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  * Tests fundamental message sending and receiving capabilities.
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 public class OutboxBasicTest {
 
@@ -118,18 +123,18 @@ public class OutboxBasicTest {
     }
 
     @Test
-    void testBasicMessageProducerAndConsumer() throws Exception {
+    void testBasicMessageProducerAndConsumer(VertxTestContext testContext) throws Exception {
         String testMessage = "Hello, Basic Outbox Test!";
         
         // Set up consumer first
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint messageReceived = testContext.checkpoint();
         AtomicInteger receivedCount = new AtomicInteger(0);
         List<String> receivedMessages = new ArrayList<>();
 
         consumer.subscribe(message -> {
             receivedMessages.add(message.getPayload());
             receivedCount.incrementAndGet();
-            latch.countDown();
+            messageReceived.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -138,13 +143,13 @@ public class OutboxBasicTest {
         sendFuture.get(5, TimeUnit.SECONDS);
 
         // Wait for message to be received
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Message should be received within timeout");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received within timeout");
         assertEquals(1, receivedCount.get(), "Should receive exactly one message");
         assertEquals(testMessage, receivedMessages.get(0), "Should receive the correct message");
     }
 
     @Test
-    void testMessageWithHeaders() throws Exception {
+    void testMessageWithHeaders(VertxTestContext testContext) throws Exception {
         String testMessage = "Message with headers test";
         Map<String, String> headers = Map.of(
             "content-type", "text/plain",
@@ -153,12 +158,12 @@ public class OutboxBasicTest {
         );
 
         // Set up consumer
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint messageReceived = testContext.checkpoint();
         List<Message<String>> receivedMessages = new ArrayList<>();
 
         consumer.subscribe(message -> {
             receivedMessages.add(message);
-            latch.countDown();
+            messageReceived.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -167,7 +172,7 @@ public class OutboxBasicTest {
         sendFuture.get(5, TimeUnit.SECONDS);
 
         // Wait for message and verify
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Message should be received within timeout");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received within timeout");
         assertEquals(1, receivedMessages.size(), "Should receive exactly one message");
         
         Message<String> receivedMessage = receivedMessages.get(0);
@@ -178,9 +183,9 @@ public class OutboxBasicTest {
     }
 
     @Test
-    void testMultipleMessages() throws Exception {
+    void testMultipleMessages(VertxTestContext testContext) throws Exception {
         int messageCount = 5;
-        CountDownLatch latch = new CountDownLatch(messageCount);
+        Checkpoint messagesReceived = testContext.checkpoint(messageCount);
         List<String> receivedMessages = new ArrayList<>();
 
         // Set up consumer first
@@ -188,7 +193,7 @@ public class OutboxBasicTest {
             synchronized (receivedMessages) {
                 receivedMessages.add(message.getPayload());
             }
-            latch.countDown();
+            messagesReceived.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -204,22 +209,22 @@ public class OutboxBasicTest {
             .get(10, TimeUnit.SECONDS);
 
         // Wait for all messages to be received
-        assertTrue(latch.await(15, TimeUnit.SECONDS), "All messages should be received within timeout");
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "All messages should be received within timeout");
         assertEquals(messageCount, receivedMessages.size(), "Should receive all sent messages");
     }
 
     @Test
-    void testCorrelationId() throws Exception {
+    void testCorrelationId(VertxTestContext testContext) throws Exception {
         String testMessage = "Correlation ID test";
         String correlationId = "test-correlation-" + UUID.randomUUID();
 
         // Set up consumer
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint messageReceived = testContext.checkpoint();
         List<Message<String>> receivedMessages = new ArrayList<>();
 
         consumer.subscribe(message -> {
             receivedMessages.add(message);
-            latch.countDown();
+            messageReceived.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -228,7 +233,7 @@ public class OutboxBasicTest {
         sendFuture.get(5, TimeUnit.SECONDS);
 
         // Wait for message and verify correlation ID
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Message should be received within timeout");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received within timeout");
         assertEquals(1, receivedMessages.size(), "Should receive exactly one message");
         
         Message<String> receivedMessage = receivedMessages.get(0);
@@ -243,17 +248,17 @@ public class OutboxBasicTest {
     }
 
     @Test
-    void testMessageGroup() throws Exception {
+    void testMessageGroup(VertxTestContext testContext) throws Exception {
         String testMessage = "Message group test";
         String messageGroup = "test-group-" + UUID.randomUUID();
 
         // Set up consumer
-        CountDownLatch latch = new CountDownLatch(1);
+        Checkpoint messageReceived = testContext.checkpoint();
         List<String> receivedMessages = new ArrayList<>();
 
         consumer.subscribe(message -> {
             receivedMessages.add(message.getPayload());
-            latch.countDown();
+            messageReceived.flag();
             return CompletableFuture.completedFuture(null);
         });
 
@@ -262,7 +267,7 @@ public class OutboxBasicTest {
         sendFuture.get(5, TimeUnit.SECONDS);
 
         // Wait for message
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Message should be received within timeout");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received within timeout");
         assertEquals(1, receivedMessages.size(), "Should receive exactly one message");
         assertEquals(testMessage, receivedMessages.get(0), "Should receive correct message");
     }

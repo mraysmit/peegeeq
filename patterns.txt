@@ -1,0 +1,166 @@
+CleanupServiceIntegrationTest.java:26: import java.util.concurrent.CountDownLatch;
+CleanupServiceIntegrationTest.java:105: CountDownLatch latch = new CountDownLatch(1);
+CleanupServiceIntegrationTest.java:157: CountDownLatch latch = new CountDownLatch(1);
+CleanupServiceIntegrationTest.java:227: CountDownLatch latch = new CountDownLatch(1);
+CleanupServiceIntegrationTest.java:279: CountDownLatch latch = new CountDownLatch(1);
+CleanupServiceIntegrationTest.java:355: CountDownLatch latch = new CountDownLatch(1);
+CleanupServiceIntegrationTest.java:406: CountDownLatch latch = new CountDownLatch(1);
+CleanupServiceIntegrationTest.java:458: CountDownLatch latch = new CountDownLatch(1);
+CleanupServiceIntegrationTest.java:507: CountDownLatch latch = new CountDownLatch(1);
+DeadConsumerDetectorIntegrationTest.java:26: import java.util.concurrent.CountDownLatch;
+DeadConsumerDetectorIntegrationTest.java:102: CountDownLatch latch = new CountDownLatch(1);
+DeadConsumerDetectorIntegrationTest.java:167: CountDownLatch latch = new CountDownLatch(1);
+DeadConsumerDetectorIntegrationTest.java:230: CountDownLatch latch = new CountDownLatch(1);
+DeadConsumerDetectorIntegrationTest.java:309: CountDownLatch latch = new CountDownLatch(1);
+PoolingUnderLoad.java:31: import java.util.concurrent.CountDownLatch;
+PoolingUnderLoad.java:88: CountDownLatch latch = new CountDownLatch(numThreads);
+PoolingUnderLoad.java:107: Thread.sleep(100);
+PostgresNoticeHandlerIntegrationTest.java:41: import java.util.concurrent.CountDownLatch;
+PostgresNoticeHandlerIntegrationTest.java:127: CountDownLatch latch = new CountDownLatch(1);
+PostgresNoticeHandlerIntegrationTest.java:161: CountDownLatch latch = new CountDownLatch(1);
+PostgresNoticeHandlerIntegrationTest.java:191: CountDownLatch latch = new CountDownLatch(1);
+PostgresNoticeHandlerIntegrationTest.java:221: CountDownLatch latch = new CountDownLatch(1);
+PostgresNoticeHandlerIntegrationTest.java:263: CountDownLatch latch = new CountDownLatch(1);
+PostgresNoticeHandlerIntegrationTest.java:310: CountDownLatch latch = new CountDownLatch(1);
+PostgresNoticeHandlerIntegrationTest.java:336: CountDownLatch latch = new CountDownLatch(1);
+PostgresNoticeHandlerIntegrationTest.java:383: CountDownLatch latch = new CountDownLatch(1);
+PostgresNoticeHandlerIntegrationTest.java:434: CountDownLatch latch = new CountDownLatch(1);
+PostgresNoticeHandlerIntegrationTest.java:486: CountDownLatch latch = new CountDownLatch(1);
+PostgresNoticeHandlerIntegrationTest.java:553: CountDownLatch latch = new CountDownLatch(1);
+CompletionTrackerIntegrationTest.java:26: import java.util.concurrent.CountDownLatch;
+CompletionTrackerIntegrationTest.java:105: CountDownLatch latch = new CountDownLatch(1);
+CompletionTrackerIntegrationTest.java:162: CountDownLatch latch = new CountDownLatch(1);
+CompletionTrackerIntegrationTest.java:235: CountDownLatch latch = new CountDownLatch(1);
+CompletionTrackerIntegrationTest.java:287: CountDownLatch latch = new CountDownLatch(1);
+CompletionTrackerIntegrationTest.java:336: CountDownLatch latch = new CountDownLatch(1);
+CompletionTrackerIntegrationTest.java:395: CountDownLatch latch = new CountDownLatch(1);
+CompletionTrackerIntegrationTest.java:449: CountDownLatch latch = new CountDownLatch(1);
+CompletionTrackerIntegrationTest.java:490: CountDownLatch latch = new CountDownLatch(1);
+ConsumerGroupFetcherIntegrationTest.java:30: import java.util.concurrent.CountDownLatch;
+ConsumerGroupFetcherIntegrationTest.java:112: CountDownLatch latch = new CountDownLatch(1);
+ConsumerGroupFetcherIntegrationTest.java:165: CountDownLatch latch = new CountDownLatch(1);
+ConsumerGroupFetcherIntegrationTest.java:216: CountDownLatch latch = new CountDownLatch(1);
+ConsumerGroupFetcherIntegrationTest.java:274: CountDownLatch latch = new CountDownLatch(1);
+ConsumerGroupFetcherIntegrationTest.java:317: CountDownLatch latch = new CountDownLatch(1);
+ConsumerGroupFetcherIntegrationTest.java:369: CountDownLatch latch = new CountDownLatch(1);
+ConsumerGroupFetcherIntegrationTest.java:424: CountDownLatch latch = new CountDownLatch(1);
+ConsumerGroupFetcherIntegrationTest.java:491: CountDownLatch latch = new CountDownLatch(1);
+DeadLetterQueueManagerTest.java:132: Thread.sleep(100);
+DeadLetterQueueManagerTest.java:212: Thread.sleep(500); // Increased delay for parallel execution
+DeadLetterQueueManagerTest.java:228: Thread.sleep(200);
+DeadLetterQueueManagerTest.java:283: Thread.sleep(200); // Increased delay for parallel execution
+DeadLetterQueueManagerTest.java:404: Thread.sleep(300);
+DeadLetterQueueManagerTest.java:421: Thread.sleep(300); // Increased delay
+DeadLetterQueueManagerTest.java:585: Thread.sleep(2000); // Increased to 2 seconds for parallel execution
+DeadLetterQueueManagerTest.java:603: Thread.sleep(500); // Increased delay for parallel execution
+DeadLetterQueueManagerTest.java:632: Thread.sleep(150); // Increased delay for parallel execution
+MultiConfigurationExampleTest.java:100: Thread.sleep(100);
+MultiConfigurationExampleTest.java:104: Thread.sleep(100);
+MultiConfigurationExampleTest.java:108: Thread.sleep(100);
+PeeGeeQSelfContainedDemoTest.java:283: Thread.sleep(100); // Brief pause between monitoring cycles
+PerformanceComparisonExampleTest.java:202: Thread.sleep(100); // Brief simulation
+PerformanceTuningExampleTest.java:280: Thread.sleep(100);
+PerformanceTuningExampleTest.java:388: Thread.sleep(50);
+SecurityConfigurationExampleTest.java:221: Thread.sleep(2000);
+SimpleConsumerGroupTestTest.java:36: import java.util.concurrent.CountDownLatch;
+SimpleConsumerGroupTestTest.java:211: CountDownLatch messageCounter = new CountDownLatch(6); // Expecting 6 messages to be processed
+SimpleConsumerGroupTestTest.java:227: Thread.sleep(100); // Simulate startup time
+SimpleConsumerGroupTestTest.java:261: Thread.sleep(50);
+SimpleConsumerGroupTestTest.java:264: Thread.sleep(50);
+SimpleConsumerGroupTestTest.java:267: Thread.sleep(50);
+SimpleConsumerGroupTestTest.java:287: Thread.sleep(100);
+SimpleConsumerGroupTestTest.java:290: Thread.sleep(100);
+SimpleConsumerGroupTestTest.java:311: Thread.sleep(50);
+SimpleConsumerGroupTestTest.java:314: Thread.sleep(50);
+SimpleConsumerGroupTestTest.java:317: Thread.sleep(50);
+BackfillServiceConcurrencyTest.java:32: import java.util.concurrent.CountDownLatch;
+BackfillServiceConcurrencyTest.java:111: CountDownLatch latch = new CountDownLatch(concurrentAttempts);
+BackfillServiceConcurrencyTest.java:356: Thread.sleep(500);
+DeadConsumerDetectionJobIntegrationTest.java:35: import java.util.concurrent.CountDownLatch;
+DeadConsumerDetectionJobIntegrationTest.java:240: Thread.sleep(1200);
+DeadConsumerDetectionJobIntegrationTest.java:304: Thread.sleep(250);
+DeadConsumerDetectionJobIntegrationTest.java:311: Thread.sleep(250);
+DeadConsumerDetectionJobIntegrationTest.java:476: Thread.sleep(200);
+DeadConsumerDetectionJobIntegrationTest.java:479: Thread.sleep(500);
+DeadConsumerDetectionJobIntegrationTest.java:553: Thread.sleep(2000);
+DeadConsumerGroupCleanupIntegrationTest.java:481: Thread.sleep(20);
+P4_BackfillVsOLTPTest.java:181: Thread.sleep(100);  // Give backfill a head start
+P4_BackfillVsOLTPTest.java:324: Thread.sleep(backfillIntervalMs);
+P4_BackfillVsOLTPTest.java:339: Thread.sleep(5);
+P4_BackfillVsOLTPTest.java:354: Thread.sleep(10);
+HealthCheckManagerCoreTest.java:118: Thread.sleep(500);
+HealthCheckManagerCoreTest.java:136: Thread.sleep(500);
+HealthCheckManagerCoreTest.java:159: Thread.sleep(500);
+HealthCheckManagerCoreTest.java:182: Thread.sleep(500);
+HealthCheckManagerCoreTest.java:204: Thread.sleep(500);
+HealthCheckManagerCoreTest.java:223: Thread.sleep(500);
+HealthCheckManagerCoreTest.java:241: Thread.sleep(500);
+HealthCheckManagerCoreTest.java:268: Thread.sleep(500);
+HealthCheckManagerCoreTest.java:358: Thread.sleep(50);
+HealthCheckManagerCoreTest.java:382: Thread.sleep(700);
+HealthCheckManagerTest.java:37: import java.util.concurrent.CountDownLatch;
+HealthCheckManagerTest.java:166: Thread.sleep(3000);
+HealthCheckManagerTest.java:182: Thread.sleep(3000);
+HealthCheckManagerTest.java:208: Thread.sleep(3000);
+HealthCheckManagerTest.java:229: Thread.sleep(3000);
+HealthCheckManagerTest.java:262: Thread.sleep(3000);
+HealthCheckManagerTest.java:282: Thread.sleep(3000);
+HealthCheckManagerTest.java:310: Thread.sleep(3000);
+HealthCheckManagerTest.java:347: Thread.sleep(3000);
+HealthCheckManagerTest.java:367: Thread.sleep(5000); // Longer than timeout
+HealthCheckManagerTest.java:384: Thread.sleep(8000);
+HealthCheckManagerTest.java:412: Thread.sleep(3000);
+HealthCheckManagerTest.java:426: Thread.sleep(6000); // Wait longer than check interval
+HealthCheckManagerTest.java:444: CountDownLatch latch = new CountDownLatch(5);
+HealthCheckManagerTest.java:452: Thread.sleep(100); // Simulate some work
+HealthCheckManagerTest.java:473: Thread.sleep(500);
+HealthCheckManagerTest.java:528: Thread.sleep(3000);
+HealthCheckManagerTest.java:617: Thread.sleep(3000);
+PeeGeeQPerformanceTest.java:124: CountDownLatch latch = new CountDownLatch(threadCount);
+PeeGeeQPerformanceTest.java:178: CountDownLatch latch = new CountDownLatch(threadCount);
+PeeGeeQPerformanceTest.java:193: Thread.sleep(10);
+PeeGeeQPerformanceTest.java:243: CountDownLatch latch = new CountDownLatch(threadCount);
+PeeGeeQPerformanceTest.java:297: CountDownLatch latch = new CountDownLatch(threadCount);
+PeeGeeQPerformanceTest.java:365: Thread.sleep(1000);
+PeeGeeQPerformanceTest.java:391: Thread.sleep(1000);
+SimplePerformanceMonitorTest.java:113: Thread.sleep(10); // Small delay
+VertxEventLoopBlockingJoinTest.java:11: import java.util.concurrent.CountDownLatch;
+VertxEventLoopBlockingJoinTest.java:34: CountDownLatch timerObserved = new CountDownLatch(1);
+VertxEventLoopBlockingJoinTest.java:50: Thread.sleep(250);
+VertxEventLoopBlockingJoinTest.java:65: CountDownLatch closed = new CountDownLatch(1);
+VertxEventLoopBlockingJoinTest.java:77: CountDownLatch timerObserved = new CountDownLatch(1);
+VertxEventLoopBlockingJoinTest.java:78: CountDownLatch workerDone = new CountDownLatch(1);
+VertxEventLoopBlockingJoinTest.java:102: CountDownLatch closed = new CountDownLatch(1);
+BackpressureManagerTest.java:111: CountDownLatch startLatch = new CountDownLatch(1);
+BackpressureManagerTest.java:112: CountDownLatch completeLatch = new CountDownLatch(threadCount);
+BackpressureManagerTest.java:121: Thread.sleep(500); // Simulate work
+BackpressureManagerTest.java:156: Thread.sleep(1000);
+BackpressureManagerTest.java:166: Thread.sleep(50);
+BackpressureManagerTest.java:269: CountDownLatch operationsStarted = new CountDownLatch(activeOperations);
+BackpressureManagerTest.java:270: CountDownLatch operationsCanComplete = new CountDownLatch(1);
+BackpressureManagerTest.java:304: CountDownLatch operationsStarted = new CountDownLatch(maxOperations);
+BackpressureManagerTest.java:305: CountDownLatch operationsCanComplete = new CountDownLatch(1);
+CircuitBreakerManagerTest.java:29: import java.util.concurrent.CountDownLatch;
+CircuitBreakerManagerTest.java:261: CountDownLatch finishLatch = new CountDownLatch(threadCount);
+CircuitBreakerManagerTest.java:278: Thread.sleep(1);
+SubscriptionManagerCoreTest.java:462: Thread.sleep(100);
+SubscriptionManagerIntegrationTest.java:291: Thread.sleep(100);
+SubscriptionManagerIntegrationTest.java:404: Thread.sleep(100);
+BaseIntegrationTest.java:118: Thread.sleep(100);
+BaseIntegrationTest.java:125: Thread.sleep(100);
+BaseIntegrationTest.java:210: Thread.sleep(1000);
+PeeGeeQManagerIntegrationTest.java:130: Thread.sleep(2000);
+PeeGeeQManagerIntegrationTest.java:182: Thread.sleep(3000);
+PeeGeeQManagerIntegrationTest.java:264: Thread.sleep(100); // Allow cleanup to complete
+PeeGeeQManagerIntegrationTest.java:307: Thread.sleep(2000);
+ResourceLeakDetectionTest.java:247: Thread.sleep(3000);
+ResourceLeakDetectionTest.java:251: Thread.sleep(1000);
+ResourceLeakDetectionTest.java:306: Thread.sleep(3000);
+ResourceLeakDetectionTest.java:310: Thread.sleep(1000);
+ResourceLeakDetectionTest.java:362: Thread.sleep(3000);
+ResourceLeakDetectionTest.java:366: Thread.sleep(1000);
+ResourceLeakDetectionTest.java:434: Thread.sleep(2000);
+ResourceLeakDetectionTest.java:438: Thread.sleep(3000);
+ResourceLeakDetectionTest.java:440: Thread.sleep(1000);
+ResourceLeakDetectionTest.java:501: Thread.sleep(waitInterval);
+ResourceLeakDetectionTest.java:546: Thread.sleep(waitInterval);

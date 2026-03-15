@@ -41,6 +41,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -48,6 +51,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -82,6 +86,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @Tag(TestCategories.INTEGRATION)
 class LateJoiningConsumerDemoTest {
@@ -359,7 +364,7 @@ class LateJoiningConsumerDemoTest {
      */
     @Test
     @Order(3)
-    void testFromTimestampConsumer() throws Exception {
+    void testFromTimestampConsumer(Vertx vertx) throws Exception {
         logger.info("\n=== DEMO 3: FROM_TIMESTAMP Consumer (Time-Based Replay) ===\n");
 
         String topic = "orders.replay";
@@ -395,8 +400,10 @@ class LateJoiningConsumerDemoTest {
 
         // Step 4: Publish 10 more messages after replay timestamp
         logger.info("\nStep 4: Publishing 10 messages after replay timestamp");
-        Thread.sleep(100); // Small delay to ensure timestamp difference
-        List<Long> recentMessageIds = new ArrayList<>();
+        CompletableFuture<Void> delay = new CompletableFuture<>();
+        vertx.setTimer(100, id -> delay.complete(null));
+        delay.join();
+        List<Long> recentMessageIds = new ArrayList<>();;
         for (int i = 11; i <= 20; i++) {
             Long messageId = insertMessage(topic, new JsonObject()
                 .put("orderId", "ORDER-" + i)
