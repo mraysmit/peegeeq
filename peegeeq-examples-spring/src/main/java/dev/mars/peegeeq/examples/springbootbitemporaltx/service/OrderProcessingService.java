@@ -19,7 +19,6 @@ package dev.mars.peegeeq.examples.springbootbitemporaltx.service;
 import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.api.EventStore;
 import dev.mars.peegeeq.api.database.DatabaseService;
-import dev.mars.peegeeq.bitemporal.PgBiTemporalEventStore;
 import dev.mars.peegeeq.examples.springbootbitemporaltx.events.AuditEvent;
 import dev.mars.peegeeq.examples.springbootbitemporaltx.events.InventoryEvent;
 import dev.mars.peegeeq.examples.springbootbitemporaltx.events.OrderEvent;
@@ -36,6 +35,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 
 /**
  * Order Processing Service for Multi-Event Store Transaction Coordination.
@@ -149,20 +149,30 @@ public class OrderProcessingService {
                 transactionId, orderRequest.getOrderId(), correlationId, validTime);
             
             CompletableFuture<BiTemporalEvent<AuditEvent>> auditFuture =
-                ((PgBiTemporalEventStore<AuditEvent>) auditEventStore)
-                    .appendInTransaction("TransactionStarted", transactionStartEvent, validTime,
-                        Map.of("stage", "transaction-start", "correlationId", correlationId),
-                        correlationId, transactionId, connection);
+                toCompletableFuture(auditEventStore.appendBuilder()
+                    .eventType("TransactionStarted")
+                    .payload(transactionStartEvent)
+                    .validTime(validTime)
+                    .headers(Map.of("stage", "transaction-start", "correlationId", correlationId))
+                    .correlationId(correlationId)
+                    .aggregateId(transactionId)
+                    .inTransaction(connection)
+                    .execute());
             
             // Step 2: Create order event
             OrderEvent orderEvent = createOrderEvent(orderRequest, validTime);
             
             CompletableFuture<BiTemporalEvent<OrderEvent>> orderFuture = auditFuture.thenCompose(auditResult -> {
                 logger.debug("Recording order creation for order: {} with correlation ID: {}", orderRequest.getOrderId(), correlationId);
-                return ((PgBiTemporalEventStore<OrderEvent>) orderEventStore)
-                    .appendInTransaction("OrderCreated", orderEvent, validTime,
-                        Map.of("stage", "order-creation", "correlationId", correlationId),
-                        correlationId, orderRequest.getOrderId(), connection);
+                return toCompletableFuture(orderEventStore.appendBuilder()
+                    .eventType("OrderCreated")
+                    .payload(orderEvent)
+                    .validTime(validTime)
+                    .headers(Map.of("stage", "order-creation", "correlationId", correlationId))
+                    .correlationId(correlationId)
+                    .aggregateId(orderRequest.getOrderId())
+                    .inTransaction(connection)
+                    .execute());
             });
             
             // Step 3: Reserve inventory for each order item
@@ -176,10 +186,15 @@ public class OrderProcessingService {
                                 InventoryEvent inventoryEvent = createInventoryReservationEvent(
                                     item, orderRequest.getOrderId(), correlationId, transactionId, validTime);
                                 
-                                return ((PgBiTemporalEventStore<InventoryEvent>) inventoryEventStore)
-                                    .appendInTransaction("InventoryReserved", inventoryEvent, validTime,
-                                        Map.of("stage", "inventory-reservation", "correlationId", correlationId),
-                                        correlationId, orderRequest.getOrderId(), connection);
+                                return toCompletableFuture(inventoryEventStore.appendBuilder()
+                                    .eventType("InventoryReserved")
+                                    .payload(inventoryEvent)
+                                    .validTime(validTime)
+                                    .headers(Map.of("stage", "inventory-reservation", "correlationId", correlationId))
+                                    .correlationId(correlationId)
+                                    .aggregateId(orderRequest.getOrderId())
+                                    .inTransaction(connection)
+                                    .execute());
                             })
                             .toList();
                     
@@ -196,10 +211,15 @@ public class OrderProcessingService {
                     
                     PaymentEvent paymentEvent = createPaymentAuthorizationEvent(orderRequest, validTime);
                     
-                    return ((PgBiTemporalEventStore<PaymentEvent>) paymentEventStore)
-                        .appendInTransaction("PaymentAuthorized", paymentEvent, validTime,
-                            Map.of("stage", "payment-authorization", "correlationId", correlationId),
-                            correlationId, orderRequest.getOrderId(), connection);
+                    return toCompletableFuture(paymentEventStore.appendBuilder()
+                        .eventType("PaymentAuthorized")
+                        .payload(paymentEvent)
+                        .validTime(validTime)
+                        .headers(Map.of("stage", "payment-authorization", "correlationId", correlationId))
+                        .correlationId(correlationId)
+                        .aggregateId(orderRequest.getOrderId())
+                        .inTransaction(connection)
+                        .execute());
                 });
             
             // Step 5: Record final audit event for transaction completion
@@ -210,10 +230,15 @@ public class OrderProcessingService {
                     AuditEvent transactionCompleteEvent = createTransactionCompleteAuditEvent(
                         transactionId, orderRequest.getOrderId(), correlationId, validTime);
                     
-                    return ((PgBiTemporalEventStore<AuditEvent>) auditEventStore)
-                        .appendInTransaction("TransactionCompleted", transactionCompleteEvent, validTime,
-                            Map.of("stage", "transaction-complete", "correlationId", correlationId),
-                            correlationId, transactionId, connection);
+                    return toCompletableFuture(auditEventStore.appendBuilder()
+                        .eventType("TransactionCompleted")
+                        .payload(transactionCompleteEvent)
+                        .validTime(validTime)
+                        .headers(Map.of("stage", "transaction-complete", "correlationId", correlationId))
+                        .correlationId(correlationId)
+                        .aggregateId(transactionId)
+                        .inTransaction(connection)
+                        .execute());
                 });
             
             // Return the complete processing result
@@ -242,6 +267,14 @@ public class OrderProcessingService {
                 validTime
             );
         });
+    }
+
+    private static <T> CompletableFuture<T> toCompletableFuture(CompletionStage<T> stage) {
+        return stage.toCompletableFuture();
+    }
+
+    private static <T> CompletableFuture<T> toCompletableFuture(Future<T> future) {
+        return future.toCompletionStage().toCompletableFuture();
     }
     
     /**

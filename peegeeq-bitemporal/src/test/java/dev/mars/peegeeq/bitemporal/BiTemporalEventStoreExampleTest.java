@@ -93,12 +93,12 @@ class BiTemporalEventStoreExampleTest {
     static {
         // Initialize shared container only once across all example test classes
         if (sharedPostgres == null) {
-            PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-                    .withDatabaseName("peegeeq_bitemporal_test")
-                    .withUsername("postgres")
-                    .withPassword("password")
-                    .withSharedMemorySize(256 * 1024 * 1024L) // 256MB shared memory
-                    .withCommand("postgres", "-c", "max_connections=300", "-c", "fsync=off", "-c", "synchronous_commit=off"); // Performance optimizations for tests
+            PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+            container.withDatabaseName("peegeeq_bitemporal_test")
+                .withUsername("postgres")
+                .withPassword("password")
+                .withSharedMemorySize(256 * 1024 * 1024L) // 256MB shared memory
+                .withCommand("postgres", "-c", "max_connections=300", "-c", "fsync=off", "-c", "synchronous_commit=off"); // Performance optimizations for tests
             container.start();
             sharedPostgres = container;
 
@@ -145,7 +145,7 @@ class BiTemporalEventStoreExampleTest {
         
         // Create bi-temporal event store
         BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager);
-        eventStore = factory.createEventStore(OrderEvent.class);
+        eventStore = factory.createEventStore(OrderEvent.class, "bitemporal_event_log");
         
         logger.info("Bi-Temporal Event Store Example Test setup completed");
     }
@@ -224,18 +224,30 @@ class BiTemporalEventStoreExampleTest {
         
         // Create test events with different valid times
         Instant now = Instant.now();
-        Instant validTime1 = now.minus(2, ChronoUnit.HOURS);
         Instant validTime2 = now.minus(1, ChronoUnit.HOURS);
         Instant validTime3 = now;
         
-        OrderEvent event1 = new OrderEvent("order-001", "customer-001", new BigDecimal("100.00"), "PENDING");
         OrderEvent event2 = new OrderEvent("order-002", "customer-002", new BigDecimal("250.00"), "CONFIRMED");
         OrderEvent event3 = new OrderEvent("order-003", "customer-001", new BigDecimal("75.50"), "SHIPPED");
         
         // Append events with specific valid times
-        await(eventStore.append("OrderCreated", event1, validTime1));
-        await(eventStore.append("OrderCreated", event2, validTime2));
-        await(eventStore.append("OrderCreated", event3, validTime3));
+        await(eventStore.appendBuilder()
+            .eventType("OrderCreated")
+            .payload(new OrderEvent("order-001", "customer-001", new BigDecimal("100.00"), "PENDING"))
+            .validTime(now.minus(2, ChronoUnit.HOURS))
+            .execute());
+
+        await(eventStore.appendBuilder()
+            .eventType("OrderCreated")
+            .payload(event2)
+            .validTime(validTime2)
+            .execute());
+
+        await(eventStore.appendBuilder()
+            .eventType("OrderCreated")
+            .payload(event3)
+            .validTime(validTime3)
+            .execute());
         
         logger.info("Successfully appended 3 events with bi-temporal dimensions");
         
@@ -265,13 +277,21 @@ class BiTemporalEventStoreExampleTest {
         
         // Original event
         OrderEvent originalEvent = new OrderEvent("order-004", "customer-003", new BigDecimal("150.00"), "PENDING");
-        await(eventStore.append("OrderCreated", originalEvent, originalValidTime));
+        await(eventStore.appendBuilder()
+            .eventType("OrderCreated")
+            .payload(originalEvent)
+            .validTime(originalValidTime)
+            .execute());
 
         logger.info("📋 Original event stored: {}", originalEvent);
 
         // Correction - same valid time, but different transaction time
         OrderEvent correctedEvent = new OrderEvent("order-004", "customer-003", new BigDecimal("175.00"), "CONFIRMED");
-        await(eventStore.append("OrderUpdated", correctedEvent, originalValidTime));
+        await(eventStore.appendBuilder()
+            .eventType("OrderUpdated")
+            .payload(correctedEvent)
+            .validTime(originalValidTime)
+            .execute());
         
         logger.info("📋 Corrected event stored: {}", correctedEvent);
         
@@ -310,9 +330,23 @@ class BiTemporalEventStoreExampleTest {
         OrderEvent event3 = new OrderEvent("order-007", "customer-005", new BigDecimal("150.00"), "SHIPPED");
         
         // Append events with specific valid times
-        await(eventStore.append("OrderCreated", event1, baseTime));
-        await(eventStore.append("OrderCreated", event2, baseTime.plus(1, ChronoUnit.HOURS)));
-        await(eventStore.append("OrderCreated", event3, baseTime.plus(2, ChronoUnit.HOURS)));
+        await(eventStore.appendBuilder()
+            .eventType("OrderCreated")
+            .payload(event1)
+            .validTime(baseTime)
+            .execute());
+
+        await(eventStore.appendBuilder()
+            .eventType("OrderCreated")
+            .payload(event2)
+            .validTime(baseTime.plus(1, ChronoUnit.HOURS))
+            .execute());
+            
+        await(eventStore.appendBuilder()
+            .eventType("OrderCreated")
+            .payload(event3)
+            .validTime(baseTime.plus(2, ChronoUnit.HOURS))
+            .execute());
 
         // Query point-in-time view (1 hour after base time)
         Instant pointInTime = baseTime.plus(1, ChronoUnit.HOURS);
@@ -363,8 +397,16 @@ class BiTemporalEventStoreExampleTest {
         OrderEvent event1 = new OrderEvent("order-008", "customer-006", new BigDecimal("400.00"), "PENDING");
         OrderEvent event2 = new OrderEvent("order-009", "customer-007", new BigDecimal("500.00"), "CONFIRMED");
 
-        BiTemporalEvent<OrderEvent> storedEvent1 = await(eventStore.append("OrderCreated", event1, Instant.now()));
-        BiTemporalEvent<OrderEvent> storedEvent2 = await(eventStore.append("OrderCreated", event2, Instant.now()));
+        BiTemporalEvent<OrderEvent> storedEvent1 = await(eventStore.appendBuilder()
+            .eventType("OrderCreated")
+            .payload(event1)
+            .validTime(Instant.now())
+            .execute());
+        BiTemporalEvent<OrderEvent> storedEvent2 = await(eventStore.appendBuilder()
+            .eventType("OrderCreated")
+            .payload(event2)
+            .validTime(Instant.now())
+            .execute());
 
         // Verify events were stored successfully
         assertNotNull(storedEvent1, "First event should be stored");
@@ -385,7 +427,11 @@ class BiTemporalEventStoreExampleTest {
 
         // Append with type safety
         assertDoesNotThrow(() -> {
-            await(eventStore.append("OrderCreated", orderEvent, Instant.now()));
+            await(eventStore.appendBuilder()
+                .eventType("OrderCreated")
+                .payload(orderEvent)
+                .validTime(Instant.now())
+                .execute());
         }, "Type-safe append should not throw exceptions");
 
         // Query with type safety

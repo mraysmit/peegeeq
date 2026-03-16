@@ -21,6 +21,7 @@ import dev.mars.peegeeq.bitemporal.PgBiTemporalEventStore;
 import dev.mars.peegeeq.examples.springbootfinancialfabric.cloudevents.FinancialCloudEventBuilder;
 import dev.mars.peegeeq.examples.springbootfinancialfabric.events.TradeEvent;
 import io.cloudevents.CloudEvent;
+import io.vertx.core.Future;
 import io.vertx.sqlclient.SqlConnection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,6 +31,7 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 
 /**
  * Service for capturing and managing trade lifecycle events.
@@ -87,15 +89,15 @@ public class TradeCaptureService {
 
             // Store the payload (TradeEvent) in the BiTemporalEventStore, not the CloudEvent
             // The CloudEvent is used for messaging/external communication
-            return tradingEventStore.appendInTransaction(
-                    "trading.equities.capture.completed",
-                    tradeEvent,  // Store the payload, not the CloudEvent
-                    validTime,
-                    Map.of("correlationId", correlationId, "priority", "normal", "cloudEventId", cloudEvent.getId()),
-                    correlationId,
-                    tradeEvent.getTradeId(),
-                    connection
-                )
+            return toCompletableFuture(tradingEventStore.appendBuilder()
+                    .eventType("trading.equities.capture.completed")
+                    .payload(tradeEvent)
+                    .validTime(validTime)
+                    .headers(Map.of("correlationId", correlationId, "priority", "normal", "cloudEventId", cloudEvent.getId()))
+                    .correlationId(correlationId)
+                    .aggregateId(tradeEvent.getTradeId())
+                    .inTransaction(connection)
+                    .execute())
                 .thenApply(biTemporalEvent -> {
                     log.info("Trade captured successfully: tradeId={}, eventId={}, cloudEventId={}",
                         tradeEvent.getTradeId(), biTemporalEvent.getEventId(), cloudEvent.getId());
@@ -147,15 +149,15 @@ public class TradeCaptureService {
                 validTime
             );
 
-            return tradingEventStore.appendInTransaction(
-                    "trading.equities.confirmation.matched",
-                    confirmationEvent,  // Store the TradeEvent payload
-                    validTime,
-                    Map.of("correlationId", correlationId, "cloudEventId", cloudEvent.getId(), "status", "MATCHED"),
-                    correlationId,
-                    tradeId,
-                    connection
-                )
+            return toCompletableFuture(tradingEventStore.appendBuilder()
+                    .eventType("trading.equities.confirmation.matched")
+                    .payload(confirmationEvent)
+                    .validTime(validTime)
+                    .headers(Map.of("correlationId", correlationId, "cloudEventId", cloudEvent.getId(), "status", "MATCHED"))
+                    .correlationId(correlationId)
+                    .aggregateId(tradeId)
+                    .inTransaction(connection)
+                    .execute())
                 .thenApply(biTemporalEvent -> {
                     log.info("Trade confirmed successfully: tradeId={}, eventId={}, cloudEventId={}",
                         tradeId, biTemporalEvent.getEventId(), cloudEvent.getId());
@@ -165,6 +167,14 @@ public class TradeCaptureService {
             log.error("Failed to serialize trade confirmation: tradeId={}", tradeId, e);
             return CompletableFuture.failedFuture(new RuntimeException("Failed to serialize trade confirmation", e));
         }
+    }
+
+    private static <T> CompletableFuture<T> toCompletableFuture(CompletionStage<T> stage) {
+        return stage.toCompletableFuture();
+    }
+
+    private static <T> CompletableFuture<T> toCompletableFuture(Future<T> future) {
+        return future.toCompletionStage().toCompletableFuture();
     }
 }
 

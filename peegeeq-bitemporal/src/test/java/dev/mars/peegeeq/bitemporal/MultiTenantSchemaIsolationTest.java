@@ -61,10 +61,15 @@ class MultiTenantSchemaIsolationTest {
     }
 
     @Container
-    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName("multitenant_test")
-            .withUsername("test_user")
-            .withPassword("test_pass");
+    private static final PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        container.withDatabaseName("multitenant_test")
+                .withUsername("test_user")
+                .withPassword("test_pass");
+        return container;
+    }
 
     private PeeGeeQManager managerTenantA;
     private PeeGeeQManager managerTenantB;
@@ -147,7 +152,11 @@ class MultiTenantSchemaIsolationTest {
         // Tenant A appends an event
         EventStore<TestEvent> eventStoreTenantA = factoryTenantA.createEventStore(TestEvent.class, "bitemporal_event_log");
         TestEvent eventA = new TestEvent("tenant-a-id", "tenant-a-data", 100);
-        await(eventStoreTenantA.append("TenantAEvent", eventA, Instant.now()));
+        await(eventStoreTenantA.appendBuilder()
+            .eventType("TenantAEvent")
+            .payload(eventA)
+            .validTime(Instant.now())
+            .execute());
 
         // Tenant B creates an event store - should NOT see tenant A's event
         EventStore<TestEvent> eventStoreTenantB = factoryTenantB.createEventStore(TestEvent.class, "bitemporal_event_log");
@@ -179,8 +188,16 @@ class MultiTenantSchemaIsolationTest {
         TestEvent eventA = new TestEvent("tenant-a-id", "tenant-a-data", 100);
         TestEvent eventB = new TestEvent("tenant-b-id", "tenant-b-data", 200);
 
-        await(eventStoreTenantA.append("SharedEventType", eventA, Instant.now()));
-        await(eventStoreTenantB.append("SharedEventType", eventB, Instant.now()));
+        await(eventStoreTenantA.appendBuilder()
+            .eventType("SharedEventType")
+            .payload(eventA)
+            .validTime(Instant.now())
+            .execute());
+        await(eventStoreTenantB.appendBuilder()
+            .eventType("SharedEventType")
+            .payload(eventB)
+            .validTime(Instant.now())
+            .execute());
 
         // Query by event type - each tenant should only see their own events
         List<BiTemporalEvent<TestEvent>> eventsA = await(eventStoreTenantA.query(
@@ -211,8 +228,18 @@ class MultiTenantSchemaIsolationTest {
         TestEvent eventA = new TestEvent("tenant-a-id", "tenant-a-data", 100);
         TestEvent eventB = new TestEvent("tenant-b-id", "tenant-b-data", 200);
 
-        await(eventStoreTenantA.append("AggregateEvent", eventA, Instant.now(), null, null, null, sharedAggregateId));
-        await(eventStoreTenantB.append("AggregateEvent", eventB, Instant.now(), null, null, null, sharedAggregateId));
+        await(eventStoreTenantA.appendBuilder()
+            .eventType("AggregateEvent")
+            .payload(eventA)
+            .validTime(Instant.now())
+            .aggregateId(sharedAggregateId)
+            .execute());
+        await(eventStoreTenantB.appendBuilder()
+            .eventType("AggregateEvent")
+            .payload(eventB)
+            .validTime(Instant.now())
+            .aggregateId(sharedAggregateId)
+            .execute());
 
         // Query by aggregate ID - each tenant should only see their own events
         List<BiTemporalEvent<TestEvent>> eventsA = await(eventStoreTenantA.query(

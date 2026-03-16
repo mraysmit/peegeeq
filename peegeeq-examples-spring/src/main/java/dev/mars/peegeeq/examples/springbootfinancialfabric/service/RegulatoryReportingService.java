@@ -21,6 +21,7 @@ import dev.mars.peegeeq.bitemporal.PgBiTemporalEventStore;
 import dev.mars.peegeeq.examples.springbootfinancialfabric.cloudevents.FinancialCloudEventBuilder;
 import dev.mars.peegeeq.examples.springbootfinancialfabric.events.RegulatoryReportEvent;
 import io.cloudevents.CloudEvent;
+import io.vertx.core.Future;
 import io.vertx.sqlclient.SqlConnection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,6 +31,7 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 
 /**
  * Service for managing regulatory reporting events.
@@ -86,22 +88,21 @@ public class RegulatoryReportingService {
                 validTime
             );
 
-            return regulatoryEventStore
-                .appendInTransaction(
-                    "regulatory.transaction.reported",
-                    reportEvent,  // Store the RegulatoryReportEvent payload
-                    validTime,
-                    Map.of(
+            return toCompletableFuture(regulatoryEventStore.appendBuilder()
+                    .eventType("regulatory.transaction.reported")
+                    .payload(reportEvent)
+                    .validTime(validTime)
+                    .headers(Map.of(
                         "correlationId", correlationId,
                         "reportType", reportEvent.getReportType(),
                         "regulatoryRegime", reportEvent.getRegulatoryRegime(),
-                        "priority", "high",  // Regulatory reports are high priority
+                        "priority", "high",
                         "cloudEventId", cloudEvent.getId()
-                    ),
-                    correlationId,
-                    reportEvent.getReportId(),
-                    connection
-                )
+                    ))
+                    .correlationId(correlationId)
+                    .aggregateId(reportEvent.getReportId())
+                    .inTransaction(connection)
+                    .execute())
                 .thenApply(biTemporalEvent -> {
                     log.info("Regulatory report submitted successfully: reportId={}, eventId={}, cloudEventId={}",
                         reportEvent.getReportId(), biTemporalEvent.getEventId(), cloudEvent.getId());
@@ -111,6 +112,14 @@ public class RegulatoryReportingService {
             log.error("Failed to serialize regulatory report: reportId={}", reportEvent.getReportId(), e);
             return CompletableFuture.failedFuture(new RuntimeException("Failed to serialize regulatory report", e));
         }
+    }
+
+    private static <T> CompletableFuture<T> toCompletableFuture(CompletionStage<T> stage) {
+        return stage.toCompletableFuture();
+    }
+
+    private static <T> CompletableFuture<T> toCompletableFuture(Future<T> future) {
+        return future.toCompletionStage().toCompletableFuture();
     }
 }
 

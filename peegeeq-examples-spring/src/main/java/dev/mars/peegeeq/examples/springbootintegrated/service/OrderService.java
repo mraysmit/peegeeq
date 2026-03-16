@@ -36,6 +36,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.stream.Collectors;
 
 /**
@@ -133,7 +134,7 @@ public class OrderService {
         ConnectionProvider cp = databaseService.getConnectionProvider();
         
         // Execute all operations in SINGLE transaction
-        return cp.withTransaction("peegeeq-main", connection -> {
+        return cp.<String>withTransaction("peegeeq-main", connection -> {
             logger.info("Starting integrated transaction for order: {}", orderId);
             
             // Step 1: Save order to database
@@ -147,14 +148,14 @@ public class OrderService {
                 .onSuccess(v -> logger.info("Order event sent to outbox: {}", orderId))
                 
                 // Step 3: Append to bi-temporal event store (for historical queries)
-                .compose(v -> Future.fromCompletionStage(
-                    orderEventStore.appendInTransaction(
-                        "OrderCreated",        // Event type
-                        event,                 // Event payload
-                        validTime,             // Valid time
-                        connection             // SAME connection
-                    )
-                ))
+                .compose(v ->
+                    orderEventStore.appendBuilder()
+                        .eventType("OrderCreated")
+                        .payload(event)
+                        .validTime(validTime)
+                        .inTransaction(connection)
+                        .execute()
+                )
                 .onSuccess(v -> logger.info("Order event appended to event store: {}", orderId))
                 
                 // Return order ID
@@ -182,7 +183,7 @@ public class OrderService {
     public CompletableFuture<OrderResponse> getOrderHistory(String orderId) {
         logger.info("Retrieving order history: {}", orderId);
         
-        return orderEventStore.query(EventQuery.all())
+        return toCompletableFuture(orderEventStore.query(EventQuery.all()))
             .thenApply(events -> {
                 List<BiTemporalEvent<OrderEvent>> orderEvents = events.stream()
                     .filter(event -> orderId.equals(event.getPayload().getOrderId()))
@@ -202,7 +203,7 @@ public class OrderService {
     public CompletableFuture<List<BiTemporalEvent<OrderEvent>>> getCustomerOrders(String customerId) {
         logger.info("Retrieving orders for customer: {}", customerId);
         
-        return orderEventStore.query(EventQuery.all())
+        return toCompletableFuture(orderEventStore.query(EventQuery.all()))
             .thenApply(events -> {
                 List<BiTemporalEvent<OrderEvent>> customerOrders = events.stream()
                     .filter(event -> customerId.equals(event.getPayload().getCustomerId()))
@@ -222,7 +223,7 @@ public class OrderService {
     public CompletableFuture<List<BiTemporalEvent<OrderEvent>>> getOrdersAsOfTime(Instant validTime) {
         logger.info("Querying orders as of time: {}", validTime);
         
-        return orderEventStore.query(EventQuery.asOfValidTime(validTime))
+        return toCompletableFuture(orderEventStore.query(EventQuery.asOfValidTime(validTime)))
             .whenComplete((events, error) -> {
                 if (error != null) {
                     logger.error("Failed to query orders as of time: {}", validTime, error);
@@ -230,6 +231,14 @@ public class OrderService {
                     logger.info("Found {} orders as of time: {}", events.size(), validTime);
                 }
             });
+    }
+
+    private <T> CompletableFuture<T> toCompletableFuture(CompletionStage<T> stage) {
+        return stage.toCompletableFuture();
+    }
+
+    private <T> CompletableFuture<T> toCompletableFuture(Future<T> future) {
+        return future.toCompletionStage().toCompletableFuture();
     }
 }
 

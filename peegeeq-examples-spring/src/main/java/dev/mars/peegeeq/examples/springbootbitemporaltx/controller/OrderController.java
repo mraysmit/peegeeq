@@ -36,6 +36,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 
 /**
  * REST Controller for Advanced Bi-Temporal Event Store Transaction Coordination.
@@ -152,24 +153,24 @@ public class OrderController {
     public CompletableFuture<ResponseEntity<Map<String, Object>>> getOrderHistory(@PathVariable String orderId) {
         logger.info("Getting order history for: {}", orderId);
         
-        // Query all event stores for events related to this order
+        // Normalize async query results to CompletableFuture for consistent composition.
         CompletableFuture<List<BiTemporalEvent<OrderEvent>>> orderEvents = 
-            orderEventStore.query(EventQuery.forAggregate(orderId));
+            toCompletableFuture(orderEventStore.query(EventQuery.forAggregate(orderId)));
         
         CompletableFuture<List<BiTemporalEvent<InventoryEvent>>> inventoryEvents =
-            inventoryEventStore.query(EventQuery.builder()
+            toCompletableFuture(inventoryEventStore.query(EventQuery.builder()
                 .headerFilters(Map.of("orderId", orderId))
-                .build());
+                .build()));
 
         CompletableFuture<List<BiTemporalEvent<PaymentEvent>>> paymentEvents =
-            paymentEventStore.query(EventQuery.builder()
+            toCompletableFuture(paymentEventStore.query(EventQuery.builder()
                 .headerFilters(Map.of("orderId", orderId))
-                .build());
+                .build()));
 
         CompletableFuture<List<BiTemporalEvent<AuditEvent>>> auditEvents =
-            auditEventStore.query(EventQuery.builder()
+            toCompletableFuture(auditEventStore.query(EventQuery.builder()
                 .headerFilters(Map.of("entityId", orderId))
-                .build());
+                .build()));
         
         return CompletableFuture.allOf(orderEvents, inventoryEvents, paymentEvents, auditEvents)
             .thenApply(v -> {
@@ -193,6 +194,14 @@ public class OrderController {
                     Map.of("error", "Failed to retrieve order history: " + throwable.getMessage())
                 );
             });
+    }
+
+    private static <T> CompletableFuture<T> toCompletableFuture(CompletionStage<T> stage) {
+        return stage.toCompletableFuture();
+    }
+
+    private static <T> CompletableFuture<T> toCompletableFuture(io.vertx.core.Future<T> future) {
+        return future.toCompletionStage().toCompletableFuture();
     }
     
     /**
@@ -248,10 +257,10 @@ public class OrderController {
     public CompletableFuture<ResponseEntity<Map<String, Object>>> getStats() {
         logger.info("Getting statistics across all event stores");
         
-        CompletableFuture<EventStore.EventStoreStats> orderStats = orderEventStore.getStats();
-        CompletableFuture<EventStore.EventStoreStats> inventoryStats = inventoryEventStore.getStats();
-        CompletableFuture<EventStore.EventStoreStats> paymentStats = paymentEventStore.getStats();
-        CompletableFuture<EventStore.EventStoreStats> auditStats = auditEventStore.getStats();
+        CompletableFuture<EventStore.EventStoreStats> orderStats = toCompletableFuture(orderEventStore.getStats());
+        CompletableFuture<EventStore.EventStoreStats> inventoryStats = toCompletableFuture(inventoryEventStore.getStats());
+        CompletableFuture<EventStore.EventStoreStats> paymentStats = toCompletableFuture(paymentEventStore.getStats());
+        CompletableFuture<EventStore.EventStoreStats> auditStats = toCompletableFuture(auditEventStore.getStats());
         
         return CompletableFuture.allOf(orderStats, inventoryStats, paymentStats, auditStats)
             .thenApply(v -> {

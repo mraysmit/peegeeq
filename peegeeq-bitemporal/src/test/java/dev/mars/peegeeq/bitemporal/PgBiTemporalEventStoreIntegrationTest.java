@@ -51,6 +51,11 @@ class PgBiTemporalEventStoreIntegrationTest {
         return future.toCompletionStage().toCompletableFuture().get(timeout, unit);
     }
 
+    @SuppressWarnings("unchecked")
+    private static Class<Map<String, Object>> mapClass() {
+        return (Class<Map<String, Object>>) (Class<?>) Map.class;
+    }
+
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
             .withDatabaseName("peegeeq_integration_test")
@@ -216,7 +221,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         logger.info("PeeGeeQ Manager started successfully");
 
         // Create event store - this will test ReactiveNotificationHandler integration
-        Class<Map<String, Object>> mapClass = (Class<Map<String, Object>>) (Class<?>) Map.class;
+        Class<Map<String, Object>> mapClass = mapClass();
         eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
         logger.info("PgBiTemporalEventStore created successfully");
 
@@ -278,7 +283,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
         peeGeeQManager.start();
 
-        Class<Map<String, Object>> mapClass = (Class<Map<String, Object>>) (Class<?>) Map.class;
+        Class<Map<String, Object>> mapClass = mapClass();
         eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
 
         // Test appendWithTransaction(eventType, payload, validTime, propagation)
@@ -323,7 +328,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
         peeGeeQManager.start();
 
-        Class<Map<String, Object>> mapClass = (Class<Map<String, Object>>) (Class<?>) Map.class;
+        Class<Map<String, Object>> mapClass = mapClass();
         eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
 
         Map<String, Object> payload = Map.of("reactive", "test");
@@ -345,7 +350,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
         peeGeeQManager.start();
 
-        Class<Map<String, Object>> mapClass = (Class<Map<String, Object>>) (Class<?>) Map.class;
+        Class<Map<String, Object>> mapClass = mapClass();
         eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
 
         CountDownLatch latch = new CountDownLatch(1);
@@ -395,7 +400,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
         peeGeeQManager.start();
 
-        Class<Map<String, Object>> mapClass = (Class<Map<String, Object>>) (Class<?>) Map.class;
+        Class<Map<String, Object>> mapClass = mapClass();
         eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
 
         // Track received events for each subscription
@@ -472,7 +477,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
         peeGeeQManager.start();
 
-        Class<Map<String, Object>> mapClass = (Class<Map<String, Object>>) (Class<?>) Map.class;
+        Class<Map<String, Object>> mapClass = mapClass();
         eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
 
         // Append an event
@@ -501,7 +506,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
         peeGeeQManager.start();
 
-        Class<Map<String, Object>> mapClass = (Class<Map<String, Object>>) (Class<?>) Map.class;
+        Class<Map<String, Object>> mapClass = mapClass();
         eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
 
         // Append an event to ensure pools are created
@@ -531,7 +536,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
         peeGeeQManager.start();
 
-        Class<Map<String, Object>> mapClass = (Class<Map<String, Object>>) (Class<?>) Map.class;
+        Class<Map<String, Object>> mapClass = mapClass();
         eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
 
         // Append an event to ensure Vertx is created
@@ -567,7 +572,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
         peeGeeQManager.start();
 
-        Class<Map<String, Object>> mapClass = (Class<Map<String, Object>>) (Class<?>) Map.class;
+        Class<Map<String, Object>> mapClass = mapClass();
         eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
 
         List<String> receivedEventTypes = new CopyOnWriteArrayList<>();
@@ -614,7 +619,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
         peeGeeQManager.start();
 
-        Class<Map<String, Object>> mapClass = (Class<Map<String, Object>>) (Class<?>) Map.class;
+        Class<Map<String, Object>> mapClass = mapClass();
         eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
 
         List<String> receivedEventTypes = new CopyOnWriteArrayList<>();
@@ -659,7 +664,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
         peeGeeQManager.start();
 
-        Class<Map<String, Object>> mapClass = (Class<Map<String, Object>>) (Class<?>) Map.class;
+        Class<Map<String, Object>> mapClass = mapClass();
         eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
 
         List<String> orderCreatedEvents = new CopyOnWriteArrayList<>();
@@ -718,7 +723,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
         peeGeeQManager.start();
 
-        Class<Map<String, Object>> mapClass = (Class<Map<String, Object>>) (Class<?>) Map.class;
+        Class<Map<String, Object>> mapClass = mapClass();
         eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
 
         AtomicInteger eventCount = new AtomicInteger(0);
@@ -766,7 +771,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
         peeGeeQManager.start();
 
-        Class<Map<String, Object>> mapClass = (Class<Map<String, Object>>) (Class<?>) Map.class;
+        Class<Map<String, Object>> mapClass = mapClass();
         eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
 
         List<String> receivedEventTypes = new CopyOnWriteArrayList<>();
@@ -814,7 +819,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
         peeGeeQManager.start();
 
-        Class<Map<String, Object>> mapClass = (Class<Map<String, Object>>) (Class<?>) Map.class;
+        Class<Map<String, Object>> mapClass = mapClass();
         eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
 
         List<String> receivedEventTypes = new CopyOnWriteArrayList<>();
@@ -862,7 +867,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
         peeGeeQManager.start();
 
-        Class<Map<String, Object>> mapClass = (Class<Map<String, Object>>) (Class<?>) Map.class;
+        Class<Map<String, Object>> mapClass = mapClass();
         eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
 
         List<String> receivedEventTypes = new CopyOnWriteArrayList<>();
@@ -911,7 +916,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
         peeGeeQManager.start();
 
-        Class<Map<String, Object>> mapClass = (Class<Map<String, Object>>) (Class<?>) Map.class;
+        Class<Map<String, Object>> mapClass = mapClass();
         eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
 
         List<String> receivedEventTypes = new CopyOnWriteArrayList<>();
@@ -957,7 +962,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
         peeGeeQManager.start();
 
-        Class<Map<String, Object>> mapClass = (Class<Map<String, Object>>) (Class<?>) Map.class;
+        Class<Map<String, Object>> mapClass = mapClass();
         eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
 
         List<String> receivedEventTypes = new CopyOnWriteArrayList<>();

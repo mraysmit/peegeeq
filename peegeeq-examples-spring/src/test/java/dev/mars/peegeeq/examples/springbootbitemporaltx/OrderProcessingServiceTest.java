@@ -197,7 +197,7 @@ class OrderProcessingServiceTest {
             orderEventStore.query(EventQuery.builder()
                 .aggregateId(orderId)
                 .eventType("OrderCreated")
-                .build()).get();
+                .build()).toCompletionStage().toCompletableFuture().get();
 
         assertEquals(1, orderEvents.size(), "Should have exactly one order event");
         
@@ -215,7 +215,7 @@ class OrderProcessingServiceTest {
             inventoryEventStore.query(EventQuery.builder()
                 .aggregateId(orderId)
                 .eventType("InventoryReserved")
-                .build()).get();
+                .build()).toCompletionStage().toCompletableFuture().get();
 
         assertEquals(1, inventoryEvents.size(), "Should have exactly one inventory event");
         
@@ -232,7 +232,7 @@ class OrderProcessingServiceTest {
             paymentEventStore.query(EventQuery.builder()
                 .aggregateId(orderId)
                 .eventType("PaymentAuthorized")
-                .build()).get();
+                .build()).toCompletionStage().toCompletableFuture().get();
 
         assertEquals(1, paymentEvents.size(), "Should have exactly one payment event");
         
@@ -249,7 +249,7 @@ class OrderProcessingServiceTest {
         List<BiTemporalEvent<AuditEvent>> auditEvents =
             auditEventStore.query(EventQuery.builder()
                 .aggregateId(orderId)
-                .build()).get();
+                .build()).toCompletionStage().toCompletableFuture().get();
 
         // DEBUG: Log audit events to understand what's being returned
         logger.info("Found {} audit events for orderId: {}", auditEvents.size(), orderId);
@@ -266,7 +266,7 @@ class OrderProcessingServiceTest {
             logger.info("No TransactionStarted events found with aggregateId={}, trying correlationId query", orderId);
             auditEvents = auditEventStore.query(EventQuery.builder()
                 .correlationId(result.getCorrelationId())
-                .build()).get();
+                .build()).toCompletionStage().toCompletableFuture().get();
 
             logger.info("Found {} audit events for correlationId: {}", auditEvents.size(), result.getCorrelationId());
             for (int i = 0; i < auditEvents.size(); i++) {
@@ -389,7 +389,7 @@ class OrderProcessingServiceTest {
             orderEventStore.query(EventQuery.builder()
                 .aggregateId(orderId)
                 .eventType("OrderCreated")
-                .build()).get();
+                .build()).toCompletionStage().toCompletableFuture().get();
 
         assertEquals(1, orderEvents.size(), "Should have exactly one order event");
         
@@ -402,7 +402,7 @@ class OrderProcessingServiceTest {
             inventoryEventStore.query(EventQuery.builder()
                 .aggregateId(orderId)
                 .eventType("InventoryReserved")
-                .build()).get();
+                .build()).toCompletionStage().toCompletableFuture().get();
 
         assertEquals(3, inventoryEvents.size(), "Should have exactly three inventory events (one per product)");
         
@@ -438,7 +438,7 @@ class OrderProcessingServiceTest {
             paymentEventStore.query(EventQuery.builder()
                 .aggregateId(orderId)
                 .eventType("PaymentAuthorized")
-                .build()).get();
+                .build()).toCompletionStage().toCompletableFuture().get();
 
         assertEquals(1, paymentEvents.size(), "Should have exactly one payment event");
         

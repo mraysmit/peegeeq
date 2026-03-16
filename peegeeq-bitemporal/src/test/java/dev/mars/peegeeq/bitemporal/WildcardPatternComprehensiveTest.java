@@ -46,6 +46,11 @@ class WildcardPatternComprehensiveTest {
         return future.toCompletionStage().toCompletableFuture().get(timeout, unit);
     }
 
+    @SuppressWarnings("unchecked")
+    private static Class<Map<String, Object>> mapClass() {
+        return (Class<Map<String, Object>>) (Class<?>) Map.class;
+    }
+
     @Container
     @SuppressWarnings("resource") // Managed by Testcontainers framework
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
@@ -67,9 +72,8 @@ class WildcardPatternComprehensiveTest {
         
         peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
         peeGeeQManager.start();
-        
-        @SuppressWarnings("unchecked")
-        Class<Map<String, Object>> mapClass = (Class<Map<String, Object>>) (Class<?>) Map.class;
+
+        Class<Map<String, Object>> mapClass = mapClass();
         eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "wildcard_test_events", new ObjectMapper());
         
         logger.info("Wildcard pattern test setup completed");

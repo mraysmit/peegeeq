@@ -70,6 +70,11 @@ public class CausationIdSchemaValidationTest {
     private static <T> T await(io.vertx.core.Future<T> future, long timeout, TimeUnit unit) throws Exception {
         return future.toCompletionStage().toCompletableFuture().get(timeout, unit);
     }
+
+    @SuppressWarnings("unchecked")
+    private static Class<Map<String, Object>> mapClass() {
+        return (Class<Map<String, Object>>) (Class<?>) Map.class;
+    }
     
     @BeforeEach
     void setUp() throws Exception {
@@ -96,7 +101,7 @@ public class CausationIdSchemaValidationTest {
 
         // Create the bitemporal event store
         BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(peeGeeQManager);
-        Class<Map<String, Object>> mapClass = (Class<Map<String, Object>>) (Class<?>) Map.class;
+        Class<Map<String, Object>> mapClass = mapClass();
         eventStore = (PgBiTemporalEventStore<Map<String, Object>>) factory.createEventStore(mapClass);
 
         logger.info("Setup completed successfully");

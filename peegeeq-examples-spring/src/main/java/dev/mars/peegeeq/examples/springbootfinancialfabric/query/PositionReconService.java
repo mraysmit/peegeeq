@@ -5,6 +5,7 @@ import dev.mars.peegeeq.api.EventQuery;
 import dev.mars.peegeeq.api.TemporalRange;
 import dev.mars.peegeeq.bitemporal.PgBiTemporalEventStore;
 import dev.mars.peegeeq.examples.springbootfinancialfabric.events.PositionUpdateEvent;
+import io.vertx.core.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -14,7 +15,7 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 
 /**
  * Query service for position reconciliation.
@@ -40,15 +41,15 @@ public class PositionReconService {
     /**
      * Reconstruct current position for an account by replaying all position update events.
      */
-    public CompletableFuture<PositionSnapshot> getCurrentPosition(String account) {
+    public Future<PositionSnapshot> getCurrentPosition(String account) {
         log.info("Reconstructing current position for account: {}", account);
         
-        return positionEventStore.query(
+        return toVertxFuture(positionEventStore.query(
             EventQuery.builder()
                 .eventType("position.update.completed")
                 .sortOrder(EventQuery.SortOrder.VALID_TIME_ASC)
                 .build()
-        ).thenApply(events -> {
+        )).map(events -> {
             // Filter events for this account
             List<BiTemporalEvent<PositionUpdateEvent>> accountEvents = events.stream()
                 .filter(event -> account.equals(event.getPayload().getAccount()))
@@ -62,17 +63,17 @@ public class PositionReconService {
      * Reconstruct position as it was at a specific point in time (transaction time).
      * This shows what the system knew about the position at that time.
      */
-    public CompletableFuture<PositionSnapshot> getPositionAsOfTime(
+    public Future<PositionSnapshot> getPositionAsOfTime(
             String account, Instant asOfTime) {
         log.info("Reconstructing position for account {} as of {}", account, asOfTime);
         
-        return positionEventStore.query(
+        return toVertxFuture(positionEventStore.query(
             EventQuery.builder()
                 .eventType("position.update.completed")
                 .transactionTimeRange(TemporalRange.until(asOfTime))
                 .sortOrder(EventQuery.SortOrder.TRANSACTION_TIME_ASC)
                 .build()
-        ).thenApply(events -> {
+        )).map(events -> {
             // Filter events for this account
             List<BiTemporalEvent<PositionUpdateEvent>> accountEvents = events.stream()
                 .filter(event -> account.equals(event.getPayload().getAccount()))
@@ -86,20 +87,20 @@ public class PositionReconService {
      * Reconstruct position for a specific business date (valid time).
      * This shows the actual position on that date.
      */
-    public CompletableFuture<PositionSnapshot> getPositionForBusinessDate(
+    public Future<PositionSnapshot> getPositionForBusinessDate(
             String account, Instant businessDate) {
         log.info("Reconstructing position for account {} on business date {}", 
                 account, businessDate);
         
         Instant endOfDay = businessDate.plus(1, ChronoUnit.DAYS);
         
-        return positionEventStore.query(
+        return toVertxFuture(positionEventStore.query(
             EventQuery.builder()
                 .eventType("position.update.completed")
                 .validTimeRange(TemporalRange.until(endOfDay))
                 .sortOrder(EventQuery.SortOrder.VALID_TIME_ASC)
                 .build()
-        ).thenApply(events -> {
+        )).map(events -> {
             // Filter events for this account
             List<BiTemporalEvent<PositionUpdateEvent>> accountEvents = events.stream()
                 .filter(event -> account.equals(event.getPayload().getAccount()))
@@ -113,11 +114,11 @@ public class PositionReconService {
      * Reconcile position with external source.
      * Compares reconstructed position with external position and identifies breaks.
      */
-    public CompletableFuture<ReconciliationResult> reconcilePosition(
+    public Future<ReconciliationResult> reconcilePosition(
             String account, Map<String, BigDecimal> externalPositions) {
         log.info("Reconciling position for account {} with external source", account);
         
-        return getCurrentPosition(account).thenApply(snapshot -> {
+        return getCurrentPosition(account).map(snapshot -> {
             ReconciliationResult result = new ReconciliationResult();
             result.account = account;
             result.reconciliationTime = Instant.now();
@@ -160,18 +161,18 @@ public class PositionReconService {
     /**
      * Get position movements for a specific instrument within a time range.
      */
-    public CompletableFuture<List<BiTemporalEvent<PositionUpdateEvent>>> getPositionMovements(
+    public Future<List<BiTemporalEvent<PositionUpdateEvent>>> getPositionMovements(
             String account, String instrument, Instant startTime, Instant endTime) {
         log.info("Querying position movements for account {} instrument {} between {} and {}", 
                 account, instrument, startTime, endTime);
         
-        return positionEventStore.query(
+        return toVertxFuture(positionEventStore.query(
             EventQuery.builder()
                 .eventType("position.update.completed")
                 .validTimeRange(new TemporalRange(startTime, endTime))
                 .sortOrder(EventQuery.SortOrder.VALID_TIME_ASC)
                 .build()
-        ).thenApply(events -> 
+        )).map(events -> 
             events.stream()
                 .filter(event -> account.equals(event.getPayload().getAccount()))
                 .filter(event -> instrument.equals(event.getPayload().getInstrument()))
@@ -182,24 +183,32 @@ public class PositionReconService {
     /**
      * Get all position updates for today.
      */
-    public CompletableFuture<List<BiTemporalEvent<PositionUpdateEvent>>> getTodaysPositionUpdates(
+    public Future<List<BiTemporalEvent<PositionUpdateEvent>>> getTodaysPositionUpdates(
             String account) {
         Instant startOfDay = Instant.now().truncatedTo(ChronoUnit.DAYS);
         Instant endOfDay = startOfDay.plus(1, ChronoUnit.DAYS);
         
         log.info("Querying today's position updates for account: {}", account);
         
-        return positionEventStore.query(
+        return toVertxFuture(positionEventStore.query(
             EventQuery.builder()
                 .eventType("position.update.completed")
                 .validTimeRange(new TemporalRange(startOfDay, endOfDay))
                 .sortOrder(EventQuery.SortOrder.VALID_TIME_ASC)
                 .build()
-        ).thenApply(events -> 
+        )).map(events -> 
             events.stream()
                 .filter(event -> account.equals(event.getPayload().getAccount()))
                 .toList()
         );
+    }
+
+    private static <T> Future<T> toVertxFuture(Future<T> future) {
+        return future;
+    }
+
+    private static <T> Future<T> toVertxFuture(CompletionStage<T> stage) {
+        return Future.fromCompletionStage(stage);
     }
     
     /**

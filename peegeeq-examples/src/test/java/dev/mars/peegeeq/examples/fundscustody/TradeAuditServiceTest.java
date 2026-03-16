@@ -35,8 +35,8 @@ class TradeAuditServiceTest extends FundsCustodyTestBase {
     
     @BeforeEach
     @Override
-    void setUp() throws Exception {
-        super.setUp();
+    void setUp(Vertx vertx) throws Exception {
+        super.setUp(vertx);
         auditService = new TradeAuditService(tradeEventStore, cancellationEventStore);
     }
     

@@ -48,9 +48,9 @@ public class PositionEventHandler {
             public CompletableFuture<Void> handle(Message<BiTemporalEvent<PositionUpdateEvent>> message) {
                 return handlePositionEvent(message.getPayload());
             }
-        }).whenComplete((result, error) -> {
-            if (error != null) {
-                log.error("Failed to subscribe to position events", error);
+        }).onComplete(ar -> {
+            if (ar.failed()) {
+                log.error("Failed to subscribe to position events", ar.cause());
             } else {
                 log.info("Successfully subscribed to position events");
             }
@@ -62,9 +62,9 @@ public class PositionEventHandler {
         log.info("Shutting down PositionEventHandler - processed {} total events ({} updates)",
                 eventsProcessed.get(), updateEventsProcessed.get());
         
-        positionEventStore.unsubscribe().whenComplete((result, error) -> {
-            if (error != null) {
-                log.error("Error unsubscribing from position events", error);
+        positionEventStore.unsubscribe().onComplete(ar -> {
+            if (ar.failed()) {
+                log.error("Error unsubscribing from position events", ar.cause());
             } else {
                 log.info("Successfully unsubscribed from position events");
             }

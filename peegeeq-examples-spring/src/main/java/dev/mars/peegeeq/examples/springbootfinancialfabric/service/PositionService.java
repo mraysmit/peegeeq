@@ -21,6 +21,7 @@ import dev.mars.peegeeq.bitemporal.PgBiTemporalEventStore;
 import dev.mars.peegeeq.examples.springbootfinancialfabric.cloudevents.FinancialCloudEventBuilder;
 import dev.mars.peegeeq.examples.springbootfinancialfabric.events.PositionUpdateEvent;
 import io.cloudevents.CloudEvent;
+import io.vertx.core.Future;
 import io.vertx.sqlclient.SqlConnection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,6 +31,7 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 
 /**
  * Service for managing position update events.
@@ -86,21 +88,20 @@ public class PositionService {
                 validTime
             );
 
-            return positionEventStore
-                .appendInTransaction(
-                    "position.update.completed",
-                    positionUpdateEvent,  // Store the PositionUpdateEvent payload
-                    validTime,
-                    Map.of(
+            return toCompletableFuture(positionEventStore.appendBuilder()
+                    .eventType("position.update.completed")
+                    .payload(positionUpdateEvent)
+                    .validTime(validTime)
+                    .headers(Map.of(
                         "correlationId", correlationId,
                         "instrument", positionUpdateEvent.getInstrument(),
                         "account", positionUpdateEvent.getAccount(),
                         "cloudEventId", cloudEvent.getId()
-                    ),
-                    correlationId,
-                    positionUpdateEvent.getUpdateId(),
-                    connection
-                )
+                    ))
+                    .correlationId(correlationId)
+                    .aggregateId(positionUpdateEvent.getUpdateId())
+                    .inTransaction(connection)
+                    .execute())
                 .thenApply(biTemporalEvent -> {
                     log.info("Position update recorded successfully: updateId={}, eventId={}, cloudEventId={}",
                         positionUpdateEvent.getUpdateId(), biTemporalEvent.getEventId(), cloudEvent.getId());
@@ -110,6 +111,14 @@ public class PositionService {
             log.error("Failed to serialize position update: updateId={}", positionUpdateEvent.getUpdateId(), e);
             return CompletableFuture.failedFuture(new RuntimeException("Failed to serialize position update", e));
         }
+    }
+
+    private static <T> CompletableFuture<T> toCompletableFuture(CompletionStage<T> stage) {
+        return stage.toCompletableFuture();
+    }
+
+    private static <T> CompletableFuture<T> toCompletableFuture(Future<T> future) {
+        return future.toCompletionStage().toCompletableFuture();
     }
 }
 
