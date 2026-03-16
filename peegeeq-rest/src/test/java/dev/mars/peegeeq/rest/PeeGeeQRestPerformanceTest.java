@@ -72,7 +72,7 @@ public class PeeGeeQRestPerformanceTest {
         container.withDatabaseName("peegeeq_perf_test");
         container.withUsername("peegeeq_test");
         container.withPassword("peegeeq_test");
-        container.withSharedMemorySize(512 * 1024 * 1024L) // 512MB for better performance;
+        container.withSharedMemorySize(512 * 1024 * 1024L); // 512MB for better performance
         container.withReuse(false);
         return container;
     }
