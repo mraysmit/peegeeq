@@ -140,7 +140,7 @@ public class QueuePauseResumeManualTest {
                     assertNotNull(body.getInteger("pausedSubscriptions"), "Should have pausedSubscriptions field");
 
                     int pausedCount = body.getInteger("pausedSubscriptions");
-                    logger.info("✅ Paused {} subscriptions for queue", pausedCount);
+                    logger.info("Paused {} subscriptions for queue", pausedCount);
                 });
 
                 // Step 2: Resume the queue
@@ -158,9 +158,9 @@ public class QueuePauseResumeManualTest {
                     assertNotNull(body.getInteger("resumedSubscriptions"), "Should have resumedSubscriptions field");
 
                     int resumedCount = body.getInteger("resumedSubscriptions");
-                    logger.info("✅ Resumed {} subscriptions for queue", resumedCount);
+                    logger.info("Resumed {} subscriptions for queue", resumedCount);
 
-                    logger.info("✅ Queue Pause/Resume test PASSED!");
+                    logger.info("Queue Pause/Resume test PASSED!");
                     testContext.completeNow();
                 });
             })

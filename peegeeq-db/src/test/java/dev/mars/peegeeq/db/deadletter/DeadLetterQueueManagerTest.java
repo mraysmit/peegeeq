@@ -196,7 +196,7 @@ class DeadLetterQueueManagerTest {
         assertEquals(1, stats.getUniqueTables());
         assertEquals(3.0, stats.getAverageRetryCount());
 
-        System.out.println("✅ **SUCCESS** ✅ Failed message was properly moved to dead letter queue");
+        System.out.println("**SUCCESS** Failed message was properly moved to dead letter queue");
         System.out.println("🧪 ===== INTENTIONAL FAILURE TEST COMPLETED ===== 🧪");
     }
 

@@ -61,9 +61,9 @@ java -jar target/peegeeq-migrations.jar migrate
 
 | Variable | Required | Description | Default |
 |----------|----------|-------------|---------|
-| `DB_JDBC_URL` | ✅ Yes | JDBC connection URL | - |
-| `DB_USER` | ✅ Yes | Database username | - |
-| `DB_PASSWORD` | ✅ Yes | Database password | - |
+| `DB_JDBC_URL` | Yes | JDBC connection URL | - |
+| `DB_USER` | Yes | Database username | - |
+| `DB_PASSWORD` | Yes | Database password | - |
 | `DB_SCHEMA` | ❌ No | Target schema | `public` |
 | `DB_CLEAN_ON_START` | ❌ No | **Wipe DB before running?** | `false` |
 

@@ -194,10 +194,10 @@ peegeeq-examples\test-transactional-rollback.bat
 ```
 
 These scripts test all rollback scenarios and prove that:
-- ✅ **Database operations and outbox events are synchronized**
-- ✅ **When business logic fails, both database and outbox roll back**
-- ✅ **When database operations fail, outbox events also roll back**
-- ✅ **Successful operations commit both database and outbox together**
+- **Database operations and outbox events are synchronized**
+- **When business logic fails, both database and outbox roll back**
+- **When database operations fail, outbox events also roll back**
+- **Successful operations commit both database and outbox together**
 
 #### Manual Testing
 

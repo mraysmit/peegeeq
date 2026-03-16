@@ -165,7 +165,7 @@ class ConsumerModeResourceManagementTest {
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive all messages across different consumer modes");
             assertEquals(3, messageCount.get(), "Should process exactly 3 messages");
 
-            logger.info("✅ Connection pool usage verified - all consumer modes working with shared resources");
+            logger.info("Connection pool usage verified - all consumer modes working with shared resources");
 
         } finally {
             // Clean up resources
@@ -177,7 +177,7 @@ class ConsumerModeResourceManagementTest {
             }
         }
 
-        logger.info("✅ Connection pool usage test completed successfully");
+        logger.info("Connection pool usage test completed successfully");
     }
 
     @Test
@@ -212,7 +212,7 @@ class ConsumerModeResourceManagementTest {
 
             assertEquals(5, consumers.size(), "All consumers should be set up successfully");
 
-            logger.info("✅ Vert.x instance sharing verified - {} consumers created and subscribed", consumers.size());
+            logger.info("Vert.x instance sharing verified - {} consumers created and subscribed", consumers.size());
 
         } finally {
             // Clean up resources
@@ -221,7 +221,7 @@ class ConsumerModeResourceManagementTest {
             }
         }
 
-        logger.info("✅ Vert.x instance sharing test completed successfully");
+        logger.info("Vert.x instance sharing test completed successfully");
     }
 
     @Test
@@ -278,7 +278,7 @@ class ConsumerModeResourceManagementTest {
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive messages via polling mechanism");
             assertEquals(3, messageCount.get(), "Should process exactly 3 messages");
 
-            logger.info("✅ Scheduler resource management verified - polling consumers working efficiently");
+            logger.info("Scheduler resource management verified - polling consumers working efficiently");
 
         } finally {
             // Clean up resources - this should properly clean up scheduler resources
@@ -287,7 +287,7 @@ class ConsumerModeResourceManagementTest {
             }
         }
 
-        logger.info("✅ Scheduler resource management test completed successfully");
+        logger.info("Scheduler resource management test completed successfully");
     }
 
     @Test
@@ -325,14 +325,14 @@ class ConsumerModeResourceManagementTest {
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should process all messages without memory issues");
             assertEquals(10, processedCount.get(), "Should process exactly 10 messages");
 
-            logger.info("✅ Memory usage patterns verified - processed {} messages efficiently", processedCount.get());
+            logger.info("Memory usage patterns verified - processed {} messages efficiently", processedCount.get());
 
         } finally {
             consumer.close();
             producer.close();
         }
 
-        logger.info("✅ Memory usage patterns test completed successfully");
+        logger.info("Memory usage patterns test completed successfully");
     }
 
     @Test
@@ -375,8 +375,8 @@ class ConsumerModeResourceManagementTest {
 
         assertEquals(2, processedCount.get(), "Should process exactly 2 messages");
 
-        logger.info("✅ Graceful shutdown and resource cleanup verified");
-        logger.info("✅ Graceful shutdown resource cleanup test completed successfully");
+        logger.info("Graceful shutdown and resource cleanup verified");
+        logger.info("Graceful shutdown resource cleanup test completed successfully");
     }
 }
 

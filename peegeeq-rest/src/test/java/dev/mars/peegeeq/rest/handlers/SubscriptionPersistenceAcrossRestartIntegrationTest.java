@@ -252,7 +252,7 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
                 return Future.succeededFuture();
             })
             .onSuccess(v -> {
-                logger.info("✅ TEST 1 PASSED: Subscription created and persisted");
+                logger.info("TEST 1 PASSED: Subscription created and persisted");
                 testContext.completeNow();
             })
             .onFailure(testContext::failNow);
@@ -268,7 +268,7 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
 
         stopServer(managedVertx)
             .onSuccess(v -> {
-                logger.info("✅ TEST 2 PASSED: Server stopped successfully");
+                logger.info("TEST 2 PASSED: Server stopped successfully");
                 testContext.completeNow();
             })
             .onFailure(testContext::failNow);
@@ -329,7 +329,7 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
                         assertEquals(60, heartbeatInterval, "Heartbeat interval should be 60");
                         assertEquals(180, heartbeatTimeout, "Heartbeat timeout should be 180");
 
-                        logger.info("✅ TEST 3 PASSED: Subscription data persisted correctly in database");
+                        logger.info("TEST 3 PASSED: Subscription data persisted correctly in database");
                         testContext.completeNow();
                     } else {
                         testContext.failNow(new AssertionError("Subscription NOT FOUND in database!"));
@@ -395,7 +395,7 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
                     });
             })
             .onSuccess(v -> {
-                logger.info("✅ TEST 4 PASSED: Setup cache limitation demonstrated/verified");
+                logger.info("TEST 4 PASSED: Setup cache limitation demonstrated/verified");
                 testContext.completeNow();
             })
             .onFailure(testContext::failNow);
@@ -438,7 +438,7 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
             logger.info("Simulating restart cycle 3 - verifying database persistence...");
             verifySubscriptionInDatabase(connection, 3);
 
-            logger.info("✅ TEST 5 PASSED: Subscription data persists in database across all restart cycles");
+            logger.info("TEST 5 PASSED: Subscription data persists in database across all restart cycles");
             testContext.completeNow();
 
         } catch (Exception e) {

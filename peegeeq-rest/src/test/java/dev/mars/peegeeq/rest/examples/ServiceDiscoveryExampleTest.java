@@ -69,7 +69,7 @@ public class ServiceDiscoveryExampleTest {
         if (client != null) {
             try {
                 client.close();
-                logger.info("✅ WebClient closed");
+                logger.info("WebClient closed");
             } catch (Exception e) {
                 logger.warn("⚠️ Error closing WebClient", e);
             }
@@ -80,7 +80,7 @@ public class ServiceDiscoveryExampleTest {
                 CountDownLatch vertxCloseLatch = new CountDownLatch(1);
                 vertx.close()
                     .onSuccess(v -> {
-                        logger.info("✅ Vert.x closed successfully");
+                        logger.info("Vert.x closed successfully");
                         vertxCloseLatch.countDown();
                     })
                     .onFailure(throwable -> {
@@ -117,7 +117,7 @@ public class ServiceDiscoveryExampleTest {
         assertEquals("UP", result.status);
         assertTrue(result.responseTime > 0, "Response time should be positive");
         
-        logger.info("✅ Service manager health validated successfully");
+        logger.info("Service manager health validated successfully");
         logger.info("   Status: {}, Response time: {}ms", result.status, result.responseTime);
     }
 
@@ -138,7 +138,7 @@ public class ServiceDiscoveryExampleTest {
         assertNotNull(result.instanceId, "Instance ID should not be null");
         assertTrue(result.registrationSuccessful, "Registration should be successful");
         
-        logger.info("✅ Instance registration validated successfully");
+        logger.info("Instance registration validated successfully");
         logger.info("   Instance ID: {}, Registered instances: {}", 
             result.instanceId, result.registeredInstances);
     }
@@ -160,7 +160,7 @@ public class ServiceDiscoveryExampleTest {
         assertTrue(result.managementOperations >= 0, "Management operations should be non-negative");
         assertNotNull(result.federationId, "Federation ID should not be null");
         
-        logger.info("✅ Federated management validated successfully");
+        logger.info("Federated management validated successfully");
         logger.info("   Federation ID: {}, Instances: {}, Operations: {}", 
             result.federationId, result.federatedInstances, result.managementOperations);
     }
@@ -182,7 +182,7 @@ public class ServiceDiscoveryExampleTest {
         assertTrue(result.loadBalancingOperations >= 0, "Load balancing operations should be non-negative");
         assertTrue(result.failoverTested, "Failover should be tested");
         
-        logger.info("✅ Instance management validated successfully");
+        logger.info("Instance management validated successfully");
         logger.info("   Active instances: {}, Load balancing ops: {}, Failover tested: {}", 
             result.activeInstances, result.loadBalancingOperations, result.failoverTested);
     }

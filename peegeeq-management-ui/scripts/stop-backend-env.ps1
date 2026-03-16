@@ -15,7 +15,7 @@ $ContainerExists = docker ps -a -q -f name="^/${ContainerName}$"
 if ($ContainerExists) {
     Write-Host "Stopping container '$ContainerName'..." -ForegroundColor Yellow
     docker stop $ContainerName | Out-Null
-    Write-Host "✅ Container stopped" -ForegroundColor Green
+    Write-Host "Container stopped" -ForegroundColor Green
 } else {
     Write-Host "Container '$ContainerName' not found (already stopped or removed)" -ForegroundColor Yellow
 }
@@ -23,7 +23,7 @@ if ($ContainerExists) {
 # Remove the config file
 if (Test-Path $DbConfigFile) {
     Remove-Item -Path $DbConfigFile -Force
-    Write-Host "✅ Removed config file: $DbConfigFile" -ForegroundColor Green
+    Write-Host "Removed config file: $DbConfigFile" -ForegroundColor Green
 } else {
     Write-Host "Config file not found (already removed)" -ForegroundColor Yellow
 }

@@ -96,7 +96,7 @@ public class BitemporalPerformanceTestSuite implements PerformanceTestSuite {
                 results.addMetric("query_throughput", queryThroughput);
                 results.addMetric("concurrent_throughput", concurrentThroughput);
                 
-                logger.info("✅ Bi-temporal performance test suite completed successfully");
+                logger.info("Bi-temporal performance test suite completed successfully");
                 
             } catch (Exception e) {
                 logger.error("❌ Bi-temporal performance test suite failed", e);

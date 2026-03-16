@@ -165,7 +165,7 @@ class ConsumerModePropertyIntegrationTest {
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process messages with custom polling interval");
             assertEquals(2, processedCount.get(), "Should process exactly 2 messages");
 
-            logger.info("✅ Polling interval property integration verified - processed: {} messages",
+            logger.info("Polling interval property integration verified - processed: {} messages",
                 processedCount.get());
 
         } finally {
@@ -173,7 +173,7 @@ class ConsumerModePropertyIntegrationTest {
             producer.close();
         }
 
-        logger.info("✅ Polling interval property integration test completed successfully");
+        logger.info("Polling interval property integration test completed successfully");
     }
 
     @Test
@@ -224,7 +224,7 @@ class ConsumerModePropertyIntegrationTest {
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should process messages with custom batch size");
             assertEquals(5, processedCount.get(), "Should process exactly 5 messages");
 
-            logger.info("✅ Batch size property integration verified - processed: {} messages",
+            logger.info("Batch size property integration verified - processed: {} messages",
                 processedCount.get());
 
         } finally {
@@ -232,7 +232,7 @@ class ConsumerModePropertyIntegrationTest {
             producer.close();
         }
 
-        logger.info("✅ Batch size property integration test completed successfully");
+        logger.info("Batch size property integration test completed successfully");
     }
 
     @Test
@@ -280,7 +280,7 @@ class ConsumerModePropertyIntegrationTest {
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should process messages with custom visibility timeout");
             assertEquals(2, processedCount.get(), "Should process exactly 2 messages");
 
-            logger.info("✅ Visibility timeout property integration verified - processed: {} messages",
+            logger.info("Visibility timeout property integration verified - processed: {} messages",
                 processedCount.get());
 
         } finally {
@@ -288,7 +288,7 @@ class ConsumerModePropertyIntegrationTest {
             producer.close();
         }
 
-        logger.info("✅ Visibility timeout property integration test completed successfully");
+        logger.info("Visibility timeout property integration test completed successfully");
     }
 
     @Test
@@ -338,7 +338,7 @@ class ConsumerModePropertyIntegrationTest {
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should process messages with multiple property combinations");
             assertEquals(4, processedCount.get(), "Should process exactly 4 messages");
 
-            logger.info("✅ Multiple property combinations verified - processed: {} messages",
+            logger.info("Multiple property combinations verified - processed: {} messages",
                 processedCount.get());
 
         } finally {
@@ -346,7 +346,7 @@ class ConsumerModePropertyIntegrationTest {
             producer.close();
         }
 
-        logger.info("✅ Multiple property combinations test completed successfully");
+        logger.info("Multiple property combinations test completed successfully");
     }
 
     @Test
@@ -396,7 +396,7 @@ class ConsumerModePropertyIntegrationTest {
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process messages with overridden properties");
             assertEquals(3, processedCount.get(), "Should process exactly 3 messages");
 
-            logger.info("✅ Property override scenarios verified - processed: {} messages",
+            logger.info("Property override scenarios verified - processed: {} messages",
                 processedCount.get());
 
         } finally {
@@ -404,7 +404,7 @@ class ConsumerModePropertyIntegrationTest {
             producer.close();
         }
 
-        logger.info("✅ Property override scenarios test completed successfully");
+        logger.info("Property override scenarios test completed successfully");
     }
 }
 

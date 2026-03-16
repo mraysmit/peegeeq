@@ -218,13 +218,13 @@ Based on actual execution times:
 
 ## Benefits
 
-✅ **Massive Performance Improvement**: Core tests now run in 8.2 seconds (6.7x faster)
-✅ **Fast Integration Testing**: Integration tests complete in 13.3 seconds (4.2x faster)
-✅ **Selective Testing**: Run only relevant tests for specific changes
-✅ **CI/CD Optimization**: Parallel pipeline stages with appropriate timeouts
-✅ **Resource Efficiency**: Avoid unnecessary TestContainer startup for unit tests
-✅ **Clear Organization**: Explicit categorization makes test purpose obvious
-✅ **Professional Development Experience**: Sub-10-second feedback for daily development
+**Massive Performance Improvement**: Core tests now run in 8.2 seconds (6.7x faster)
+**Fast Integration Testing**: Integration tests complete in 13.3 seconds (4.2x faster)
+**Selective Testing**: Run only relevant tests for specific changes
+**CI/CD Optimization**: Parallel pipeline stages with appropriate timeouts
+**Resource Efficiency**: Avoid unnecessary TestContainer startup for unit tests
+**Clear Organization**: Explicit categorization makes test purpose obvious
+**Professional Development Experience**: Sub-10-second feedback for daily development
 
 ---
 
@@ -239,17 +239,17 @@ The PeeGeeQ REST API has comprehensive E2E test coverage with **26 tests** acros
 **File**: `src/test/java/dev/mars/peegeeq/rest/handlers/QueueManagementE2ETest.java`
 
 Core queue management operations:
-- ✅ **Test 1**: Get Queue Details - Retrieve queue information
-- ✅ **Test 2**: Publish Messages - Send messages to queue
-- ✅ **Test 3**: Verify Message Count - Check queue depth
-- ✅ **Test 4**: Pause Queue - Pause all subscriptions
-- ✅ **Test 5**: Resume Queue - Resume all subscriptions
-- ✅ **Test 6**: Purge Queue - Clear all messages
-- ✅ **Test 7**: Verify Queue is Empty - Confirm purge worked
-- ✅ **Test 8**: Delete Queue - Permanently remove queue
-- ✅ **Test 9**: Verify Queue No Longer Exists - Confirm deletion
-- ✅ **Test 10**: Error Handling - Invalid Setup ID (negative test)
-- ✅ **Test 11**: Error Handling - Invalid Queue Name (negative test)
+- **Test 1**: Get Queue Details - Retrieve queue information
+- **Test 2**: Publish Messages - Send messages to queue
+- **Test 3**: Verify Message Count - Check queue depth
+- **Test 4**: Pause Queue - Pause all subscriptions
+- **Test 5**: Resume Queue - Resume all subscriptions
+- **Test 6**: Purge Queue - Clear all messages
+- **Test 7**: Verify Queue is Empty - Confirm purge worked
+- **Test 8**: Delete Queue - Permanently remove queue
+- **Test 9**: Verify Queue No Longer Exists - Confirm deletion
+- **Test 10**: Error Handling - Invalid Setup ID (negative test)
+- **Test 11**: Error Handling - Invalid Queue Name (negative test)
 
 **Key Features**:
 - Uses `@Order` annotation to ensure tests run in sequence
@@ -262,14 +262,14 @@ Core queue management operations:
 **File**: `src/test/java/dev/mars/peegeeq/rest/handlers/QueueManagementAdvancedE2ETest.java`
 
 Advanced scenarios and edge cases:
-- ✅ **Concurrent Publishing** - 50 messages from 10 concurrent publishers
-- ✅ **Empty Queue Operations** - Pause/resume/purge on empty queues
-- ✅ **Large Message Payload** - 600KB message handling
-- ✅ **Special Characters** - Unicode and special character handling
-- ✅ **Rapid Queue Operations** - 10 pause/resume cycles
-- ✅ **Error Recovery** - Invalid message format handling
-- ✅ **Concurrent Queue Purge** - 5 concurrent purge operations
-- ✅ **Queue Details During Operations** - Monitoring queue state
+- **Concurrent Publishing** - 50 messages from 10 concurrent publishers
+- **Empty Queue Operations** - Pause/resume/purge on empty queues
+- **Large Message Payload** - 600KB message handling
+- **Special Characters** - Unicode and special character handling
+- **Rapid Queue Operations** - 10 pause/resume cycles
+- **Error Recovery** - Invalid message format handling
+- **Concurrent Queue Purge** - 5 concurrent purge operations
+- **Queue Details During Operations** - Monitoring queue state
 
 **Key Features**:
 - Tests concurrent operations and race conditions
@@ -281,13 +281,13 @@ Advanced scenarios and edge cases:
 **File**: `src/test/java/dev/mars/peegeeq/rest/handlers/MessageOperationsE2ETest.java`
 
 Message-focused operations:
-- ✅ **Simple Message Publishing** - Basic message send
-- ✅ **Priority Messages** - High-priority message handling
-- ✅ **Delayed Messages** - Message scheduling (5-second delay)
-- ✅ **Custom Headers** - Message metadata (X-Custom-Header)
-- ✅ **Message Groups** - Grouped message handling
-- ✅ **Batch Publishing** - 10 messages in sequence
-- ✅ **Queue Message Count** - Verification of message counts
+- **Simple Message Publishing** - Basic message send
+- **Priority Messages** - High-priority message handling
+- **Delayed Messages** - Message scheduling (5-second delay)
+- **Custom Headers** - Message metadata (X-Custom-Header)
+- **Message Groups** - Grouped message handling
+- **Batch Publishing** - 10 messages in sequence
+- **Queue Message Count** - Verification of message counts
 
 **Key Features**:
 - Tests message attributes and metadata
@@ -324,7 +324,7 @@ mvn test -Dtest=QueueManagementE2ETest#test04_PauseQueue -Pintegration-tests -pl
 #### Successful Test Indicators
 - `Tests run: 26, Failures: 0, Errors: 0, Skipped: 0`
 - `BUILD SUCCESS`
-- Log messages with ✅ emoji
+- Log messages with emoji
 - HTTP 200/201 status codes for successful operations
 - HTTP 404 status codes for expected error cases
 
@@ -334,7 +334,7 @@ Some tests **intentionally trigger errors** to verify proper error handling:
 **Example: Test 10 - Invalid Setup ID**
 ```
 2025-12-24 15:13:48.607 [vert.x-eventloop-thread-0] WARN  i.v.ext.web.handler.LoggerHandler - 127.0.0.1 - - [Wed, 24 Dec 2025 07:13:48 GMT] "GET /api/v1/queues/invalid-setup/some-queue HTTP/1.1" 404 172 "-" "Vert.x-WebClient/5.0.4"
-2025-12-24 15:13:48.607 [vert.x-eventloop-thread-2] INFO  d.m.p.r.h.QueueManagementE2ETest - ✅ Correctly handled invalid setup ID
+2025-12-24 15:13:48.607 [vert.x-eventloop-thread-2] INFO  d.m.p.r.h.QueueManagementE2ETest - Correctly handled invalid setup ID
 ```
 
 This is **expected behavior**:
@@ -353,7 +353,7 @@ This is **expected behavior**:
 **How to Identify Negative Tests**:
 - Look for test names containing "Error", "Invalid", or "Handling"
 - Check for assertions on 4xx/5xx status codes
-- Look for log messages like "✅ Correctly handled invalid..."
+- Look for log messages like "Correctly handled invalid..."
 - Only HTTP access logs (WARN level) appear, no ERROR logs or stack traces
 
 ### Error Logging Best Practice
@@ -384,10 +384,10 @@ private boolean isSetupNotFoundError(Throwable throwable) {
 ```
 
 **Benefits**:
-- ✅ Expected errors logged at DEBUG level (no noise in production logs)
-- ✅ No stack traces for expected conditions (cleaner test output)
-- ✅ Stack traces only for unexpected errors (easier to identify real problems)
-- ✅ Consistent pattern across all handlers
+- Expected errors logged at DEBUG level (no noise in production logs)
+- No stack traces for expected conditions (cleaner test output)
+- Stack traces only for unexpected errors (easier to identify real problems)
+- Consistent pattern across all handlers
 
 **Handlers Implementing This Pattern**:
 - `ManagementApiHandler` - Queue management operations

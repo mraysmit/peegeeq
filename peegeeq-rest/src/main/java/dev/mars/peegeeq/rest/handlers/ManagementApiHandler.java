@@ -1393,9 +1393,9 @@ public class ManagementApiHandler {
      *
      * <p><b>Use Cases:</b></p>
      * <ul>
-     *   <li>✅ Management UI components with composite storeId</li>
-     *   <li>✅ BFF (Backend-for-Frontend) layer</li>
-     *   <li>✅ Dashboards showing event store lists</li>
+     *   <li>Management UI components with composite storeId</li>
+     *   <li>BFF (Backend-for-Frontend) layer</li>
+     *   <li>Dashboards showing event store lists</li>
      *   <li>❌ Programmatic access (use Standard REST API {@code DELETE /api/v1/eventstores/:setupId/:eventStoreName} instead)</li>
      * </ul>
      *
@@ -1468,18 +1468,18 @@ public class ManagementApiHandler {
      *
      * <p><b>Advantages over Management API:</b></p>
      * <ul>
-     *   <li>✅ No composite ID parsing required</li>
-     *   <li>✅ Clear parameter separation</li>
-     *   <li>✅ Standard REST conventions</li>
-     *   <li>✅ No ambiguity with hyphens in setupId</li>
+     *   <li>No composite ID parsing required</li>
+     *   <li>Clear parameter separation</li>
+     *   <li>Standard REST conventions</li>
+     *   <li>No ambiguity with hyphens in setupId</li>
      * </ul>
      *
      * <p><b>Use Cases:</b></p>
      * <ul>
-     *   <li>✅ REST API clients</li>
-     *   <li>✅ CLI tools and automation scripts</li>
-     *   <li>✅ When you have setupId and storeName as separate values</li>
-     *   <li>✅ Consistent with other Standard REST CRUD operations</li>
+     *   <li>REST API clients</li>
+     *   <li>CLI tools and automation scripts</li>
+     *   <li>When you have setupId and storeName as separate values</li>
+     *   <li>Consistent with other Standard REST CRUD operations</li>
      *   <li>❌ Don't use from Management UI (use Management API {@code DELETE /api/v1/management/event-stores/:storeId} instead)</li>
      * </ul>
      *
@@ -1954,7 +1954,7 @@ public class ManagementApiHandler {
 
                     queueFactory.purgeMessagesAsync(queueName)
                             .onSuccess(deletedCount -> {
-                                logger.info("✅ Purged {} messages from queue: {} (type: {})",
+                                logger.info("Purged {} messages from queue: {} (type: {})",
                                         deletedCount, queueName, implementationType);
 
                                 JsonObject response = new JsonObject()
@@ -2019,7 +2019,7 @@ public class ManagementApiHandler {
                             .map(v -> subscriptions.size());
                 })
                 .onSuccess(pausedCount -> {
-                    logger.info("✅ Paused {} subscriptions for queue: {}", pausedCount, queueName);
+                    logger.info("Paused {} subscriptions for queue: {}", pausedCount, queueName);
 
                     JsonObject response = new JsonObject()
                             .put("message", "Queue '" + queueName + "' paused successfully in setup '" + setupId + "' (" + pausedCount + " subscriptions)")
@@ -2077,7 +2077,7 @@ public class ManagementApiHandler {
                             .map(v -> subscriptions.size());
                 })
                 .onSuccess(resumedCount -> {
-                    logger.info("✅ Resumed {} subscriptions for queue: {}", resumedCount, queueName);
+                    logger.info("Resumed {} subscriptions for queue: {}", resumedCount, queueName);
 
                     JsonObject response = new JsonObject()
                             .put("message", "Queue '" + queueName + "' resumed successfully in setup '" + setupId + "' (" + resumedCount + " subscriptions)")
@@ -2158,7 +2158,7 @@ public class ManagementApiHandler {
                                     // Remove the queue from the setup result
                                     setupResult.getQueueFactories().remove(queueName);
 
-                                    logger.info("✅ Queue {} deleted successfully from setup {}", queueName,
+                                    logger.info("Queue {} deleted successfully from setup {}", queueName,
                                         setupId);
 
                                     JsonObject response = new JsonObject()

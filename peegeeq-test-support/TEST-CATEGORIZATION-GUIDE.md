@@ -154,32 +154,32 @@ mvn test                          # Best for daily development
 ## Test Categorization Guidelines
 
 ### When to use CORE
-- ✅ Constants validation and utility class tests
-- ✅ Metrics creation and configuration tests
-- ✅ Scenario building and validation logic
-- ✅ Performance comparison calculations
-- ✅ Tests that complete in under 1 second
+- Constants validation and utility class tests
+- Metrics creation and configuration tests
+- Scenario building and validation logic
+- Performance comparison calculations
+- Tests that complete in under 1 second
 - ❌ Tests requiring TestContainers or external infrastructure
 
 ### When to use INTEGRATION
-- ✅ TestContainer factory validation
-- ✅ Base test class functionality with real PostgreSQL
-- ✅ Database connectivity and setup validation
-- ✅ Container configuration and lifecycle tests
+- TestContainer factory validation
+- Base test class functionality with real PostgreSQL
+- Database connectivity and setup validation
+- Container configuration and lifecycle tests
 - ❌ Performance benchmarking or hardware profiling
 
 ### When to use PERFORMANCE
-- ✅ Hardware profiling and resource monitoring
-- ✅ Performance metrics collection with real workloads
-- ✅ Consumer mode performance testing patterns
-- ✅ Throughput and latency measurements
+- Hardware profiling and resource monitoring
+- Performance metrics collection with real workloads
+- Consumer mode performance testing patterns
+- Throughput and latency measurements
 - ❌ Simple unit tests or basic validation
 
 ### When to use SLOW
-- ✅ Comprehensive performance demonstrations
-- ✅ Multi-profile comparison tests
-- ✅ Stress testing and long-running scenarios
-- ✅ Tests that take 5+ minutes to complete
+- Comprehensive performance demonstrations
+- Multi-profile comparison tests
+- Stress testing and long-running scenarios
+- Tests that take 5+ minutes to complete
 - ❌ Regular development feedback tests
 
 ## Performance Results

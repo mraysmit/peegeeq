@@ -108,7 +108,7 @@ public class FilterErrorPerformanceTest {
         assertTrue(throughputPerSecond > 100, "Throughput should be reasonable (>100 msg/sec)");
         
         member.close();
-        logger.info("✅ NORMAL THROUGHPUT BASELINE COMPLETED");
+        logger.info("NORMAL THROUGHPUT BASELINE COMPLETED");
     }
     
     @Test
@@ -203,7 +203,7 @@ public class FilterErrorPerformanceTest {
         assertTrue(throughputPerSecond > 50, "Throughput should be reasonable even with exceptions");
         
         member.close();
-        logger.info("✅ FILTER EXCEPTION PERFORMANCE TEST COMPLETED");
+        logger.info("FILTER EXCEPTION PERFORMANCE TEST COMPLETED");
     }
     
     @Test
@@ -317,7 +317,7 @@ public class FilterErrorPerformanceTest {
         assertTrue(throughputPerSecond > 100, "Throughput should be high due to circuit breaker fast-fail");
         
         member.close();
-        logger.info("✅ CIRCUIT BREAKER PERFORMANCE TEST COMPLETED");
+        logger.info("CIRCUIT BREAKER PERFORMANCE TEST COMPLETED");
     }
     
     @Test
@@ -408,7 +408,7 @@ public class FilterErrorPerformanceTest {
         assertTrue(throughputPerSecond > 10, "Throughput should be reasonable with DLQ operations");
 
         member.close();
-        logger.info("✅ DEAD LETTER QUEUE PERFORMANCE TEST COMPLETED");
+        logger.info("DEAD LETTER QUEUE PERFORMANCE TEST COMPLETED");
     }
 
     // Test message class

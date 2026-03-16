@@ -96,7 +96,7 @@ class EventStoreAdvancedAttributesSmokeTest extends SmokeTestBase {
                         "aggregateId should be preserved");
                     assertEquals("OrderCreated", event.getString("eventType"));
 
-                    logger.info("✅ aggregateId correctly stored and retrieved: {}",
+                    logger.info("aggregateId correctly stored and retrieved: {}",
                         event.getString("aggregateId"));
 
                     cleanupSetup(setupId);
@@ -156,9 +156,9 @@ class EventStoreAdvancedAttributesSmokeTest extends SmokeTestBase {
                         "causationId should be preserved");
                     assertEquals("OrderWithEventSourcing", event.getString("eventType"));
 
-                    logger.info("✅ correlationId correctly stored and retrieved: {}",
+                    logger.info("correlationId correctly stored and retrieved: {}",
                         event.getString("correlationId"));
-                    logger.info("✅ causationId correctly stored and retrieved: {}",
+                    logger.info("causationId correctly stored and retrieved: {}",
                         event.getString("causationId"));
 
                     cleanupSetup(setupId);
@@ -217,7 +217,7 @@ class EventStoreAdvancedAttributesSmokeTest extends SmokeTestBase {
                     assertTrue(event.containsKey("validTime") || event.containsKey("validFrom"),
                         "Either validTime or validFrom should be present");
 
-                    logger.info("✅ validTime correctly stored and retrieved: {}",
+                    logger.info("validTime correctly stored and retrieved: {}",
                         event.getString("validTime") != null ?
                             event.getString("validTime") : event.getString("validFrom"));
 
@@ -286,7 +286,7 @@ class EventStoreAdvancedAttributesSmokeTest extends SmokeTestBase {
                     assertEquals("web-ui", returnedMetadata.getString("source"),
                         "metadata.source should be preserved");
 
-                    logger.info("✅ metadata correctly stored and retrieved: {}",
+                    logger.info("metadata correctly stored and retrieved: {}",
                         returnedMetadata.encodePrettily());
 
                     cleanupSetup(setupId);
@@ -372,7 +372,7 @@ class EventStoreAdvancedAttributesSmokeTest extends SmokeTestBase {
                     assertNotNull(returnedMetadata, "metadata/headers should be present");
                     assertEquals("user-complete-456", returnedMetadata.getString("userId"));
 
-                    logger.info("✅ ALL advanced attributes correctly stored and retrieved:");
+                    logger.info("ALL advanced attributes correctly stored and retrieved:");
                     logger.info("   - aggregateId: {}", event.getString("aggregateId"));
                     logger.info("   - correlationId: {}", event.getString("correlationId"));
                     logger.info("   - causationId: {}", event.getString("causationId"));

@@ -232,7 +232,7 @@ class ConsumerGroupResilienceTest {
         });
 
         testContext.awaitCompletion(20, TimeUnit.SECONDS);
-        System.out.println("✅ **SUCCESS** ✅ Consumer failure recovery mechanisms worked correctly");
+        System.out.println("**SUCCESS** Consumer failure recovery mechanisms worked correctly");
         System.out.println(" ===== INTENTIONAL FAILURE TEST COMPLETED ===== ");
         logger.info("Consumer failure recovery test completed successfully");
     }

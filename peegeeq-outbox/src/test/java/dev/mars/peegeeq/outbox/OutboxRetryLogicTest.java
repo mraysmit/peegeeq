@@ -127,7 +127,7 @@ public class OutboxRetryLogicTest {
             assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Should have attempted processing 4 times (initial + 3 retries)");
             assertEquals(4, attemptCount.get(), "Should have made exactly 4 processing attempts");
 
-            logger.info("✅ Retry count increment test completed successfully");
+            logger.info("Retry count increment test completed successfully");
         } finally {
             consumer.close();
             producer.close();
@@ -166,7 +166,7 @@ public class OutboxRetryLogicTest {
             vertx.timer(2000).toCompletionStage().toCompletableFuture().join();
             assertEquals(4, attemptCount.get(), "Should not exceed max retries");
 
-            logger.info("✅ Max retries threshold test completed successfully");
+            logger.info("Max retries threshold test completed successfully");
         } finally {
             consumer.close();
             producer.close();
@@ -204,7 +204,7 @@ public class OutboxRetryLogicTest {
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should eventually succeed after retries");
             assertEquals(3, attemptCount.get(), "Should succeed on 3rd attempt");
 
-            logger.info("✅ Eventual success after retries test completed successfully");
+            logger.info("Eventual success after retries test completed successfully");
         } finally {
             consumer.close();
             producer.close();
@@ -225,7 +225,7 @@ public class OutboxRetryLogicTest {
         testExceptionTypeRetry("NullPointerException",
             () -> new NullPointerException("INTENTIONAL FAILURE: Null pointer"));
 
-        logger.info("✅ Different exception types retry test completed successfully");
+        logger.info("Different exception types retry test completed successfully");
     }
 
     private void testExceptionTypeRetry(String exceptionType, java.util.function.Supplier<RuntimeException> exceptionSupplier) throws Exception {

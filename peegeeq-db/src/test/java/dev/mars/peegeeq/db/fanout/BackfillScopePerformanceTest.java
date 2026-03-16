@@ -253,7 +253,7 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
         assertEquals(totalMessages - completedMessages, pendingIncremented,
                 "PENDING messages should also have required_consumer_groups incremented");
 
-        logger.info("✅ ALL_RETAINED correctly incremented required_consumer_groups on {} COMPLETED + {} PENDING messages",
+        logger.info("ALL_RETAINED correctly incremented required_consumer_groups on {} COMPLETED + {} PENDING messages",
                 incrementedCount, pendingIncremented);
     }
 
@@ -330,7 +330,7 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
         assertTrue(ratio >= 0.5,
                 "ALL_RETAINED throughput should be at least 50% of PENDING_ONLY, ratio was " + String.format("%.2f", ratio));
 
-        logger.info("✅ Scope throughput parity verified: ratio={}", String.format("%.2f", ratio));
+        logger.info("Scope throughput parity verified: ratio={}", String.format("%.2f", ratio));
     }
 
     // ========================================================================

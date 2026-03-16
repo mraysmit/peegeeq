@@ -69,11 +69,11 @@ import static org.junit.jupiter.api.Assertions.*;
  * <h2>Expected Test Results</h2>
  * <p>All tests should <b>PASS</b> by demonstrating proper bi-temporal functionality:</p>
  * <ul>
- *   <li>✅ Events are stored with both valid time and transaction time</li>
- *   <li>✅ Historical corrections preserve audit trail</li>
- *   <li>✅ Point-in-time queries return accurate historical views</li>
- *   <li>✅ Real-time subscriptions receive live events</li>
- *   <li>✅ Type-safe event handling works correctly</li>
+ *   <li>Events are stored with both valid time and transaction time</li>
+ *   <li>Historical corrections preserve audit trail</li>
+ *   <li>Point-in-time queries return accurate historical views</li>
+ *   <li>Real-time subscriptions receive live events</li>
+ *   <li>Type-safe event handling works correctly</li>
  * </ul>
  * 
  * @author Mark Andrew Ray-Smith Cityline Ltd
@@ -147,7 +147,7 @@ class BiTemporalEventStoreExampleTest {
         BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager);
         eventStore = factory.createEventStore(OrderEvent.class);
         
-        logger.info("✅ Bi-Temporal Event Store Example Test setup completed");
+        logger.info("Bi-Temporal Event Store Example Test setup completed");
     }
     
     @AfterEach
@@ -176,7 +176,7 @@ class BiTemporalEventStoreExampleTest {
         System.clearProperty("peegeeq.database.password");
         System.clearProperty("peegeeq.database.schema");
         
-        logger.info("✅ Bi-Temporal Event Store Example Test cleanup completed");
+        logger.info("Bi-Temporal Event Store Example Test cleanup completed");
     }
 
     private void cleanupDatabase() throws Exception {
@@ -237,7 +237,7 @@ class BiTemporalEventStoreExampleTest {
         await(eventStore.append("OrderCreated", event2, validTime2));
         await(eventStore.append("OrderCreated", event3, validTime3));
         
-        logger.info("✅ Successfully appended 3 events with bi-temporal dimensions");
+        logger.info("Successfully appended 3 events with bi-temporal dimensions");
         
         // Query all events
         List<BiTemporalEvent<OrderEvent>> allEvents = await(eventStore.query(EventQuery.all()));
@@ -253,7 +253,7 @@ class BiTemporalEventStoreExampleTest {
                 event.getPayload().getOrderId(), event.getValidTime(), event.getTransactionTime());
         }
         
-        logger.info("✅ Append-only event storage test completed successfully!");
+        logger.info("Append-only event storage test completed successfully!");
     }
     
     @Test
@@ -294,7 +294,7 @@ class BiTemporalEventStoreExampleTest {
         assertNotEquals(version1.getTransactionTime(), version2.getTransactionTime(), 
             "Versions should have different transaction times");
         
-        logger.info("✅ Event corrections and versioning test completed successfully!");
+        logger.info("Event corrections and versioning test completed successfully!");
         logger.info("   📊 Preserved audit trail with {} versions", order004Events.size());
     }
     
@@ -334,7 +334,7 @@ class BiTemporalEventStoreExampleTest {
         assertEquals(1, rangeView.size(), "Range query should show 1 event");
         assertEquals("order-006", rangeView.get(0).getPayload().getOrderId(), "Should be order-006");
         
-        logger.info("✅ Historical queries and point-in-time views test completed successfully!");
+        logger.info("Historical queries and point-in-time views test completed successfully!");
         logger.info("   📊 Point-in-time view: {} events, Range view: {} events",
             pointInTimeView.size(), rangeView.size());
     }
@@ -372,7 +372,7 @@ class BiTemporalEventStoreExampleTest {
         assertEquals("order-008", storedEvent1.getPayload().getOrderId());
         assertEquals("order-009", storedEvent2.getPayload().getOrderId());
 
-        logger.info("✅ Real-time event subscriptions test completed successfully!");
+        logger.info("Real-time event subscriptions test completed successfully!");
         logger.info("   📊 Subscription setup and event storage verified");
     }
 
@@ -409,7 +409,7 @@ class BiTemporalEventStoreExampleTest {
         // Verify type safety prevents incorrect casting
         assertInstanceOf(OrderEvent.class, payload, "Payload should be OrderEvent type");
 
-        logger.info("✅ Type-safe event handling test completed successfully!");
+        logger.info("Type-safe event handling test completed successfully!");
         logger.info("   📋 Event details: {}", payload);
     }
 

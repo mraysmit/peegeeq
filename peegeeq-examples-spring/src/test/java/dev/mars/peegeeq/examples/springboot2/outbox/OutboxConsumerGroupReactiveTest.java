@@ -116,7 +116,7 @@ class OutboxConsumerGroupReactiveTest {
             try {
                 group.stop();
                 group.close();
-                logger.info("✅ Closed consumer group: {}", group.getGroupName());
+                logger.info("Closed consumer group: {}", group.getGroupName());
             } catch (Exception e) {
                 logger.error("⚠️ Error closing consumer group: {}", e.getMessage());
             }
@@ -127,7 +127,7 @@ class OutboxConsumerGroupReactiveTest {
         for (MessageProducer<?> producer : activeProducers) {
             try {
                 producer.close();
-                logger.info("✅ Closed producer");
+                logger.info("Closed producer");
             } catch (Exception e) {
                 logger.error("⚠️ Error closing producer: {}", e.getMessage());
             }
@@ -140,7 +140,7 @@ class OutboxConsumerGroupReactiveTest {
         vertx.setTimer(2000, id -> delay.complete(null));
         delay.join();
 
-        logger.info("✅ Cleanup complete");
+        logger.info("Cleanup complete");
     }
     
     /**
@@ -222,8 +222,8 @@ class OutboxConsumerGroupReactiveTest {
             assertTrue(count <= messageCount, entry.getKey() + " should not process more than total messages");
         }
 
-        logger.info("✅ Consumer Group Load Balancing test passed (Reactive)");
-        logger.info("✅ {} messages distributed across {} consumers", messageCount, consumerCount);
+        logger.info("Consumer Group Load Balancing test passed (Reactive)");
+        logger.info("{} messages distributed across {} consumers", messageCount, consumerCount);
     }
 
     /**
@@ -311,8 +311,8 @@ class OutboxConsumerGroupReactiveTest {
         assertTrue(failureCount.get() > 0,
             "Should have encountered some transient failures");
 
-        logger.info("✅ Consumer Group Failure Handling test passed (Reactive)");
-        logger.info("✅ All messages processed successfully despite {} transient failures", failureCount.get());
+        logger.info("Consumer Group Failure Handling test passed (Reactive)");
+        logger.info("All messages processed successfully despite {} transient failures", failureCount.get());
     }
 }
 

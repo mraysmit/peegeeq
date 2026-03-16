@@ -57,7 +57,7 @@ public class MessageReliabilityTest {
         // Handler that tracks all processed messages
         MessageHandler<TestMessage> trackingHandler = message -> {
             messagesProcessed.incrementAndGet();
-            logger.debug("✅ Processing message: {}", message.getId());
+            logger.debug("Processing message: {}", message.getId());
             return CompletableFuture.completedFuture(null);
         };
 
@@ -115,7 +115,7 @@ public class MessageReliabilityTest {
             "CRITICAL: All messages must be either processed or explicitly rejected - NO LOSS ALLOWED");
 
         member.close();
-        logger.info("✅ CRITICAL TEST PASSED: No message loss during filter exceptions");
+        logger.info("CRITICAL TEST PASSED: No message loss during filter exceptions");
     }
     
     @Test
@@ -204,7 +204,7 @@ public class MessageReliabilityTest {
             "All messages that reached the filter should be counted as filter rejections");
 
         member.close();
-        logger.info("✅ CRITICAL TEST PASSED: Circuit breaker doesn't lose messages");
+        logger.info("CRITICAL TEST PASSED: Circuit breaker doesn't lose messages");
     }
     
     @Test
@@ -228,14 +228,14 @@ public class MessageReliabilityTest {
                 throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Transient error attempt " + attempt + " (THIS IS EXPECTED)");
             }
             
-            logger.debug("✅ Filter success on attempt {} for message {}", attempt, message.getId());
+            logger.debug("Filter success on attempt {} for message {}", attempt, message.getId());
             return true;
         };
         
         MessageHandler<TestMessage> handler = message -> {
             messagesProcessed.incrementAndGet();
             lastProcessedMessageId.set(message.getId());
-            logger.debug("✅ Processed message: {}", message.getId());
+            logger.debug("Processed message: {}", message.getId());
             return CompletableFuture.completedFuture(null);
         };
         
@@ -277,7 +277,7 @@ public class MessageReliabilityTest {
         assertEquals(0, messagesProcessed.get(), "No messages processed due to synchronous rejection");
         
         member.close();
-        logger.info("✅ CRITICAL TEST PASSED: Transient error handling is predictable (synchronous rejection)");
+        logger.info("CRITICAL TEST PASSED: Transient error handling is predictable (synchronous rejection)");
     }
     
     @Test
@@ -314,7 +314,7 @@ public class MessageReliabilityTest {
                         new IllegalArgumentException("Cannot process null message or payload"));
                 }
 
-                logger.debug("✅ Processing valid message: {}", message.getId());
+                logger.debug("Processing valid message: {}", message.getId());
                 return CompletableFuture.completedFuture(null);
             } catch (Exception e) {
                 processingErrors.incrementAndGet();
@@ -356,7 +356,7 @@ public class MessageReliabilityTest {
         // Verify member is properly closed
         assertFalse(member.isActive(), "Member should be inactive after close");
 
-        logger.info("✅ CRITICAL TEST PASSED: Edge cases handled gracefully");
+        logger.info("CRITICAL TEST PASSED: Edge cases handled gracefully");
     }
 
     @Test
@@ -391,7 +391,7 @@ public class MessageReliabilityTest {
                 processingOrder.append(messageId);
             }
 
-            logger.debug("✅ Processed message {} (count: {})", messageId, count);
+            logger.debug("Processed message {} (count: {})", messageId, count);
             return CompletableFuture.completedFuture(null);
         };
 
@@ -433,7 +433,7 @@ public class MessageReliabilityTest {
             "Should process messages in correct order");
 
         member.close();
-        logger.info("✅ CRITICAL TEST PASSED: Message ordering maintained under selective filtering");
+        logger.info("CRITICAL TEST PASSED: Message ordering maintained under selective filtering");
     }
 
     // Test message class

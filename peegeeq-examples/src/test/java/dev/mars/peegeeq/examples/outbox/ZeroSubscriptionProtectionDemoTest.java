@@ -219,7 +219,7 @@ class ZeroSubscriptionProtectionDemoTest {
         logger.info("  - Reason: Messages are distributed to workers when they become available");
         logger.info("  - Zero-subscription protection does NOT apply to QUEUE topics");
 
-        logger.info("\n=== ✅ DEMO 1 COMPLETE: QUEUE Topics ===\n");
+        logger.info("\n=== DEMO 1 COMPLETE: QUEUE Topics ===\n");
         logger.info("Key Takeaway: QUEUE topics always accept messages, even with zero subscriptions.");
     }
 
@@ -276,7 +276,7 @@ class ZeroSubscriptionProtectionDemoTest {
         logger.info("  - Message will be retained for 12 hours (zeroSubscriptionRetentionHours)");
         logger.info("  - Late-joining consumers can backfill using FROM_BEGINNING");
 
-        logger.info("\n=== ✅ DEMO 2 COMPLETE: PUB_SUB Allows Writes ===\n");
+        logger.info("\n=== DEMO 2 COMPLETE: PUB_SUB Allows Writes ===\n");
         logger.info("Key Takeaway: PUB_SUB topics with blockWritesOnZeroSubscriptions=false allow writes and retain messages for late-joining consumers.");
     }
 
@@ -334,7 +334,7 @@ class ZeroSubscriptionProtectionDemoTest {
         logger.info("  - Prevents accidental data loss when no consumers are listening");
         logger.info("  - Ensures critical events are only published to active subscribers");
 
-        logger.info("\n=== ✅ DEMO 3 COMPLETE: PUB_SUB Blocks Writes ===\n");
+        logger.info("\n=== DEMO 3 COMPLETE: PUB_SUB Blocks Writes ===\n");
         logger.info("Key Takeaway: PUB_SUB topics with blockWritesOnZeroSubscriptions=true prevent writes when no active subscriptions exist.");
     }
 

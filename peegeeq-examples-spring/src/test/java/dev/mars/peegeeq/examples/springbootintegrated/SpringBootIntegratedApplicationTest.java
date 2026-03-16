@@ -152,18 +152,18 @@ class SpringBootIntegratedApplicationTest {
         // Verify 1: Order saved to database
         boolean orderExists = verifyOrderInDatabase(orderId);
         assertTrue(orderExists, "Order should exist in database");
-        logger.info("✅ Order found in database");
+        logger.info("Order found in database");
         
         // Verify 2: Event sent to outbox
         boolean eventInOutbox = verifyEventInOutbox(orderId);
         assertTrue(eventInOutbox, "Event should exist in outbox");
-        logger.info("✅ Event found in outbox");
+        logger.info("Event found in outbox");
         
         // Verify 3: Event appended to event store
         OrderResponse history = orderService.getOrderHistory(orderId).get(10, TimeUnit.SECONDS);
         assertNotNull(history);
         assertTrue(history.getHistory().size() >= 1, "Event should exist in event store");
-        logger.info("✅ Event found in event store ({} events)", history.getHistory().size());
+        logger.info("Event found in event store ({} events)", history.getHistory().size());
         
         // Verify event details
         BiTemporalEvent<OrderEvent> event = history.getHistory().get(0);

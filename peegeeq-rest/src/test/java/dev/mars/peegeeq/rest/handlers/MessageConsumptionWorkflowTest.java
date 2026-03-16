@@ -81,7 +81,7 @@ class MessageConsumptionWorkflowTest {
         assertEquals("Numeric", numericResponse.getMessageType());
         assertEquals(Integer.valueOf(3), numericResponse.getPriority());
         
-        System.out.println("✅ Message consumption API structure test passed");
+        System.out.println("Message consumption API structure test passed");
     }
     
     private void testConsumptionWorkflowValidation(ObjectMapper objectMapper) throws Exception {
@@ -163,7 +163,7 @@ class MessageConsumptionWorkflowTest {
         
         assertEquals("No messages available", noMessagesResponse.getString("message"));
         
-        System.out.println("✅ Consumption workflow validation test passed");
+        System.out.println("Consumption workflow validation test passed");
     }
     
     private void testConsumptionErrorHandling(ObjectMapper objectMapper) throws Exception {
@@ -210,7 +210,7 @@ class MessageConsumptionWorkflowTest {
         assertTrue(notFoundResponse.getString("error").contains("not found"));
         assertTrue(serverErrorResponse.getString("error").contains("Failed to"));
         
-        System.out.println("✅ Consumption error handling test passed");
+        System.out.println("Consumption error handling test passed");
     }
     
     @Test

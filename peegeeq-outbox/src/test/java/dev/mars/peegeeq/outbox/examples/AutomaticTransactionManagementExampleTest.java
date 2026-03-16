@@ -112,7 +112,7 @@ public class AutomaticTransactionManagementExampleTest {
         assertTrue(result.automaticRollbacks >= 0, "Automatic rollbacks should be non-negative");
         assertTrue(result.transactionManagementEnabled, "Transaction management should be enabled");
         
-        logger.info("✅ Basic automatic transaction management validated successfully");
+        logger.info("Basic automatic transaction management validated successfully");
         logger.info("   Transactions completed: {}, Rollbacks: {}, Management enabled: {}", 
             result.transactionsCompleted, result.automaticRollbacks, result.transactionManagementEnabled);
     }
@@ -138,7 +138,7 @@ public class AutomaticTransactionManagementExampleTest {
         assertTrue(result.layeredServices >= 0, "Layered services should be non-negative");
         assertTrue(result.propagationSuccessful, "Propagation should be successful");
         
-        logger.info("✅ Transaction propagation context validated successfully");
+        logger.info("Transaction propagation context validated successfully");
         logger.info("   Context propagations: {}, Layered services: {}, Successful: {}", 
             result.contextPropagations, result.layeredServices, result.propagationSuccessful);
     }
@@ -164,7 +164,7 @@ public class AutomaticTransactionManagementExampleTest {
         assertTrue(result.sharedContexts >= 0, "Shared contexts should be non-negative");
         assertTrue(result.batchTransactionSuccessful, "Batch transaction should be successful");
         
-        logger.info("✅ Batch operations with shared context validated successfully");
+        logger.info("Batch operations with shared context validated successfully");
         logger.info("   Batch operations: {}, Shared contexts: {}, Successful: {}", 
             result.batchOperations, result.sharedContexts, result.batchTransactionSuccessful);
     }
@@ -190,7 +190,7 @@ public class AutomaticTransactionManagementExampleTest {
         assertTrue(result.propagationModes >= 0, "Propagation modes should be non-negative");
         assertTrue(result.fullParameterSupport, "Full parameter support should be enabled");
         
-        logger.info("✅ Full parameter automatic transactions validated successfully");
+        logger.info("Full parameter automatic transactions validated successfully");
         logger.info("   Parameters supported: {}, Propagation modes: {}, Full support: {}", 
             result.parametersSupported, result.propagationModes, result.fullParameterSupport);
     }
@@ -216,7 +216,7 @@ public class AutomaticTransactionManagementExampleTest {
         assertTrue(result.throughputMeasured > 0, "Throughput should be measured");
         assertTrue(result.performanceValidated, "Performance should be validated");
         
-        logger.info("✅ Performance validation validated successfully");
+        logger.info("Performance validation validated successfully");
         logger.info("   Performance tests: {}, Throughput: {} ops/sec, Validated: {}", 
             result.performanceTests, result.throughputMeasured, result.performanceValidated);
     }

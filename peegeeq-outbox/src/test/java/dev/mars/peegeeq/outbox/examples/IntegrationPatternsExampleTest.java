@@ -229,7 +229,7 @@ public class IntegrationPatternsExampleTest {
         requestProducer.close();
         replyProducer.close();
         
-        logger.info("✅ Request-Reply pattern validated successfully");
+        logger.info("Request-Reply pattern validated successfully");
     }
 
     /**
@@ -326,7 +326,7 @@ public class IntegrationPatternsExampleTest {
         analyticsProducer.close();
         auditProducer.close();
 
-        logger.info("✅ Publish-Subscribe pattern validated successfully");
+        logger.info("Publish-Subscribe pattern validated successfully");
     }
 
     /**
@@ -459,7 +459,7 @@ public class IntegrationPatternsExampleTest {
         internationalProducer.close();
         expressProducer.close();
 
-        logger.info("✅ Message Router pattern validated successfully");
+        logger.info("Message Router pattern validated successfully");
     }
 
     /**
@@ -475,7 +475,7 @@ public class IntegrationPatternsExampleTest {
 
         // Validate pattern concept
         assertTrue(true, "Content-Based Router pattern concept validated");
-        logger.info("✅ Content-Based Router pattern validated successfully");
+        logger.info("Content-Based Router pattern validated successfully");
     }
 
     /**
@@ -491,7 +491,7 @@ public class IntegrationPatternsExampleTest {
 
         // Validate pattern concept
         assertTrue(true, "Aggregator pattern concept validated");
-        logger.info("✅ Aggregator pattern validated successfully");
+        logger.info("Aggregator pattern validated successfully");
     }
 
     /**
@@ -507,7 +507,7 @@ public class IntegrationPatternsExampleTest {
 
         // Validate pattern concept
         assertTrue(true, "Scatter-Gather pattern concept validated");
-        logger.info("✅ Scatter-Gather pattern validated successfully");
+        logger.info("Scatter-Gather pattern validated successfully");
     }
 
     /**
@@ -523,7 +523,7 @@ public class IntegrationPatternsExampleTest {
 
         // Validate pattern concept
         assertTrue(true, "Saga pattern concept validated");
-        logger.info("✅ Saga pattern validated successfully");
+        logger.info("Saga pattern validated successfully");
     }
 
     /**
@@ -539,7 +539,7 @@ public class IntegrationPatternsExampleTest {
 
         // Validate pattern concept
         assertTrue(true, "CQRS pattern concept validated");
-        logger.info("✅ CQRS pattern validated successfully");
+        logger.info("CQRS pattern validated successfully");
     }
 
     /**

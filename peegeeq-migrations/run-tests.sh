@@ -17,7 +17,7 @@ if ! docker info > /dev/null 2>&1; then
     exit 1
 fi
 
-echo "✅ Docker is running"
+echo "Docker is running"
 echo ""
 
 # Change to migrations directory
@@ -32,7 +32,7 @@ mvn clean test
 # Check exit code
 if [ $? -eq 0 ]; then
     echo ""
-    echo "✅ All tests passed!"
+    echo "All tests passed!"
     echo ""
     echo "Tests verified:"
     echo "  ✓ All migrations execute successfully"

@@ -312,8 +312,8 @@ class OrderProcessingServiceTest {
         assertEquals(correlationId, startEvent.getCorrelationId(), "Start audit event correlation ID should match");
         assertEquals(correlationId, completeEvent.getCorrelationId(), "Complete audit event correlation ID should match");
         
-        logger.info("✅ Single product order processing validated successfully");
-        logger.info("✅ Order: {}, Correlation: {}, Events: {} order, {} inventory, {} payment, {} audit", 
+        logger.info("Single product order processing validated successfully");
+        logger.info("Order: {}, Correlation: {}, Events: {} order, {} inventory, {} payment, {} audit", 
                    result.getOrderId(), result.getCorrelationId(),
                    orderEvents.size(), inventoryEvents.size(), paymentEvents.size(), auditEvents.size());
     }
@@ -455,8 +455,8 @@ class OrderProcessingServiceTest {
             assertEquals(correlationId, event.getCorrelationId(), 
                 "Inventory event correlation ID should match for product: " + event.getPayload().getProductId()));
         
-        logger.info("✅ Multi-product order processing validated successfully");
-        logger.info("✅ Order: {}, Products: {}, Total: {}, Correlation: {}", 
+        logger.info("Multi-product order processing validated successfully");
+        logger.info("Order: {}, Products: {}, Total: {}, Correlation: {}", 
                    result.getOrderId(), inventoryEvents.size(), 
                    orderEvent.getPayload().getTotalAmount(), result.getCorrelationId());
     }

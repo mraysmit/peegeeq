@@ -134,7 +134,7 @@ public class OutboxCompletableFutureExceptionTest {
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times for failed future");
         assertEquals(3, attemptCount.get(), "Should have made exactly 3 processing attempts");
         
-        logger.info("✅ Failed CompletableFuture handling test completed successfully");
+        logger.info("Failed CompletableFuture handling test completed successfully");
     }
 
     @Test
@@ -165,7 +165,7 @@ public class OutboxCompletableFutureExceptionTest {
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times for async failure");
         assertEquals(3, attemptCount.get(), "Should have made exactly 3 processing attempts");
         
-        logger.info("✅ Async failure handling test completed successfully");
+        logger.info("Async failure handling test completed successfully");
     }
 
     @Test
@@ -200,7 +200,7 @@ public class OutboxCompletableFutureExceptionTest {
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times for timeout");
         assertEquals(3, attemptCount.get(), "Should have made exactly 3 processing attempts");
         
-        logger.info("✅ Timeout exception handling test completed successfully");
+        logger.info("Timeout exception handling test completed successfully");
     }
 
     @Test
@@ -226,7 +226,7 @@ public class OutboxCompletableFutureExceptionTest {
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should have attempted processing and failed with null return");
         assertTrue(attemptCount.get() >= 1, "Should have made at least 1 processing attempt");
         
-        logger.info("✅ Null CompletableFuture handling test completed successfully");
+        logger.info("Null CompletableFuture handling test completed successfully");
     }
 }
 

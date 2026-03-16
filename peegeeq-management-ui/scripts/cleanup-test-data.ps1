@@ -10,7 +10,7 @@ Write-Host ""
 Write-Host "1️⃣  Checking backend health..." -ForegroundColor Yellow
 try {
     $health = Invoke-RestMethod -Uri "$API_BASE/health" -Method Get -TimeoutSec 5
-    Write-Host "   ✅ Backend is healthy" -ForegroundColor Green
+    Write-Host "   Backend is healthy" -ForegroundColor Green
 } catch {
     Write-Host "   ❌ Backend is not running on port 8080" -ForegroundColor Red
     exit 1
@@ -23,7 +23,7 @@ Write-Host "2️⃣  Purging test queues..." -ForegroundColor Yellow
 try {
     Invoke-RestMethod -Uri "$API_BASE/api/v1/queues/test-setup/test-queue-1/purge" `
         -Method Post | Out-Null
-    Write-Host "   ✅ Purged queue: test-setup/test-queue-1" -ForegroundColor Green
+    Write-Host "   Purged queue: test-setup/test-queue-1" -ForegroundColor Green
 } catch {
     Write-Host "   ⚠️  Could not purge test-setup/test-queue-1 (may not exist)" -ForegroundColor Yellow
 }
@@ -32,7 +32,7 @@ try {
 try {
     Invoke-RestMethod -Uri "$API_BASE/api/v1/queues/test-setup/test-queue-2/purge" `
         -Method Post | Out-Null
-    Write-Host "   ✅ Purged queue: test-setup/test-queue-2" -ForegroundColor Green
+    Write-Host "   Purged queue: test-setup/test-queue-2" -ForegroundColor Green
 } catch {
     Write-Host "   ⚠️  Could not purge test-setup/test-queue-2 (may not exist)" -ForegroundColor Yellow
 }
@@ -41,7 +41,7 @@ try {
 try {
     Invoke-RestMethod -Uri "$API_BASE/api/v1/queues/demo-setup/demo-queue/purge" `
         -Method Post | Out-Null
-    Write-Host "   ✅ Purged queue: demo-setup/demo-queue" -ForegroundColor Green
+    Write-Host "   Purged queue: demo-setup/demo-queue" -ForegroundColor Green
 } catch {
     Write-Host "   ⚠️  Could not purge demo-setup/demo-queue (may not exist)" -ForegroundColor Yellow
 }
@@ -60,7 +60,7 @@ try {
 }
 
 Write-Host ""
-Write-Host "✅ Cleanup complete!" -ForegroundColor Green
+Write-Host "Cleanup complete!" -ForegroundColor Green
 Write-Host ""
 Write-Host "📋 Note: Queues still exist but are empty. To fully remove queues," -ForegroundColor Gray
 Write-Host "   restart the backend or use the delete queue API endpoints." -ForegroundColor Gray

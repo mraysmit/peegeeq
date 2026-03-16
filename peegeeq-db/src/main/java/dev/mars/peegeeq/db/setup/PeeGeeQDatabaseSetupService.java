@@ -734,7 +734,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
                         QueueFactory newFactory = newFactories.get(queueConfig.getQueueName());
                         if (newFactory != null) {
                             setup.getQueueFactories().put(queueConfig.getQueueName(), newFactory);
-                            logger.info("✅ Added queue factory for '{}' to setup '{}'. Total factories: {}",
+                            logger.info("Added queue factory for '{}' to setup '{}'. Total factories: {}",
                                        queueConfig.getQueueName(), setupId, setup.getQueueFactories().size());
                         } else {
                             logger.warn("Queue factory was not created for queue: {}", queueConfig.getQueueName());
@@ -811,7 +811,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
                             EventStore<?> newStore = newStores.get(eventStoreConfig.getEventStoreName());
                             if (newStore != null) {
                                 setup.getEventStores().put(eventStoreConfig.getEventStoreName(), newStore);
-                                logger.info("✅ Added event store '{}' to setup '{}'. Total stores: {}",
+                                logger.info("Added event store '{}' to setup '{}'. Total stores: {}",
                                         eventStoreConfig.getEventStoreName(), setupId, setup.getEventStores().size());
                             }
                         }

@@ -116,7 +116,7 @@ public class EventStoreIntegrationTest {
 
                     if (response.statusCode() == 201 || response.statusCode() == 200) {
                         JsonObject body = response.bodyAsJsonObject();
-                        logger.info("✅ Setup created successfully: {}", body.getString("setupId"));
+                        logger.info("Setup created successfully: {}", body.getString("setupId"));
                         logger.info("=== EVENTSTORE TEST SETUP COMPLETE ===");
                         testContext.completeNow();
                     } else {
@@ -143,7 +143,7 @@ public class EventStoreIntegrationTest {
                     .compose(response -> {
                         client.close();
                         if (response.statusCode() == 200 || response.statusCode() == 204) {
-                            logger.info("✅ Cleanup completed");
+                            logger.info("Cleanup completed");
                         } else {
                             logger.warn("⚠️ Cleanup failed with status: {}", response.statusCode());
                         }
@@ -192,7 +192,7 @@ public class EventStoreIntegrationTest {
                     assertTrue(eventStores.contains("test_events"), 
                             "Event store 'test_events' should exist in the array");
 
-                    logger.info("✅ Event store exists verification passed");
+                    logger.info("Event store exists verification passed");
                     System.err.println("=== TEST METHOD COMPLETED: testEventStoreExists ===");
                     System.err.flush();
                     testContext.completeNow();
@@ -232,7 +232,7 @@ public class EventStoreIntegrationTest {
                     assertNotNull(responseBody, "Response body should not be null");
                     assertTrue(responseBody.containsKey("eventId"), "Response should contain eventId");
                     
-                    logger.info("✅ Event stored successfully with ID: {}", responseBody.getString("eventId"));
+                    logger.info("Event stored successfully with ID: {}", responseBody.getString("eventId"));
                     System.err.println("=== TEST METHOD COMPLETED: testStoreOneEvent ===");
                     System.err.flush();
                     testContext.completeNow();
@@ -304,7 +304,7 @@ public class EventStoreIntegrationTest {
                     JsonArray versions = responseBody.getJsonArray("versions");
                     assertTrue(versions.size() >= 1, "Should have at least one version");
 
-                    logger.info("✅ Retrieved {} version(s) of the event", versions.size());
+                    logger.info("Retrieved {} version(s) of the event", versions.size());
                     System.err.println("=== TEST METHOD COMPLETED: testGetAllVersionsOfEvent ===");
                     System.err.flush();
                     testContext.completeNow();
@@ -381,7 +381,7 @@ public class EventStoreIntegrationTest {
                     JsonObject eventData = event.getJsonObject("eventData");
                     assertNotNull(eventData, "Event data should not be null");
 
-                    logger.info("✅ Retrieved event as of transaction time: {}", event.encodePrettily());
+                    logger.info("Retrieved event as of transaction time: {}", event.encodePrettily());
                     System.err.println("=== TEST METHOD COMPLETED: testGetEventAsOfTransactionTime ===");
                     System.err.flush();
                     testContext.completeNow();
@@ -439,7 +439,7 @@ public class EventStoreIntegrationTest {
                     long totalEvents = stats.getLong("totalEvents");
                     assertTrue(totalEvents >= 2, "Should have at least 2 events (we just stored them). Found: " + totalEvents);
 
-                    logger.info("✅ Event store statistics retrieved: {} total events", totalEvents);
+                    logger.info("Event store statistics retrieved: {} total events", totalEvents);
                     System.err.println("=== TEST METHOD COMPLETED: testGetEventStoreStats ===");
                     System.err.flush();
                     testContext.completeNow();
@@ -473,7 +473,7 @@ public class EventStoreIntegrationTest {
                     assertNotNull(responseBody, "Response body should not be null");
                     assertTrue(responseBody.containsKey("error"), "Response should contain error message");
 
-                    logger.info("✅ Invalid event ID properly handled with 404");
+                    logger.info("Invalid event ID properly handled with 404");
                     System.err.println("=== TEST METHOD COMPLETED: testGetEventWithInvalidEventId ===");
                     System.err.flush();
                     testContext.completeNow();
@@ -506,7 +506,7 @@ public class EventStoreIntegrationTest {
                     JsonArray versions = responseBody.getJsonArray("versions");
                     assertEquals(0, versions.size(), "Should have zero versions for non-existent event");
 
-                    logger.info("✅ Invalid event ID in getAllVersions returns empty array");
+                    logger.info("Invalid event ID in getAllVersions returns empty array");
                     System.err.println("=== TEST METHOD COMPLETED: testGetAllVersionsWithInvalidEventId ===");
                     System.err.flush();
                     testContext.completeNow();
@@ -556,7 +556,7 @@ public class EventStoreIntegrationTest {
                     assertTrue(responseBody.getString("error").contains("Invalid transactionTime format"),
                             "Error message should indicate invalid format");
 
-                    logger.info("✅ Invalid timestamp format properly rejected with 400");
+                    logger.info("Invalid timestamp format properly rejected with 400");
                     System.err.println("=== TEST METHOD COMPLETED: testGetAsOfTransactionTimeWithInvalidFormat ===");
                     System.err.flush();
                     testContext.completeNow();
@@ -605,7 +605,7 @@ public class EventStoreIntegrationTest {
                     assertTrue(responseBody.getString("error").contains("transactionTime parameter is required"),
                             "Error message should indicate missing parameter");
 
-                    logger.info("✅ Missing transactionTime parameter properly rejected with 400");
+                    logger.info("Missing transactionTime parameter properly rejected with 400");
                     System.err.println("=== TEST METHOD COMPLETED: testGetAsOfTransactionTimeWithMissingParameter ===");
                     System.err.flush();
                     testContext.completeNow();
@@ -637,7 +637,7 @@ public class EventStoreIntegrationTest {
                     assertTrue(responseBody.getString("error").contains("Event store not found"),
                             "Error message should indicate store not found");
 
-                    logger.info("✅ Non-existent event store properly rejected");
+                    logger.info("Non-existent event store properly rejected");
                     System.err.println("=== TEST METHOD COMPLETED: testQueryNonExistentEventStore ===");
                     System.err.flush();
                     testContext.completeNow();
@@ -667,7 +667,7 @@ public class EventStoreIntegrationTest {
                     assertNotNull(responseBody, "Response body should not be null");
                     assertTrue(responseBody.containsKey("error"), "Response should contain error message");
 
-                    logger.info("✅ Invalid JSON payload properly rejected with 400");
+                    logger.info("Invalid JSON payload properly rejected with 400");
                     System.err.println("=== TEST METHOD COMPLETED: testStoreEventWithInvalidJsonPayload ===");
                     System.err.flush();
                     testContext.completeNow();
@@ -700,7 +700,7 @@ public class EventStoreIntegrationTest {
                     assertNotNull(responseBody, "Response body should not be null");
                     assertTrue(responseBody.containsKey("error"), "Response should contain error message");
 
-                    logger.info("✅ Missing required fields properly rejected");
+                    logger.info("Missing required fields properly rejected");
                     System.err.println("=== TEST METHOD COMPLETED: testStoreEventWithMissingRequiredFields ===");
                     System.err.flush();
                     testContext.completeNow();
@@ -732,7 +732,7 @@ public class EventStoreIntegrationTest {
                     assertTrue(responseBody.getString("error").contains("Event store not found"),
                             "Error message should indicate store not found");
 
-                    logger.info("✅ Stats request for non-existent store properly rejected");
+                    logger.info("Stats request for non-existent store properly rejected");
                     System.err.println("=== TEST METHOD COMPLETED: testGetStatsForNonExistentEventStore ===");
                     System.err.flush();
                     testContext.completeNow();
@@ -762,7 +762,7 @@ public class EventStoreIntegrationTest {
                     assertNotNull(responseBody, "Response body should not be null");
                     assertTrue(responseBody.containsKey("error"), "Response should contain error message");
 
-                    logger.info("✅ Invalid setup ID properly rejected");
+                    logger.info("Invalid setup ID properly rejected");
                     System.err.println("=== TEST METHOD COMPLETED: testQueryWithInvalidSetupId ===");
                     System.err.flush();
                     testContext.completeNow();
@@ -822,7 +822,7 @@ public class EventStoreIntegrationTest {
                     assertEquals(201, future2.result().statusCode(), "Event 2 should be stored (201 Created)");
                     assertEquals(201, future3.result().statusCode(), "Event 3 should be stored (201 Created)");
 
-                    logger.info("✅ Concurrent event storage successful - thread safety validated");
+                    logger.info("Concurrent event storage successful - thread safety validated");
                     System.err.println("=== TEST METHOD COMPLETED: testConcurrentEventStores ===");
                     System.err.flush();
                     testContext.completeNow();
@@ -893,7 +893,7 @@ public class EventStoreIntegrationTest {
                     assertEquals("Original price was incorrect - should be $99.99 not $89.99",
                             responseBody.getString("correctionReason"));
 
-                    logger.info("✅ Correction appended successfully with new event ID: {}",
+                    logger.info("Correction appended successfully with new event ID: {}",
                             responseBody.getString("correctionEventId"));
                     System.err.println("=== TEST METHOD COMPLETED: testAppendCorrectionToEvent ===");
                     System.err.flush();
@@ -947,7 +947,7 @@ public class EventStoreIntegrationTest {
                     assertTrue(responseBody.getString("error").contains("correctionReason is required"),
                             "Error message should indicate missing correctionReason");
 
-                    logger.info("✅ Missing correctionReason properly rejected with 400");
+                    logger.info("Missing correctionReason properly rejected with 400");
                     System.err.println("=== TEST METHOD COMPLETED: testAppendCorrectionWithMissingReason ===");
                     System.err.flush();
                     testContext.completeNow();
@@ -1000,7 +1000,7 @@ public class EventStoreIntegrationTest {
                     assertTrue(responseBody.getString("error").contains("eventData is required"),
                             "Error message should indicate missing eventData");
 
-                    logger.info("✅ Missing eventData properly rejected with 400");
+                    logger.info("Missing eventData properly rejected with 400");
                     System.err.println("=== TEST METHOD COMPLETED: testAppendCorrectionWithMissingEventData ===");
                     System.err.flush();
                     testContext.completeNow();
@@ -1036,7 +1036,7 @@ public class EventStoreIntegrationTest {
                     assertTrue(responseBody.getString("error").contains("not found"),
                             "Error message should indicate event not found");
 
-                    logger.info("✅ Correction to non-existent event properly rejected with 404");
+                    logger.info("Correction to non-existent event properly rejected with 404");
                     System.err.println("=== TEST METHOD COMPLETED: testAppendCorrectionToNonExistentEvent ===");
                     System.err.flush();
                     testContext.completeNow();
@@ -1108,7 +1108,7 @@ public class EventStoreIntegrationTest {
                     assertTrue(versions.size() >= 2,
                             "Should have at least 2 versions (original + correction). Found: " + versions.size());
 
-                    logger.info("✅ Audit trail preserved with {} versions", versions.size());
+                    logger.info("Audit trail preserved with {} versions", versions.size());
                     System.err.println("=== TEST METHOD COMPLETED: testCorrectionPreservesAuditTrail ===");
                     System.err.flush();
                     testContext.completeNow();
@@ -1162,7 +1162,7 @@ public class EventStoreIntegrationTest {
                     assertTrue(responseBody.getJsonArray("versions").size() >= 1,
                             "Should have at least 1 version");
 
-                    logger.info("✅ Event versions retrieved successfully");
+                    logger.info("Event versions retrieved successfully");
                     System.err.println("=== TEST METHOD COMPLETED: testGetEventVersions ===");
                     System.err.flush();
                     testContext.completeNow();
@@ -1196,7 +1196,7 @@ public class EventStoreIntegrationTest {
                                 "Versions should be empty for non-existent event");
                     }
 
-                    logger.info("✅ Non-existent event versions handled correctly");
+                    logger.info("Non-existent event versions handled correctly");
                     System.err.println("=== TEST METHOD COMPLETED: testGetEventVersionsForNonExistentEvent ===");
                     System.err.flush();
                     testContext.completeNow();
@@ -1247,9 +1247,9 @@ public class EventStoreIntegrationTest {
                     if (response.statusCode() == 200) {
                         JsonObject responseBody = response.bodyAsJsonObject();
                         assertNotNull(responseBody, "Response body should not be null");
-                        logger.info("✅ Point-in-time query returned event data");
+                        logger.info("Point-in-time query returned event data");
                     } else {
-                        logger.info("✅ Point-in-time query returned 404 (event not found at that time)");
+                        logger.info("Point-in-time query returned 404 (event not found at that time)");
                     }
 
                     System.err.println("=== TEST METHOD COMPLETED: testPointInTimeQuery ===");
@@ -1279,7 +1279,7 @@ public class EventStoreIntegrationTest {
 
                     // Stats should contain event count and other metrics
                     // The exact fields depend on the implementation
-                    logger.info("✅ Event store stats retrieved: {}", responseBody.encodePrettily());
+                    logger.info("Event store stats retrieved: {}", responseBody.encodePrettily());
 
                     System.err.println("=== TEST METHOD COMPLETED: testEventStoreStats ===");
                     System.err.flush();
@@ -1329,7 +1329,7 @@ public class EventStoreIntegrationTest {
 
                                     // Check if we received the connection event
                                     if (receivedData.toString().contains("event: connection")) {
-                                        logger.info("✅ SSE connection event received");
+                                        logger.info("SSE connection event received");
 
                                         // Verify connection event format
                                         assertTrue(receivedData.toString().contains("\"type\":\"connection\""),
@@ -1389,7 +1389,7 @@ public class EventStoreIntegrationTest {
 
                                     // Check if we received the connection event with filter info
                                     if (receivedData.toString().contains("event: connection")) {
-                                        logger.info("✅ SSE connection event received with filter");
+                                        logger.info("SSE connection event received with filter");
 
                                         // Verify filter is included in connection event
                                         assertTrue(receivedData.toString().contains("\"eventTypeFilter\":\"" + eventTypeFilter + "\""),
@@ -1441,7 +1441,7 @@ public class EventStoreIntegrationTest {
                                     receivedData.append(data);
 
                                     if (receivedData.toString().contains("event: connection")) {
-                                        logger.info("✅ SSE connection event received with aggregateId filter");
+                                        logger.info("SSE connection event received with aggregateId filter");
 
                                         assertTrue(receivedData.toString().contains("\"aggregateIdFilter\":\"" + aggregateIdFilter + "\""),
                                                 "Connection event should contain aggregateIdFilter");
@@ -1493,7 +1493,7 @@ public class EventStoreIntegrationTest {
                                     // Should receive error event for non-existent store
                                     if (receivedData.toString().contains("event: error") ||
                                             receivedData.toString().contains("\"type\":\"error\"")) {
-                                        logger.info("✅ SSE error event received for non-existent store");
+                                        logger.info("SSE error event received for non-existent store");
 
                                         assertTrue(receivedData.toString().contains("not found") ||
                                                         receivedData.toString().contains("Event store not found"),
@@ -1969,7 +1969,7 @@ public class EventStoreIntegrationTest {
                         assertEquals("VALID_TIME_ASC", filters.getString("sortOrder"));
                         assertTrue(filters.getBoolean("includeCorrections"));
 
-                        logger.info("✅ Bi-temporal query successful:");
+                        logger.info("Bi-temporal query successful:");
                         logger.info("   - Returned {} events", events.size());
                         logger.info("   - Filters: sortOrder={}, includeCorrections={}, validTimeFrom={}, validTimeTo={}",
                                 filters.getString("sortOrder"),

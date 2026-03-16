@@ -158,7 +158,7 @@ class SystemPropertiesConfigurationDemoTest {
         // Initialize database schema for system properties configuration test
         System.out.println("🔧 Initializing database schema for system properties configuration test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
-        System.out.println("✅ Database schema initialized successfully using centralized schema initializer (ALL components)");
+        System.out.println("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
         // Initialize PeeGeeQ with development configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
@@ -174,7 +174,7 @@ class SystemPropertiesConfigurationDemoTest {
 
         queueFactory = provider.createFactory("native", databaseService);
 
-        System.out.println("✅ Setup complete - Ready for configuration pattern testing");
+        System.out.println("Setup complete - Ready for configuration pattern testing");
     }
 
     @AfterEach
@@ -186,7 +186,7 @@ class SystemPropertiesConfigurationDemoTest {
         for (MessageConsumer<?> consumer : activeConsumers) {
             try {
                 consumer.close();
-                System.out.println("✅ Closed consumer");
+                System.out.println("Closed consumer");
             } catch (Exception e) {
                 System.err.println("⚠️ Error closing consumer: " + e.getMessage());
             }
@@ -198,7 +198,7 @@ class SystemPropertiesConfigurationDemoTest {
         for (MessageProducer<?> producer : activeProducers) {
             try {
                 producer.close();
-                System.out.println("✅ Closed producer");
+                System.out.println("Closed producer");
             } catch (Exception e) {
                 System.err.println("⚠️ Error closing producer: " + e.getMessage());
             }
@@ -209,7 +209,7 @@ class SystemPropertiesConfigurationDemoTest {
             try {
                 System.out.println("🔄 Closing PeeGeeQ manager...");
                 manager.closeReactive().toCompletionStage().toCompletableFuture().join();
-                System.out.println("✅ PeeGeeQ manager closed successfully");
+                System.out.println("PeeGeeQ manager closed successfully");
 
                 // CRITICAL: Wait for all resources to be fully released
                 // This prevents connection pool exhaustion in subsequent tests
@@ -230,7 +230,7 @@ class SystemPropertiesConfigurationDemoTest {
         System.clearProperty("peegeeq.timeout.ms");
         System.clearProperty("peegeeq.debug.enabled");
 
-        System.out.println("✅ Cleanup complete");
+        System.out.println("Cleanup complete");
     }
 
     @Test
@@ -317,7 +317,7 @@ class SystemPropertiesConfigurationDemoTest {
         assertTrue(debugEvent.getDebugEnabled());
         assertEquals("config-3", debugEvent.getEventId());
 
-        System.out.println("✅ Dynamic Configuration Management test completed successfully");
+        System.out.println("Dynamic Configuration Management test completed successfully");
         System.out.println("📊 Configuration updates processed: " + receivedEvents.size());
     }
 
@@ -387,7 +387,7 @@ class SystemPropertiesConfigurationDemoTest {
             assertEquals(expectedEnv.debugEnabled, event.getDebugEnabled());
         }
 
-        System.out.println("✅ Environment-Specific Settings test completed successfully");
+        System.out.println("Environment-Specific Settings test completed successfully");
         System.out.println("📊 Environment configurations tested: " + receivedEvents.size());
     }
 
@@ -395,7 +395,7 @@ class SystemPropertiesConfigurationDemoTest {
     @Order(3)
     @DisplayName("Configuration Validation - Property Validation and Error Handling")
     void testConfigurationValidation(Vertx vertx, VertxTestContext testContext) throws Exception {
-        System.out.println("\n✅ Testing Configuration Validation");
+        System.out.println("\nTesting Configuration Validation");
 
         String queueName = "config-validation-queue";
         List<ConfigurationEvent> validEvents = new ArrayList<>();
@@ -416,7 +416,7 @@ class SystemPropertiesConfigurationDemoTest {
             try {
                 // Validate configuration
                 if (validateConfiguration(event)) {
-                    System.out.println("✅ Valid configuration: " + event.getEventId());
+                    System.out.println("Valid configuration: " + event.getEventId());
                     validEvents.add(event);
                 } else {
                     String error = "Invalid configuration: " + event.getEventId();
@@ -466,7 +466,7 @@ class SystemPropertiesConfigurationDemoTest {
         assertTrue(validationErrors.stream().anyMatch(e -> e.contains("invalid-1")));
         assertTrue(validationErrors.stream().anyMatch(e -> e.contains("invalid-2")));
 
-        System.out.println("✅ Configuration Validation test completed successfully");
+        System.out.println("Configuration Validation test completed successfully");
         System.out.println("📊 Valid configurations: " + validEvents.size() + ", Validation errors: " + validationErrors.size());
     }
 
@@ -552,7 +552,7 @@ class SystemPropertiesConfigurationDemoTest {
         assertEquals(20000, finalReload.getTimeoutMs());
         assertFalse(finalReload.getDebugEnabled());
 
-        System.out.println("✅ Hot Configuration Reload test completed successfully");
+        System.out.println("Hot Configuration Reload test completed successfully");
         System.out.println("📊 Hot reloads processed: " + reloadCount.get());
     }
 

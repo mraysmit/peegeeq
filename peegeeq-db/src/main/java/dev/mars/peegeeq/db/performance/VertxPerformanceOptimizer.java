@@ -200,7 +200,7 @@ public class VertxPerformanceOptimizer {
         }
         
         if (warnings.length() == 0) {
-            return "✅ Pool configuration follows performance best practices";
+            return "Pool configuration follows performance best practices";
         }
         
         return warnings.toString();

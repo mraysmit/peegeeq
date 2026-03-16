@@ -171,7 +171,7 @@ class ConsumerModeTypeSafetyTest {
         // Test HYBRID mode
         testTypeSafetyForMode(topicName + "-hybrid", String.class, testMessage, ConsumerMode.HYBRID);
 
-        logger.info("✅ String type safety verified across all consumer modes");
+        logger.info("String type safety verified across all consumer modes");
     }
 
     @Test
@@ -190,7 +190,7 @@ class ConsumerModeTypeSafetyTest {
         // Test HYBRID mode
         testTypeSafetyForMode(topicName + "-hybrid", Integer.class, testMessage, ConsumerMode.HYBRID);
 
-        logger.info("✅ Integer type safety verified across all consumer modes");
+        logger.info("Integer type safety verified across all consumer modes");
     }
 
     @Test
@@ -209,7 +209,7 @@ class ConsumerModeTypeSafetyTest {
         // Test HYBRID mode
         testTypeSafetyForMode(topicName + "-hybrid", TestPerson.class, testMessage, ConsumerMode.HYBRID);
 
-        logger.info("✅ Complex object type safety verified across all consumer modes");
+        logger.info("Complex object type safety verified across all consumer modes");
     }
 
     @Test
@@ -230,7 +230,7 @@ class ConsumerModeTypeSafetyTest {
         // Test HYBRID mode
         testTypeSafetyForMode(topicName + "-hybrid", listClass, testMessage, ConsumerMode.HYBRID);
 
-        logger.info("✅ List type safety verified across all consumer modes");
+        logger.info("List type safety verified across all consumer modes");
     }
 
     @Test
@@ -254,7 +254,7 @@ class ConsumerModeTypeSafetyTest {
         // Test HYBRID mode
         testTypeSafetyForMode(topicName + "-hybrid", mapClass, testMessage, ConsumerMode.HYBRID);
 
-        logger.info("✅ Map type safety verified across all consumer modes");
+        logger.info("Map type safety verified across all consumer modes");
     }
 
     @Test
@@ -273,7 +273,7 @@ class ConsumerModeTypeSafetyTest {
         // Test HYBRID mode
         testTypeSafetyForMode(topicName + "-hybrid", BigDecimal.class, testMessage, ConsumerMode.HYBRID);
 
-        logger.info("✅ BigDecimal type safety verified across all consumer modes");
+        logger.info("BigDecimal type safety verified across all consumer modes");
     }
 
     @Test
@@ -301,20 +301,20 @@ class ConsumerModeTypeSafetyTest {
         try {
             // Producer accepts null values (based on logs showing successful NOTIFY)
             producer.send(null).get(5, TimeUnit.SECONDS);
-            logger.info("✅ Producer accepted null payload (will be rejected by consumer)");
+            logger.info("Producer accepted null payload (will be rejected by consumer)");
 
             // Consumer should not receive the message (it gets moved to dead letter queue)
             boolean received = nullCtx.awaitCompletion(5, TimeUnit.SECONDS);
             assertFalse(received, "Consumer should not receive null payload (moved to dead letter queue)");
 
-            logger.info("✅ Null payload correctly handled - producer accepts, consumer rejects, moved to DLQ");
+            logger.info("Null payload correctly handled - producer accepts, consumer rejects, moved to DLQ");
         } finally {
             consumer.close();
             producer.close();
         }
 
         testContext.completeNow();
-        logger.info("✅ Null value handling behavior verified");
+        logger.info("Null value handling behavior verified");
     }
 
     /**
@@ -361,7 +361,7 @@ class ConsumerModeTypeSafetyTest {
             // For collection types, verify the content matches but allow different implementation classes
             // (Jackson may deserialize to different concrete types than what we sent)
             if (payloadType == List.class || payloadType == Map.class) {
-                logger.info("✅ Collection content verified - sent: {}, received: {}",
+                logger.info("Collection content verified - sent: {}, received: {}",
                     expectedMessage.getClass().getSimpleName(), actualMessage.getClass().getSimpleName());
             } else {
                 assertEquals(expectedMessage.getClass(), actualMessage.getClass(),
@@ -372,7 +372,7 @@ class ConsumerModeTypeSafetyTest {
         consumer.close();
         producer.close();
 
-        logger.info("✅ Type safety verified for {} in {} mode", payloadType.getSimpleName(), mode);
+        logger.info("Type safety verified for {} in {} mode", payloadType.getSimpleName(), mode);
     }
 }
 

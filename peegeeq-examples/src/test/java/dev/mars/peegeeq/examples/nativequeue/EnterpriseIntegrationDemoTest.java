@@ -272,7 +272,7 @@ class EnterpriseIntegrationDemoTest {
         // Initialize database schema for enterprise integration test
         System.out.println("🔧 Initializing database schema for enterprise integration test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
-        System.out.println("✅ Database schema initialized successfully using centralized schema initializer (ALL components)");
+        System.out.println("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
         // Initialize PeeGeeQ with integration configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
@@ -288,7 +288,7 @@ class EnterpriseIntegrationDemoTest {
 
         queueFactory = provider.createFactory("native", databaseService);
 
-        System.out.println("✅ Setup complete - Ready for enterprise integration pattern testing");
+        System.out.println("Setup complete - Ready for enterprise integration pattern testing");
     }
 
     @AfterEach
@@ -308,7 +308,7 @@ class EnterpriseIntegrationDemoTest {
         System.clearProperty("peegeeq.database.username");
         System.clearProperty("peegeeq.database.password");
         
-        System.out.println("✅ Cleanup complete");
+        System.out.println("Cleanup complete");
     }
 
     @Test
@@ -459,7 +459,7 @@ class EnterpriseIntegrationDemoTest {
         inputConsumer.close();
         outputConsumer.close();
 
-        System.out.println("✅ Message Transformation test completed successfully");
+        System.out.println("Message Transformation test completed successfully");
         System.out.println("📊 Total messages transformed: " + messagesProcessed.get());
     }
 
@@ -620,7 +620,7 @@ class EnterpriseIntegrationDemoTest {
         normalPriorityConsumer.close();
         lowPriorityConsumer.close();
 
-        System.out.println("✅ Content-Based Routing test completed successfully");
+        System.out.println("Content-Based Routing test completed successfully");
         System.out.println("📊 Total messages routed: " + messagesRouted.get());
     }
 

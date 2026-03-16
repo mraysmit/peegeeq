@@ -134,7 +134,7 @@ public class SettlementEventHandler {
         
         SettlementInstructionEvent instruction = event.getPayload();
         
-        log.info("✅ Settlement Confirmed: {} - Trade: {}, Custodian: {}",
+        log.info("Settlement Confirmed: {} - Trade: {}, Custodian: {}",
                 instruction.getInstructionId(),
                 instruction.getTradeId(),
                 instruction.getCustodian());

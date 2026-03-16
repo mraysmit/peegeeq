@@ -83,7 +83,7 @@ if command -v mvn >/dev/null 2>&1; then
     fi
 fi
 
-echo "✅ Pre-commit checks passed!"
+echo "Pre-commit checks passed!"
 EOF
 
 # Pre-push hook
@@ -125,7 +125,7 @@ if [[ "$current_branch" =~ ^(feature|bugfix|hotfix)/ ]]; then
     fi
 fi
 
-echo "✅ Pre-push checks passed!"
+echo "Pre-push checks passed!"
 EOF
 
 # Commit message hook
@@ -162,7 +162,7 @@ chmod +x "$HOOKS_DIR/pre-commit"
 chmod +x "$HOOKS_DIR/pre-push"
 chmod +x "$HOOKS_DIR/commit-msg"
 
-echo "✅ Git hooks installed successfully!"
+echo "Git hooks installed successfully!"
 echo ""
 echo "Installed hooks:"
 echo "  - pre-commit: Runs code style checks and quick tests"

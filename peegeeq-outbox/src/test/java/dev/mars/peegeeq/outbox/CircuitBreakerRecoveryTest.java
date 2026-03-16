@@ -52,13 +52,13 @@ public class CircuitBreakerRecoveryTest {
                 throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: System overload - phase 1 (THIS IS EXPECTED)");
             } else {
                 // Phase 2: Recovery - filter works normally
-                logger.info("✅ PHASE 2: Filter working normally for call {} (test recovery working)", call);
+                logger.info("PHASE 2: Filter working normally for call {} (test recovery working)", call);
                 return true;
             }
         };
         
         MessageHandler<TestMessage> handler = message -> {
-            logger.debug("✅ Processing recovered message: {}", message.getId());
+            logger.debug("Processing recovered message: {}", message.getId());
             return CompletableFuture.completedFuture(null);
         };
         
@@ -165,7 +165,7 @@ public class CircuitBreakerRecoveryTest {
             "Circuit breaker should be CLOSED after multiple successful operations");
         
         member.close();
-        logger.info("✅ ENHANCED CIRCUIT BREAKER RECOVERY TEST PASSED");
+        logger.info("ENHANCED CIRCUIT BREAKER RECOVERY TEST PASSED");
     }
     
     @Test
@@ -197,7 +197,7 @@ public class CircuitBreakerRecoveryTest {
 
                 case 3:
                     // Phase 3: Full recovery
-                    logger.info("✅ PHASE 3: Full recovery call {} (test recovery working)", call);
+                    logger.info("PHASE 3: Full recovery call {} (test recovery working)", call);
                     return true;
 
                 default:
@@ -206,7 +206,7 @@ public class CircuitBreakerRecoveryTest {
         };
         
         MessageHandler<TestMessage> handler = message -> {
-            logger.debug("✅ Processing message: {}", message.getId());
+            logger.debug("Processing message: {}", message.getId());
             return CompletableFuture.completedFuture(null);
         };
         
@@ -292,7 +292,7 @@ public class CircuitBreakerRecoveryTest {
             "Circuit breaker should not be OPEN after successful recovery");
         
         member.close();
-        logger.info("✅ ENHANCED PARTIAL RECOVERY TEST PASSED");
+        logger.info("ENHANCED PARTIAL RECOVERY TEST PASSED");
     }
     
     // Test message class

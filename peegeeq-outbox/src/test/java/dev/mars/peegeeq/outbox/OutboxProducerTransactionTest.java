@@ -86,7 +86,7 @@ public class OutboxProducerTransactionTest {
         
         producer.sendWithTransaction(payload).get(5, TimeUnit.SECONDS);
         
-        logger.info("✅ Successfully sent message with transaction (payload only): {}", payload);
+        logger.info("Successfully sent message with transaction (payload only): {}", payload);
     }
 
     @Test
@@ -99,7 +99,7 @@ public class OutboxProducerTransactionTest {
         
         producer.sendWithTransaction(payload, headers).get(5, TimeUnit.SECONDS);
         
-        logger.info("✅ Successfully sent message with transaction (payload + headers)");
+        logger.info("Successfully sent message with transaction (payload + headers)");
     }
 
     @Test
@@ -112,7 +112,7 @@ public class OutboxProducerTransactionTest {
         
         producer.sendWithTransaction(payload, headers, correlationId).get(5, TimeUnit.SECONDS);
         
-        logger.info("✅ Successfully sent message with transaction (payload + headers + correlationId)");
+        logger.info("Successfully sent message with transaction (payload + headers + correlationId)");
     }
 
     @Test
@@ -122,7 +122,7 @@ public class OutboxProducerTransactionTest {
         
         try {
             producer.sendWithTransaction(payload, TransactionPropagation.CONTEXT).get(5, TimeUnit.SECONDS);
-            logger.info("✅ Successfully sent message with TransactionPropagation.CONTEXT");
+            logger.info("Successfully sent message with TransactionPropagation.CONTEXT");
         } catch (Exception e) {
             // TransactionPropagation may fail without active transaction context
             logger.info("TransactionPropagation test completed (expected failure without context): {}", e.getMessage());
@@ -138,7 +138,7 @@ public class OutboxProducerTransactionTest {
         
         try {
             producer.sendWithTransaction(payload, headers, TransactionPropagation.CONTEXT).get(5, TimeUnit.SECONDS);
-            logger.info("✅ Successfully sent message with headers and propagation");
+            logger.info("Successfully sent message with headers and propagation");
         } catch (Exception e) {
             logger.info("Headers + propagation test completed: {}", e.getMessage());
         }
@@ -155,7 +155,7 @@ public class OutboxProducerTransactionTest {
         try {
             producer.sendWithTransaction(payload, headers, correlationId, TransactionPropagation.CONTEXT)
                     .get(5, TimeUnit.SECONDS);
-            logger.info("✅ Successfully sent message with all parameters");
+            logger.info("Successfully sent message with all parameters");
         } catch (Exception e) {
             logger.info("Full parameters test completed: {}", e.getMessage());
         }
@@ -171,7 +171,7 @@ public class OutboxProducerTransactionTest {
             producer.sendWithTransaction(payload).get(2, TimeUnit.SECONDS);
             Assertions.fail("Should have thrown exception when sending with closed producer");
         } catch (Exception e) {
-            logger.info("✅ Correctly rejected transaction on closed producer: {}", e.getMessage());
+            logger.info("Correctly rejected transaction on closed producer: {}", e.getMessage());
             Assertions.assertTrue(e.getMessage() != null && e.getMessage().contains("closed"));
         }
     }
@@ -183,7 +183,7 @@ public class OutboxProducerTransactionTest {
             producer.sendWithTransaction(null).get(2, TimeUnit.SECONDS);
             Assertions.fail("Should have thrown exception for null payload");
         } catch (Exception e) {
-            logger.info("✅ Correctly rejected null payload: {}", e.getMessage());
+            logger.info("Correctly rejected null payload: {}", e.getMessage());
         }
     }
 
@@ -195,7 +195,7 @@ public class OutboxProducerTransactionTest {
                     .get(1, TimeUnit.SECONDS);
             Assertions.fail("Should have thrown exception for null connection");
         } catch (Exception e) {
-            logger.info("✅ Correctly rejected null connection: {}", e.getMessage());
+            logger.info("Correctly rejected null connection: {}", e.getMessage());
             Assertions.assertTrue(e.getMessage() != null && 
                 (e.getMessage().contains("connection cannot be null") || 
                  e.getCause() instanceof IllegalArgumentException));
@@ -210,7 +210,7 @@ public class OutboxProducerTransactionTest {
         
         producer.sendWithTransaction(payload, emptyHeaders).get(5, TimeUnit.SECONDS);
         
-        logger.info("✅ Successfully sent message with empty headers map");
+        logger.info("Successfully sent message with empty headers map");
     }
 
     @Test
@@ -226,7 +226,7 @@ public class OutboxProducerTransactionTest {
         
         producer.sendWithTransaction(payload, headers).get(5, TimeUnit.SECONDS);
         
-        logger.info("✅ Successfully sent message with multiple headers");
+        logger.info("Successfully sent message with multiple headers");
     }
 }
 

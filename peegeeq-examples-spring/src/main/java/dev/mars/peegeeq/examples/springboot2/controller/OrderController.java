@@ -158,7 +158,7 @@ public class OrderController {
 
         return orderService.createOrderWithDatabaseConstraints(request)
             .map(orderId -> {
-                log.info("✅ TRANSACTION SUCCESS: Order {} created and committed with database constraints", orderId);
+                log.info("TRANSACTION SUCCESS: Order {} created and committed with database constraints", orderId);
                 CreateOrderResponse response = new CreateOrderResponse(orderId,
                     "Order created successfully with database constraints");
                 return ResponseEntity.ok(response);
@@ -194,7 +194,7 @@ public class OrderController {
 
         return orderService.createOrderWithMultipleEvents(request)
             .map(orderId -> {
-                log.info("✅ TRANSACTION SUCCESS: Order {} and all events committed together", orderId);
+                log.info("TRANSACTION SUCCESS: Order {} and all events committed together", orderId);
                 CreateOrderResponse response = new CreateOrderResponse(orderId,
                     "Order created successfully with multiple events");
                 return ResponseEntity.ok(response);

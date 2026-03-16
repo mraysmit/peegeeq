@@ -35,7 +35,7 @@ class SystemInfoCollectorTest {
         assertTrue(systemInfo.containsKey("databaseConfiguration"), "Should contain database configuration");
         assertTrue(systemInfo.containsKey("peeGeeQConfiguration"), "Should contain PeeGeeQ configuration");
         
-        logger.info("✅ System info structure validation passed");
+        logger.info("System info structure validation passed");
     }
     
     @Test
@@ -61,7 +61,7 @@ class SystemInfoCollectorTest {
         logger.info("Java Version: {}", sysConfig.get("Java Version"));
         logger.info("JVM: {}", sysConfig.get("JVM"));
         
-        logger.info("✅ System configuration validation passed");
+        logger.info("System configuration validation passed");
     }
     
     @Test
@@ -85,7 +85,7 @@ class SystemInfoCollectorTest {
         logger.info("Pool Configuration: {}", dbConfig.get("Pool Configuration"));
         logger.info("Pipelining: {}", dbConfig.get("Pipelining"));
         
-        logger.info("✅ Database configuration validation passed");
+        logger.info("Database configuration validation passed");
     }
     
     @Test
@@ -104,7 +104,7 @@ class SystemInfoCollectorTest {
         assertTrue(markdown.contains("**Database:**"), "Should contain database information");
         
         logger.info("Generated markdown:\n{}", markdown);
-        logger.info("✅ Markdown formatting validation passed");
+        logger.info("Markdown formatting validation passed");
     }
     
     @Test
@@ -123,7 +123,7 @@ class SystemInfoCollectorTest {
         assertTrue(summary.contains("Java:"), "Should contain Java information");
         
         logger.info("Generated summary: {}", summary);
-        logger.info("✅ Summary formatting validation passed");
+        logger.info("Summary formatting validation passed");
     }
     
     @Test
@@ -152,7 +152,7 @@ class SystemInfoCollectorTest {
         
         logger.info("Generated report preview (first 500 chars):\n{}", 
             report.length() > 500 ? report.substring(0, 500) + "..." : report);
-        logger.info("✅ PerformanceTestResultsGenerator validation passed");
+        logger.info("PerformanceTestResultsGenerator validation passed");
     }
     
     @Test
@@ -178,7 +178,7 @@ class SystemInfoCollectorTest {
                 logger.info("  {}: {}", entry.getKey(), entry.getValue());
             }
             
-            logger.info("✅ Custom properties validation passed");
+            logger.info("Custom properties validation passed");
 
         } finally {
             // Clean up test properties

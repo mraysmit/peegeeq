@@ -213,7 +213,7 @@ class JsonbConversionValidationTest {
                     String extractedValue = rs.getString("extracted_value");
                     assertEquals(testMessage, extractedValue, "Should be able to extract value using JSON operators");
                     
-                    logger.info("✅ Native queue simple string payload correctly stored as JSONB object");
+                    logger.info("Native queue simple string payload correctly stored as JSONB object");
                     logger.info("   Payload type: {}", payloadType);
                     logger.info("   Extracted value: {}", extractedValue);
                 }
@@ -278,7 +278,7 @@ class JsonbConversionValidationTest {
                     assertEquals("test-correlation-456", correlationId, "Should extract correlationId from headers");
                     assertEquals("jsonb-native-test", sourceHeader, "Should extract source from headers");
                     
-                    logger.info("✅ Native queue headers correctly stored as JSONB object");
+                    logger.info("Native queue headers correctly stored as JSONB object");
                     logger.info("   Payload type: {}, Headers type: {}", payloadType, headersType);
                     logger.info("   Extracted correlationId: {}, source: {}", correlationId, sourceHeader);
                 }
@@ -327,7 +327,7 @@ class JsonbConversionValidationTest {
                 
                 processedCount.incrementAndGet();
                 
-                logger.info("✅ Native queue consumer successfully read JSONB objects");
+                logger.info("Native queue consumer successfully read JSONB objects");
                 logger.info("   Received message: {}", receivedMessage);
                 logger.info("   Received headers: {}", receivedHeaders.size());
                 

@@ -82,7 +82,7 @@ public class SSEFilteringExample {
             
             demonstrateConsumerGroups(vertx, httpClient);
             
-            logger.info("✅ SSE Filtering Example completed successfully");
+            logger.info("SSE Filtering Example completed successfully");
             
         } catch (Exception e) {
             logger.error("❌ Error in SSE Filtering Example", e);
@@ -171,7 +171,7 @@ public class SSEFilteringExample {
         httpClient.request(HttpMethod.GET, REST_API_PORT, REST_API_HOST, sseUrl)
             .compose(HttpClientRequest::send)
             .onSuccess(response -> {
-                logger.info("✅ SSE connection established");
+                logger.info("SSE connection established");
                 
                 response.handler(buffer -> {
                     String data = buffer.toString();
@@ -260,7 +260,7 @@ public class SSEFilteringExample {
         httpClient.request(HttpMethod.GET, REST_API_PORT, REST_API_HOST, sseUrl)
             .compose(HttpClientRequest::send)
             .onSuccess(response -> {
-                logger.info("✅ SSE connection established");
+                logger.info("SSE connection established");
                 
                 response.handler(buffer -> {
                     String data = buffer.toString();

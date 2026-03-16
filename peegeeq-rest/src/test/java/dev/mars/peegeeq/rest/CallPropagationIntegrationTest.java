@@ -182,7 +182,7 @@ public class CallPropagationIntegrationTest {
                         "Setup creation should return 201 Created");
                     JsonObject body = setupResponse.bodyAsJsonObject();
                     assertEquals("ACTIVE", body.getString("status"));
-                    logger.info("✅ Database setup created successfully");
+                    logger.info("Database setup created successfully");
                 });
 
                 // Step 2: Send a message via REST
@@ -214,7 +214,7 @@ public class CallPropagationIntegrationTest {
                     assertEquals(testSetupId, body.getString("setupId"));
                     assertNotNull(body.getString("messageId"));
                     assertEquals(5, body.getInteger("priority"));
-                    logger.info("✅ Message sent successfully via REST: {}", body.getString("messageId"));
+                    logger.info("Message sent successfully via REST: {}", body.getString("messageId"));
                 });
 
                 // Step 3: Verify message in database
@@ -256,7 +256,7 @@ public class CallPropagationIntegrationTest {
                 assertEquals("1.0", headers.getString("version"), 
                     "Header 'version' should match");
 
-                logger.info("✅ Message verified in database:");
+                logger.info("Message verified in database:");
                 logger.info("  - ID: {}", id);
                 logger.info("  - Topic: {}", topic);
                 logger.info("  - Status: {}", status);
@@ -286,7 +286,7 @@ public class CallPropagationIntegrationTest {
             .compose(response -> {
                 testContext.verify(() -> {
                     assertEquals(200, response.statusCode());
-                    logger.info("✅ High priority message sent");
+                    logger.info("High priority message sent");
                 });
 
                 return pgPool.query(
@@ -298,7 +298,7 @@ public class CallPropagationIntegrationTest {
                 assertTrue(rows.size() > 0);
                 assertEquals(10, rows.iterator().next().getInteger("priority"),
                     "Priority 10 should be persisted correctly");
-                logger.info("✅ Priority propagation verified");
+                logger.info("Priority propagation verified");
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
@@ -321,7 +321,7 @@ public class CallPropagationIntegrationTest {
             .compose(response -> {
                 testContext.verify(() -> {
                     assertEquals(200, response.statusCode());
-                    logger.info("✅ Delayed message sent");
+                    logger.info("Delayed message sent");
                 });
 
                 return pgPool.query(
@@ -342,7 +342,7 @@ public class CallPropagationIntegrationTest {
                 assertTrue(delaySeconds >= 59 && delaySeconds <= 61,
                     "Delay should be approximately 60 seconds, was: " + delaySeconds);
                 
-                logger.info("✅ Delay propagation verified: {} seconds", delaySeconds);
+                logger.info("Delay propagation verified: {} seconds", delaySeconds);
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
@@ -390,7 +390,7 @@ public class CallPropagationIntegrationTest {
             .compose(setupResponse -> {
                 testContext.verify(() -> {
                     assertEquals(201, setupResponse.statusCode());
-                    logger.info("✅ Event store setup created");
+                    logger.info("Event store setup created");
                 });
 
                 // Step 2: Store an event with temporal dimensions
@@ -422,7 +422,7 @@ public class CallPropagationIntegrationTest {
                     JsonObject body = eventResponse.bodyAsJsonObject();
                     assertEquals("Event stored successfully", body.getString("message"));
                     assertNotNull(body.getString("eventId"));
-                    logger.info("✅ Event stored via REST: {}", body.getString("eventId"));
+                    logger.info("Event stored via REST: {}", body.getString("eventId"));
                 });
 
                 // Step 3: Create connection pool for the event database
@@ -476,7 +476,7 @@ public class CallPropagationIntegrationTest {
                     assertEquals(199.99, eventData.getDouble("amount"), 0.001);
                     assertEquals("USD", eventData.getString("currency"));
 
-                    logger.info("✅ Bitemporal event verified in database:");
+                    logger.info("Bitemporal event verified in database:");
                     logger.info("  - Event Type: {}", eventType);
                     logger.info("  - Valid Time: {}", validTime);
                     logger.info("  - Transaction Time: {}", transactionTime);
@@ -531,7 +531,7 @@ public class CallPropagationIntegrationTest {
             .compose(setupResponse -> {
                 testContext.verify(() -> {
                     assertEquals(201, setupResponse.statusCode());
-                    logger.info("✅ Query test setup created");
+                    logger.info("Query test setup created");
                 });
 
                 // Store multiple events with different timestamps
@@ -571,7 +571,7 @@ public class CallPropagationIntegrationTest {
             .compose(finalResponse -> {
                 testContext.verify(() -> {
                     assertEquals(201, finalResponse.statusCode(), "Event store should return 201 Created");
-                    logger.info("✅ Three temporal events stored");
+                    logger.info("Three temporal events stored");
                 });
 
                 // Query events using the REST API
@@ -593,7 +593,7 @@ public class CallPropagationIntegrationTest {
                 assertTrue(events.size() >= 3,
                     "Should retrieve at least 3 events, got: " + events.size());
 
-                logger.info("✅ Temporal query verified: {} events retrieved", events.size());
+                logger.info("Temporal query verified: {} events retrieved", events.size());
                 
                 // Verify events have temporal data
                 for (int i = 0; i < events.size(); i++) {
@@ -604,7 +604,7 @@ public class CallPropagationIntegrationTest {
                         "Event " + i + " should have transactionTime");
                 }
 
-                logger.info("✅ All events have proper temporal dimensions");
+                logger.info("All events have proper temporal dimensions");
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
@@ -638,7 +638,7 @@ public class CallPropagationIntegrationTest {
                     JsonObject body = response.bodyAsJsonObject();
                     assertEquals(customCorrelationId, body.getString("correlationId"),
                         "Response should include the custom correlation ID");
-                    logger.info("✅ Message sent with custom correlation ID: {}", customCorrelationId);
+                    logger.info("Message sent with custom correlation ID: {}", customCorrelationId);
                 });
 
                 // Verify correlation ID in database
@@ -652,7 +652,7 @@ public class CallPropagationIntegrationTest {
                 String dbCorrelationId = rows.iterator().next().getString("correlation_id");
                 assertEquals(customCorrelationId, dbCorrelationId,
                     "Correlation ID should be persisted correctly in database");
-                logger.info("✅ Correlation ID propagation verified: {}", dbCorrelationId);
+                logger.info("Correlation ID propagation verified: {}", dbCorrelationId);
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
@@ -685,7 +685,7 @@ public class CallPropagationIntegrationTest {
                     JsonObject body = response.bodyAsJsonObject();
                     assertEquals(messageGroup, body.getString("messageGroup"),
                         "Response should include the message group");
-                    logger.info("✅ Message sent with message group: {}", messageGroup);
+                    logger.info("Message sent with message group: {}", messageGroup);
                 });
 
                 // Verify message group in database
@@ -699,7 +699,7 @@ public class CallPropagationIntegrationTest {
                 String dbMessageGroup = rows.iterator().next().getString("message_group");
                 assertEquals(messageGroup, dbMessageGroup,
                     "Message group should be persisted correctly in database");
-                logger.info("✅ Message group propagation verified: {}", dbMessageGroup);
+                logger.info("Message group propagation verified: {}", dbMessageGroup);
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
@@ -740,7 +740,7 @@ public class CallPropagationIntegrationTest {
                         "Response should include the message group");
                     assertEquals(7, body.getInteger("priority"),
                         "Response should include the priority");
-                    logger.info("✅ Message sent with correlation ID, message group, and priority");
+                    logger.info("Message sent with correlation ID, message group, and priority");
                 });
 
                 // Verify all fields in database
@@ -769,7 +769,7 @@ public class CallPropagationIntegrationTest {
                 assertEquals("2.0", dbHeaders.getString("version"),
                     "Custom header 'version' should be persisted");
 
-                logger.info("✅ Combined propagation verified:");
+                logger.info("Combined propagation verified:");
                 logger.info("  - Correlation ID: {}", dbCorrelationId);
                 logger.info("  - Message Group: {}", dbMessageGroup);
                 logger.info("  - Priority: {}", dbPriority);

@@ -139,7 +139,7 @@ class PerformanceComparisonExampleTest {
         // Create native queue factory
         nativeFactory = provider.createFactory("native", databaseService);
 
-        logger.info("✅ Performance Comparison Test setup completed");
+        logger.info("Performance Comparison Test setup completed");
     }
 
     @AfterEach
@@ -157,7 +157,7 @@ class PerformanceComparisonExampleTest {
         // Clear system properties
         clearSystemProperties();
 
-        logger.info("✅ Performance Comparison Test cleanup completed");
+        logger.info("Performance Comparison Test cleanup completed");
     }
 
     @Test
@@ -174,7 +174,7 @@ class PerformanceComparisonExampleTest {
         assertTrue(result.completed, "Single-threaded test should complete");
         assertTrue(result.processedMessages > 0, "Should process some messages");
 
-        logger.info("✅ Single-threaded configuration test completed successfully!");
+        logger.info("Single-threaded configuration test completed successfully!");
     }
 
     @Test
@@ -191,7 +191,7 @@ class PerformanceComparisonExampleTest {
         assertTrue(result.completed, "Multi-threaded test should complete");
         assertTrue(result.processedMessages > 0, "Should process some messages");
 
-        logger.info("✅ Multi-threaded configuration test completed successfully!");
+        logger.info("Multi-threaded configuration test completed successfully!");
     }
 
     @Test
@@ -208,7 +208,7 @@ class PerformanceComparisonExampleTest {
         assertTrue(result.completed, "Batched processing test should complete");
         assertTrue(result.processedMessages > 0, "Should process some messages");
 
-        logger.info("✅ Batched processing configuration test completed successfully!");
+        logger.info("Batched processing configuration test completed successfully!");
     }
 
     @Test
@@ -226,7 +226,7 @@ class PerformanceComparisonExampleTest {
         assertTrue(result.completed, "Fast polling test should complete");
         assertTrue(result.processedMessages > 0, "Should process some messages");
 
-        logger.info("✅ Fast polling configuration test completed successfully!");
+        logger.info("Fast polling configuration test completed successfully!");
     }
 
     @Test
@@ -244,7 +244,7 @@ class PerformanceComparisonExampleTest {
         assertTrue(result.completed, "Optimized test should complete");
         assertTrue(result.processedMessages > 0, "Should process some messages");
 
-        logger.info("✅ Optimized configuration test completed successfully!");
+        logger.info("Optimized configuration test completed successfully!");
     }
 
     @Test
@@ -295,7 +295,7 @@ class PerformanceComparisonExampleTest {
         assertTrue(fastPolling.throughputMsgPerSec > 0, "Fast polling should have positive throughput");
         assertTrue(optimized.throughputMsgPerSec > 0, "Optimized should have positive throughput");
 
-        logger.info("✅ Performance comparison test completed successfully!");
+        logger.info("Performance comparison test completed successfully!");
     }
 
     /**
@@ -412,7 +412,7 @@ class PerformanceComparisonExampleTest {
             double avgProcessingTimeMs = processed > 0 ? (double) totalProcessingTime.get() / processed : 0.0;
 
             logger.info("📊 Performance Results for {}:", configName);
-            logger.info("   ✅ Completed: {}", completed);
+            logger.info("   Completed: {}", completed);
             logger.info("   📈 Processed: {}/{} messages", processed, MESSAGE_COUNT);
             logger.info("   ⏱️ Total Time: {}ms", totalTimeMs);
             logger.info("   📤 Sending Time: {}ms", sendingTimeMs);

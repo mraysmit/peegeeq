@@ -126,7 +126,7 @@ class OutboxDeadLetterQueueSpringBootTest {
         for (MessageConsumer<?> consumer : activeConsumers) {
             try {
                 consumer.close();
-                logger.info("✅ Closed consumer");
+                logger.info("Closed consumer");
             } catch (Exception e) {
                 logger.error("⚠️ Error closing consumer: {}", e.getMessage());
             }
@@ -137,7 +137,7 @@ class OutboxDeadLetterQueueSpringBootTest {
         for (MessageProducer<?> producer : activeProducers) {
             try {
                 producer.close();
-                logger.info("✅ Closed producer");
+                logger.info("Closed producer");
             } catch (Exception e) {
                 logger.error("⚠️ Error closing producer: {}", e.getMessage());
             }
@@ -150,7 +150,7 @@ class OutboxDeadLetterQueueSpringBootTest {
         vertx.setTimer(2000, id -> delay.complete(null));
         delay.join();
         
-        logger.info("✅ Cleanup complete");
+        logger.info("Cleanup complete");
     }
     
     /**
@@ -224,9 +224,9 @@ class OutboxDeadLetterQueueSpringBootTest {
             "DLQ should preserve error information");
         assertEquals(3, dlqMessage.retryCount(), "DLQ message should show 3 retries");
 
-        logger.info("✅ DLQ Movement test passed");
-        logger.info("✅ Poison message moved to DLQ after {} attempts", attemptCount.get());
-        logger.info("✅ Error information preserved: {}", dlqMessage.failureReason());
+        logger.info("DLQ Movement test passed");
+        logger.info("Poison message moved to DLQ after {} attempts", attemptCount.get());
+        logger.info("Error information preserved: {}", dlqMessage.failureReason());
     }
     
     /**
@@ -306,9 +306,9 @@ class OutboxDeadLetterQueueSpringBootTest {
             assertNotNull(dlqMsg.failedAt(), "DLQ message should have timestamp");
         }
         
-        logger.info("✅ DLQ Inspection test passed");
-        logger.info("✅ All {} poison messages successfully moved to DLQ", messageCount);
-        logger.info("✅ Error information preserved for debugging");
+        logger.info("DLQ Inspection test passed");
+        logger.info("All {} poison messages successfully moved to DLQ", messageCount);
+        logger.info("Error information preserved for debugging");
     }
 }
 

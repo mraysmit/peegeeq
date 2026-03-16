@@ -143,14 +143,14 @@ class ConsumerModeBackwardCompatibilityTest {
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Legacy API should process messages successfully");
             assertEquals(3, processedCount.get(), "Should process exactly 3 messages with legacy API");
 
-            logger.info("✅ Legacy API compatibility verified - processed: {} messages", processedCount.get());
+            logger.info("Legacy API compatibility verified - processed: {} messages", processedCount.get());
 
         } finally {
             consumer.close();
             producer.close();
         }
 
-        logger.info("✅ Legacy API without ConsumerConfig test completed successfully");
+        logger.info("Legacy API without ConsumerConfig test completed successfully");
     }
 
     @Test
@@ -206,7 +206,7 @@ class ConsumerModeBackwardCompatibilityTest {
             assertEquals(2, legacyCount.get(), "Legacy consumer should process 2 messages");
             assertEquals(2, newCount.get(), "New consumer should process 2 messages");
 
-            logger.info("✅ Mixed API usage verified - legacy: {}, new: {}", legacyCount.get(), newCount.get());
+            logger.info("Mixed API usage verified - legacy: {}, new: {}", legacyCount.get(), newCount.get());
 
         } finally {
             legacyConsumer.close();
@@ -215,7 +215,7 @@ class ConsumerModeBackwardCompatibilityTest {
             newProducer.close();
         }
 
-        logger.info("✅ Mixed API usage test completed successfully");
+        logger.info("Mixed API usage test completed successfully");
     }
 
     @Test
@@ -271,7 +271,7 @@ class ConsumerModeBackwardCompatibilityTest {
             assertEquals(2, legacyCount.get(), "Legacy default should process 2 messages");
             assertEquals(2, hybridCount.get(), "Explicit HYBRID should process 2 messages");
 
-            logger.info("✅ Legacy API default behavior verified - legacy: {}, hybrid: {}",
+            logger.info("Legacy API default behavior verified - legacy: {}, hybrid: {}",
                 legacyCount.get(), hybridCount.get());
 
         } finally {
@@ -281,7 +281,7 @@ class ConsumerModeBackwardCompatibilityTest {
             hybridProducer.close();
         }
 
-        logger.info("✅ Legacy API default behavior test completed successfully");
+        logger.info("Legacy API default behavior test completed successfully");
     }
 
     @Test
@@ -352,7 +352,7 @@ class ConsumerModeBackwardCompatibilityTest {
 
             assertEquals(4, totalProcessed.get(), "Should process all 4 messages during migration");
 
-            logger.info("✅ Gradual migration verified - total processed: {}", totalProcessed.get());
+            logger.info("Gradual migration verified - total processed: {}", totalProcessed.get());
 
             newConsumer.close();
 
@@ -360,7 +360,7 @@ class ConsumerModeBackwardCompatibilityTest {
             producer.close();
         }
 
-        logger.info("✅ Gradual migration path test completed successfully");
+        logger.info("Gradual migration path test completed successfully");
     }
 
     @Test
@@ -406,7 +406,7 @@ class ConsumerModeBackwardCompatibilityTest {
             assertEquals(5, processedCount.get(), "Should process exactly 5 messages");
             assertTrue(duration < 10000, "Processing should complete within reasonable time (10s)");
 
-            logger.info("✅ Legacy API performance verified - processed: {} messages in {}ms",
+            logger.info("Legacy API performance verified - processed: {} messages in {}ms",
                 processedCount.get(), duration);
 
         } finally {
@@ -414,7 +414,7 @@ class ConsumerModeBackwardCompatibilityTest {
             producer.close();
         }
 
-        logger.info("✅ Legacy API performance consistency test completed successfully");
+        logger.info("Legacy API performance consistency test completed successfully");
     }
 }
 

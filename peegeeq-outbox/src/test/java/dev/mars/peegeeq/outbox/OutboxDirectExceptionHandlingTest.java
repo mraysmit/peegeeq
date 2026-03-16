@@ -135,7 +135,7 @@ public class OutboxDirectExceptionHandlingTest {
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times (initial + 2 retries)");
         assertEquals(3, attemptCount.get(), "Should have made exactly 3 processing attempts");
         
-        logger.info("✅ Direct RuntimeException handling test completed successfully");
+        logger.info("Direct RuntimeException handling test completed successfully");
     }
 
     @Test
@@ -162,7 +162,7 @@ public class OutboxDirectExceptionHandlingTest {
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times for checked exception");
         assertEquals(3, attemptCount.get(), "Should have made exactly 3 processing attempts");
         
-        logger.info("✅ Direct checked exception handling test completed successfully");
+        logger.info("Direct checked exception handling test completed successfully");
     }
 
     @Test
@@ -189,7 +189,7 @@ public class OutboxDirectExceptionHandlingTest {
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times for business exception");
         assertEquals(3, attemptCount.get(), "Should have made exactly 3 processing attempts");
         
-        logger.info("✅ Custom business exception handling test completed successfully");
+        logger.info("Custom business exception handling test completed successfully");
     }
 
     @Test
@@ -215,7 +215,7 @@ public class OutboxDirectExceptionHandlingTest {
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times for NPE");
         assertEquals(3, attemptCount.get(), "Should have made exactly 3 processing attempts");
         
-        logger.info("✅ NullPointerException handling test completed successfully");
+        logger.info("NullPointerException handling test completed successfully");
     }
 
     /**

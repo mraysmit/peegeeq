@@ -74,7 +74,7 @@ public class FilterErrorHandlingIntegrationTest {
         // Handler that processes accepted messages
         MessageHandler<TestMessage> productionHandler = message -> {
             successfulProcessing.incrementAndGet();
-            logger.debug("✅ Successfully processed: {}", message.getId());
+            logger.debug("Successfully processed: {}", message.getId());
             return CompletableFuture.completedFuture(null);
         };
         
@@ -189,7 +189,7 @@ public class FilterErrorHandlingIntegrationTest {
             ", accounted=" + totalAccountedFor);
         
         member.close();
-        logger.info("✅ PRODUCTION INTEGRATION TEST PASSED");
+        logger.info("PRODUCTION INTEGRATION TEST PASSED");
     }
     
     @Test
@@ -213,12 +213,12 @@ public class FilterErrorHandlingIntegrationTest {
             }
 
             // Phase 2: Recovery - filter works normally
-            logger.info("✅ PHASE 2: Filter working normally for call {} (test recovery working)", call);
+            logger.info("PHASE 2: Filter working normally for call {} (test recovery working)", call);
             return true;
         };
         
         MessageHandler<TestMessage> handler = message -> {
-            logger.debug("✅ Processing recovered message: {}", message.getId());
+            logger.debug("Processing recovered message: {}", message.getId());
             return CompletableFuture.completedFuture(null);
         };
         
@@ -288,7 +288,7 @@ public class FilterErrorHandlingIntegrationTest {
             "Circuit breaker should not be open after recovery");
         
         member.close();
-        logger.info("✅ CIRCUIT BREAKER RECOVERY TEST PASSED");
+        logger.info("CIRCUIT BREAKER RECOVERY TEST PASSED");
     }
     
     // Test message class

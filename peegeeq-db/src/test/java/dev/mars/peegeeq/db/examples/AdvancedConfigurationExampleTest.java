@@ -103,7 +103,7 @@ public class AdvancedConfigurationExampleTest {
             assertTrue(dbPort > 0, "Database port should be positive for " + environment);
             assertNotNull(dbName, "Database name should be configured for " + environment);
 
-            logger.info("✅ Database Configuration for {}:", environment);
+            logger.info("Database Configuration for {}:", environment);
             logger.info("   Host: {}, Port: {}, Name: {}, SSL: {}", dbHost, dbPort, dbName, sslEnabled);
 
             // Test pool configuration
@@ -119,7 +119,7 @@ public class AdvancedConfigurationExampleTest {
             assertTrue(idleTimeout > 0, "Idle timeout should be positive for " + environment);
             assertTrue(maxLifetime > 0, "Max lifetime should be positive for " + environment);
 
-            logger.info("✅ Pool Configuration for {}:", environment);
+            logger.info("Pool Configuration for {}:", environment);
             logger.info("   Min: {}, Max: {}, ConnTimeout: {}ms, IdleTimeout: {}ms, MaxLifetime: {}ms",
                 minPoolSize, maxPoolSize, connectionTimeout, idleTimeout, maxLifetime);
 
@@ -134,7 +134,7 @@ public class AdvancedConfigurationExampleTest {
             assertTrue(batchSize > 0, "Batch size should be positive for " + environment);
             assertTrue(pollingInterval > 0, "Polling interval should be positive for " + environment);
 
-            logger.info("✅ Queue Configuration for {}:", environment);
+            logger.info("Queue Configuration for {}:", environment);
             logger.info("   MaxRetries: {}, VisibilityTimeout: {}ms, BatchSize: {}, PollingInterval: {}ms",
                 maxRetries, visibilityTimeout, batchSize, pollingInterval);
 
@@ -147,12 +147,12 @@ public class AdvancedConfigurationExampleTest {
             assertNotNull(logLevel, "Log level should be configured for " + environment);
             assertNotNull(retryPolicy, "Retry policy should be configured for " + environment);
 
-            logger.info("✅ Monitoring Configuration for {}:", environment);
+            logger.info("Monitoring Configuration for {}:", environment);
             logger.info("   Monitoring: {}, Prometheus: {}, LogLevel: {}, RetryPolicy: {}",
                 monitoringEnabled, prometheusEnabled, logLevel, retryPolicy);
         }
 
-        logger.info("✅ Environment-specific configuration validated successfully");
+        logger.info("Environment-specific configuration validated successfully");
     }
 
     /**
@@ -168,7 +168,7 @@ public class AdvancedConfigurationExampleTest {
         System.setProperty("peegeeq.test.property", "system-value");
         String systemValue = getConfigValue("peegeeq.test.property", "default");
         assertEquals("system-value", systemValue, "System property should take precedence");
-        logger.info("✅ System property configuration: {}", systemValue);
+        logger.info("System property configuration: {}", systemValue);
 
         // Test environment variables simulation
         logger.info("--- Testing Environment Variables Configuration ---");
@@ -187,7 +187,7 @@ public class AdvancedConfigurationExampleTest {
         assertNotNull(dbPassword, "Database password should be configured");
         assertTrue(monitoringEnabled, "Monitoring should be enabled");
 
-        logger.info("✅ Environment Variables Configuration:");
+        logger.info("Environment Variables Configuration:");
         logger.info("   Database URL: {}", maskSensitiveInfo(dbUrl));
         logger.info("   Database Username: {}", dbUsername);
         logger.info("   Database Password: {}", maskSensitiveInfo(dbPassword));
@@ -197,7 +197,7 @@ public class AdvancedConfigurationExampleTest {
         logger.info("--- Testing Configuration Hierarchy ---");
         testConfigurationHierarchy();
 
-        logger.info("✅ External configuration management validated successfully");
+        logger.info("External configuration management validated successfully");
     }
 
     /**
@@ -230,7 +230,7 @@ public class AdvancedConfigurationExampleTest {
             assertNotNull(manager, "PeeGeeQ Manager should be initialized");
             assertTrue(manager.isStarted(), "PeeGeeQ Manager should be started");
 
-            logger.info("✅ {} Pool Configuration validated:", environment);
+            logger.info("{} Pool Configuration validated:", environment);
             logger.info("   Min Pool Size: {}", getMinPoolSize(environment));
             logger.info("   Max Pool Size: {}", getMaxPoolSize(environment));
             logger.info("   Connection Timeout: {}ms", getConnectionTimeout(environment));
@@ -242,7 +242,7 @@ public class AdvancedConfigurationExampleTest {
             manager = null;
         }
 
-        logger.info("✅ Database connection pooling validated successfully");
+        logger.info("Database connection pooling validated successfully");
     }
 
     /**
@@ -278,13 +278,13 @@ public class AdvancedConfigurationExampleTest {
                 assertEquals("DEBUG", logLevel, "Development should use DEBUG log level");
             }
 
-            logger.info("✅ {} Monitoring Configuration:", environment);
+            logger.info("{} Monitoring Configuration:", environment);
             logger.info("   Monitoring Enabled: {}", monitoringEnabled);
             logger.info("   Prometheus Enabled: {}", prometheusEnabled);
             logger.info("   Log Level: {}", logLevel);
         }
 
-        logger.info("✅ Monitoring integration validated successfully");
+        logger.info("Monitoring integration validated successfully");
     }
 
     /**
@@ -313,7 +313,7 @@ public class AdvancedConfigurationExampleTest {
         assertFalse(validateQueueConfiguration(-1, 30000, 10, 1000),
             "Negative max retries should fail validation");
 
-        logger.info("✅ Configuration validation patterns validated successfully");
+        logger.info("Configuration validation patterns validated successfully");
     }
 
     /**
@@ -336,7 +336,7 @@ public class AdvancedConfigurationExampleTest {
         assertEquals("20", System.getProperty("peegeeq.queue.batch-size"));
         assertEquals("2000", System.getProperty("peegeeq.queue.polling-interval"));
 
-        logger.info("✅ Runtime Configuration Updates:");
+        logger.info("Runtime Configuration Updates:");
         logger.info("   Max Retries: {}", System.getProperty("peegeeq.queue.max-retries"));
         logger.info("   Batch Size: {}", System.getProperty("peegeeq.queue.batch-size"));
         logger.info("   Polling Interval: {}ms", System.getProperty("peegeeq.queue.polling-interval"));
@@ -348,7 +348,7 @@ public class AdvancedConfigurationExampleTest {
 
         // Test safety considerations
         logger.info("--- Testing Safety Considerations ---");
-        logger.info("✅ Safety Mechanisms:");
+        logger.info("Safety Mechanisms:");
         logger.info("   - Configuration validation before applying changes");
         logger.info("   - Gradual rollout capability for configuration changes");
         logger.info("   - Rollback capability for failed configuration updates");
@@ -360,7 +360,7 @@ public class AdvancedConfigurationExampleTest {
         logger.info("   - Core threading model configuration");
         logger.info("   - JVM-level settings and memory allocation");
 
-        logger.info("✅ Runtime configuration updates validated successfully");
+        logger.info("Runtime configuration updates validated successfully");
     }
 
     // Helper methods for configuration management
@@ -444,7 +444,7 @@ public class AdvancedConfigurationExampleTest {
         finalValue = getConfigValue(testKey, defaultValue);
         assertEquals("default-value", finalValue, "Default value should have lowest priority");
 
-        logger.info("✅ Configuration hierarchy validated successfully");
+        logger.info("Configuration hierarchy validated successfully");
     }
 
     // Environment-specific configuration getters

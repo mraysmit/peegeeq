@@ -91,7 +91,7 @@ public class SharedPostgresTestExtension implements BeforeAllCallback {
                     logger.info("Initializing shared PostgreSQL container for all tests");
                     initializeContainer();
                     initializeSchema();
-                    logger.info("✅ Shared PostgreSQL container initialized successfully");
+                    logger.info("Shared PostgreSQL container initialized successfully");
                 }
             } finally {
                 INIT_LOCK.unlock();
@@ -387,7 +387,7 @@ public class SharedPostgresTestExtension implements BeforeAllCallback {
                         EXECUTE FUNCTION set_required_consumer_groups();
                     """);
 
-                logger.info("✅ Shared database schema initialized successfully (including V010 fanout tables)");
+                logger.info("Shared database schema initialized successfully (including V010 fanout tables)");
                 schemaInitialized = true;
             }
         } finally {

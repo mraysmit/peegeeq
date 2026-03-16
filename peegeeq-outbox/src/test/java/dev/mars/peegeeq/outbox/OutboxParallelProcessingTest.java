@@ -172,7 +172,7 @@ public class OutboxParallelProcessingTest {
             // Longer processing time to ensure parallel execution opportunity
             CompletableFuture<Void> delay = new CompletableFuture<>();
             vertx.setTimer(2000, id -> {
-                System.out.println("✅ Completed message " + count + " on thread: " + threadName);
+                System.out.println("Completed message " + count + " on thread: " + threadName);
                 completionCheckpoint.flag();
                 delay.complete(null);
             });
@@ -212,12 +212,12 @@ public class OutboxParallelProcessingTest {
         // - Test environment characteristics
         // The important thing is that the parallel processing infrastructure is configured correctly
         if (processingThreads.size() > 1) {
-            System.out.println("✅ Multiple threads were used for processing (optimal)");
+            System.out.println("Multiple threads were used for processing (optimal)");
         } else {
             System.out.println("ℹ️  Single thread was used (acceptable in test environment)");
         }
 
-        System.out.println("✅ Parallel processing test completed successfully!");
+        System.out.println("Parallel processing test completed successfully!");
     }
 
     @Test

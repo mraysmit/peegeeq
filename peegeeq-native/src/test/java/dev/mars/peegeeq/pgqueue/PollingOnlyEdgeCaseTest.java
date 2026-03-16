@@ -144,7 +144,7 @@ class PollingOnlyEdgeCaseTest {
 
         consumer.close();
         producer.close();
-        logger.info("✅ POLLING_ONLY handles fast polling interval correctly");
+        logger.info("POLLING_ONLY handles fast polling interval correctly");
     }
 
     @Test
@@ -182,7 +182,7 @@ class PollingOnlyEdgeCaseTest {
 
         consumer.close();
         producer.close();
-        logger.info("✅ POLLING_ONLY handles slow polling interval correctly");
+        logger.info("POLLING_ONLY handles slow polling interval correctly");
     }
 
     @Test
@@ -223,7 +223,7 @@ class PollingOnlyEdgeCaseTest {
 
         consumer.close();
         producer.close();
-        logger.info("✅ POLLING_ONLY handles high concurrency correctly");
+        logger.info("POLLING_ONLY handles high concurrency correctly");
     }
 
     @Test
@@ -264,7 +264,7 @@ class PollingOnlyEdgeCaseTest {
 
         consumer.close();
         producer.close();
-        logger.info("✅ POLLING_ONLY handles batch processing correctly");
+        logger.info("POLLING_ONLY handles batch processing correctly");
     }
 
     @Test
@@ -316,7 +316,7 @@ class PollingOnlyEdgeCaseTest {
         assertEquals("Message after empty polling", lastMessage.get(), "Should receive the correct message");
 
         consumer.close();
-        logger.info("✅ POLLING_ONLY handles empty queue polling correctly");
+        logger.info("POLLING_ONLY handles empty queue polling correctly");
     }
 
     @Test
@@ -355,7 +355,7 @@ class PollingOnlyEdgeCaseTest {
 
         consumer.close();
         producer.close();
-        logger.info("✅ POLLING_ONLY handles normal database operations correctly");
+        logger.info("POLLING_ONLY handles normal database operations correctly");
     }
 }
 

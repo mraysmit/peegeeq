@@ -64,7 +64,7 @@ java -cp "target/classes:target/dependency/*" dev.mars.peegeeq.rest.StartRestSer
 
 This will start the server and display all available endpoints:
 ```
-✅ PeeGeeQ REST Server started successfully on port 8080
+PeeGeeQ REST Server started successfully on port 8080
 Health endpoint: http://localhost:8080/health
 Management API: http://localhost:8080/api/v1/management/overview
 Queue API: http://localhost:8080/api/v1/queues

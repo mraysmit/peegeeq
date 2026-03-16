@@ -80,7 +80,7 @@ public class PerformanceBenchmarkTest {
         QueueFactory factory = provider.createFactory("outbox", databaseService);
         producer = factory.createProducer("performance-test", String.class);
 
-        logger.info("✅ Performance benchmark test setup complete");
+        logger.info("Performance benchmark test setup complete");
     }
 
     @AfterEach
@@ -113,7 +113,7 @@ public class PerformanceBenchmarkTest {
         long jdbcDuration = jdbcEndTime - jdbcStartTime;
         double jdbcThroughput = (double) messageCount / (jdbcDuration / 1000.0);
 
-        logger.info("✅ JDBC Approach: {} messages in {} ms ({:.1f} msg/sec)",
+        logger.info("JDBC Approach: {} messages in {} ms ({:.1f} msg/sec)",
                    messageCount, jdbcDuration, jdbcThroughput);
 
         // Benchmark Reactive approach
@@ -134,7 +134,7 @@ public class PerformanceBenchmarkTest {
         long reactiveDuration = reactiveEndTime - reactiveStartTime;
         double reactiveThroughput = (double) messageCount / (reactiveDuration / 1000.0);
 
-        logger.info("✅ Reactive Approach: {} messages in {} ms ({:.1f} msg/sec)",
+        logger.info("Reactive Approach: {} messages in {} ms ({:.1f} msg/sec)",
                    messageCount, reactiveDuration, reactiveThroughput);
 
         // Calculate improvement
@@ -163,7 +163,7 @@ public class PerformanceBenchmarkTest {
         if (improvementFactor >= 3.0) {
             logger.info("🚀 EXCELLENT: Reactive approach shows excellent performance improvement");
         } else if (improvementFactor >= 2.0) {
-            logger.info("✅ GOOD: Reactive approach shows good performance improvement");
+            logger.info("GOOD: Reactive approach shows good performance improvement");
         } else if (improvementFactor >= 1.5) {
             logger.info("👍 MODERATE: Reactive approach shows moderate improvement (typical in test environments)");
         } else {
@@ -223,9 +223,9 @@ public class PerformanceBenchmarkTest {
         double contextThroughput = (double) messageCount / (contextDuration / 1000.0);
 
         // Log results
-        logger.info("✅ Basic Transaction: {} messages in {} ms ({:.1f} msg/sec)",
+        logger.info("Basic Transaction: {} messages in {} ms ({:.1f} msg/sec)",
                    messageCount, basicDuration, basicThroughput);
-        logger.info("✅ TransactionPropagation.CONTEXT: {} messages in {} ms ({:.1f} msg/sec)",
+        logger.info("TransactionPropagation.CONTEXT: {} messages in {} ms ({:.1f} msg/sec)",
                    messageCount, contextDuration, contextThroughput);
 
         double contextEfficiency = contextThroughput / basicThroughput;
@@ -291,9 +291,9 @@ public class PerformanceBenchmarkTest {
         double batchThroughput = (double) totalMessages / (batchDuration / 1000.0);
 
         // Log results
-        logger.info("✅ Individual Operations: {} messages in {} ms ({:.1f} msg/sec)",
+        logger.info("Individual Operations: {} messages in {} ms ({:.1f} msg/sec)",
                    totalMessages, individualDuration, individualThroughput);
-        logger.info("✅ Batch Operations: {} messages in {} ms ({:.1f} msg/sec)",
+        logger.info("Batch Operations: {} messages in {} ms ({:.1f} msg/sec)",
                    totalMessages, batchDuration, batchThroughput);
 
         double batchImprovement = batchThroughput / individualThroughput;

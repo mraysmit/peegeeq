@@ -145,7 +145,7 @@ public class DlqManagementService {
                                 return connection.preparedQuery(deleteSql)
                                     .execute(io.vertx.sqlclient.Tuple.of(messageId))
                                     .map(deleteResult -> {
-                                        log.info("✅ DLQ message reprocessed successfully: id={}", messageId);
+                                        log.info("DLQ message reprocessed successfully: id={}", messageId);
                                         return true;
                                     });
                             });
@@ -169,7 +169,7 @@ public class DlqManagementService {
                     .map(result -> {
                         boolean deleted = result.rowCount() > 0;
                         if (deleted) {
-                            log.info("✅ DLQ message deleted successfully: id={}", messageId);
+                            log.info("DLQ message deleted successfully: id={}", messageId);
                         } else {
                             log.warn("DLQ message not found: id={}", messageId);
                         }

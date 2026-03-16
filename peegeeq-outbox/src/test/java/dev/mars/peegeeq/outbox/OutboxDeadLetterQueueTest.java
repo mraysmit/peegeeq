@@ -145,7 +145,7 @@ public class OutboxDeadLetterQueueTest {
             "DLQ message should contain failure reason");
         assertEquals(3, dlqMessage.retryCount(), "DLQ message should show 3 retries (max-retries=2 means it retries until retry_count=3)");
         
-        logger.info("✅ Direct exception DLQ integration test completed successfully");
+        logger.info("Direct exception DLQ integration test completed successfully");
     }
 
     @Test
@@ -187,7 +187,7 @@ public class OutboxDeadLetterQueueTest {
         assertTrue(dlqMessage.failureReason().contains("IllegalArgumentException"),
             "DLQ should include exception type information");
         
-        logger.info("✅ DLQ error information preservation test completed successfully");
+        logger.info("DLQ error information preservation test completed successfully");
     }
 }
 

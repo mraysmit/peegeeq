@@ -89,11 +89,11 @@ public class RetryDebugTest {
 
         logger.info("🔧 Creating producer and consumer...");
         producer = outboxFactory.createProducer("debug-retry", String.class);
-        logger.info("✅ Producer created: {}", producer.getClass().getSimpleName());
+        logger.info("Producer created: {}", producer.getClass().getSimpleName());
 
         consumer = outboxFactory.createConsumer("debug-retry", String.class);
-        System.out.println("✅ Consumer created: " + consumer.getClass().getName());
-        logger.info("✅ Consumer created: {}", consumer.getClass().getSimpleName());
+        System.out.println("Consumer created: " + consumer.getClass().getName());
+        logger.info("Consumer created: {}", consumer.getClass().getSimpleName());
     }
 
     @AfterEach
@@ -194,8 +194,8 @@ public class RetryDebugTest {
 
                 throw new RuntimeException("INTENTIONAL FAILURE: Debug retry, attempt " + attempt);
             });
-            System.out.println("✅ Consumer subscribed successfully");
-            logger.info("✅ Consumer subscribed successfully");
+            System.out.println("Consumer subscribed successfully");
+            logger.info("Consumer subscribed successfully");
         } catch (Exception e) {
             System.out.println("❌ Failed to subscribe consumer: " + e.getMessage());
             logger.error("❌ Failed to subscribe consumer: {}", e.getMessage(), e);
@@ -205,8 +205,8 @@ public class RetryDebugTest {
 
         // Wait for first attempt
         boolean firstCompleted = testContext.awaitCompletion(10, TimeUnit.SECONDS);
-        System.out.println("✅ First attempt completed: " + firstCompleted);
-        logger.info("✅ First attempt completed: {}", firstCompleted);
+        System.out.println("First attempt completed: " + firstCompleted);
+        logger.info("First attempt completed: {}", firstCompleted);
 
         if (!firstCompleted) {
             System.out.println("❌ First attempt never happened - consumer may not be working");

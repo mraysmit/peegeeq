@@ -94,7 +94,7 @@ public class SimpleNativeQueueTest {
         // Initialize database schema for simple native queue test
         logger.info("🔧 Initializing database schema for simple native queue test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
-        logger.info("✅ Database schema initialized successfully using centralized schema initializer (ALL components)");
+        logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
         
         // Create manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("simple-test");
@@ -169,7 +169,7 @@ public class SimpleNativeQueueTest {
 
         logger.info("Setting up consumer subscription...");
         consumer.subscribe(message -> {
-            logger.info("✅ RECEIVED MESSAGE: {}", message.getPayload());
+            logger.info("RECEIVED MESSAGE: {}", message.getPayload());
             processedCount.incrementAndGet();
             checkpoint.flag();
             return CompletableFuture.completedFuture(null);
@@ -181,7 +181,7 @@ public class SimpleNativeQueueTest {
                 // Send message
                 logger.info("Sending message: {}", testMessage);
                 producer.send(testMessage);
-                logger.info("✅ Message sent successfully");
+                logger.info("Message sent successfully");
             } catch (Exception e) {
                 testContext.failNow(e);
             }
@@ -204,7 +204,7 @@ public class SimpleNativeQueueTest {
         consumer.close();
         logger.info("Consumer closed");
 
-        logger.info("✅ Single message test passed");
+        logger.info("Single message test passed");
     }
 
     @Test
@@ -223,7 +223,7 @@ public class SimpleNativeQueueTest {
 
         logger.info("Setting up consumer subscription for {} messages...", messageCount);
         consumer.subscribe(message -> {
-            logger.info("✅ RECEIVED CONCURRENT MESSAGE: {}", message.getPayload());
+            logger.info("RECEIVED CONCURRENT MESSAGE: {}", message.getPayload());
             receivedMessages.add(message.getPayload());
             processedCount.incrementAndGet();
             checkpoint.flag();
@@ -246,7 +246,7 @@ public class SimpleNativeQueueTest {
                     String message = "Concurrent message " + messageId;
                     logger.info("Sending message {}: {}", messageId, message);
                     producer.send(message).get(5, TimeUnit.SECONDS);
-                    logger.info("✅ Message {} sent successfully", messageId);
+                    logger.info("Message {} sent successfully", messageId);
                 } catch (Exception e) {
                     logger.error("❌ Failed to send message " + messageId, e);
                 }
@@ -257,7 +257,7 @@ public class SimpleNativeQueueTest {
         // Wait for all sends to complete
         logger.info("Waiting for all sends to complete...");
         CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).get(30, TimeUnit.SECONDS);
-        logger.info("✅ All sends completed");
+        logger.info("All sends completed");
 
         executor.shutdown();
 
@@ -286,7 +286,7 @@ public class SimpleNativeQueueTest {
         producer.close();
         consumer.close();
 
-        logger.info("✅ Concurrent message test passed");
+        logger.info("Concurrent message test passed");
     }
 }
 

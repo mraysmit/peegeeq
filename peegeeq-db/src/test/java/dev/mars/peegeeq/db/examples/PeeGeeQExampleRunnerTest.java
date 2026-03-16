@@ -69,7 +69,7 @@ public class PeeGeeQExampleRunnerTest {
         assertTrue(selfContained.recommendedFirst, "Self-contained should be recommended first");
         assertEquals(ExampleCategory.CORE, selfContained.category, "Should be core category");
         
-        logger.info("✅ Example registry validated with {} examples", examples.size());
+        logger.info("Example registry validated with {} examples", examples.size());
     }
 
     /**
@@ -94,7 +94,7 @@ public class PeeGeeQExampleRunnerTest {
         Set<String> uniqueExamples = new HashSet<>(recommendedOrder);
         assertEquals(recommendedOrder.size(), uniqueExamples.size(), "No duplicate examples in order");
         
-        logger.info("✅ Execution order validated with {} examples", recommendedOrder.size());
+        logger.info("Execution order validated with {} examples", recommendedOrder.size());
         logger.info("   Recommended first: {}", recommendedOrder.get(0));
     }
 
@@ -124,7 +124,7 @@ public class PeeGeeQExampleRunnerTest {
         int totalCategorized = categorized.values().stream().mapToInt(List::size).sum();
         assertEquals(examples.size(), totalCategorized, "All examples should be categorized");
         
-        logger.info("✅ Category organization validated");
+        logger.info("Category organization validated");
         categorized.forEach((category, exampleList) -> 
             logger.info("   {}: {} examples", category.getDisplayName(), exampleList.size()));
     }
@@ -157,7 +157,7 @@ public class PeeGeeQExampleRunnerTest {
         List<String> validatedInvalid = validateSelectedExamples(invalidExamples, examples);
         assertTrue(validatedInvalid.isEmpty(), "Invalid examples should return empty list");
         
-        logger.info("✅ Command line interface validated");
+        logger.info("Command line interface validated");
     }
 
     // Helper methods that replicate the original example's functionality

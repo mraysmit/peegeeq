@@ -164,7 +164,7 @@ public class FinancialFabricServicesTest {
                 validTime,
                 connection
             )).compose(tradeCloudEvent -> {
-                log.info("✅ Step 1: Trade captured - eventId={}", tradeCloudEvent.getId());
+                log.info("Step 1: Trade captured - eventId={}", tradeCloudEvent.getId());
                 assertNotNull(tradeCloudEvent);
                 assertEquals("com.fincorp.trading.equities.capture.completed.v1", tradeCloudEvent.getType());
 
@@ -177,7 +177,7 @@ public class FinancialFabricServicesTest {
                     connection
                 ));
             }).compose(confirmCloudEvent -> {
-                log.info("✅ Step 2: Trade confirmed - eventId={}", confirmCloudEvent.getId());
+                log.info("Step 2: Trade confirmed - eventId={}", confirmCloudEvent.getId());
                 assertNotNull(confirmCloudEvent);
 
                 // Step 3: Submit settlement instruction
@@ -200,7 +200,7 @@ public class FinancialFabricServicesTest {
                     connection
                 ));
             }).compose(settlementCloudEvent -> {
-                log.info("✅ Step 3: Settlement instruction submitted - eventId={}", settlementCloudEvent.getId());
+                log.info("Step 3: Settlement instruction submitted - eventId={}", settlementCloudEvent.getId());
                 assertNotNull(settlementCloudEvent);
 
                 // Step 4: Record cash movement
@@ -223,7 +223,7 @@ public class FinancialFabricServicesTest {
                     connection
                 ));
             }).compose(cashCloudEvent -> {
-                log.info("✅ Step 4: Cash movement recorded - eventId={}", cashCloudEvent.getId());
+                log.info("Step 4: Cash movement recorded - eventId={}", cashCloudEvent.getId());
                 assertNotNull(cashCloudEvent);
 
                 // Step 5: Update position
@@ -246,7 +246,7 @@ public class FinancialFabricServicesTest {
                     connection
                 ));
             }).compose(positionCloudEvent -> {
-                log.info("✅ Step 5: Position updated - eventId={}", positionCloudEvent.getId());
+                log.info("Step 5: Position updated - eventId={}", positionCloudEvent.getId());
                 assertNotNull(positionCloudEvent);
 
                 // Step 6: Submit regulatory report
@@ -267,16 +267,16 @@ public class FinancialFabricServicesTest {
                     connection
                 ));
             }).map(regulatoryCloudEvent -> {
-                log.info("✅ Step 6: Regulatory report submitted - eventId={}", regulatoryCloudEvent.getId());
+                log.info("Step 6: Regulatory report submitted - eventId={}", regulatoryCloudEvent.getId());
                 assertNotNull(regulatoryCloudEvent);
                 assertEquals("com.fincorp.regulatory.transaction.reported.v1", regulatoryCloudEvent.getType());
 
-                log.info("✅ Complete trade lifecycle executed successfully");
+                log.info("Complete trade lifecycle executed successfully");
                 return (Void) null;
             });
         }).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
         
-        log.info("✅ Complete Trade Lifecycle test passed");
+        log.info("Complete Trade Lifecycle test passed");
     }
 }
 

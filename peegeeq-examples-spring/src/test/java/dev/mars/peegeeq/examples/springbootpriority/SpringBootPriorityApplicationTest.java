@@ -177,14 +177,14 @@ public class SpringBootPriorityApplicationTest {
     @AfterAll
     static void tearDown() {
         log.info("🧹 Cleaning up Spring Boot Priority Test resources");
-        log.info("✅ Spring Boot Priority Test cleanup complete");
+        log.info("Spring Boot Priority Test cleanup complete");
     }
 
     @Test
     void testApplicationStarts() {
         log.info("=== Testing Application Starts ===");
         assertNotNull(producerService, "Producer service should be initialized");
-        log.info("✅ Application starts test passed");
+        log.info("Application starts test passed");
     }
     
     @SuppressWarnings("null")
@@ -219,7 +219,7 @@ public class SpringBootPriorityApplicationTest {
         // Verify producer metrics
         assertTrue(producerService.getCriticalSent() > 0, "Critical messages should be sent");
         
-        log.info("✅ Send Critical Trade test passed");
+        log.info("Send Critical Trade test passed");
     }
     
     @SuppressWarnings("null")
@@ -253,7 +253,7 @@ public class SpringBootPriorityApplicationTest {
         // Verify producer metrics
         assertTrue(producerService.getHighSent() > 0, "High priority messages should be sent");
         
-        log.info("✅ Send High Priority Trade test passed");
+        log.info("Send High Priority Trade test passed");
     }
     
     @SuppressWarnings("null")
@@ -287,7 +287,7 @@ public class SpringBootPriorityApplicationTest {
         // Verify producer metrics
         assertTrue(producerService.getNormalSent() > 0, "Normal priority messages should be sent");
         
-        log.info("✅ Send Normal Priority Trade test passed");
+        log.info("Send Normal Priority Trade test passed");
     }
     
     @SuppressWarnings("null")
@@ -307,7 +307,7 @@ public class SpringBootPriorityApplicationTest {
         assertTrue(response.getBody().containsKey("highSent"));
         assertTrue(response.getBody().containsKey("normalSent"));
         
-        log.info("✅ Producer Metrics test passed");
+        log.info("Producer Metrics test passed");
     }
     
     @SuppressWarnings("null")
@@ -334,7 +334,7 @@ public class SpringBootPriorityApplicationTest {
         assertNotNull(healthResponse.getBody());
         assertEquals("UP", healthResponse.getBody().get("status"));
         
-        log.info("✅ Monitoring Endpoints test passed");
+        log.info("Monitoring Endpoints test passed");
     }
     
     @Test
@@ -386,7 +386,7 @@ public class SpringBootPriorityApplicationTest {
         assertTrue(totalFiltered > 0,
             "Some messages should be filtered by priority-specific consumers (got: " + totalFiltered + ")");
 
-        log.info("✅ Consumer Metrics test passed - Total processed: {}, Total filtered: {}",
+        log.info("Consumer Metrics test passed - Total processed: {}, Total filtered: {}",
             totalProcessed, totalFiltered);
     }
     

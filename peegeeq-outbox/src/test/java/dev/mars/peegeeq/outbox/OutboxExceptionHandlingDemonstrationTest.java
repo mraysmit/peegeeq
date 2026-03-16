@@ -129,7 +129,7 @@ public class OutboxExceptionHandlingDemonstrationTest {
 
         // Send the test message
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
-        logger.info("✅ Sent test message: {}", testMessage);
+        logger.info("Sent test message: {}", testMessage);
 
         // Set up consumer that throws exception DIRECTLY from the handler method
         consumer.subscribe(message -> {
@@ -151,15 +151,15 @@ public class OutboxExceptionHandlingDemonstrationTest {
         
         logger.info("=================================================================");
         logger.info("RESULTS:");
-        logger.info("  ✅ Total processing attempts: {}", attemptCount.get());
-        logger.info("  ✅ Expected attempts: 3 (initial + 2 retries)");
+        logger.info("  Total processing attempts: {}", attemptCount.get());
+        logger.info("  Expected attempts: 3 (initial + 2 retries)");
         logger.info("=================================================================");
         
         // Assertions
         assertEquals(3, attemptCount.get(), "Should have made exactly 3 processing attempts");
         
-        logger.info("✅ DEMONSTRATION TEST COMPLETED SUCCESSFULLY");
-        logger.info("✅ The outbox consumer exception handling bug has been FIXED!");
+        logger.info("DEMONSTRATION TEST COMPLETED SUCCESSFULLY");
+        logger.info("The outbox consumer exception handling bug has been FIXED!");
     }
 
     @Test
@@ -211,7 +211,7 @@ public class OutboxExceptionHandlingDemonstrationTest {
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Direct exceptions should trigger retry logic");
         assertEquals(3, attemptCount.get(), "Should have 3 attempts for direct exception");
         
-        logger.info("✅ Pattern 1 (Direct Exception): {} attempts - WORKING", attemptCount.get());
+        logger.info("Pattern 1 (Direct Exception): {} attempts - WORKING", attemptCount.get());
     }
 
     private void testCompletableFuturePattern(VertxTestContext testContext) throws Exception {
@@ -237,7 +237,7 @@ public class OutboxExceptionHandlingDemonstrationTest {
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "CompletableFuture exceptions should trigger retry logic");
         assertEquals(3, attemptCount.get(), "Should have 3 attempts for CompletableFuture exception");
         
-        logger.info("✅ Pattern 2 (CompletableFuture Exception): {} attempts - WORKING", attemptCount.get());
+        logger.info("Pattern 2 (CompletableFuture Exception): {} attempts - WORKING", attemptCount.get());
     }
 }
 

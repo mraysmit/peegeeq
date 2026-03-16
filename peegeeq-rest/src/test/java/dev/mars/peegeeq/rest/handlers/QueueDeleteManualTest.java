@@ -133,7 +133,7 @@ public class QueueDeleteManualTest {
             .compose(getResponse -> {
                 testContext.verify(() -> {
                     assertEquals(200, getResponse.statusCode(), "Queue should exist");
-                    logger.info("✅ Queue exists and is accessible");
+                    logger.info("Queue exists and is accessible");
                 });
 
                 // Step 2: Delete the queue
@@ -151,7 +151,7 @@ public class QueueDeleteManualTest {
                     assertEquals(queueName, body.getString("queueName"), "Should return correct queue name");
                     assertEquals(setupId, body.getString("setupId"), "Should return correct setup ID");
 
-                    logger.info("✅ Queue deleted successfully");
+                    logger.info("Queue deleted successfully");
                 });
 
                 // Step 3: Verify queue no longer exists
@@ -163,8 +163,8 @@ public class QueueDeleteManualTest {
                 testContext.verify(() -> {
                     // Queue should not be found after deletion
                     assertEquals(404, verifyResponse.statusCode(), "Queue should not exist after deletion");
-                    logger.info("✅ Verified queue no longer exists");
-                    logger.info("✅ Queue Delete test PASSED!");
+                    logger.info("Verified queue no longer exists");
+                    logger.info("Queue Delete test PASSED!");
                     testContext.completeNow();
                 });
             })

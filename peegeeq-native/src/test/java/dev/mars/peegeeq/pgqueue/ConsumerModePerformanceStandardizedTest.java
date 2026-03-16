@@ -395,7 +395,7 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
             String.format("Scenario %s should have average latency < %.2f ms, got %.2f",
                 scenario.getDescription(), maxExpectedLatency, averageLatency));
 
-        logger.info("✅ Validation passed for {}: throughput={:.2f} msg/sec, latency={:.2f}ms",
+        logger.info("Validation passed for {}: throughput={:.2f} msg/sec, latency={:.2f}ms",
             scenario.getDescription(), throughput, averageLatency);
     }
 
@@ -422,7 +422,7 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
             String.format("Scenario %s average latency should be < %.2f ms, got %.2f",
                 scenario.getDescription(), maxExpectedLatency, averageLatency));
 
-        logger.info("✅ Latency validation passed for {}: latency={:.2f}ms (max: {:.2f}ms)",
+        logger.info("Latency validation passed for {}: latency={:.2f}ms (max: {:.2f}ms)",
             scenario.getDescription(), averageLatency, maxExpectedLatency);
     }
 

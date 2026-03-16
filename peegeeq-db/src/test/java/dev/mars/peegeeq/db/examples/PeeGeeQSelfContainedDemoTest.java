@@ -122,7 +122,7 @@ public class PeeGeeQSelfContainedDemoTest {
 
         // Validate manager started successfully
         assertTrue(manager.isStarted(), "PeeGeeQ Manager should be started");
-        logger.info("✅ Self-contained setup validated successfully");
+        logger.info("Self-contained setup validated successfully");
     }
 
     /**
@@ -152,7 +152,7 @@ public class PeeGeeQSelfContainedDemoTest {
         demonstrateMetrics(manager);
         demonstrateSystemStatus(manager);
 
-        logger.info("✅ Feature demonstrations validated successfully");
+        logger.info("Feature demonstrations validated successfully");
     }
 
     /**
@@ -183,7 +183,7 @@ public class PeeGeeQSelfContainedDemoTest {
         assertTrue(manager.isHealthy(), "System should be healthy");
         assertNotNull(manager.getSystemStatus(), "System status should be available");
 
-        logger.info("✅ System monitoring validated successfully");
+        logger.info("System monitoring validated successfully");
     }
 
     /**
@@ -205,7 +205,7 @@ public class PeeGeeQSelfContainedDemoTest {
         logger.info("Container URL: {}", postgres.getJdbcUrl());
         logger.info("Host: {}:{}", postgres.getHost(), postgres.getFirstMappedPort());
         
-        logger.info("✅ Container lifecycle validated successfully");
+        logger.info("Container lifecycle validated successfully");
     }
 
     // Helper methods that replicate the original demo's functionality
@@ -223,7 +223,7 @@ public class PeeGeeQSelfContainedDemoTest {
         assertNotNull(config.getPoolConfig());
         assertNotNull(config.getMetricsConfig());
         
-        logger.info("✅ Configuration demonstrated: Profile={}", config.getProfile());
+        logger.info("Configuration demonstrated: Profile={}", config.getProfile());
     }
     
     /**
@@ -238,7 +238,7 @@ public class PeeGeeQSelfContainedDemoTest {
         // Test health status
         assertTrue(manager.isHealthy(), "System should be healthy");
         
-        logger.info("✅ Health checks demonstrated");
+        logger.info("Health checks demonstrated");
     }
     
     /**
@@ -250,7 +250,7 @@ public class PeeGeeQSelfContainedDemoTest {
         PeeGeeQManager.SystemStatus systemStatus = manager.getSystemStatus();
         assertNotNull(systemStatus.getMetricsSummary(), "Metrics summary should not be null");
         
-        logger.info("✅ Metrics demonstrated");
+        logger.info("Metrics demonstrated");
     }
     
     /**
@@ -264,7 +264,7 @@ public class PeeGeeQSelfContainedDemoTest {
         assertTrue(systemStatus.isStarted(), "System should be started");
         assertEquals("demo", systemStatus.getProfile());
         
-        logger.info("✅ System status demonstrated");
+        logger.info("System status demonstrated");
     }
     
     /**
@@ -286,7 +286,7 @@ public class PeeGeeQSelfContainedDemoTest {
             }
         }
         
-        logger.info("✅ Brief system monitoring completed");
+        logger.info("Brief system monitoring completed");
     }
 }
 

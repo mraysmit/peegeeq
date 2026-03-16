@@ -20,7 +20,7 @@ function Test-CommandExists {
 }
 
 # Check Node.js
-Write-Host "✅ Checking prerequisites..." -ForegroundColor Green
+Write-Host "Checking prerequisites..." -ForegroundColor Green
 if (Test-CommandExists "node") {
     $nodeVersion = node --version
     Write-Host "   Node.js version: $nodeVersion" -ForegroundColor Gray
@@ -60,7 +60,7 @@ Write-Host "Test 1: TypeScript Compilation Check" -ForegroundColor Cyan
 Write-Host "------------------------------------" -ForegroundColor Cyan
 npm run type-check
 if ($LASTEXITCODE -eq 0) {
-    Write-Host "✅ TypeScript compilation: PASSED" -ForegroundColor Green
+    Write-Host "TypeScript compilation: PASSED" -ForegroundColor Green
 } else {
     Write-Host "❌ TypeScript compilation: FAILED" -ForegroundColor Red
 }
@@ -71,7 +71,7 @@ Write-Host "Test 2: Production Build Test" -ForegroundColor Cyan
 Write-Host "------------------------------" -ForegroundColor Cyan
 npm run build
 if ($LASTEXITCODE -eq 0) {
-    Write-Host "✅ Production build: PASSED" -ForegroundColor Green
+    Write-Host "Production build: PASSED" -ForegroundColor Green
     
     # Check if build output exists
     if (Test-Path "../peegeeq-rest/src/main/resources/webroot/index.html") {
@@ -90,7 +90,7 @@ $runIntegrationTests = Read-Host "Run integration tests? (y/N)"
 if ($runIntegrationTests -eq "y" -or $runIntegrationTests -eq "Y") {
     npm run test:integration
     if ($LASTEXITCODE -eq 0) {
-        Write-Host "✅ Integration tests: PASSED" -ForegroundColor Green
+        Write-Host "Integration tests: PASSED" -ForegroundColor Green
     } else {
         Write-Host "⚠️  Integration tests: SKIPPED (backend may not be running)" -ForegroundColor Yellow
     }
@@ -120,7 +120,7 @@ $runE2ETests = Read-Host "Run E2E tests? (y/N)"
 if ($runE2ETests -eq "y" -or $runE2ETests -eq "Y") {
     npx playwright test simple-test.spec.ts --project=chromium
     if ($LASTEXITCODE -eq 0) {
-        Write-Host "✅ E2E tests: PASSED" -ForegroundColor Green
+        Write-Host "E2E tests: PASSED" -ForegroundColor Green
     } else {
         Write-Host "⚠️  E2E tests: FAILED (UI may not be running)" -ForegroundColor Yellow
     }
@@ -133,8 +133,8 @@ Write-Host "========================================" -ForegroundColor Cyan
 Write-Host "📊 Test Summary" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host ""
-Write-Host "✅ TypeScript compilation works" -ForegroundColor Green
-Write-Host "✅ Production build succeeds" -ForegroundColor Green
+Write-Host "TypeScript compilation works" -ForegroundColor Green
+Write-Host "Production build succeeds" -ForegroundColor Green
 Write-Host "⚠️  Integration tests require backend" -ForegroundColor Yellow
 Write-Host "⚠️  E2E tests require dev server running" -ForegroundColor Yellow
 Write-Host ""

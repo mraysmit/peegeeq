@@ -162,7 +162,7 @@ class OutboxErrorHandlingSpringBootTest {
         assertTrue(attemptCount.get() >= 3, 
             "Should have at least 3 attempts (was " + attemptCount.get() + ")");
         
-        logger.info("✅ Transient error recovery verified - succeeded after {} attempts", 
+        logger.info("Transient error recovery verified - succeeded after {} attempts", 
             attemptCount.get());
     }
 
@@ -208,7 +208,7 @@ class OutboxErrorHandlingSpringBootTest {
         assertTrue(finalAttempts >= 4, 
             "Should have at least 4 attempts (initial + 3 retries), was " + finalAttempts);
         
-        logger.info("✅ Permanent error handling verified - failed after {} attempts", 
+        logger.info("Permanent error handling verified - failed after {} attempts", 
             finalAttempts);
     }
 
@@ -272,7 +272,7 @@ class OutboxErrorHandlingSpringBootTest {
         assertTrue(permanentAttempts.get() >= 4, 
             "Permanent error message should have at least 4 attempts");
         
-        logger.info("✅ Mixed error scenarios verified - transient: {} attempts, permanent: {} attempts", 
+        logger.info("Mixed error scenarios verified - transient: {} attempts, permanent: {} attempts", 
             transientAttempts.get(), permanentAttempts.get());
     }
 }

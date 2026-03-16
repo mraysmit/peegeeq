@@ -20,7 +20,7 @@ async function testQueueCreation() {
     return
   }
 
-  console.log('✅ "default" setup exists\n')
+  console.log('"default" setup exists\n')
 
   // Now test queue creation with CORRECT field name
   console.log('2. Creating queue with CORRECT field name (setup)...')
@@ -36,7 +36,7 @@ async function testQueueCreation() {
 
   if (queueResponse1.ok) {
     const result = await queueResponse1.json()
-    console.log('✅ Queue created successfully with "setup" field')
+    console.log('Queue created successfully with "setup" field')
     console.log('   Response:', JSON.stringify(result, null, 2))
   } else {
     const error = await queueResponse1.text()
@@ -56,7 +56,7 @@ async function testQueueCreation() {
 
   if (queueResponse2.ok) {
     const result = await queueResponse2.json()
-    console.log('✅ Queue created successfully with "setupId" field')
+    console.log('Queue created successfully with "setupId" field')
     console.log('   Response:', JSON.stringify(result, null, 2))
   } else {
     const error = await queueResponse2.text()
@@ -67,7 +67,7 @@ async function testQueueCreation() {
   console.log('\n4. Cleaning up...')
   await fetch(`${API_BASE_URL}/api/v1/setups/default/queues/test-queue-1`, { method: 'DELETE' })
   await fetch(`${API_BASE_URL}/api/v1/setups/default/queues/test-queue-2`, { method: 'DELETE' })
-  console.log('✅ Cleanup complete\n')
+  console.log('Cleanup complete\n')
 }
 
 testQueueCreation().catch(console.error)

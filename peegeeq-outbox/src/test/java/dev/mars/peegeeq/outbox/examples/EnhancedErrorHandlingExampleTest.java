@@ -95,11 +95,11 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  * <h2>Expected Test Results</h2>
  * <p>All tests should <b>PASS</b> by correctly handling the intentional failures:</p>
  * <ul>
- *   <li>✅ Retry strategies work with exponential backoff</li>
- *   <li>✅ Circuit breakers trip and recover appropriately</li>
- *   <li>✅ Dead letter queue captures failed messages</li>
- *   <li>✅ Error classification routes messages correctly</li>
- *   <li>✅ Poison messages are detected and isolated</li>
+ *   <li>Retry strategies work with exponential backoff</li>
+ *   <li>Circuit breakers trip and recover appropriately</li>
+ *   <li>Dead letter queue captures failed messages</li>
+ *   <li>Error classification routes messages correctly</li>
+ *   <li>Poison messages are detected and isolated</li>
  * </ul>
  * 
  * <h2>Error Log Messages</h2>
@@ -167,7 +167,7 @@ class EnhancedErrorHandlingExampleTest {
         
         factory = provider.createFactory("outbox", databaseService);
         
-        logger.info("✅ Enhanced Error Handling Example Test setup completed");
+        logger.info("Enhanced Error Handling Example Test setup completed");
     }
     
     @AfterEach
@@ -202,7 +202,7 @@ class EnhancedErrorHandlingExampleTest {
         System.clearProperty("peegeeq.consumer.threads");
         System.clearProperty("peegeeq.queue.batch-size");
         
-        logger.info("✅ Enhanced Error Handling Example Test cleanup completed");
+        logger.info("Enhanced Error Handling Example Test cleanup completed");
     }
     
     @Test
@@ -230,7 +230,7 @@ class EnhancedErrorHandlingExampleTest {
                     
                     // Success
                     int processed = processedCount.incrementAndGet();
-                    logger.info("✅ EXPECTED SUCCESS: Successfully processed message: {} (total processed: {})",
+                    logger.info("EXPECTED SUCCESS: Successfully processed message: {} (total processed: {})",
                         payload.getMessageId(), processed);
                     checkpoint.flag();
                     return CompletableFuture.completedFuture(null);
@@ -248,7 +248,7 @@ class EnhancedErrorHandlingExampleTest {
                         vertx.setTimer(delayMs, id -> backoffFuture.complete(null));
                         return backoffFuture.thenCompose(v -> CompletableFuture.failedFuture(e));
                     } else {
-                        logger.info("✅ EXPECTED FAILURE: Message failed after max retries: {}", payload.getMessageId());
+                        logger.info("EXPECTED FAILURE: Message failed after max retries: {}", payload.getMessageId());
                         checkpoint.flag();
                         return CompletableFuture.failedFuture(e);
                     }
@@ -263,7 +263,7 @@ class EnhancedErrorHandlingExampleTest {
             // Wait for processing - increased timeout for integration test
             assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Retry strategies test should complete within timeout");
             
-            logger.info("✅ Retry strategies test completed successfully!");
+            logger.info("Retry strategies test completed successfully!");
             logger.info("   📊 Total processed: {}, Total retries: {}", processedCount.get(), retryCount.get());
         }
     }
@@ -303,7 +303,7 @@ class EnhancedErrorHandlingExampleTest {
                     // Success - reset circuit breaker
                     consecutiveFailures.set(0);
                     int processed = processedCount.incrementAndGet();
-                    logger.info("✅ EXPECTED SUCCESS: Circuit breaker processing succeeded: {} (total: {})",
+                    logger.info("EXPECTED SUCCESS: Circuit breaker processing succeeded: {} (total: {})",
                         payload.getMessageId(), processed);
                     checkpoint.flag();
                     return CompletableFuture.completedFuture(null);
@@ -335,7 +335,7 @@ class EnhancedErrorHandlingExampleTest {
             // Wait for processing - increased timeout for integration test
             assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Circuit breaker test should complete within timeout");
 
-            logger.info("✅ Circuit breaker integration test completed successfully!");
+            logger.info("Circuit breaker integration test completed successfully!");
             logger.info("   📊 Processed: {}, Failures: {}, Circuit breaker trips: {}",
                 processedCount.get(), failureCount.get(),
                 consecutiveFailures.get() >= CIRCUIT_BREAKER_THRESHOLD ? 1 : 0);
@@ -363,7 +363,7 @@ class EnhancedErrorHandlingExampleTest {
 
                     // Success
                     int processed = processedCount.incrementAndGet();
-                    logger.info("✅ EXPECTED SUCCESS: DLQ demo processing succeeded: {} (total: {})",
+                    logger.info("EXPECTED SUCCESS: DLQ demo processing succeeded: {} (total: {})",
                         payload.getMessageId(), processed);
                     checkpoint.flag();
                     return CompletableFuture.completedFuture(null);
@@ -395,7 +395,7 @@ class EnhancedErrorHandlingExampleTest {
             // Wait for processing - increased timeout for integration test
             assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Dead letter queue test should complete within timeout");
 
-            logger.info("✅ Dead letter queue management test completed successfully!");
+            logger.info("Dead letter queue management test completed successfully!");
             logger.info("   📊 Processed successfully: {}, Moved to DLQ: {}", processedCount.get(), dlqCount.get());
         }
     }
@@ -439,7 +439,7 @@ class EnhancedErrorHandlingExampleTest {
 
                     int processed = processedCount.incrementAndGet();
                     int routed = routedCount.incrementAndGet();
-                    logger.info("✅ EXPECTED SUCCESS: Error routing succeeded: {} (processed: {}, routed: {})",
+                    logger.info("EXPECTED SUCCESS: Error routing succeeded: {} (processed: {}, routed: {})",
                         payload.getMessageId(), processed, routed);
                     checkpoint.flag();
                     return CompletableFuture.completedFuture(null);
@@ -462,7 +462,7 @@ class EnhancedErrorHandlingExampleTest {
             // Wait for processing - increased timeout for integration test
             assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Error classification and routing test should complete within timeout");
 
-            logger.info("✅ Error classification and routing test completed successfully!");
+            logger.info("Error classification and routing test completed successfully!");
             logger.info("   📊 Total processed: {}, Total routed: {}", processedCount.get(), routedCount.get());
         }
     }
@@ -518,7 +518,7 @@ class EnhancedErrorHandlingExampleTest {
             // Wait for processing - increased timeout for integration test
             assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Poison message handling test should complete within timeout");
 
-            logger.info("✅ Poison message handling test completed successfully!");
+            logger.info("Poison message handling test completed successfully!");
             logger.info("   📊 Processed successfully: {}, Poison messages isolated: {}",
                 processedCount.get(), poisonCount.get());
         }

@@ -134,7 +134,7 @@ class ConsumerModeFailureTest {
                     throw new RuntimeException("Intentional test exception for: " + payload);
                 } else {
                     processedCount.incrementAndGet();
-                    logger.info("✅ Successfully processed message: {}", payload);
+                    logger.info("Successfully processed message: {}", payload);
                     normalMessages.flag();
                     return CompletableFuture.completedFuture(null);
                 }
@@ -164,7 +164,7 @@ class ConsumerModeFailureTest {
             assertTrue(exceptionCount.get() >= 2, "Should encounter at least 2 exceptions (original attempts)");
             assertTrue(exceptionCount.get() <= 6, "Should not exceed 6 exceptions (2 messages × 3 retry attempts)");
 
-            logger.info("✅ Exception handling verified - processed: {}, exceptions: {} (includes retries)",
+            logger.info("Exception handling verified - processed: {}, exceptions: {} (includes retries)",
                 processedCount.get(), exceptionCount.get());
 
         } finally {
@@ -172,7 +172,7 @@ class ConsumerModeFailureTest {
             producer.close();
         }
 
-        logger.info("✅ Exception handling in message handlers test completed successfully");
+        logger.info("Exception handling in message handlers test completed successfully");
     }
 
     @Test
@@ -223,7 +223,7 @@ class ConsumerModeFailureTest {
             int totalProcessed = consumer1Count.get() + consumer2Count.get();
             assertTrue(totalProcessed >= 2, "Should process at least 2 messages across consumers");
 
-            logger.info("✅ Channel collision handling verified - consumer1: {}, consumer2: {}, total: {}",
+            logger.info("Channel collision handling verified - consumer1: {}, consumer2: {}, total: {}",
                 consumer1Count.get(), consumer2Count.get(), totalProcessed);
 
         } finally {
@@ -232,7 +232,7 @@ class ConsumerModeFailureTest {
             producer.close();
         }
 
-        logger.info("✅ Channel name collision handling test completed successfully");
+        logger.info("Channel name collision handling test completed successfully");
     }
 
     @Test
@@ -271,14 +271,14 @@ class ConsumerModeFailureTest {
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should process messages even with potential partial failures");
             assertEquals(3, processedCount.get(), "Should process exactly 3 messages");
 
-            logger.info("✅ Partial failure recovery verified - processed: {} messages", processedCount.get());
+            logger.info("Partial failure recovery verified - processed: {} messages", processedCount.get());
 
         } finally {
             consumer.close();
             producer.close();
         }
 
-        logger.info("✅ Partial mode failure recovery test completed successfully");
+        logger.info("Partial mode failure recovery test completed successfully");
     }
 
     @Test
@@ -327,14 +327,14 @@ class ConsumerModeFailureTest {
             assertEquals("After recovery message", lastProcessedMessage.get(),
                 "Should process the recovery message last");
 
-            logger.info("✅ Recovery after failure verified - processed: {} messages", processedCount.get());
+            logger.info("Recovery after failure verified - processed: {} messages", processedCount.get());
 
         } finally {
             consumer.close();
             producer.close();
         }
 
-        logger.info("✅ Recovery after temporary failure test completed successfully");
+        logger.info("Recovery after temporary failure test completed successfully");
     }
 
     @Test
@@ -372,14 +372,14 @@ class ConsumerModeFailureTest {
             assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Should handle moderate load without failures");
             assertEquals(10, processedCount.get(), "Should process exactly 10 messages under load");
 
-            logger.info("✅ Robustness under load verified - processed: {} messages", processedCount.get());
+            logger.info("Robustness under load verified - processed: {} messages", processedCount.get());
 
         } finally {
             consumer.close();
             producer.close();
         }
 
-        logger.info("✅ Consumer mode robustness under load test completed successfully");
+        logger.info("Consumer mode robustness under load test completed successfully");
     }
 }
 

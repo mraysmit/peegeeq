@@ -135,7 +135,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
                 .toCompletionStage().toCompletableFuture().get();
         assertEquals("DEAD", status, "Subscription should be marked as DEAD");
 
-        logger.info("✅ Dead consumer detection verified");
+        logger.info("Dead consumer detection verified");
     }
 
     /**
@@ -172,7 +172,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
                 .toCompletionStage().toCompletableFuture().get();
         assertEquals("ACTIVE", status, "Subscription should remain ACTIVE");
 
-        logger.info("✅ Healthy subscription preserved");
+        logger.info("Healthy subscription preserved");
     }
 
     /**
@@ -222,7 +222,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
         assertEquals("DEAD", status1, topic1 + "/dead-group should be DEAD");
         assertEquals("DEAD", status2, topic2 + "/dead-group should be DEAD");
 
-        logger.info("✅ Cross-topic dead detection verified (markedDead={})", markedDead);
+        logger.info("Cross-topic dead detection verified (markedDead={})", markedDead);
     }
 
     /**
@@ -243,7 +243,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
         job.stop();
         assertFalse(job.isRunning(), "Job should not be running after stop");
 
-        logger.info("✅ Job start/stop lifecycle verified");
+        logger.info("Job start/stop lifecycle verified");
     }
 
     /**
@@ -258,7 +258,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
                 "Starting an already-running job should throw IllegalStateException");
 
         job.stop();
-        logger.info("✅ Double-start prevention verified");
+        logger.info("Double-start prevention verified");
     }
 
     /**
@@ -291,7 +291,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
 
         assertTrue(result >= 1, "Should detect at least 1 dead subscription");
 
-        logger.info("✅ Manual detection run verified");
+        logger.info("Manual detection run verified");
     }
 
     /**
@@ -315,7 +315,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
         assertEquals(beforeStopRuns, afterStopRuns,
                 "Run count should not increase after stop");
 
-        logger.info("✅ Stop fencing verified: runCount stayed at {}", afterStopRuns);
+        logger.info("Stop fencing verified: runCount stayed at {}", afterStopRuns);
     }
 
     /**
@@ -368,7 +368,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
                     "Manual detailed run should execute cleanup pipeline");
         }
 
-        logger.info("✅ Manual detailed detection pipeline verified");
+        logger.info("Manual detailed detection pipeline verified");
     }
 
     // Helper methods
@@ -506,7 +506,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
                     "required_consumer_groups should be decremented from 2 to 1");
         }
 
-        logger.info("✅ End-to-end pipeline verified: detect → cleanup → auto-complete");
+        logger.info("End-to-end pipeline verified: detect → cleanup → auto-complete");
     }
 
     // ========================================================================
@@ -573,7 +573,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
         assertEquals(0, failures,
                 "No failures should occur — guard prevents concurrent DB access");
 
-        logger.info("✅ Concurrent detection guard verified: {} runs (not ~100)", runCount);
+        logger.info("Concurrent detection guard verified: {} runs (not ~100)", runCount);
     }
 
     // ========================================================================

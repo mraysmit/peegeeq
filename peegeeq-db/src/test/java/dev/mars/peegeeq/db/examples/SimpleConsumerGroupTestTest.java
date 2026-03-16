@@ -116,7 +116,7 @@ public class SimpleConsumerGroupTestTest {
         assertNotNull(result.groupName, "Group name should not be null");
         assertEquals("TestGroup", result.groupName);
         
-        logger.info("✅ Basic consumer group validated successfully");
+        logger.info("Basic consumer group validated successfully");
         logger.info("   Group: {}, Consumers: {}, Messages processed: {}", 
             result.groupName, result.consumersAdded, result.messagesProcessed);
     }
@@ -143,7 +143,7 @@ public class SimpleConsumerGroupTestTest {
         assertNotNull(result.filterTypes, "Filter types should not be null");
         assertTrue(result.filterTypes.containsKey("region"), "Should contain region filter");
         
-        logger.info("✅ Message filtering validated successfully");
+        logger.info("Message filtering validated successfully");
         logger.info("   Filters applied: {}, Messages filtered: {}", 
             result.filtersApplied, result.messagesFiltered);
     }
@@ -169,7 +169,7 @@ public class SimpleConsumerGroupTestTest {
         assertTrue(result.messagesConsumed >= 0, "Messages consumed should be non-negative");
         assertTrue(result.processingTime > 0, "Processing time should be positive");
         
-        logger.info("✅ Message processing validated successfully");
+        logger.info("Message processing validated successfully");
         logger.info("   Produced: {}, Consumed: {}, Processing time: {}ms", 
             result.messagesProduced, result.messagesConsumed, result.processingTime);
     }
@@ -195,7 +195,7 @@ public class SimpleConsumerGroupTestTest {
         assertTrue(result.consumerGroupsCreated >= 0, "Consumer groups created should be non-negative");
         assertTrue(result.managementOperations >= 0, "Management operations should be non-negative");
         
-        logger.info("✅ Consumer management validated successfully");
+        logger.info("Consumer management validated successfully");
         logger.info("   Consumers managed: {}, Groups created: {}, Operations: {}", 
             result.consumersManaged, result.consumerGroupsCreated, result.managementOperations);
     }

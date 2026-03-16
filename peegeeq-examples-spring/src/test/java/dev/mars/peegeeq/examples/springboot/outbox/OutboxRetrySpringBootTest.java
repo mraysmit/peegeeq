@@ -120,7 +120,7 @@ class OutboxRetrySpringBootTest {
         for (MessageConsumer<?> consumer : activeConsumers) {
             try {
                 consumer.close();
-                logger.info("✅ Closed consumer");
+                logger.info("Closed consumer");
             } catch (Exception e) {
                 logger.error("⚠️ Error closing consumer: {}", e.getMessage());
             }
@@ -131,7 +131,7 @@ class OutboxRetrySpringBootTest {
         for (MessageProducer<?> producer : activeProducers) {
             try {
                 producer.close();
-                logger.info("✅ Closed producer");
+                logger.info("Closed producer");
             } catch (Exception e) {
                 logger.error("⚠️ Error closing producer: {}", e.getMessage());
             }
@@ -144,7 +144,7 @@ class OutboxRetrySpringBootTest {
         vertx.setTimer(2000, id -> delay.complete(null));
         delay.join();
         
-        logger.info("✅ Cleanup complete");
+        logger.info("Cleanup complete");
     }
     
     /**
@@ -189,7 +189,7 @@ class OutboxRetrySpringBootTest {
             }
             
             // Succeed on 3rd attempt
-            logger.info("✅ Successfully processed on attempt #{}", attempt);
+            logger.info("Successfully processed on attempt #{}", attempt);
             successCount.incrementAndGet();
             checkpoint.flag();
             return CompletableFuture.completedFuture(null);
@@ -212,8 +212,8 @@ class OutboxRetrySpringBootTest {
         assertEquals(3, attemptCount.get(), "Should have 3 attempts (2 failures + 1 success)");
         assertEquals(1, successCount.get(), "Should have 1 successful processing");
         
-        logger.info("✅ Automatic Retry test passed");
-        logger.info("✅ Message successfully processed after {} retries", attemptCount.get() - 1);
+        logger.info("Automatic Retry test passed");
+        logger.info("Message successfully processed after {} retries", attemptCount.get() - 1);
     }
     
     /**
@@ -275,8 +275,8 @@ class OutboxRetrySpringBootTest {
         assertEquals(4, attemptCount.get(), 
             "Should have exactly 4 attempts (initial + 3 retries)");
         
-        logger.info("✅ Max Retry Limit test passed");
-        logger.info("✅ Retry limit enforced: stopped after {} attempts", attemptCount.get());
+        logger.info("Max Retry Limit test passed");
+        logger.info("Retry limit enforced: stopped after {} attempts", attemptCount.get());
     }
 }
 

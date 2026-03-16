@@ -192,7 +192,7 @@ public class StuckMessageRecoveryIntegrationTest {
 
         // Verify that messages were recovered
         assertTrue(recoveredCount > 0, "Recovery manager should have recovered stuck messages");
-        logger.info("✅ Recovery manager recovered {} stuck messages", recoveredCount);
+        logger.info("Recovery manager recovered {} stuck messages", recoveredCount);
 
         // Wait for recovery to complete
         vertx.timer(1000).toCompletionStage().toCompletableFuture().join();
@@ -251,7 +251,7 @@ public class StuckMessageRecoveryIntegrationTest {
         StuckMessageRecoveryManager.RecoveryStats stats = disabledRecoveryManager.getRecoveryStats();
         assertFalse(stats.isEnabled(), "Recovery should be disabled");
 
-        logger.info("✅ Disabled recovery test completed successfully");
+        logger.info("Disabled recovery test completed successfully");
     }
 
     /**
@@ -273,7 +273,7 @@ public class StuckMessageRecoveryIntegrationTest {
         // Instead of complex crash simulation, directly insert a stuck message
         logger.info("🔧 Inserting stuck PROCESSING message directly into database...");
         long stuckMessageId = insertStuckProcessingMessage();
-        logger.info("✅ Inserted stuck message with ID: {}", stuckMessageId);
+        logger.info("Inserted stuck message with ID: {}", stuckMessageId);
 
         // Verify the stuck message exists
         int processingCount = countMessagesByStatus("PROCESSING");
@@ -286,7 +286,7 @@ public class StuckMessageRecoveryIntegrationTest {
         // Test recovery
         logger.info("🔧 Running stuck message recovery...");
         int recoveredCount = testRecoveryManager.recoverStuckMessages();
-        logger.info("✅ Recovery manager recovered {} stuck messages", recoveredCount);
+        logger.info("Recovery manager recovered {} stuck messages", recoveredCount);
 
         // Verify recovery worked
         assertTrue(recoveredCount > 0, "Should have recovered stuck messages");

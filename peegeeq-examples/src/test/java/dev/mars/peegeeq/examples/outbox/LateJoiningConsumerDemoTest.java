@@ -267,7 +267,7 @@ class LateJoiningConsumerDemoTest {
         logger.info("✓ Verified: FROM_NOW consumer only received {} new messages (ignored {} historical)",
             messages.size(), historicalMessageIds.size());
 
-        logger.info("\n=== ✅ DEMO 1 COMPLETE: FROM_NOW Pattern ===\n");
+        logger.info("\n=== DEMO 1 COMPLETE: FROM_NOW Pattern ===\n");
         logger.info("Key Takeaway: FROM_NOW consumers ignore historical messages and only process new ones.");
     }
 
@@ -349,7 +349,7 @@ class LateJoiningConsumerDemoTest {
         logger.info("✓ Verified: FROM_BEGINNING consumer received ALL {} historical messages",
             analyticsMessages.size());
 
-        logger.info("\n=== ✅ DEMO 2 COMPLETE: FROM_BEGINNING Pattern ===\n");
+        logger.info("\n=== DEMO 2 COMPLETE: FROM_BEGINNING Pattern ===\n");
         logger.info("Key Takeaway: FROM_BEGINNING consumers backfill ALL historical messages from topic start.");
     }
 
@@ -441,7 +441,7 @@ class LateJoiningConsumerDemoTest {
         logger.info("✓ Verified: FROM_TIMESTAMP consumer received {} messages from timestamp onwards",
             replayMessages.size());
 
-        logger.info("\n=== ✅ DEMO 3 COMPLETE: FROM_TIMESTAMP Pattern ===\n");
+        logger.info("\n=== DEMO 3 COMPLETE: FROM_TIMESTAMP Pattern ===\n");
         logger.info("Key Takeaway: FROM_TIMESTAMP consumers replay messages from a specific point in time.");
     }
 

@@ -184,7 +184,7 @@ class BiTemporalQueryEdgeCasesTest {
         assertNotNull(foundEvent2, "Should find event with correlation ID test-corr-2");
         assertNotNull(foundEvent3, "Should find event with correlation ID test-corr-3");
 
-        logger.info("✅ Multiple event storage test completed successfully");
+        logger.info("Multiple event storage test completed successfully");
     }
 
     @Test
@@ -221,7 +221,7 @@ class BiTemporalQueryEdgeCasesTest {
                   foundEvent.getTransactionTime().equals(foundEvent.getValidTime()),
                   "Transaction time should be >= valid time");
 
-        logger.info("✅ Event query and retrieval test completed successfully");
+        logger.info("Event query and retrieval test completed successfully");
     }
 }
 

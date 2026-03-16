@@ -173,7 +173,7 @@ class MessagePriorityExampleTest {
         // Create native queue factory
         factory = provider.createFactory("native", databaseService);
 
-        logger.info("✅ Message Priority Example Test setup completed");
+        logger.info("Message Priority Example Test setup completed");
     }
 
     @AfterEach
@@ -200,7 +200,7 @@ class MessagePriorityExampleTest {
         System.clearProperty("peegeeq.migration.enabled");
         System.clearProperty("peegeeq.migration.auto-migrate");
 
-        logger.info("✅ Message Priority Example Test cleanup completed");
+        logger.info("Message Priority Example Test cleanup completed");
     }
 
     @Test
@@ -240,7 +240,7 @@ class MessagePriorityExampleTest {
             assertTrue(completed, "All messages should be processed within timeout");
             assertEquals(5, processedCount.get(), "Should have processed exactly 5 messages");
 
-            logger.info("✅ Basic priority ordering test completed successfully!");
+            logger.info("Basic priority ordering test completed successfully!");
         }
     }
 
@@ -279,7 +279,7 @@ class MessagePriorityExampleTest {
             assertTrue(completed, "All messages should be processed within timeout");
             assertEquals(5, processedCount.get(), "Should have processed exactly 5 messages");
 
-            logger.info("✅ Priority levels test completed successfully!");
+            logger.info("Priority levels test completed successfully!");
         }
     }
 
@@ -328,7 +328,7 @@ class MessagePriorityExampleTest {
             assertTrue(completed, "All e-commerce messages should be processed within timeout");
             assertEquals(8, processedCount.get(), "Should have processed exactly 8 messages");
 
-            logger.info("✅ E-commerce scenario test completed successfully!");
+            logger.info("E-commerce scenario test completed successfully!");
         }
     }
 
@@ -376,7 +376,7 @@ class MessagePriorityExampleTest {
             assertTrue(completed, "All financial messages should be processed within timeout");
             assertEquals(7, processedCount.get(), "Should have processed exactly 7 messages");
 
-            logger.info("✅ Financial scenario test completed successfully!");
+            logger.info("Financial scenario test completed successfully!");
         }
     }
 
@@ -423,7 +423,7 @@ class MessagePriorityExampleTest {
             assertTrue(completed, "All monitoring messages should be processed within timeout");
             assertEquals(6, processedCount.get(), "Should have processed exactly 6 messages");
 
-            logger.info("✅ Monitoring scenario test completed successfully!");
+            logger.info("Monitoring scenario test completed successfully!");
         }
     }
 
@@ -471,7 +471,7 @@ class MessagePriorityExampleTest {
             long duration = endTime - startTime;
             double messagesPerSecond = (messageCount * 1000.0) / duration;
 
-            logger.info("✅ Priority performance test completed successfully!");
+            logger.info("Priority performance test completed successfully!");
             logger.info("📊 Performance Results: {} messages in {}ms ({:.2f} msg/sec)",
                 messageCount, duration, messagesPerSecond);
 

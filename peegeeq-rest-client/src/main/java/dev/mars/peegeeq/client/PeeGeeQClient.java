@@ -529,9 +529,9 @@ public interface PeeGeeQClient extends AutoCloseable {
      *
      * <p><b>Use Cases:</b></p>
      * <ul>
-     *   <li>✅ REST API clients and automation scripts</li>
-     *   <li>✅ When you have setupId and storeName as separate values</li>
-     *   <li>✅ Consistent with other Standard REST CRUD operations</li>
+     *   <li>REST API clients and automation scripts</li>
+     *   <li>When you have setupId and storeName as separate values</li>
+     *   <li>Consistent with other Standard REST CRUD operations</li>
      * </ul>
      *
      * <p><b>Example:</b></p>

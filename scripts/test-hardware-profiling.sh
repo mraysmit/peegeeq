@@ -13,7 +13,7 @@ if [ ! -f "pom.xml" ]; then
     exit 1
 fi
 
-echo "✅ Found PeeGeeQ root directory"
+echo "Found PeeGeeQ root directory"
 
 # Check if test-support module exists
 if [ ! -d "peegeeq-test-support" ]; then
@@ -21,7 +21,7 @@ if [ ! -d "peegeeq-test-support" ]; then
     exit 1
 fi
 
-echo "✅ Found peegeeq-test-support module"
+echo "Found peegeeq-test-support module"
 
 # Check if hardware profiling classes exist
 HARDWARE_CLASSES=(
@@ -36,7 +36,7 @@ echo ""
 echo "Checking hardware profiling classes:"
 for class_file in "${HARDWARE_CLASSES[@]}"; do
     if [ -f "$class_file" ]; then
-        echo "✅ $class_file"
+        echo "$class_file"
     else
         echo "❌ $class_file (missing)"
     fi
@@ -45,7 +45,7 @@ done
 # Check if integration test exists
 INTEGRATION_TEST="peegeeq-test-support/src/test/java/dev/mars/peegeeq/test/hardware/HardwareProfilingIntegrationTest.java"
 if [ -f "$INTEGRATION_TEST" ]; then
-    echo "✅ $INTEGRATION_TEST"
+    echo "$INTEGRATION_TEST"
 else
     echo "❌ $INTEGRATION_TEST (missing)"
 fi
@@ -53,11 +53,11 @@ fi
 # Check if PerformanceMetricsCollector was updated
 METRICS_COLLECTOR="peegeeq-test-support/src/main/java/dev/mars/peegeeq/test/metrics/PerformanceMetricsCollector.java"
 if [ -f "$METRICS_COLLECTOR" ]; then
-    echo "✅ $METRICS_COLLECTOR"
+    echo "$METRICS_COLLECTOR"
     
     # Check if hardware profiling imports were added
     if grep -q "HardwareProfile" "$METRICS_COLLECTOR"; then
-        echo "✅ Hardware profiling imports added to PerformanceMetricsCollector"
+        echo "Hardware profiling imports added to PerformanceMetricsCollector"
     else
         echo "❌ Hardware profiling imports missing from PerformanceMetricsCollector"
     fi
@@ -69,7 +69,7 @@ fi
 POM_FILE="peegeeq-test-support/pom.xml"
 if [ -f "$POM_FILE" ]; then
     if grep -q "oshi-core" "$POM_FILE"; then
-        echo "✅ OSHI dependency added to pom.xml"
+        echo "OSHI dependency added to pom.xml"
     else
         echo "❌ OSHI dependency missing from pom.xml"
     fi
@@ -82,14 +82,14 @@ echo "=== Hardware Profiling Infrastructure Summary ==="
 echo ""
 echo "📋 Phase 2.1.5 Implementation Status:"
 echo ""
-echo "1. ✅ HardwareProfile - Immutable hardware specifications capture"
-echo "2. ✅ HardwareProfiler - Cross-platform hardware detection using OSHI"
-echo "3. ✅ SystemResourceMonitor - Real-time resource monitoring"
-echo "4. ✅ ResourceUsageSnapshot - Resource usage statistics and analysis"
-echo "5. ✅ HardwareAwarePerformanceResult - Enhanced performance results with hardware context"
-echo "6. ✅ PerformanceMetricsCollector Integration - Hardware profiling integration"
-echo "7. ✅ HardwareProfilingIntegrationTest - Comprehensive integration test"
-echo "8. ✅ OSHI Dependency - Hardware detection library added"
+echo "1. HardwareProfile - Immutable hardware specifications capture"
+echo "2. HardwareProfiler - Cross-platform hardware detection using OSHI"
+echo "3. SystemResourceMonitor - Real-time resource monitoring"
+echo "4. ResourceUsageSnapshot - Resource usage statistics and analysis"
+echo "5. HardwareAwarePerformanceResult - Enhanced performance results with hardware context"
+echo "6. PerformanceMetricsCollector Integration - Hardware profiling integration"
+echo "7. HardwareProfilingIntegrationTest - Comprehensive integration test"
+echo "8. OSHI Dependency - Hardware detection library added"
 echo ""
 echo "🎯 Key Features Implemented:"
 echo ""
@@ -123,11 +123,11 @@ echo "🚀 Next Steps:"
 echo ""
 echo "Phase 2.1.5 is now COMPLETE! The hardware profiling infrastructure provides:"
 echo ""
-echo "✅ Meaningful performance test results with hardware context"
-echo "✅ Real-time resource monitoring during test execution"
-echo "✅ Cross-environment performance comparison capabilities"
-echo "✅ Resource bottleneck identification and analysis"
-echo "✅ Production-ready hardware profiling for performance testing"
+echo "Meaningful performance test results with hardware context"
+echo "Real-time resource monitoring during test execution"
+echo "Cross-environment performance comparison capabilities"
+echo "Resource bottleneck identification and analysis"
+echo "Production-ready hardware profiling for performance testing"
 echo ""
 echo "Ready to proceed with Phase 2.2: Module Migration"
 echo ""

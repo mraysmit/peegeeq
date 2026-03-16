@@ -99,7 +99,7 @@ public class TopicConfigServiceIntegrationTest extends BaseIntegrationTest {
         assertTrue(retrieved.isQueue());
         assertFalse(retrieved.isPubSub());
         
-        logger.info("✅ Create topic with QUEUE semantics test passed");
+        logger.info("Create topic with QUEUE semantics test passed");
     }
     
     @Test
@@ -137,7 +137,7 @@ public class TopicConfigServiceIntegrationTest extends BaseIntegrationTest {
         assertTrue(retrieved.isPubSub());
         assertFalse(retrieved.isQueue());
         
-        logger.info("✅ Create topic with PUB_SUB semantics test passed");
+        logger.info("Create topic with PUB_SUB semantics test passed");
     }
     
     @Test
@@ -182,7 +182,7 @@ public class TopicConfigServiceIntegrationTest extends BaseIntegrationTest {
         assertEquals(72, retrieved.getMessageRetentionHours());
         assertEquals(6, retrieved.getZeroSubscriptionRetentionHours());
         
-        logger.info("✅ Update topic configuration test passed");
+        logger.info("Update topic configuration test passed");
     }
     
     @Test
@@ -228,7 +228,7 @@ public class TopicConfigServiceIntegrationTest extends BaseIntegrationTest {
         assertTrue(topics.stream().anyMatch(t -> t.getTopic().equals("list-topic-2")));
         assertTrue(topics.stream().anyMatch(t -> t.getTopic().equals("list-topic-3")));
         
-        logger.info("✅ List topics test passed");
+        logger.info("List topics test passed");
     }
     
     @Test
@@ -274,7 +274,7 @@ public class TopicConfigServiceIntegrationTest extends BaseIntegrationTest {
         
         assertNull(retrieved, "Topic should be deleted");
         
-        logger.info("✅ Delete topic test passed");
+        logger.info("Delete topic test passed");
     }
     
     @Test
@@ -306,7 +306,7 @@ public class TopicConfigServiceIntegrationTest extends BaseIntegrationTest {
             .toCompletableFuture()
             .get(), "Non-existing topic should return false");
         
-        logger.info("✅ Topic exists test passed");
+        logger.info("Topic exists test passed");
     }
     
     @Test
@@ -349,7 +349,7 @@ public class TopicConfigServiceIntegrationTest extends BaseIntegrationTest {
         assertEquals(TopicSemantics.PUB_SUB, retrieved.getSemantics());
         assertEquals(48, retrieved.getMessageRetentionHours());
         
-        logger.info("✅ Create topic idempotent test passed");
+        logger.info("Create topic idempotent test passed");
     }
 }
 

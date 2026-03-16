@@ -241,7 +241,7 @@ class DeadConsumerDetectionDemoTest {
         logger.info("  - Timeout: {} seconds", subscription.getHeartbeatTimeoutSeconds());
         logger.info("  - Status: {}", subscription.getStatus());
 
-        logger.info("\n=== ✅ DEMO 1 COMPLETE: Heartbeat Configuration ===\n");
+        logger.info("\n=== DEMO 1 COMPLETE: Heartbeat Configuration ===\n");
         logger.info("Key Takeaway: Configure heartbeat settings based on your processing characteristics.");
     }
 
@@ -357,7 +357,7 @@ class DeadConsumerDetectionDemoTest {
             "Healthy consumer should still be ACTIVE");
         logger.info("✓ Healthy consumer '{}' is still ACTIVE", healthyGroup);
 
-        logger.info("\n=== ✅ DEMO 2 COMPLETE: Dead Consumer Detection ===\n");
+        logger.info("\n=== DEMO 2 COMPLETE: Dead Consumer Detection ===\n");
         logger.info("Key Takeaway: Dead consumer detection automatically identifies consumers that stop sending heartbeats.");
     }
 
@@ -452,7 +452,7 @@ class DeadConsumerDetectionDemoTest {
             .toCompletionStage().toCompletableFuture().get();
         logger.info("✓ Heartbeat sent - consumer is now healthy");
 
-        logger.info("\n=== ✅ DEMO 3 COMPLETE: Consumer Recovery ===\n");
+        logger.info("\n=== DEMO 3 COMPLETE: Consumer Recovery ===\n");
         logger.info("Key Takeaway: Dead consumers can be recovered by resuming the subscription and sending heartbeats.");
     }
 }

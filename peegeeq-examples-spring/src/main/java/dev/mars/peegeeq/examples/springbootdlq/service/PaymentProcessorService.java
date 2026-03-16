@@ -167,7 +167,7 @@ public class PaymentProcessorService {
                         payment.getRetryCount()
                     ))
                     .compose(result -> {
-                        log.info("✅ Payment processed successfully: paymentId={}, amount={}", 
+                        log.info("Payment processed successfully: paymentId={}, amount={}", 
                             event.getPaymentId(), event.getAmount());
                         
                         paymentsProcessed.incrementAndGet();

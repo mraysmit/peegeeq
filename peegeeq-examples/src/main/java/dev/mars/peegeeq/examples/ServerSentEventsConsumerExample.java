@@ -75,7 +75,7 @@ public class ServerSentEventsConsumerExample {
             // Demonstrate SSE streaming
             demonstrateSSEStreaming(vertx, httpClient);
             
-            logger.info("✅ SSE Consumer Example completed successfully");
+            logger.info("SSE Consumer Example completed successfully");
             
         } catch (Exception e) {
             logger.error("❌ Error in SSE Consumer Example", e);
@@ -109,7 +109,7 @@ public class ServerSentEventsConsumerExample {
         httpClient.request(HttpMethod.GET, REST_API_PORT, REST_API_HOST, sseUrl)
             .compose(HttpClientRequest::send)
             .onSuccess(response -> {
-                logger.info("✅ SSE connection established");
+                logger.info("SSE connection established");
                 logger.info("   Status: {}", response.statusCode());
                 logger.info("   Content-Type: {}", response.getHeader("Content-Type"));
                 
@@ -122,7 +122,7 @@ public class ServerSentEventsConsumerExample {
                     
                     // Check if we've received enough messages
                     if (messagesReceived.get() >= MESSAGE_COUNT) {
-                        logger.info("✅ Received {} messages, closing connection", messagesReceived.get());
+                        logger.info("Received {} messages, closing connection", messagesReceived.get());
                         response.request().connection().close();
                         completionLatch.countDown();
                     }

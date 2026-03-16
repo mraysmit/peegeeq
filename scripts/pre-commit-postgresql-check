@@ -17,7 +17,7 @@ echo -e "${YELLOW}🔍 Checking for hardcoded PostgreSQL versions...${NC}"
 STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACM | grep '\.java$' || true)
 
 if [ -z "$STAGED_FILES" ]; then
-    echo -e "${GREEN}✅ No Java files staged for commit.${NC}"
+    echo -e "${GREEN}No Java files staged for commit.${NC}"
     exit 0
 fi
 
@@ -55,11 +55,11 @@ if [ "$VIOLATIONS_FOUND" = true ]; then
     echo ""
     echo "2. Replace hardcoded versions:"
     echo -e "   ${RED}❌ new PostgreSQLContainer<>(\"postgres:15\")${NC}"
-    echo -e "   ${GREEN}✅ new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)${NC}"
+    echo -e "   ${GREEN}new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)${NC}"
     echo ""
     echo "3. Or use the helper methods:"
-    echo -e "   ${GREEN}✅ PostgreSQLTestConstants.createStandardContainer()${NC}"
-    echo -e "   ${GREEN}✅ PostgreSQLTestConstants.createContainer(\"db\", \"user\", \"pass\")${NC}"
+    echo -e "   ${GREEN}PostgreSQLTestConstants.createStandardContainer()${NC}"
+    echo -e "   ${GREEN}PostgreSQLTestConstants.createContainer(\"db\", \"user\", \"pass\")${NC}"
     echo ""
     echo -e "${BLUE}💡 Run the migration script to fix all files:${NC}"
     echo "   ./scripts/migrate-postgresql-versions.sh"
@@ -68,5 +68,5 @@ if [ "$VIOLATIONS_FOUND" = true ]; then
     exit 1
 fi
 
-echo -e "${GREEN}✅ No hardcoded PostgreSQL versions found in staged files.${NC}"
+echo -e "${GREEN}No hardcoded PostgreSQL versions found in staged files.${NC}"
 exit 0

@@ -275,7 +275,7 @@ class MemoryAndResourceLeakTest {
             "Non-heap memory growth should be reasonable: " + (nonHeapGrowth / (1024 * 1024)) + " MB");
 
         double avgProcessingTime = totalProcessingTime.get() / (double) processedCount.get() / 1_000_000; // Convert to ms
-        logger.info("✅ Sustained high-load memory leak test completed - processed {} messages, avg time: {:.2f}ms",
+        logger.info("Sustained high-load memory leak test completed - processed {} messages, avg time: {:.2f}ms",
             processedCount.get(), avgProcessingTime);
     }
 
@@ -432,7 +432,7 @@ class MemoryAndResourceLeakTest {
         assertTrue(relevantThreadGrowth < maxAcceptableRelevantThreadGrowth * 2,
             "Relevant thread growth should not be excessive: " + relevantThreadGrowth);
 
-        logger.info("✅ Thread leak detection test completed - {} consumers created/destroyed, {} messages processed",
+        logger.info("Thread leak detection test completed - {} consumers created/destroyed, {} messages processed",
             consumerCycles, totalProcessedCount.get());
     }
 
@@ -589,7 +589,7 @@ class MemoryAndResourceLeakTest {
         assertTrue(threadGrowth < maxAcceptableThreadGrowth * 2,
             "Thread growth should not be excessive: " + threadGrowth + " threads");
 
-        logger.info("✅ Resource cleanup under stress test completed - processed {} messages",
+        logger.info("Resource cleanup under stress test completed - processed {} messages",
             totalProcessedCount.get());
     }
 
@@ -716,7 +716,7 @@ class MemoryAndResourceLeakTest {
         assertTrue(finalGrowth < maxAcceptableFinalGrowth,
             "Final memory growth should be reasonable: " + (finalGrowth / (1024 * 1024)) + " MB");
 
-        logger.info("✅ Memory usage monitoring test completed - processed {} messages", processedCount.get());
+        logger.info("Memory usage monitoring test completed - processed {} messages", processedCount.get());
     }
 }
 

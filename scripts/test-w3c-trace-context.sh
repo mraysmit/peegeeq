@@ -30,7 +30,7 @@ run_test() {
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
     
     if eval "$test_command"; then
-        echo -e "${GREEN}✅ PASSED: $test_name${NC}"
+        echo -e "${GREEN}PASSED: $test_name${NC}"
         PASSED_TESTS=$((PASSED_TESTS + 1))
     else
         echo -e "${RED}❌ FAILED: $test_name${NC}"
@@ -147,7 +147,7 @@ fi
 
 # Exit with appropriate code
 if [ $FAILED_TESTS -eq 0 ]; then
-    echo -e "${GREEN}✅ All tests passed!${NC}"
+    echo -e "${GREEN}All tests passed!${NC}"
     echo ""
     echo "Priority 1: W3C Trace Context Propagation is READY FOR PRODUCTION"
     exit 0

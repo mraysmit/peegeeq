@@ -149,7 +149,7 @@ public class PerformanceTestResultsGenerator {
         switch (status.toUpperCase()) {
             case "PASSED":
             case "SUCCESS":
-                return "✅ **PASSED**";
+                return "**PASSED**";
             case "FAILED":
             case "FAILURE":
                 return "❌ **FAILED**";

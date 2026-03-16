@@ -121,7 +121,7 @@ class ConsumerGroupExampleTest {
         // Create producer for sending test messages
         producer = nativeFactory.createProducer("order-events", OrderEvent.class);
         
-        logger.info("✅ Consumer Group Example Test setup completed");
+        logger.info("Consumer Group Example Test setup completed");
     }
     
     @AfterEach
@@ -139,7 +139,7 @@ class ConsumerGroupExampleTest {
         System.clearProperty("peegeeq.database.username");
         System.clearProperty("peegeeq.database.password");
         
-        logger.info("✅ Consumer Group Example Test cleanup completed");
+        logger.info("Consumer Group Example Test cleanup completed");
     }
     
     @Test
@@ -181,7 +181,7 @@ class ConsumerGroupExampleTest {
                     paymentGroup.stop();
                     analyticsGroup.stop();
                     
-                    logger.info("✅ Consumer Groups with Message Filtering test completed successfully!");
+                    logger.info("Consumer Groups with Message Filtering test completed successfully!");
                 });
                 testContext.completeNow();
             }

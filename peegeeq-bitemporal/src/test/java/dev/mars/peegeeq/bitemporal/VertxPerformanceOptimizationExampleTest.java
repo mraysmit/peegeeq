@@ -156,7 +156,7 @@ public class VertxPerformanceOptimizationExampleTest {
         assertTrue(result.waitQueueMultiplier >= 10, "Wait queue multiplier should be at least 10");
         assertTrue(result.propertiesOptimized, "Properties should be optimized");
         
-        logger.info("✅ Optimal system properties validated successfully");
+        logger.info("Optimal system properties validated successfully");
         logger.info("   Pool max size: {}, Wait queue multiplier: {}, Optimized: {}", 
             result.poolMaxSize, result.waitQueueMultiplier, result.propertiesOptimized);
     }
@@ -182,7 +182,7 @@ public class VertxPerformanceOptimizationExampleTest {
         assertTrue(result.workerPoolSize >= 1, "Worker pool size should be at least 1");
         assertTrue(result.pipelinedArchitecture, "Pipelined architecture should be enabled");
         
-        logger.info("✅ Optimized Vertx instance validated successfully");
+        logger.info("Optimized Vertx instance validated successfully");
         logger.info("   Event loop threads: {}, Worker pool size: {}, Pipelined: {}", 
             result.eventLoopThreads, result.workerPoolSize, result.pipelinedArchitecture);
     }
@@ -207,7 +207,7 @@ public class VertxPerformanceOptimizationExampleTest {
         assertTrue(result.metricsCollected >= 0, "Metrics collected should be non-negative");
         assertTrue(result.monitoringActive, "Monitoring should be active");
         
-        logger.info("✅ Performance monitoring validated successfully");
+        logger.info("Performance monitoring validated successfully");
         logger.info("   Metrics collected: {}, Monitoring active: {}", 
             result.metricsCollected, result.monitoringActive);
     }
@@ -233,7 +233,7 @@ public class VertxPerformanceOptimizationExampleTest {
         assertTrue(result.throughputImprovement > 0, "Throughput improvement should be positive");
         assertTrue(result.batchOptimized, "Batch should be optimized");
         
-        logger.info("✅ Batch operations validated successfully");
+        logger.info("Batch operations validated successfully");
         logger.info("   Batch size: {}, Throughput improvement: {}%, Optimized: {}", 
             result.batchSize, result.throughputImprovement, result.batchOptimized);
     }
@@ -266,7 +266,7 @@ public class VertxPerformanceOptimizationExampleTest {
         assertTrue(result.workerPoolUtilization >= 0, "Worker pool utilization should be non-negative");
         assertTrue(result.eventLoopOptimized, "Event loop should be optimized");
         
-        logger.info("✅ Event loop optimization validated successfully");
+        logger.info("Event loop optimization validated successfully");
         logger.info("   Event loop utilization: {}%, Worker pool utilization: {}%, Optimized: {}", 
             result.eventLoopUtilization, result.workerPoolUtilization, result.eventLoopOptimized);
     }
@@ -292,7 +292,7 @@ public class VertxPerformanceOptimizationExampleTest {
         assertTrue(result.successRate >= 0, "Success rate should be non-negative");
         assertTrue(result.realWorldTested, "Real-world testing should be completed");
         
-        logger.info("✅ Real-world testing validated successfully");
+        logger.info("Real-world testing validated successfully");
         logger.info("   Test scenarios: {}, Success rate: {}%, Real-world tested: {}", 
             result.testScenarios, result.successRate, result.realWorldTested);
     }

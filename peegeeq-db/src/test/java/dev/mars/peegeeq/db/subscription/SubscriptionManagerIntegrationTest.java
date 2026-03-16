@@ -117,7 +117,7 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
         assertNotNull(subscription.subscribedAt());
         assertNotNull(subscription.lastHeartbeatAt());
 
-        logger.info("✅ Subscribe with default options test passed");
+        logger.info("Subscribe with default options test passed");
     }
 
     @Test
@@ -160,7 +160,7 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
         assertEquals(30, subscription.heartbeatIntervalSeconds());
         assertEquals(120, subscription.heartbeatTimeoutSeconds());
 
-        logger.info("✅ Subscribe with custom options test passed");
+        logger.info("Subscribe with custom options test passed");
     }
     
     @Test
@@ -214,7 +214,7 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
         assertEquals(SubscriptionState.ACTIVE, resumedSubscription.state());
         assertTrue(resumedSubscription.isActive());
 
-        logger.info("✅ Pause and resume subscription test passed");
+        logger.info("Pause and resume subscription test passed");
     }
     
     @Test
@@ -254,7 +254,7 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
         assertEquals(SubscriptionState.CANCELLED, cancelledSubscription.state());
         assertFalse(cancelledSubscription.isActive());
 
-        logger.info("✅ Cancel subscription test passed");
+        logger.info("Cancel subscription test passed");
     }
 
     @Test
@@ -306,7 +306,7 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
         assertTrue(updatedHeartbeat.isAfter(initialHeartbeat), 
                   "Heartbeat timestamp should be updated");
         
-        logger.info("✅ Update heartbeat test passed");
+        logger.info("Update heartbeat test passed");
     }
     
     @Test
@@ -355,7 +355,7 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
         assertTrue(subscriptions.stream().anyMatch(s -> s.groupName().equals("group-b")));
         assertTrue(subscriptions.stream().anyMatch(s -> s.groupName().equals("group-c")));
 
-        logger.info("✅ List subscriptions test passed");
+        logger.info("List subscriptions test passed");
     }
 
     @Test
@@ -419,7 +419,7 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
         assertTrue(resurrected.lastHeartbeatAt().isAfter(deadHeartbeat),
                   "Heartbeat timestamp should be updated");
 
-        logger.info("✅ Heartbeat auto-resurrection test passed");
+        logger.info("Heartbeat auto-resurrection test passed");
     }
 
     @Test
@@ -472,7 +472,7 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
         assertEquals(SubscriptionState.CANCELLED, stillCancelled.state(),
                     "CANCELLED subscription should NOT be resurrected by heartbeat");
 
-        logger.info("✅ Heartbeat does not resurrect CANCELLED test passed");
+        logger.info("Heartbeat does not resurrect CANCELLED test passed");
     }
 
     @Test
@@ -525,7 +525,7 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
         assertEquals(SubscriptionState.PAUSED, stillPaused.state(),
                     "PAUSED subscription should remain PAUSED after heartbeat");
 
-        logger.info("✅ Heartbeat keeps PAUSED subscription PAUSED test passed");
+        logger.info("Heartbeat keeps PAUSED subscription PAUSED test passed");
     }
     // --- Backfill Lifecycle Integration Tests (H2) ---
 

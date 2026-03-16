@@ -368,7 +368,7 @@ class DistributedSystemResilienceDemoTest {
         // Initialize database schema for distributed system resilience test
         System.out.println("🔧 Initializing database schema for distributed system resilience test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
-        System.out.println("✅ Database schema initialized successfully using centralized schema initializer (ALL components)");
+        System.out.println("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
         // Initialize PeeGeeQ with resilience configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
@@ -384,7 +384,7 @@ class DistributedSystemResilienceDemoTest {
 
         queueFactory = provider.createFactory("native", databaseService);
 
-        System.out.println("✅ Setup complete - Ready for distributed system resilience pattern testing");
+        System.out.println("Setup complete - Ready for distributed system resilience pattern testing");
     }
 
     @AfterEach
@@ -406,7 +406,7 @@ class DistributedSystemResilienceDemoTest {
         System.clearProperty("peegeeq.database.username");
         System.clearProperty("peegeeq.database.password");
 
-        System.out.println("✅ Cleanup complete");
+        System.out.println("Cleanup complete");
     }
 
     @Test
@@ -526,7 +526,7 @@ class DistributedSystemResilienceDemoTest {
         requestConsumer.close();
         responseConsumer.close();
 
-        System.out.println("✅ Circuit Breaker Pattern test completed successfully");
+        System.out.println("Circuit Breaker Pattern test completed successfully");
     }
 
 

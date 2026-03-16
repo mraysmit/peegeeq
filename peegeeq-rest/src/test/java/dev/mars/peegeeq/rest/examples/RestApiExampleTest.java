@@ -87,7 +87,7 @@ public class RestApiExampleTest {
         if (client != null) {
             try {
                 client.close();
-                logger.info("✅ WebClient closed");
+                logger.info("WebClient closed");
             } catch (Exception e) {
                 logger.warn("⚠️ Error closing WebClient", e);
             }
@@ -98,7 +98,7 @@ public class RestApiExampleTest {
                 CountDownLatch vertxCloseLatch = new CountDownLatch(1);
                 vertx.close()
                     .onSuccess(v -> {
-                        logger.info("✅ Vert.x closed successfully");
+                        logger.info("Vert.x closed successfully");
                         vertxCloseLatch.countDown();
                     })
                     .onFailure(throwable -> {
@@ -140,7 +140,7 @@ public class RestApiExampleTest {
         assertEquals(postgres.getHost(), databaseConfig.getString("host"));
         assertEquals(postgres.getDatabaseName(), databaseConfig.getString("databaseName"));
         
-        logger.info("✅ Database setup management validated successfully");
+        logger.info("Database setup management validated successfully");
     }
 
     /**
@@ -164,7 +164,7 @@ public class RestApiExampleTest {
         assertEquals("order-12345", orderMessage.getString("orderId"));
         assertEquals("customer-67890", orderMessage.getString("customerId"));
         
-        logger.info("✅ Queue operations validated successfully");
+        logger.info("Queue operations validated successfully");
     }
 
     /**
@@ -188,7 +188,7 @@ public class RestApiExampleTest {
         assertEquals("OrderCreated", orderEvent.getString("eventType"));
         assertEquals("order-12345", orderEvent.getString("aggregateId"));
         
-        logger.info("✅ Event store operations validated successfully");
+        logger.info("Event store operations validated successfully");
     }
 
     /**
@@ -215,7 +215,7 @@ public class RestApiExampleTest {
         assertTrue(checks.containsKey("database"), "Health checks should contain database");
         assertTrue(checks.containsKey("queues"), "Health checks should contain queues");
         
-        logger.info("✅ Health and metrics validated successfully");
+        logger.info("Health and metrics validated successfully");
     }
 
     /**
@@ -240,7 +240,7 @@ public class RestApiExampleTest {
         assertEquals("orders", consumerGroup.getString("queueName"));
         assertEquals(3, consumerGroup.getInteger("consumerCount"));
         
-        logger.info("✅ Consumer group management validated successfully");
+        logger.info("Consumer group management validated successfully");
     }
 
     // Helper methods that replicate the original example's functionality

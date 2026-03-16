@@ -36,7 +36,7 @@ find_hardcoded_versions() {
     HARDCODED_FILES=$(find . -name "*.java" -type f -exec grep -l 'new PostgreSQLContainer<>("postgres:' {} \; | grep -v PostgreSQLTestConstants.java)
     
     if [ -z "$HARDCODED_FILES" ]; then
-        echo -e "${GREEN}✅ No hardcoded PostgreSQL versions found!${NC}"
+        echo -e "${GREEN}No hardcoded PostgreSQL versions found!${NC}"
         return 0
     fi
     
@@ -65,7 +65,7 @@ migrate_file() {
         # Find the last import line and add our import after it
         sed -i '/^import.*$/a\
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;' "$file"
-        echo "   ✅ Added import statement"
+        echo "   Added import statement"
     fi
     
     # Replace hardcoded versions with constant
@@ -73,7 +73,7 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;' "$file"
     
     # Show what changed
     if ! diff -q "$backup_file" "$file" > /dev/null; then
-        echo "   ✅ Replaced hardcoded versions with constant"
+        echo "   Replaced hardcoded versions with constant"
         echo -e "${GREEN}   📝 Changes made:${NC}"
         diff -u "$backup_file" "$file" | grep -E '^[+-]' | grep -v '^[+-]{3}' | sed 's/^/      /'
     else
@@ -93,7 +93,7 @@ verify_migration() {
     REMAINING=$(find . -name "*.java" -type f -exec grep -l 'new PostgreSQLContainer<>("postgres:' {} \; | grep -v PostgreSQLTestConstants.java)
     
     if [ -z "$REMAINING" ]; then
-        echo -e "${GREEN}✅ Migration successful! No hardcoded versions remaining.${NC}"
+        echo -e "${GREEN}Migration successful! No hardcoded versions remaining.${NC}"
         return 0
     else
         echo -e "${RED}❌ Migration incomplete. Remaining hardcoded versions in:${NC}"
@@ -118,7 +118,7 @@ show_statistics() {
     HARDCODED_USAGES=$(find . -name "*.java" -type f -exec grep -c 'new PostgreSQLContainer<>("postgres:' {} \; | awk '{sum += $1} END {print sum}')
     
     echo "   📦 Total PostgreSQL containers: ${TOTAL_CONTAINERS:-0}"
-    echo "   ✅ Using constant: ${CONSTANT_USAGES:-0}"
+    echo "   Using constant: ${CONSTANT_USAGES:-0}"
     echo "   ❌ Hardcoded versions: ${HARDCODED_USAGES:-0}"
     
     if [ "${HARDCODED_USAGES:-0}" -eq 0 ]; then
@@ -173,7 +173,7 @@ main() {
         echo "   2. Run 'mvn test' to ensure all tests still pass"
         echo "   3. Commit the changes to version control"
         echo ""
-        echo -e "${GREEN}✅ Your project now uses a single PostgreSQL version: ${STANDARD_VERSION}${NC}"
+        echo -e "${GREEN}Your project now uses a single PostgreSQL version: ${STANDARD_VERSION}${NC}"
     else
         echo ""
         echo -e "${RED}❌ Migration failed. Please review the remaining files manually.${NC}"

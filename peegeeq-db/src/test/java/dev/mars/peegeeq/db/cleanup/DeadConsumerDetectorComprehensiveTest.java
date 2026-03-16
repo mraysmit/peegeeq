@@ -150,7 +150,7 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
                     "healthy-" + i + " should remain ACTIVE");
         }
 
-        logger.info("✅ All 5 dead consumers found, 3 healthy preserved");
+        logger.info("All 5 dead consumers found, 3 healthy preserved");
     }
 
     // ========================================================================
@@ -185,7 +185,7 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
         assertEquals("DEAD", getStatus(topic, "paused-group"),
                 "PAUSED consumer should be marked DEAD");
 
-        logger.info("✅ Paused consumer with expired heartbeat detected as DEAD");
+        logger.info("Paused consumer with expired heartbeat detected as DEAD");
     }
 
     // ========================================================================
@@ -219,7 +219,7 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
         assertEquals("DEAD", getStatus(topic, "dead-once"),
                 "Status should still be DEAD");
 
-        logger.info("✅ Already-DEAD consumer not re-detected on second run");
+        logger.info("Already-DEAD consumer not re-detected on second run");
     }
 
     // ========================================================================
@@ -253,7 +253,7 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
         assertEquals("CANCELLED", getStatus(topic, "cancelled-group"),
                 "Status should remain CANCELLED");
 
-        logger.info("✅ Cancelled consumer correctly excluded from detection");
+        logger.info("Cancelled consumer correctly excluded from detection");
     }
 
     // ========================================================================
@@ -314,7 +314,7 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
         assertEquals("DEAD", getStatus(topic, "already-dead")); // still DEAD, not re-processed
         assertEquals("CANCELLED", getStatus(topic, "cancelled"));
 
-        logger.info("✅ Mixed states: exactly 2 of 5 detected");
+        logger.info("Mixed states: exactly 2 of 5 detected");
     }
 
     // ========================================================================
@@ -399,7 +399,7 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
             assertNotNull(anyInfo.overdueDuration());
         }
 
-        logger.info("✅ DetectionResult structured fields validated: {} dead, {}ms",
+        logger.info("DetectionResult structured fields validated: {} dead, {}ms",
                 result.deadCount(), result.detectionTimeMs());
     }
 
@@ -452,7 +452,7 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
         assertNotNull(stats.oldestBlockedAge(),
                 "Oldest blocked age should not be null");
 
-        logger.info("✅ Blocked message stats validated: {} blocked for group '{}'",
+        logger.info("Blocked message stats validated: {} blocked for group '{}'",
                 stats.totalBlocked(), stats.groupName());
     }
 
@@ -510,7 +510,7 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
                         + before.totalCount() + " → " + after.totalCount());
         assertTrue(after.hasDeadSubscriptions(), "Should report dead subscriptions present");
 
-        logger.info("✅ Subscription summary validated: active={}, paused={}, dead={}, cancelled={}",
+        logger.info("Subscription summary validated: active={}, paused={}, dead={}, cancelled={}",
                 after.activeCount(), after.pausedCount(), after.deadCount(), after.cancelledCount());
     }
 
@@ -553,7 +553,7 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
         assertEquals(0L, eligibleAfter,
                 "Should find 0 eligible after detection (all marked DEAD)");
 
-        logger.info("✅ countEligibleForDeadDetection: before={}, after={}",
+        logger.info("countEligibleForDeadDetection: before={}, after={}",
                 eligibleBefore, eligibleAfter);
     }
 
@@ -602,7 +602,7 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
         assertEquals("DEAD", getStatus(topic, "boundary-group"),
                 "Should be marked DEAD");
 
-        logger.info("✅ Boundary: within timeout preserved, past timeout detected");
+        logger.info("Boundary: within timeout preserved, past timeout detected");
     }
 
     // ========================================================================

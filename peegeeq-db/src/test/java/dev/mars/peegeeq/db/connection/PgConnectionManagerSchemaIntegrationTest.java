@@ -178,7 +178,7 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
             .get(10, TimeUnit.SECONDS);
 
         assertEquals("schema_a_data", result, "Should query from schema_a");
-        logger.info("✅ getReactiveConnection() correctly applied schema_a");
+        logger.info("getReactiveConnection() correctly applied schema_a");
     }
 
     @Test
@@ -213,7 +213,7 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
         .get(10, TimeUnit.SECONDS);
 
         assertEquals("schema_b_data", result, "Should query from schema_b");
-        logger.info("✅ withConnection() correctly applied schema_b");
+        logger.info("withConnection() correctly applied schema_b");
     }
 
     @Test
@@ -249,7 +249,7 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
         .get(10, TimeUnit.SECONDS);
 
         assertEquals("txn_test", result, "Should insert and query from schema_a");
-        logger.info("✅ withTransaction() correctly applied schema_a");
+        logger.info("withTransaction() correctly applied schema_a");
     }
 
     @Test
@@ -285,7 +285,7 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
         .get(10, TimeUnit.SECONDS);
 
         assertEquals("schema_b_data", result, "Should query from schema_b with NONE propagation");
-        logger.info("✅ withTransaction(NONE) correctly applied schema_b");
+        logger.info("withTransaction(NONE) correctly applied schema_b");
     }
 
     @Test
@@ -317,7 +317,7 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
             .get(10, TimeUnit.SECONDS);
 
         assertTrue(isHealthy, "Health check should pass with valid schema");
-        logger.info("✅ Health check correctly applied schema_a");
+        logger.info("Health check correctly applied schema_a");
     }
 
 
@@ -377,7 +377,7 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
 
         assertEquals("schema_a_data", resultA, "Service A should query from schema_a");
         assertEquals("schema_b_data", resultB, "Service B should query from schema_b");
-        logger.info("✅ Multiple services correctly isolated by schema");
+        logger.info("Multiple services correctly isolated by schema");
     }
 
     @Test
@@ -428,7 +428,7 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
             "Exception should indicate invalid schema. Got: " + thrown.getClass().getName() +
             " with message: " + thrown.getMessage());
 
-        logger.info("✅ Invalid schema correctly rejected with exception: {}", thrown.getClass().getSimpleName());
+        logger.info("Invalid schema correctly rejected with exception: {}", thrown.getClass().getSimpleName());
     }
 
     @Test
@@ -464,7 +464,7 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
         .get(10, TimeUnit.SECONDS);
 
         assertTrue(result, "Should successfully query with default search_path");
-        logger.info("✅ No schema configuration correctly uses default search_path");
+        logger.info("No schema configuration correctly uses default search_path");
     }
 
     @Test
@@ -501,6 +501,6 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
         // Verify pool is removed
         assertNull(connectionManager.getExistingPool("test-cleanup"), "Pool should be removed");
 
-        logger.info("✅ Schema configuration correctly cleaned up on pool close");
+        logger.info("Schema configuration correctly cleaned up on pool close");
     }
 }

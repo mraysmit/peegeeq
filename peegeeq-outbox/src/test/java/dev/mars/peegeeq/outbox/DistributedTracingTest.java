@@ -48,11 +48,11 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  * <p>
  * <b>What This Test Demonstrates:</b>
  * <ul>
- *   <li>✅ Generating W3C Trace Context IDs (traceId, spanId)</li>
- *   <li>✅ Sending messages with trace headers (traceparent, correlationId)</li>
- *   <li>✅ Automatic MDC population in consumer</li>
- *   <li>✅ Trace context propagation verification</li>
- *   <li>✅ Logs showing populated trace IDs during message processing</li>
+ *   <li>Generating W3C Trace Context IDs (traceId, spanId)</li>
+ *   <li>Sending messages with trace headers (traceparent, correlationId)</li>
+ *   <li>Automatic MDC population in consumer</li>
+ *   <li>Trace context propagation verification</li>
+ *   <li>Logs showing populated trace IDs during message processing</li>
  * </ul>
  * <p>
  * <b>Expected Behavior:</b>
@@ -168,9 +168,9 @@ class DistributedTracingTest {
             consumerCorrelationId.set(MDC.get("correlationId"));
 
             System.out.println("\n📨 Consumer received message with trace context:");
-            System.out.println("  ✅ traceId from MDC:       " + consumerTraceId.get());
-            System.out.println("  ✅ spanId from MDC:        " + consumerSpanId.get());
-            System.out.println("  ✅ correlationId from MDC: " + consumerCorrelationId.get());
+            System.out.println("  traceId from MDC:       " + consumerTraceId.get());
+            System.out.println("  spanId from MDC:        " + consumerSpanId.get());
+            System.out.println("  correlationId from MDC: " + consumerCorrelationId.get());
 
             // Log with the logger to show MDC in action
             logger.info("Processing message - this log should show trace IDs!");
@@ -186,7 +186,7 @@ class DistributedTracingTest {
         // Use the 3-parameter send method to explicitly set correlation ID
         System.out.println("\n📤 Sending message with trace context...");
         producer.send("test-payload-with-tracing", headers, correlationId).get(5, TimeUnit.SECONDS);
-        System.out.println("✅ Message sent successfully");
+        System.out.println("Message sent successfully");
 
         // Wait for consumer to process
         System.out.println("\n⏳ Waiting for consumer to process message...");
@@ -198,16 +198,16 @@ class DistributedTracingTest {
         // Verify trace context was propagated
         System.out.println("\n🔍 Verifying trace context propagation:");
         assertEquals(traceId, consumerTraceId.get(), "Trace ID should be propagated to consumer");
-        System.out.println("  ✅ Trace ID matches: " + traceId);
+        System.out.println("  Trace ID matches: " + traceId);
 
         assertEquals(spanId, consumerSpanId.get(), "Span ID should be propagated to consumer");
-        System.out.println("  ✅ Span ID matches: " + spanId);
+        System.out.println("  Span ID matches: " + spanId);
 
         assertEquals(correlationId, consumerCorrelationId.get(), "Correlation ID should be propagated to consumer");
-        System.out.println("  ✅ Correlation ID matches: " + correlationId);
+        System.out.println("  Correlation ID matches: " + correlationId);
 
         System.out.println("\n" + "=".repeat(80));
-        System.out.println("✅ DISTRIBUTED TRACING TEST PASSED!");
+        System.out.println("DISTRIBUTED TRACING TEST PASSED!");
         System.out.println("   Trace context successfully propagated from producer to consumer");
         System.out.println("=".repeat(80) + "\n");
     }
@@ -230,8 +230,8 @@ class DistributedTracingTest {
             consumerSpanId.set(MDC.get("spanId"));
 
             System.out.println("\n📨 Consumer received message (originally without headers):");
-            System.out.println("  ✅ traceId from MDC: " + consumerTraceId.get());
-            System.out.println("  ✅ spanId from MDC:  " + consumerSpanId.get());
+            System.out.println("  traceId from MDC: " + consumerTraceId.get());
+            System.out.println("  spanId from MDC:  " + consumerSpanId.get());
 
             // Log with logger
             logger.info("Processing message with auto-generated trace context");
@@ -253,11 +253,11 @@ class DistributedTracingTest {
         assertNotNull(consumerTraceId.get(), "Trace ID should be automatically generated");
         assertFalse(consumerTraceId.get().isEmpty(), "Trace ID should not be empty");
         
-        System.out.println("  ✅ Auto-generated Trace ID found: " + consumerTraceId.get());
-        System.out.println("  ✅ Test confirmed: detailed logs are now ensured even for untraced messages.");
+        System.out.println("  Auto-generated Trace ID found: " + consumerTraceId.get());
+        System.out.println("  Test confirmed: detailed logs are now ensured even for untraced messages.");
 
         System.out.println("\n" + "=".repeat(80));
-        System.out.println("✅ AUTOMATIC TRACE GENERATION TEST PASSED!");
+        System.out.println("AUTOMATIC TRACE GENERATION TEST PASSED!");
         System.out.println("=".repeat(80) + "\n");
     }
 

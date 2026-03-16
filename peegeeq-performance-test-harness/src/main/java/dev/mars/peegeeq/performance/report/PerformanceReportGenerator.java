@@ -81,7 +81,7 @@ public class PerformanceReportGenerator {
         report.append("# PeeGeeQ Performance Test Report\n\n");
         report.append("**Generated:** ").append(timestamp.replace("_", " ")).append("\n");
         report.append("**Total Duration:** ").append(formatDuration(totalDuration)).append("\n");
-        report.append("**Test Status:** ").append(results.hasFailures() ? "❌ FAILED" : "✅ PASSED").append("\n\n");
+        report.append("**Test Status:** ").append(results.hasFailures() ? "❌ FAILED" : "PASSED").append("\n\n");
         
         // Executive Summary
         report.append("## Executive Summary\n\n");
@@ -166,20 +166,20 @@ public class PerformanceReportGenerator {
         if (results.getBitemporalResults() != null) {
             var bt = results.getBitemporalResults();
             if (bt.getQueryThroughput() > 10000) {
-                report.append("✅ **Excellent Query Performance:** Bi-temporal queries exceed 10,000 events/sec, meeting enterprise requirements.\n\n");
+                report.append("**Excellent Query Performance:** Bi-temporal queries exceed 10,000 events/sec, meeting enterprise requirements.\n\n");
             }
             if (bt.getAppendThroughput() > 500) {
-                report.append("✅ **Strong Append Performance:** Event append rate exceeds 500 events/sec, suitable for high-volume applications.\n\n");
+                report.append("**Strong Append Performance:** Event append rate exceeds 500 events/sec, suitable for high-volume applications.\n\n");
             }
         }
         
         if (results.getOutboxResults() != null) {
             var ob = results.getOutboxResults();
             if (ob.getSendThroughput() > 3000) {
-                report.append("✅ **High Message Throughput:** Outbox pattern achieves >3,000 msg/sec, suitable for high-volume transactional messaging.\n\n");
+                report.append("**High Message Throughput:** Outbox pattern achieves >3,000 msg/sec, suitable for high-volume transactional messaging.\n\n");
             }
             if (ob.getAverageLatency() < 100) {
-                report.append("✅ **Low Latency Messaging:** Average latency under 100ms provides responsive user experience.\n\n");
+                report.append("**Low Latency Messaging:** Average latency under 100ms provides responsive user experience.\n\n");
             }
         }
         

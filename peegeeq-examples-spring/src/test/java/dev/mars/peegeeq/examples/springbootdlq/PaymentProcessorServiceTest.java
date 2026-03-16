@@ -82,7 +82,7 @@ public class PaymentProcessorServiceTest {
     static void tearDown() {
         log.info("🧹 Cleaning up Payment Processor Service Test resources");
         // Container cleanup is handled by SharedTestContainers
-        log.info("✅ Payment Processor Service Test cleanup complete");
+        log.info("Payment Processor Service Test cleanup complete");
     }
 
     @DynamicPropertySource
@@ -177,7 +177,7 @@ public class PaymentProcessorServiceTest {
         assertTrue(paymentExists, "Payment should be stored in database");
         assertTrue(processorService.getPaymentsProcessed() > 0, "Payments processed count should increase");
         
-        log.info("✅ Successful Payment Processing test passed");
+        log.info("Successful Payment Processing test passed");
     }
     
     @Test
@@ -188,7 +188,7 @@ public class PaymentProcessorServiceTest {
         assertNotNull(dlqService, "DlqManagementService should be injected");
         assertNotNull(producer, "MessageProducer should be injected");
         
-        log.info("✅ Payment Processor Service Bean Injection test passed");
+        log.info("Payment Processor Service Bean Injection test passed");
     }
     
     @SuppressWarnings("null")
@@ -202,7 +202,7 @@ public class PaymentProcessorServiceTest {
         assertNotNull(response.getBody());
         assertTrue(response.getBody().containsKey("depth"));
         
-        log.info("✅ DLQ Depth Endpoint test passed");
+        log.info("DLQ Depth Endpoint test passed");
     }
     
     @SuppressWarnings("null")
@@ -218,7 +218,7 @@ public class PaymentProcessorServiceTest {
         assertTrue(response.getBody().containsKey("threshold"));
         assertTrue(response.getBody().containsKey("alerting"));
         
-        log.info("✅ DLQ Stats Endpoint test passed");
+        log.info("DLQ Stats Endpoint test passed");
     }
     
     @SuppressWarnings("null")
@@ -234,7 +234,7 @@ public class PaymentProcessorServiceTest {
         assertTrue(response.getBody().containsKey("paymentsFailed"));
         assertTrue(response.getBody().containsKey("paymentsRetried"));
         
-        log.info("✅ DLQ Metrics Endpoint test passed");
+        log.info("DLQ Metrics Endpoint test passed");
     }
     
     @Test
@@ -246,7 +246,7 @@ public class PaymentProcessorServiceTest {
         assertEquals(200, response.getStatusCode().value());
         assertNotNull(response.getBody());
         
-        log.info("✅ DLQ Messages Endpoint test passed");
+        log.info("DLQ Messages Endpoint test passed");
     }
 }
 

@@ -138,7 +138,7 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
             assertMessageState(msgId, "COMPLETED", 1, 1);
         }
 
-        logger.info("✅ Basic cleanup with auto-complete verified");
+        logger.info("Basic cleanup with auto-complete verified");
     }
 
     /**
@@ -175,7 +175,7 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
         assertEquals(0, second.messagesDecremented(), "Second run should have nothing to decrement");
         assertEquals(0, second.messagesAutoCompleted(), "Second run should have nothing to auto-complete");
 
-        logger.info("✅ Idempotency verified");
+        logger.info("Idempotency verified");
     }
 
     /**
@@ -228,7 +228,7 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
             assertEquals("COMPLETED", statusB, "group-b tracking row should be preserved");
         }
 
-        logger.info("✅ Completed group preservation verified");
+        logger.info("Completed group preservation verified");
     }
 
     /**
@@ -276,7 +276,7 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
         // Message 0 was already COMPLETED — shouldn't be touched
         assertMessageState(messageIds.get(0), "COMPLETED", 2, 2);
 
-        logger.info("✅ Partially processed dead group verified");
+        logger.info("Partially processed dead group verified");
     }
 
     /**
@@ -299,7 +299,7 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
         assertEquals(0, result.messagesAutoCompleted());
         assertFalse(result.hadWork());
 
-        logger.info("✅ Empty cleanup verified");
+        logger.info("Empty cleanup verified");
     }
 
     /**
@@ -337,7 +337,7 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
                     "Orphaned tracking row should be removed for message " + msgId);
         }
 
-        logger.info("✅ Orphaned tracking row removal verified");
+        logger.info("Orphaned tracking row removal verified");
     }
 
     /**
@@ -392,7 +392,7 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
                     "required should be decremented from 3 to 1");
         }
 
-        logger.info("✅ cleanupAllDeadGroups verified");
+        logger.info("cleanupAllDeadGroups verified");
     }
 
     /**
@@ -423,7 +423,7 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
         assertTrue(state.getInteger("required_consumer_groups") >= 0,
                 "required_consumer_groups should never be negative");
 
-        logger.info("✅ Zero-guard verified");
+        logger.info("Zero-guard verified");
     }
 
         /**
@@ -459,7 +459,7 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
                 "completed_consumer_groups remains 0 (no consumer completion rows)");
         }
 
-        logger.info("✅ Decrement-to-zero auto-complete verified");
+        logger.info("Decrement-to-zero auto-complete verified");
         }
 
         /**
@@ -500,7 +500,7 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
             assertEquals(0, state.getInteger("completed_consumer_groups"));
         }
 
-        logger.info("✅ Late-subscriber no-decrement behavior verified");
+        logger.info("Late-subscriber no-decrement behavior verified");
         }
 
     // ========================================================================
@@ -782,6 +782,6 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
                     "Failed topic required_consumer_groups should still be 2");
         }
 
-        logger.info("✅ Cleanup error resilience verified: good group cleaned, failed group produced zero-result");
+        logger.info("Cleanup error resilience verified: good group cleaned, failed group produced zero-result");
     }
 }

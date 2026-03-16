@@ -75,7 +75,7 @@ public class ConsumerModeMetricsTest {
                 SchemaComponent.DEAD_LETTER_QUEUE);
 
         initializeManagerAndFactory();
-        logger.info("✅ ConsumerModeMetricsTest setup completed");
+        logger.info("ConsumerModeMetricsTest setup completed");
     }
 
     @AfterEach
@@ -136,7 +136,7 @@ public class ConsumerModeMetricsTest {
             testMessageCountMetricsForMode(topicName + "-" + mode.name().toLowerCase(), mode, messageCount, vertx);
         }
 
-        logger.info("✅ Message count metrics test completed successfully");
+        logger.info("Message count metrics test completed successfully");
     }
 
     @Test
@@ -155,7 +155,7 @@ public class ConsumerModeMetricsTest {
             testProcessingTimeMetricsForMode(topicName + "-" + mode.name().toLowerCase(), mode, messageCount, vertx);
         }
 
-        logger.info("✅ Processing time metrics test completed successfully");
+        logger.info("Processing time metrics test completed successfully");
     }
 
     @Test
@@ -223,7 +223,7 @@ public class ConsumerModeMetricsTest {
         consumer.close();
         producer.close();
         
-        logger.info("✅ Queue depth metrics test completed successfully");
+        logger.info("Queue depth metrics test completed successfully");
     }
 
     private void testMessageCountMetricsForMode(String topicName, ConsumerMode mode, int messageCount, Vertx vertx) throws Exception {

@@ -26,7 +26,7 @@ import org.testcontainers.containers.PostgreSQLContainer;
  * 
  * Usage:
  * ```java
- * // ✅ CORRECT - Use the centralized constant
+ * // CORRECT - Use the centralized constant
  * PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
  *     .withDatabaseName("test_db")
  *     .withUsername("test_user")

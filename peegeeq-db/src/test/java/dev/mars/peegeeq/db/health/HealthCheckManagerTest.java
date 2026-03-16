@@ -334,7 +334,7 @@ class HealthCheckManagerTest {
         assertNotNull(failingHealth.getMessage());
         assertTrue(failingHealth.getMessage().contains("Health check threw exception"));
 
-        System.out.println("✅ **SUCCESS** ✅ Health check failure was properly handled and reported");
+        System.out.println("**SUCCESS** Health check failure was properly handled and reported");
         System.out.println("🧪 ===== INTENTIONAL FAILURE TEST COMPLETED ===== 🧪");
     }
 
@@ -400,7 +400,7 @@ class HealthCheckManagerTest {
         assertNotNull(dbHealth);
         assertFalse(dbHealth.isHealthy());
 
-        System.out.println("✅ **SUCCESS** ✅ Database failure was properly detected and reported");
+        System.out.println("**SUCCESS** Database failure was properly detected and reported");
         System.out.println("🧪 ===== INTENTIONAL FAILURE TEST COMPLETED ===== 🧪");
     }
 

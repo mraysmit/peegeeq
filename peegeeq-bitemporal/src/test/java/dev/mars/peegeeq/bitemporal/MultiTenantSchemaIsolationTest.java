@@ -165,7 +165,7 @@ class MultiTenantSchemaIsolationTest {
         assertEquals(1, eventsA.size(), "Tenant A should see exactly 1 event");
         assertEquals("tenant-a-data", eventsA.get(0).getPayload().getData(), "Tenant A should see correct event data");
 
-        logger.info("✅ Event isolation verified");
+        logger.info("Event isolation verified");
     }
 
     @Test
@@ -195,7 +195,7 @@ class MultiTenantSchemaIsolationTest {
         assertEquals("tenant-a-data", eventsA.get(0).getPayload().getData(), "Tenant A should see its own data");
         assertEquals("tenant-b-data", eventsB.get(0).getPayload().getData(), "Tenant B should see its own data");
 
-        logger.info("✅ Query isolation verified");
+        logger.info("Query isolation verified");
     }
 
     @Test
@@ -227,7 +227,7 @@ class MultiTenantSchemaIsolationTest {
         assertEquals("tenant-a-data", eventsA.get(0).getPayload().getData(), "Tenant A should see its own data");
         assertEquals("tenant-b-data", eventsB.get(0).getPayload().getData(), "Tenant B should see its own data");
 
-        logger.info("✅ Aggregate ID isolation verified");
+        logger.info("Aggregate ID isolation verified");
     }
 }
 

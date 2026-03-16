@@ -143,7 +143,7 @@ class NativeQueueFeatureTest {
         assertEquals("native", nativeFactory.getImplementationType());
         assertTrue(nativeFactory.isHealthy());
         
-        logger.info("✅ Native factory creation test passed");
+        logger.info("Native factory creation test passed");
     }
     
     @Test
@@ -155,7 +155,7 @@ class NativeQueueFeatureTest {
         assertEquals("outbox", outboxFactory.getImplementationType());
         assertNotEquals(nativeFactory.getClass(), outboxFactory.getClass());
         
-        logger.info("✅ Native vs Outbox factory differences test passed");
+        logger.info("Native vs Outbox factory differences test passed");
     }
     
     @Test
@@ -193,7 +193,7 @@ class NativeQueueFeatureTest {
         producer.close();
         consumer.close();
         
-        logger.info("✅ Native real-time messaging test passed");
+        logger.info("Native real-time messaging test passed");
     }
     
     @Test
@@ -242,7 +242,7 @@ class NativeQueueFeatureTest {
         consumerGroup.stop();
         producer.close();
         
-        logger.info("✅ Native consumer groups test passed");
+        logger.info("Native consumer groups test passed");
     }
     
     @Test
@@ -292,7 +292,7 @@ class NativeQueueFeatureTest {
         producer.close();
         consumer.close();
         
-        logger.info("✅ Native message concurrency test passed");
+        logger.info("Native message concurrency test passed");
     }
     
     @Test
@@ -323,7 +323,7 @@ class NativeQueueFeatureTest {
         // Factory should still be healthy
         assertTrue(nativeFactory.isHealthy());
         
-        logger.info("✅ Native factory resource management test passed");
+        logger.info("Native factory resource management test passed");
     }
     
     /**

@@ -91,7 +91,7 @@ public class ServiceDiscoveryExampleTest {
         // Deploy Service Manager using Vert.x 5.x composable Future pattern
         try {
             serviceManagerDeploymentId = vertx.deployVerticle(new PeeGeeQServiceManager(SERVICE_MANAGER_PORT))
-                .onSuccess(id -> logger.info("✅ Service Manager deployed for testing"))
+                .onSuccess(id -> logger.info("Service Manager deployed for testing"))
                 .onFailure(throwable -> logger.error("❌ Failed to deploy Service Manager", throwable))
                 .toCompletionStage()
                 .toCompletableFuture()
@@ -114,7 +114,7 @@ public class ServiceDiscoveryExampleTest {
         if (serviceManagerDeploymentId != null) {
             try {
                 vertx.undeploy(serviceManagerDeploymentId)
-                    .onSuccess(v -> logger.info("✅ Service Manager undeployed"))
+                    .onSuccess(v -> logger.info("Service Manager undeployed"))
                     .onFailure(throwable -> logger.error("❌ Failed to undeploy Service Manager", throwable))
                     .toCompletionStage()
                     .toCompletableFuture()
@@ -160,7 +160,7 @@ public class ServiceDiscoveryExampleTest {
 
             if (statusCode == 200) {
                 JsonObject health = response.bodyAsJsonObject();
-                logger.info("✅ Service Manager health check successful");
+                logger.info("Service Manager health check successful");
 
                 assertNotNull(health.getString("status"));
                 assertNotNull(health.getString("service"));
@@ -206,7 +206,7 @@ public class ServiceDiscoveryExampleTest {
 
             if (statusCode == 201) {
                 JsonObject responseBody = response.bodyAsJsonObject();
-                logger.info("✅ Instance registered successfully");
+                logger.info("Instance registered successfully");
 
                 assertNotNull(responseBody.getString("message"));
                 assertTrue(responseBody.getString("message").contains("registered") ||
@@ -234,7 +234,7 @@ public class ServiceDiscoveryExampleTest {
             if (statusCode == 200) {
                 JsonObject responseBody = response.bodyAsJsonObject();
                 JsonArray instances = responseBody.getJsonArray("instances");
-                logger.info("✅ Listed instances: {}", instances.size());
+                logger.info("Listed instances: {}", instances.size());
 
                 assertNotNull(responseBody);
                 assertNotNull(instances);
@@ -268,7 +268,7 @@ public class ServiceDiscoveryExampleTest {
 
             if (statusCode == 200) {
                 JsonObject overview = response.bodyAsJsonObject();
-                logger.info("✅ Federated overview retrieved");
+                logger.info("Federated overview retrieved");
 
                 assertNotNull(overview.getInteger("instanceCount"));
                 assertNotNull(overview.getJsonObject("aggregatedData"));
@@ -299,7 +299,7 @@ public class ServiceDiscoveryExampleTest {
 
             if (statusCode == 200) {
                 JsonObject metrics = response.bodyAsJsonObject();
-                logger.info("✅ Federated metrics retrieved");
+                logger.info("Federated metrics retrieved");
 
                 assertNotNull(metrics.getJsonObject("metrics"));
                 assertNotNull(metrics.getString("message"));
@@ -342,7 +342,7 @@ public class ServiceDiscoveryExampleTest {
             if (statusCode == 200) {
                 JsonObject responseBody = response.bodyAsJsonObject();
                 JsonArray instances = responseBody.getJsonArray("instances");
-                logger.info("✅ Production instances: {}", instances.size());
+                logger.info("Production instances: {}", instances.size());
 
                 assertNotNull(responseBody);
                 assertNotNull(instances);
@@ -384,7 +384,7 @@ public class ServiceDiscoveryExampleTest {
 
             if (statusCode == 200) {
                 JsonObject responseBody = response.bodyAsJsonObject();
-                logger.info("✅ Instance deregistered successfully");
+                logger.info("Instance deregistered successfully");
 
                 assertNotNull(responseBody.getString("message"));
                 assertTrue(responseBody.getString("message").contains("unregistered") ||
@@ -421,7 +421,7 @@ public class ServiceDiscoveryExampleTest {
                 .toCompletionStage()
                 .toCompletableFuture()
                 .get(10, TimeUnit.SECONDS);
-            logger.info("✅ Test instance registered: {}", instanceId);
+            logger.info("Test instance registered: {}", instanceId);
         } catch (Exception e) {
             logger.warn("⚠️ Failed to register test instance: {}", instanceId);
         }

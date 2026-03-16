@@ -91,7 +91,7 @@ class OutboxProducerAdditionalCoverageTest {
         assertTrue(exception.getCause().getMessage().contains("payload cannot be null"),
                 "Error message should indicate null payload");
         
-        logger.info("✅ Null payload validation working correctly");
+        logger.info("Null payload validation working correctly");
     }
 
     @Test
@@ -105,7 +105,7 @@ class OutboxProducerAdditionalCoverageTest {
         String largePayload = largeContent.toString();
         producer.send(largePayload).get(10, TimeUnit.SECONDS);
         
-        logger.info("✅ Large payload ({} chars) sent successfully", largePayload.length());
+        logger.info("Large payload ({} chars) sent successfully", largePayload.length());
     }
 
     @Test
@@ -114,7 +114,7 @@ class OutboxProducerAdditionalCoverageTest {
         String specialPayload = "Message with special chars: 你好 مرحبا здравствуйте emoji:🎉🚀 \n\t\"quotes\" 'apostrophes'";
         producer.send(specialPayload).get(5, TimeUnit.SECONDS);
         
-        logger.info("✅ Special characters in payload handled correctly");
+        logger.info("Special characters in payload handled correctly");
     }
 
     @Test
@@ -122,7 +122,7 @@ class OutboxProducerAdditionalCoverageTest {
         // Test empty string (valid but edge case)
         producer.send("").get(5, TimeUnit.SECONDS);
         
-        logger.info("✅ Empty string payload accepted");
+        logger.info("Empty string payload accepted");
     }
 
     @Test
@@ -130,7 +130,7 @@ class OutboxProducerAdditionalCoverageTest {
         // Test with null headers (should use empty map)
         producer.send("test-payload", null).get(5, TimeUnit.SECONDS);
         
-        logger.info("✅ Null headers handled correctly");
+        logger.info("Null headers handled correctly");
     }
 
     @Test
@@ -139,7 +139,7 @@ class OutboxProducerAdditionalCoverageTest {
         Map<String, String> emptyHeaders = new HashMap<>();
         producer.send("test-payload", emptyHeaders).get(5, TimeUnit.SECONDS);
         
-        logger.info("✅ Empty headers map handled correctly");
+        logger.info("Empty headers map handled correctly");
     }
 
     @Test
@@ -151,7 +151,7 @@ class OutboxProducerAdditionalCoverageTest {
         
         producer.send("test-payload", headersWithNulls).get(5, TimeUnit.SECONDS);
         
-        logger.info("✅ Headers with null values handled correctly");
+        logger.info("Headers with null values handled correctly");
     }
 
     @Test
@@ -166,7 +166,7 @@ class OutboxProducerAdditionalCoverageTest {
         
         producer.send("test-payload", longHeaders).get(5, TimeUnit.SECONDS);
         
-        logger.info("✅ Very long header values handled correctly");
+        logger.info("Very long header values handled correctly");
     }
 
     @Test
@@ -178,7 +178,7 @@ class OutboxProducerAdditionalCoverageTest {
         
         producer.send("test-payload", specialHeaders).get(5, TimeUnit.SECONDS);
         
-        logger.info("✅ Special characters in headers handled correctly");
+        logger.info("Special characters in headers handled correctly");
     }
 
     @Test
@@ -186,7 +186,7 @@ class OutboxProducerAdditionalCoverageTest {
         // Test with explicit null correlation ID
         producer.send("test-payload", new HashMap<>(), null).get(5, TimeUnit.SECONDS);
         
-        logger.info("✅ Null correlation ID handled correctly (auto-generated)");
+        logger.info("Null correlation ID handled correctly (auto-generated)");
     }
 
     @Test
@@ -194,7 +194,7 @@ class OutboxProducerAdditionalCoverageTest {
         // Test with empty string correlation ID
         producer.send("test-payload", new HashMap<>(), "").get(5, TimeUnit.SECONDS);
         
-        logger.info("✅ Empty correlation ID handled correctly");
+        logger.info("Empty correlation ID handled correctly");
     }
 
     @Test
@@ -205,7 +205,7 @@ class OutboxProducerAdditionalCoverageTest {
         producer.send("payload-1", new HashMap<>(), correlationId).get(5, TimeUnit.SECONDS);
         producer.send("payload-2", new HashMap<>(), correlationId).get(5, TimeUnit.SECONDS);
         
-        logger.info("✅ Duplicate correlation IDs allowed (by design)");
+        logger.info("Duplicate correlation IDs allowed (by design)");
     }
 
     @Test
@@ -219,7 +219,7 @@ class OutboxProducerAdditionalCoverageTest {
         producer.send("test-2", lowPriority).get(5, TimeUnit.SECONDS);
         producer.send("test-3", noPriority).get(5, TimeUnit.SECONDS);
         
-        logger.info("✅ Priority headers handled correctly");
+        logger.info("Priority headers handled correctly");
     }
 
     @Test
@@ -233,7 +233,7 @@ class OutboxProducerAdditionalCoverageTest {
             producer2.send("from-producer-2").get(5, TimeUnit.SECONDS);
             producer3.send("from-producer-3").get(5, TimeUnit.SECONDS);
             
-            logger.info("✅ Multiple producers to same topic working correctly");
+            logger.info("Multiple producers to same topic working correctly");
         } finally {
             producer2.close();
             producer3.close();
@@ -251,7 +251,7 @@ class OutboxProducerAdditionalCoverageTest {
         testProducer.close(); // Second close should be safe
         testProducer.close(); // Third close should be safe
         
-        logger.info("✅ Producer close is idempotent");
+        logger.info("Producer close is idempotent");
     }
 
     @Test
@@ -265,7 +265,7 @@ class OutboxProducerAdditionalCoverageTest {
             testProducer.send("should-fail").get(5, TimeUnit.SECONDS);
         });
         
-        logger.info("✅ Send after close fails gracefully");
+        logger.info("Send after close fails gracefully");
     }
 
     @Test
@@ -283,7 +283,7 @@ class OutboxProducerAdditionalCoverageTest {
             
             complexProducer.send(payload).get(5, TimeUnit.SECONDS);
             
-            logger.info("✅ Complex payload object serialization working");
+            logger.info("Complex payload object serialization working");
         } finally {
             complexProducer.close();
         }
@@ -305,7 +305,7 @@ class OutboxProducerAdditionalCoverageTest {
             future.get(10, TimeUnit.SECONDS);
         }
         
-        logger.info("✅ Concurrent sends ({}) completed successfully", concurrentCount);
+        logger.info("Concurrent sends ({}) completed successfully", concurrentCount);
     }
 
     @Test
@@ -317,7 +317,7 @@ class OutboxProducerAdditionalCoverageTest {
         producer.send("group-msg-2", new HashMap<>(), "corr-id-2", messageGroup).get(5, TimeUnit.SECONDS);
         producer.send("group-msg-3", new HashMap<>(), "corr-id-3", messageGroup).get(5, TimeUnit.SECONDS);
         
-        logger.info("✅ Message group functionality working");
+        logger.info("Message group functionality working");
     }
 
     /**

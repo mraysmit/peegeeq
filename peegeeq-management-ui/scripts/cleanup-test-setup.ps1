@@ -25,7 +25,7 @@ try {
                 -TimeoutSec 60
             
             Write-Host ""
-            Write-Host "✅ Setup deleted successfully!" -ForegroundColor Green
+            Write-Host "Setup deleted successfully!" -ForegroundColor Green
             Write-Host ""
             Write-Host "The following were removed:" -ForegroundColor Cyan
             Write-Host "- Setup: $SETUP_ID" -ForegroundColor White

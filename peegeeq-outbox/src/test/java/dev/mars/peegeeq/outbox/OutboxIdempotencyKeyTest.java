@@ -116,7 +116,7 @@ class OutboxIdempotencyKeyTest {
         int count = getMessageCountForIdempotencyKey(idempotencyKey);
         assertEquals(1, count, "Should have exactly 1 message with this idempotency key");
 
-        logger.info("✅ First send with idempotency key succeeded");
+        logger.info("First send with idempotency key succeeded");
     }
 
     @Test
@@ -145,7 +145,7 @@ class OutboxIdempotencyKeyTest {
         String payload = getPayloadForIdempotencyKey(idempotencyKey);
         assertEquals("{\"value\": \"test-payload-1\"}", payload, "Should have payload from first send");
 
-        logger.info("✅ Duplicate sends were correctly ignored");
+        logger.info("Duplicate sends were correctly ignored");
     }
 
     @Test
@@ -164,7 +164,7 @@ class OutboxIdempotencyKeyTest {
         int count = getMessageCountForTopic(testTopic);
         assertTrue(count >= 3, "Should have at least 3 messages when no idempotency key is used");
 
-        logger.info("✅ Messages without idempotency key allow duplicates as expected");
+        logger.info("Messages without idempotency key allow duplicates as expected");
     }
 
     @Test
@@ -181,7 +181,7 @@ class OutboxIdempotencyKeyTest {
         int count = getMessageCountForTopic(testTopic);
         assertEquals(5, count, "Should have 5 messages with different idempotency keys");
 
-        logger.info("✅ All messages with different idempotency keys were inserted");
+        logger.info("All messages with different idempotency keys were inserted");
     }
 
     @Test
@@ -226,7 +226,7 @@ class OutboxIdempotencyKeyTest {
         int count = getMessageCountForIdempotencyKey(idempotencyKey);
         assertEquals(1, count, "Should have exactly 1 message despite concurrent sends");
 
-        logger.info("✅ Concurrent duplicate sends handled correctly");
+        logger.info("Concurrent duplicate sends handled correctly");
     }
 
     @Test
@@ -263,7 +263,7 @@ class OutboxIdempotencyKeyTest {
         assertEquals(1, receivedCount.get(), "Consumer should receive message only once");
 
         consumer.close();
-        logger.info("✅ Consumer received message only once despite duplicate sends");
+        logger.info("Consumer received message only once despite duplicate sends");
     }
 
     @Test
@@ -280,7 +280,7 @@ class OutboxIdempotencyKeyTest {
         int count = getMessageCountForTopic(testTopic);
         assertEquals(2, count, "Should have 2 messages when idempotency key is null");
 
-        logger.info("✅ Null idempotency key allows duplicates");
+        logger.info("Null idempotency key allows duplicates");
     }
 
     @Test
@@ -297,7 +297,7 @@ class OutboxIdempotencyKeyTest {
         int count = getMessageCountForTopic(testTopic);
         assertEquals(2, count, "Should have 2 messages when idempotency key is empty");
 
-        logger.info("✅ Empty idempotency key allows duplicates");
+        logger.info("Empty idempotency key allows duplicates");
     }
 
     // Helper methods

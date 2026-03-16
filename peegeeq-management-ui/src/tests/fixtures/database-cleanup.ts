@@ -69,7 +69,7 @@ export const test = base.extend<DatabaseCleanupFixture>({
         await client.query(`DROP SCHEMA IF EXISTS "${schemaName}" CASCADE`)
       }
 
-      console.log('✅ Database cleaned')
+      console.log('Database cleaned')
 
     } catch (error) {
       console.error('❌ Database cleanup failed:', error)

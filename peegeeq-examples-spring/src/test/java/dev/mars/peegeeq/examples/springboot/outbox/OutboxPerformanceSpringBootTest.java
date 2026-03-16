@@ -90,7 +90,7 @@ public class OutboxPerformanceSpringBootTest {
         for (MessageConsumer<?> consumer : activeConsumers) {
             try {
                 consumer.close();
-                logger.info("✅ Closed consumer");
+                logger.info("Closed consumer");
             } catch (Exception e) {
                 logger.error("⚠️ Error closing consumer: {}", e.getMessage());
             }
@@ -101,7 +101,7 @@ public class OutboxPerformanceSpringBootTest {
         for (MessageProducer<?> producer : activeProducers) {
             try {
                 producer.close();
-                logger.info("✅ Closed producer");
+                logger.info("Closed producer");
             } catch (Exception e) {
                 logger.error("⚠️ Error closing producer: {}", e.getMessage());
             }
@@ -114,7 +114,7 @@ public class OutboxPerformanceSpringBootTest {
         vertx.setTimer(2000, id -> delay.complete(null));
         delay.join();
         
-        logger.info("✅ Cleanup complete");
+        logger.info("Cleanup complete");
     }
 
     /**
@@ -177,7 +177,7 @@ public class OutboxPerformanceSpringBootTest {
         Instant sendEnd = Instant.now();
         long sendDuration = Duration.between(sendStart, sendEnd).toMillis();
         
-        logger.info("✅ All messages sent in {} ms", sendDuration);
+        logger.info("All messages sent in {} ms", sendDuration);
         logger.info("   Send throughput: {} msg/sec", (messageCount * 1000L) / sendDuration);
         
         // Wait for all messages to be processed (allow 0.5 sec per message + overhead)
@@ -201,8 +201,8 @@ public class OutboxPerformanceSpringBootTest {
         assertEquals(messageCount, processedCount.get(), "Should have processed all messages");
         assertTrue(throughput > 0, "Throughput should be greater than 0 msg/sec");
 
-        logger.info("✅ High-Volume Processing test passed");
-        logger.info("✅ Successfully processed {} messages at {} msg/sec", messageCount, throughput);
+        logger.info("High-Volume Processing test passed");
+        logger.info("Successfully processed {} messages at {} msg/sec", messageCount, throughput);
         logger.info("   Note: Actual throughput depends on polling interval (500ms) and batch size");
     }
 
@@ -298,8 +298,8 @@ public class OutboxPerformanceSpringBootTest {
                 entry.getKey() + " should have processed at least one message");
         }
         
-        logger.info("✅ Concurrent Consumer Performance test passed");
-        logger.info("✅ {} consumers processed {} messages at {} msg/sec", 
+        logger.info("Concurrent Consumer Performance test passed");
+        logger.info("{} consumers processed {} messages at {} msg/sec", 
             consumerCount, messageCount, throughput);
     }
 
@@ -386,8 +386,8 @@ public class OutboxPerformanceSpringBootTest {
         assertEquals(messageCount, processedCount.get(), "Should have processed all messages");
         assertTrue(throughput > 0, "Batch processing throughput should be greater than 0 msg/sec");
 
-        logger.info("✅ Batch Processing Efficiency test passed");
-        logger.info("✅ Processed {} messages at {} msg/sec", messageCount, throughput);
+        logger.info("Batch Processing Efficiency test passed");
+        logger.info("Processed {} messages at {} msg/sec", messageCount, throughput);
         logger.info("   Note: Actual throughput depends on polling interval (500ms) and batch size");
     }
 

@@ -169,7 +169,7 @@ public class OutboxConsumerCrashRecoveryTest {
         logger.info("🔧 DEBUG: About to verify message exists in PENDING state...");
         try {
             verifyMessageExists(testMessage, "PENDING");
-            logger.info("✅ Message confirmed in PENDING state");
+            logger.info("Message confirmed in PENDING state");
         } catch (Exception e) {
             logger.error("🚨 ERROR: Failed to verify message in PENDING state", e);
             throw e;
@@ -200,9 +200,9 @@ public class OutboxConsumerCrashRecoveryTest {
             "Message should be either PROCESSING (before recovery) or PENDING (after recovery), but was: " + currentStatus);
 
         if (currentStatus.equals("PROCESSING")) {
-            logger.info("✅ VERIFIED: Message is temporarily stuck in PROCESSING state (recovery will handle this)");
+            logger.info("VERIFIED: Message is temporarily stuck in PROCESSING state (recovery will handle this)");
         } else {
-            logger.info("✅ VERIFIED: Message was automatically recovered from PROCESSING to PENDING state");
+            logger.info("VERIFIED: Message was automatically recovered from PROCESSING to PENDING state");
         }
 
         logger.info("💡 This test demonstrates that the stuck message recovery mechanism");

@@ -114,7 +114,7 @@ class EndToEndValidationTest {
                         assertTrue(healthResponse.containsKey("uptime"));
                         assertTrue(healthResponse.containsKey("version"));
                         
-                        logger.info("✅ Health check endpoint working correctly");
+                        logger.info("Health check endpoint working correctly");
                         testContext.completeNow();
                     } catch (Exception e) {
                         testContext.failNow(e);
@@ -148,7 +148,7 @@ class EndToEndValidationTest {
                         assertTrue(systemStats.containsKey("totalEventStores"));
                         assertTrue(systemStats.containsKey("uptime"));
                         
-                        logger.info("✅ Management overview endpoint working correctly");
+                        logger.info("Management overview endpoint working correctly");
                         testContext.completeNow();
                     } catch (Exception e) {
                         testContext.failNow(e);
@@ -177,7 +177,7 @@ class EndToEndValidationTest {
                     assertTrue(metricsText.contains("# HELP"));
                     assertTrue(metricsText.contains("# TYPE"));
                     
-                    logger.info("✅ Metrics endpoint working correctly");
+                    logger.info("Metrics endpoint working correctly");
                     testContext.completeNow();
                 }).onFailure(testContext::failNow);
             })
@@ -201,7 +201,7 @@ class EndToEndValidationTest {
                         assertTrue(queuesResponse.containsKey("queues"));
                         assertTrue(queuesResponse.containsKey("timestamp"));
                         
-                        logger.info("✅ Management queues endpoint working correctly");
+                        logger.info("Management queues endpoint working correctly");
                         testContext.completeNow();
                     } catch (Exception e) {
                         testContext.failNow(e);
@@ -225,7 +225,7 @@ class EndToEndValidationTest {
         
         // Wait a bit to ensure server is fully started
         vertx.setTimer(1000, id -> {
-            logger.info("✅ All endpoints integration test completed");
+            logger.info("All endpoints integration test completed");
             testContext.completeNow();
         });
     }
@@ -240,7 +240,7 @@ class EndToEndValidationTest {
             // Server should already be started in setUp()
         });
         
-        logger.info("✅ Server startup and shutdown test completed");
+        logger.info("Server startup and shutdown test completed");
         testContext.completeNow();
     }
 
@@ -270,7 +270,7 @@ class EndToEndValidationTest {
         logger.info("  - Prometheus metrics format is correct");
         logger.info("  - Server handles concurrent requests properly");
         logger.info("");
-        logger.info("✅ End-to-End Validation: PASSED");
+        logger.info("End-to-End Validation: PASSED");
         
         assertTrue(true, "Documentation and validation complete");
     }

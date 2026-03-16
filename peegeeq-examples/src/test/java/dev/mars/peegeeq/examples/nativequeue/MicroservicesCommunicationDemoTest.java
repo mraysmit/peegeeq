@@ -301,7 +301,7 @@ class MicroservicesCommunicationDemoTest {
         // Initialize database schema for microservices communication test
         System.out.println("🔧 Initializing database schema for microservices communication test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
-        System.out.println("✅ Database schema initialized successfully using centralized schema initializer (ALL components)");
+        System.out.println("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
         // Initialize PeeGeeQ with microservices configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
@@ -317,7 +317,7 @@ class MicroservicesCommunicationDemoTest {
 
         queueFactory = provider.createFactory("native", databaseService);
 
-        System.out.println("✅ Setup complete - Ready for microservices communication pattern testing");
+        System.out.println("Setup complete - Ready for microservices communication pattern testing");
     }
 
     @AfterEach
@@ -337,7 +337,7 @@ class MicroservicesCommunicationDemoTest {
         System.clearProperty("peegeeq.database.username");
         System.clearProperty("peegeeq.database.password");
 
-        System.out.println("✅ Cleanup complete");
+        System.out.println("Cleanup complete");
     }
 
     @Test
@@ -477,7 +477,7 @@ class MicroservicesCommunicationDemoTest {
         requestConsumer.close();
         responseConsumer.close();
 
-        System.out.println("✅ Request-Response Pattern test completed successfully");
+        System.out.println("Request-Response Pattern test completed successfully");
     }
 }
 
