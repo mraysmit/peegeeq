@@ -23,7 +23,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
  * INFRASTRUCTURE TEST: Self-Contained Demo Runner and Container Management
@@ -56,7 +56,8 @@ public class PeeGeeQSelfContainedDemoTest {
         
         // Start PostgreSQL container
         logger.info("Starting PostgreSQL container...");
-        PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
+        @SuppressWarnings("resource") // Container closed explicitly in finally block
+        PostgreSQLContainer postgres = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)
                 .withDatabaseName("peegeeq_demo")
                 .withUsername("peegeeq_demo")
                 .withPassword("peegeeq_demo")
@@ -97,7 +98,7 @@ public class PeeGeeQSelfContainedDemoTest {
     /**
      * Configures system properties to use the TestContainer database.
      */
-    private static void configureSystemPropertiesForContainer(PostgreSQLContainer<?> postgres) {
+    private static void configureSystemPropertiesForContainer(PostgreSQLContainer postgres) {
         logger.info("  Configuring PeeGeeQ to use container database...");
         
         // Extract connection details from container

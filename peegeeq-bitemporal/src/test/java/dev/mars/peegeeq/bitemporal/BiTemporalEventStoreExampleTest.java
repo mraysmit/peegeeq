@@ -33,7 +33,7 @@ import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.Tag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
@@ -88,13 +88,14 @@ class BiTemporalEventStoreExampleTest {
     private static final Logger logger = LoggerFactory.getLogger(BiTemporalEventStoreExampleTest.class);
     
     // Use a shared container that persists across multiple test classes to prevent port conflicts
-    private static PostgreSQLContainer<?> sharedPostgres;
+    private static PostgreSQLContainer sharedPostgres;
 
     static {
         // Initialize shared container only once across all example test classes
         if (sharedPostgres == null) {
-            PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
-            container.withDatabaseName("peegeeq_bitemporal_test");
+            @SuppressWarnings("resource") // Stored in sharedPostgres and closed via shutdown hook
+            PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)
+                .withDatabaseName("peegeeq_bitemporal_test")
                 .withUsername("postgres")
                 .withPassword("password")
                 .withSharedMemorySize(256 * 1024 * 1024L) // 256MB shared memory
@@ -184,6 +185,7 @@ class BiTemporalEventStoreExampleTest {
         if (manager != null) {
             try {
                 // Use the PeeGeeQ manager's connection provider for reactive database operations
+                @SuppressWarnings("resource") // Lifecycle managed by PeeGeeQManager teardown
                 var databaseService = new dev.mars.peegeeq.db.provider.PgDatabaseService(manager);
                 var connectionProvider = databaseService.getConnectionProvider();
 

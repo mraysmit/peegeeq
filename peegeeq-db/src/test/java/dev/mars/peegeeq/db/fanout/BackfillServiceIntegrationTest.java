@@ -16,14 +16,13 @@ import dev.mars.peegeeq.db.subscription.TopicSemantics;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
-import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -56,7 +55,7 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
     void setUp() throws Exception {
         connectionManager = new PgConnectionManager(manager.getVertx(), null);
 
-        PostgreSQLContainer<?> postgres = getPostgres();
+        PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
                 .host(postgres.getHost())
                 .port(postgres.getFirstMappedPort())

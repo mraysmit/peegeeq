@@ -14,7 +14,7 @@ import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -40,10 +40,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 public class ListenReconnectFaultInjectionIT {
 
     @Container
-    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+    static PostgreSQLContainer postgres = createPostgresContainer();
 
-    private static PostgreSQLContainer<?> createPostgresContainer() {
-        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+    private static PostgreSQLContainer createPostgresContainer() {
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
         container.withDatabaseName("testdb");
         container.withUsername("testuser");
         container.withPassword("testpass");

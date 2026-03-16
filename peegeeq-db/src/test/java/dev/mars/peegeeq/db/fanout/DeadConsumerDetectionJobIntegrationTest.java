@@ -25,17 +25,13 @@ import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicInteger;
-
-import io.vertx.junit5.Checkpoint;
-import io.vertx.junit5.VertxTestContext;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -66,7 +62,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
     void setUp() throws Exception {
         connectionManager = new PgConnectionManager(manager.getVertx(), null);
 
-        PostgreSQLContainer<?> postgres = getPostgres();
+        PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
                 .host(postgres.getHost())
                 .port(postgres.getFirstMappedPort())

@@ -22,7 +22,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Isolated;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -43,10 +43,10 @@ import static org.junit.jupiter.api.Assertions.*;
 class ReactiveNotificationHandlerFailurePathTest {
 
     @Container
-    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+    static PostgreSQLContainer postgres = createPostgresContainer();
 
-    private static PostgreSQLContainer<?> createPostgresContainer() {
-        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20");
+    private static PostgreSQLContainer createPostgresContainer() {
+        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
         container.withDatabaseName("reactive_failure_path_test");
         container.withUsername("test_user");
         container.withPassword("test_password");

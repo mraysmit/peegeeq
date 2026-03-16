@@ -29,7 +29,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -63,10 +63,10 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 public class OutboxConsumerErrorHandlingTest {
 
     @Container
-    private static final PostgreSQLContainer<?> postgres = createPostgresContainer();
+    private static final PostgreSQLContainer postgres = createPostgresContainer();
 
-    private static PostgreSQLContainer<?> createPostgresContainer() {
-        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20");
+    private static PostgreSQLContainer createPostgresContainer() {
+        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
         container.withDatabaseName("testdb");
         container.withUsername("testuser");
         container.withPassword("testpass");

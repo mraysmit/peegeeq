@@ -11,7 +11,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -33,7 +33,7 @@ public class EventDrivenLifecycleTest {
     public void testEventDrivenLifecycleAPI() throws Exception {
         logger.info("=== Testing Event-Driven Lifecycle API (Unit Test) ===");
 
-        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
+        PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test",
             postgres.getHost(),
             postgres.getFirstMappedPort(),
@@ -75,7 +75,7 @@ public class EventDrivenLifecycleTest {
     public void testReactiveHealthCheckStartup() throws Exception {
         logger.info("=== Testing Reactive Health Check Startup API (Unit Test) ===");
 
-        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
+        PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test",
             postgres.getHost(),
             postgres.getFirstMappedPort(),

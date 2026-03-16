@@ -36,7 +36,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import io.vertx.core.Vertx;
@@ -60,7 +60,7 @@ public class OutboxServerSideFilteringTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxServerSideFilteringTest.class);
 
-    static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
+    static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {

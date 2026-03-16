@@ -28,7 +28,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -62,7 +62,7 @@ public class PeeGeeQExampleTest {
     void setUp() {
         logger.info("Setting up PeeGeeQ Example Test");
 
-        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
+        PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
         // Configure system properties for container
         configureSystemPropertiesForContainer(postgres);
@@ -164,7 +164,7 @@ public class PeeGeeQExampleTest {
     void testContainerIntegration() {
         logger.info("=== Testing Container Integration ===");
 
-        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
+        PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
         // Validate container is running
         assertTrue(postgres.isRunning(), "PostgreSQL container should be running");
@@ -215,7 +215,7 @@ public class PeeGeeQExampleTest {
     /**
      * Configures system properties to use the TestContainer database.
      */
-    private void configureSystemPropertiesForContainer(PostgreSQLContainer<?> postgres) {
+    private void configureSystemPropertiesForContainer(PostgreSQLContainer postgres) {
         logger.info("Configuring PeeGeeQ to use container database...");
 
         // Set database connection properties

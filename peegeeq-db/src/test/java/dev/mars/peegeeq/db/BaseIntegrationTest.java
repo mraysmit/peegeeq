@@ -23,7 +23,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.junit.jupiter.api.Tag;
 
 import java.util.UUID;
@@ -65,7 +65,7 @@ public abstract class BaseIntegrationTest {
     /**
      * Get the shared PostgreSQL container from the extension.
      */
-    protected PostgreSQLContainer<?> getPostgres() {
+    protected PostgreSQLContainer getPostgres() {
         return SharedPostgresTestExtension.getContainer();
     }
 
@@ -145,7 +145,7 @@ public abstract class BaseIntegrationTest {
      * Set up database connection properties from TestContainer
      */
     private void setupDatabaseProperties() {
-        PostgreSQLContainer<?> postgres = getPostgres();
+        PostgreSQLContainer postgres = getPostgres();
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
         System.setProperty("peegeeq.database.name", postgres.getDatabaseName());

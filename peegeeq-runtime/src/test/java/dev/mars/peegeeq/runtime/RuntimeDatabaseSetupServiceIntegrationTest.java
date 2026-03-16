@@ -23,10 +23,11 @@ import dev.mars.peegeeq.api.setup.DatabaseSetupRequest;
 import dev.mars.peegeeq.api.setup.DatabaseSetupResult;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.junit.jupiter.api.Tag;
@@ -50,16 +51,14 @@ class RuntimeDatabaseSetupServiceIntegrationTest {
     private static final Logger logger = LoggerFactory.getLogger(RuntimeDatabaseSetupServiceIntegrationTest.class);
 
     @Container
-    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+    static PostgreSQLContainer postgres = createPostgresContainer();
 
-    private static PostgreSQLContainer<?> createPostgresContainer() {
-        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20");
-        container.withDatabaseName("peegeeq_runtime_test");
-        container.withUsername("peegeeq_test");
-        container.withPassword("peegeeq_test");
-        container.withSharedMemorySize(256 * 1024 * 1024L);
-        container.withReuse(false);
-        return container;
+    private static PostgreSQLContainer createPostgresContainer() {
+        return PostgreSQLTestConstants.createContainer(
+                "peegeeq_runtime_test",
+                "peegeeq_test",
+                "peegeeq_test"
+        );
     }
 
     private DatabaseSetupService setupService;

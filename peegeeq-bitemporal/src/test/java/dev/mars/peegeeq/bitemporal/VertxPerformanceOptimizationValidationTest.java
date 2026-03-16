@@ -28,7 +28,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -64,10 +64,10 @@ class VertxPerformanceOptimizationValidationTest {
     private static final Logger logger = LoggerFactory.getLogger(VertxPerformanceOptimizationValidationTest.class);
 
     @Container
-    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+    static PostgreSQLContainer postgres = createPostgresContainer();
 
-    private static PostgreSQLContainer<?> createPostgresContainer() {
-        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+    private static PostgreSQLContainer createPostgresContainer() {
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
         container.withDatabaseName("peegeeq_test");
         container.withUsername("test");
         container.withPassword("test");

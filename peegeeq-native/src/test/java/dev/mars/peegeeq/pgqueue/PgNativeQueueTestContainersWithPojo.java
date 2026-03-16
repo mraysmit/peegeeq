@@ -29,7 +29,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import io.vertx.core.streams.ReadStream;
@@ -58,10 +58,10 @@ import static org.junit.jupiter.api.Assertions.*;
 public class PgNativeQueueTestContainersWithPojo {
 
     @Container
-    private static final PostgreSQLContainer<?> postgres = createPostgresContainer();
+    private static final PostgreSQLContainer postgres = createPostgresContainer();
 
-    private static PostgreSQLContainer<?> createPostgresContainer() {
-        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+    private static PostgreSQLContainer createPostgresContainer() {
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
         container.withDatabaseName("testdb");
         container.withUsername("testuser");
         container.withPassword("testpass");

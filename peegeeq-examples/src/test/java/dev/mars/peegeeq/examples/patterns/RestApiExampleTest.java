@@ -32,7 +32,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -67,10 +67,10 @@ public class RestApiExampleTest {
     private static final int REST_PORT = 18080; // Use non-standard port for tests
 
     @Container
-    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+    static PostgreSQLContainer postgres = createPostgresContainer();
 
-    private static PostgreSQLContainer<?> createPostgresContainer() {
-        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20");
+    private static PostgreSQLContainer createPostgresContainer() {
+        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
         container.withDatabaseName("peegeeq_rest_test");
         container.withUsername("postgres");
         container.withPassword("password");

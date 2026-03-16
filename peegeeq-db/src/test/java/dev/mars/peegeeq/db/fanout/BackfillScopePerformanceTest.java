@@ -23,7 +23,6 @@ import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.subscription.BackfillService;
-import dev.mars.peegeeq.db.subscription.BackfillService.BackfillProgress;
 import dev.mars.peegeeq.db.subscription.BackfillService.BackfillResult;
 import dev.mars.peegeeq.db.subscription.SubscriptionManager;
 import dev.mars.peegeeq.db.subscription.TopicConfig;
@@ -38,7 +37,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -79,7 +78,7 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
     void setUp() throws Exception {
         connectionManager = new PgConnectionManager(manager.getVertx(), null);
 
-        PostgreSQLContainer<?> postgres = getPostgres();
+        PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
                 .host(postgres.getHost())
                 .port(postgres.getFirstMappedPort())

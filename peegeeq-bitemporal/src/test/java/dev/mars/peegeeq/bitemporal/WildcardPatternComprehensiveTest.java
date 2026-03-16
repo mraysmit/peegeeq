@@ -17,7 +17,7 @@ import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -53,7 +53,7 @@ class WildcardPatternComprehensiveTest {
 
     @Container
     @SuppressWarnings("resource") // Managed by Testcontainers framework
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
+    static PostgreSQLContainer postgres = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)
             .withDatabaseName("peegeeq_wildcard_test")
             .withUsername("peegeeq_test")
             .withPassword("peegeeq_test")
@@ -89,7 +89,7 @@ class WildcardPatternComprehensiveTest {
         restoreTestProperties();
     }
 
-    private static void configureSystemPropertiesForContainer(PostgreSQLContainer<?> postgres) {
+    private static void configureSystemPropertiesForContainer(PostgreSQLContainer postgres) {
         setTestProperty("peegeeq.database.host", postgres.getHost());
         setTestProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
         setTestProperty("peegeeq.database.name", postgres.getDatabaseName());

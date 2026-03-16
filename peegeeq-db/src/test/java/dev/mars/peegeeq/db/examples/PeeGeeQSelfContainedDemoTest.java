@@ -29,7 +29,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -101,7 +101,7 @@ public class PeeGeeQSelfContainedDemoTest {
     void testSelfContainedSetup() throws Exception {
         logger.info("=== Testing Self-Contained Setup ===");
 
-        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
+        PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
         // Validate container is running and configured
         assertTrue(postgres.isRunning(), "PostgreSQL container should be running");
@@ -133,7 +133,7 @@ public class PeeGeeQSelfContainedDemoTest {
     void testFeatureDemonstrations() throws Exception {
         logger.info("=== Testing Feature Demonstrations ===");
 
-        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
+        PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
         // Initialize and start PeeGeeQ Manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("demo",
@@ -163,7 +163,7 @@ public class PeeGeeQSelfContainedDemoTest {
     void testSystemMonitoring() throws Exception {
         logger.info("=== Testing System Monitoring ===");
 
-        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
+        PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
         // Initialize and start PeeGeeQ Manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("demo",
@@ -194,7 +194,7 @@ public class PeeGeeQSelfContainedDemoTest {
     void testContainerLifecycle() {
         logger.info("=== Testing Container Lifecycle ===");
 
-        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
+        PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
         // Validate container lifecycle
         assertTrue(postgres.isRunning(), "Container should be running");

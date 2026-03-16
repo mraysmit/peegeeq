@@ -17,7 +17,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -39,7 +39,7 @@ public class PgClientCoreTest extends BaseIntegrationTest {
     void setUp() throws Exception {
         connectionManager = new PgConnectionManager(manager.getVertx());
         
-        PostgreSQLContainer<?> postgres = getPostgres();
+        PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
             .port(postgres.getFirstMappedPort())

@@ -32,7 +32,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -49,10 +49,10 @@ class OutboxConsumerIntegrationTest {
     private static final Logger logger = LoggerFactory.getLogger(OutboxConsumerIntegrationTest.class);
 
     @Container
-    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+    static PostgreSQLContainer postgres = createPostgresContainer();
 
-    private static PostgreSQLContainer<?> createPostgresContainer() {
-        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+    private static PostgreSQLContainer createPostgresContainer() {
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
         container.withDatabaseName(PostgreSQLTestConstants.DEFAULT_DATABASE_NAME);
         container.withUsername(PostgreSQLTestConstants.DEFAULT_USERNAME);
         container.withPassword(PostgreSQLTestConstants.DEFAULT_PASSWORD);

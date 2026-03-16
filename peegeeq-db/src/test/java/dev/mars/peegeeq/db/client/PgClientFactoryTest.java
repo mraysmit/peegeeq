@@ -31,7 +31,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
@@ -61,7 +61,7 @@ public class PgClientFactoryTest {
     void setUp() {
         logger.info("Setting up PgClientFactory test with PostgreSQL container");
 
-        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
+        PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
         vertx = Vertx.vertx();
         factory = new PgClientFactory(vertx);
 

@@ -18,7 +18,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -75,7 +75,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
 
     @Test
     void testGetOrCreateReactivePool() {
-        PostgreSQLContainer<?> postgres = getPostgres();
+        PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
             .port(postgres.getFirstMappedPort())
@@ -107,7 +107,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
 
     @Test
     void testGetOrCreateReactivePoolWithNullPoolConfig() {
-        PostgreSQLContainer<?> postgres = getPostgres();
+        PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
             .port(postgres.getFirstMappedPort())
@@ -123,7 +123,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
 
     @Test
     void testGetExistingPool() {
-        PostgreSQLContainer<?> postgres = getPostgres();
+        PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
             .port(postgres.getFirstMappedPort())
@@ -148,7 +148,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
 
     @Test
     void testGetReactiveConnection() throws Exception {
-        PostgreSQLContainer<?> postgres = getPostgres();
+        PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
             .port(postgres.getFirstMappedPort())
@@ -193,7 +193,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
 
     @Test
     void testWithConnection() throws Exception {
-        PostgreSQLContainer<?> postgres = getPostgres();
+        PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
             .port(postgres.getFirstMappedPort())
@@ -231,7 +231,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
 
     @Test
     void testWithTransaction() throws Exception {
-        PostgreSQLContainer<?> postgres = getPostgres();
+        PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
             .port(postgres.getFirstMappedPort())
@@ -268,7 +268,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
 
     @Test
     void testWithTransactionPropagation() throws Exception {
-        PostgreSQLContainer<?> postgres = getPostgres();
+        PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
             .port(postgres.getFirstMappedPort())
@@ -293,7 +293,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
 
     @Test
     void testCheckHealth() throws Exception {
-        PostgreSQLContainer<?> postgres = getPostgres();
+        PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
             .port(postgres.getFirstMappedPort())
@@ -323,7 +323,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
 
     @Test
     void testIsHealthy() {
-        PostgreSQLContainer<?> postgres = getPostgres();
+        PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
             .port(postgres.getFirstMappedPort())
@@ -346,7 +346,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
 
     @Test
     void testClosePoolAsync() throws Exception {
-        PostgreSQLContainer<?> postgres = getPostgres();
+        PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
             .port(postgres.getFirstMappedPort())
@@ -378,7 +378,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
 
     @Test
     void testCloseAsync() throws Exception {
-        PostgreSQLContainer<?> postgres = getPostgres();
+        PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
             .port(postgres.getFirstMappedPort())
@@ -413,7 +413,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
 
     @Test
     void testClose() {
-        PostgreSQLContainer<?> postgres = getPostgres();
+        PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
             .port(postgres.getFirstMappedPort())
@@ -437,7 +437,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
 
     @Test
     void testSchemaConfiguration() {
-        PostgreSQLContainer<?> postgres = getPostgres();
+        PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
             .port(postgres.getFirstMappedPort())

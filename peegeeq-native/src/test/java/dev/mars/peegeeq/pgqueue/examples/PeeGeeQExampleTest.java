@@ -39,7 +39,7 @@ import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -80,10 +80,10 @@ class PeeGeeQExampleTest {
     private static final String DB_PASSWORD = "peegeeq_example";
 
     @Container
-    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+    static PostgreSQLContainer postgres = createPostgresContainer();
 
-    private static PostgreSQLContainer<?> createPostgresContainer() {
-        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+    private static PostgreSQLContainer createPostgresContainer() {
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
         container.withDatabaseName(DB_NAME);
         container.withUsername(DB_USER);
         container.withPassword(DB_PASSWORD);
@@ -239,7 +239,7 @@ class PeeGeeQExampleTest {
     /**
      * Configures system properties to use the TestContainer database.
      */
-    private void configureSystemPropertiesForContainer(PostgreSQLContainer<?> postgres) {
+    private void configureSystemPropertiesForContainer(PostgreSQLContainer postgres) {
         logger.info("  Configuring PeeGeeQ to use container database...");
 
         // Set database connection properties

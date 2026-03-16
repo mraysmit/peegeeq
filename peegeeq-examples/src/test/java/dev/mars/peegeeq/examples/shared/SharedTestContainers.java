@@ -3,7 +3,7 @@ package dev.mars.peegeeq.examples.shared;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
  * Shared TestContainers configuration for PeeGeeQ Examples.
@@ -15,14 +15,14 @@ import org.testcontainers.containers.PostgreSQLContainer;
  * Usage:
  * ```java
  * @Container
- * static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
+ * static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
  * ```
  */
 public class SharedTestContainers {
 
     private static final Logger logger = LoggerFactory.getLogger(SharedTestContainers.class);
 
-    private static PostgreSQLContainer<?> sharedPostgres;
+    private static PostgreSQLContainer sharedPostgres;
 
     /**
      * Gets a shared PostgreSQL container with high-performance configuration.
@@ -30,11 +30,11 @@ public class SharedTestContainers {
      *
      * @return shared PostgreSQL container
      */
-    public static synchronized PostgreSQLContainer<?> getSharedPostgreSQLContainer() {
+    public static synchronized PostgreSQLContainer getSharedPostgreSQLContainer() {
         if (sharedPostgres == null) {
             logger.info("Creating shared PostgreSQL container with high-performance configuration");
 
-            PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
+            PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)
                     .withDatabaseName("peegeeq_shared_test")
                     .withUsername("peegeeq_test")
                     .withPassword("peegeeq_test")
@@ -77,7 +77,7 @@ public class SharedTestContainers {
      * @param registry the dynamic property registry
      */
     public static void configureSharedProperties(org.springframework.test.context.DynamicPropertyRegistry registry) {
-        PostgreSQLContainer<?> container = getSharedPostgreSQLContainer();
+        PostgreSQLContainer container = getSharedPostgreSQLContainer();
 
         // Ensure container is fully started and ready before accessing port
         ensureContainerReady(container);
@@ -187,7 +187,7 @@ public class SharedTestContainers {
      *
      * @param container the container to verify
      */
-    private static void ensureContainerReady(PostgreSQLContainer<?> container) {
+    private static void ensureContainerReady(PostgreSQLContainer container) {
         if (!container.isRunning()) {
             logger.warn("Container is not running, starting it now...");
             container.start();
@@ -235,10 +235,10 @@ public class SharedTestContainers {
      * @param databaseName unique database name for isolation
      * @return dedicated PostgreSQL container
      */
-    public static PostgreSQLContainer<?> getDedicatedPostgreSQLContainer(String databaseName) {
+    public static PostgreSQLContainer getDedicatedPostgreSQLContainer(String databaseName) {
         logger.info("Creating dedicated PostgreSQL container for database: {}", databaseName);
 
-        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)
                 .withDatabaseName(databaseName)
                 .withUsername("peegeeq_test")
                 .withPassword("peegeeq_test")
@@ -263,10 +263,10 @@ public class SharedTestContainers {
      *
      * @return high-performance PostgreSQL container
      */
-    public static PostgreSQLContainer<?> getHighPerformanceContainer() {
+    public static PostgreSQLContainer getHighPerformanceContainer() {
         logger.info("Creating high-performance PostgreSQL container for benchmarks");
 
-        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)
                 .withDatabaseName("peegeeq_perf_test")
                 .withUsername("peegeeq_test")
                 .withPassword("peegeeq_test")

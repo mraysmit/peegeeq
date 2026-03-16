@@ -6,7 +6,6 @@ import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceP
 import dev.mars.peegeeq.test.metrics.PerformanceMetricsCollector;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;

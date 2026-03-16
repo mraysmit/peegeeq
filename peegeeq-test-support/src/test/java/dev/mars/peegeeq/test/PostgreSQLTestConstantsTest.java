@@ -3,7 +3,7 @@ package dev.mars.peegeeq.test;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -32,7 +32,7 @@ class PostgreSQLTestConstantsTest {
     @Test
     void testCreateStandardContainer() {
         // Test that the standard container factory method works
-        PostgreSQLContainer<?> container = PostgreSQLTestConstants.createStandardContainer();
+        PostgreSQLContainer container = PostgreSQLTestConstants.createStandardContainer();
         
         assertNotNull(container);
         assertEquals(PostgreSQLTestConstants.DEFAULT_DATABASE_NAME, container.getDatabaseName());
@@ -50,7 +50,7 @@ class PostgreSQLTestConstantsTest {
         String customUser = "custom_user";
         String customPassword = "custom_password";
         
-        PostgreSQLContainer<?> container = PostgreSQLTestConstants.createContainer(
+        PostgreSQLContainer container = PostgreSQLTestConstants.createContainer(
             customDb, customUser, customPassword
         );
         
@@ -70,7 +70,7 @@ class PostgreSQLTestConstantsTest {
         String perfUser = "perf_user";
         String perfPassword = "perf_password";
         
-        PostgreSQLContainer<?> container = PostgreSQLTestConstants.createHighPerformanceContainer(
+        PostgreSQLContainer container = PostgreSQLTestConstants.createHighPerformanceContainer(
             perfDb, perfUser, perfPassword
         );
         
@@ -86,9 +86,9 @@ class PostgreSQLTestConstantsTest {
     @Test
     void testVersionConsistency() {
         // Test that all factory methods use the same PostgreSQL version
-        PostgreSQLContainer<?> standard = PostgreSQLTestConstants.createStandardContainer();
-        PostgreSQLContainer<?> custom = PostgreSQLTestConstants.createContainer("db", "user", "pass");
-        PostgreSQLContainer<?> performance = PostgreSQLTestConstants.createHighPerformanceContainer("db", "user", "pass");
+        PostgreSQLContainer standard = PostgreSQLTestConstants.createStandardContainer();
+        PostgreSQLContainer custom = PostgreSQLTestConstants.createContainer("db", "user", "pass");
+        PostgreSQLContainer performance = PostgreSQLTestConstants.createHighPerformanceContainer("db", "user", "pass");
         
         // All should use the same Docker image
         String expectedImage = PostgreSQLTestConstants.POSTGRES_IMAGE;

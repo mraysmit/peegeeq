@@ -13,7 +13,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -50,10 +50,10 @@ public class BiTemporalPerformanceBenchmarkTest {
     private static final Logger logger = LoggerFactory.getLogger(BiTemporalPerformanceBenchmarkTest.class);
 
     @Container
-    static final PostgreSQLContainer<?> postgres = createPostgresContainer();
+    static final PostgreSQLContainer postgres = createPostgresContainer();
 
-    private static PostgreSQLContainer<?> createPostgresContainer() {
-        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+    private static PostgreSQLContainer createPostgresContainer() {
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
         container.withDatabaseName("peegeeq_benchmark_test")  // Unique database name for benchmark tests;
             .withUsername("test")
             .withPassword("test")

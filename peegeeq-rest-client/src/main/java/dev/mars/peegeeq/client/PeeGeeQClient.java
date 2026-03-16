@@ -32,9 +32,6 @@ import dev.mars.peegeeq.client.dto.*;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.streams.ReadStream;
-
-import java.util.List;
-
 import java.time.Instant;
 import java.util.List;
 
@@ -55,6 +52,7 @@ import java.util.List;
  * 
  * @see PeeGeeQRestClient
  */
+@SuppressWarnings("rawtypes") // BiTemporalEvent used raw — REST client payload type unknown at compile time
 public interface PeeGeeQClient extends AutoCloseable {
 
     // ========================================================================

@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.util.HashMap;
 
@@ -39,7 +39,7 @@ public class DatabaseTemplateManagerCoreTest extends BaseIntegrationTest {
     private PgConnectionManager connectionManager;
     private Pool reactivePool;
     private DatabaseTemplateManager databaseTemplateManager;
-    private PostgreSQLContainer<?> postgres;
+    private PostgreSQLContainer postgres;
 
     @BeforeEach
     void setUp() throws Exception {

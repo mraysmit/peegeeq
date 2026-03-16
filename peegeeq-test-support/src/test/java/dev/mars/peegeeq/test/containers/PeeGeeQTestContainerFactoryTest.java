@@ -5,7 +5,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.EnumSource;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -37,7 +37,7 @@ class PeeGeeQTestContainerFactoryTest {
         
         logger.info("Testing basic container creation");
         
-        PostgreSQLContainer<?> container = PeeGeeQTestContainerFactory.createContainer(BASIC);
+        PostgreSQLContainer container = PeeGeeQTestContainerFactory.createContainer(BASIC);
         
         assertNotNull(container, "Container should not be null");
         assertEquals("peegeeq_test", container.getDatabaseName());
@@ -59,7 +59,7 @@ class PeeGeeQTestContainerFactoryTest {
         
         logger.info("Testing performance profile: {}", profile.getDisplayName());
         
-        PostgreSQLContainer<?> container;
+        PostgreSQLContainer container;
         
         if (profile == CUSTOM) {
             // For CUSTOM profile, provide some custom settings
@@ -101,7 +101,7 @@ class PeeGeeQTestContainerFactoryTest {
         String customUsername = "custom_user";
         String customPassword = "custom_password";
         
-        PostgreSQLContainer<?> container = PeeGeeQTestContainerFactory.createContainer(
+        PostgreSQLContainer container = PeeGeeQTestContainerFactory.createContainer(
             STANDARD, customDbName, customUsername, customPassword, null);
         
         assertNotNull(container, "Container should not be null");
@@ -128,7 +128,7 @@ class PeeGeeQTestContainerFactoryTest {
             "work_mem", "32MB"
         );
         
-        PostgreSQLContainer<?> container = PeeGeeQTestContainerFactory.createContainer(
+        PostgreSQLContainer container = PeeGeeQTestContainerFactory.createContainer(
             CUSTOM, null, null, null, customSettings);
         
         assertNotNull(container, "Container should not be null");
@@ -147,7 +147,7 @@ class PeeGeeQTestContainerFactoryTest {
         
         logger.info("Testing CUSTOM profile without custom settings (should fallback to STANDARD)");
         
-        PostgreSQLContainer<?> container = PeeGeeQTestContainerFactory.createContainer(
+        PostgreSQLContainer container = PeeGeeQTestContainerFactory.createContainer(
             CUSTOM, null, null, null, null);
         
         assertNotNull(container, "Container should not be null");
@@ -166,7 +166,7 @@ class PeeGeeQTestContainerFactoryTest {
         
         logger.info("Testing BaseIntegrationTest compatibility");
         
-        PostgreSQLContainer<?> container = PeeGeeQTestContainerFactory.createBaseIntegrationTestContainer();
+        PostgreSQLContainer container = PeeGeeQTestContainerFactory.createBaseIntegrationTestContainer();
         
         assertNotNull(container, "Container should not be null");
         assertEquals("peegeeq_test", container.getDatabaseName());

@@ -47,7 +47,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -79,10 +79,10 @@ class NativeQueueIntegrationTest {
     private static final Logger logger = LoggerFactory.getLogger(NativeQueueIntegrationTest.class);
 
     @Container
-    private static final PostgreSQLContainer<?> postgres = createPostgresContainer();
+    private static final PostgreSQLContainer postgres = createPostgresContainer();
 
-    private static PostgreSQLContainer<?> createPostgresContainer() {
-        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+    private static PostgreSQLContainer createPostgresContainer() {
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
         container.withDatabaseName("native_queue_test");
         container.withUsername("test_user");
         container.withPassword("test_pass");

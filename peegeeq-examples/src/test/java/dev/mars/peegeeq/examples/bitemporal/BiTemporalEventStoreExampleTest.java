@@ -34,7 +34,7 @@ import org.junit.jupiter.api.Test;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.io.ByteArrayOutputStream;
@@ -117,7 +117,7 @@ class BiTemporalEventStoreExampleTest {
     
     private static final Logger logger = LoggerFactory.getLogger(BiTemporalEventStoreExampleTest.class);
     
-    static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
+    static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
 
 

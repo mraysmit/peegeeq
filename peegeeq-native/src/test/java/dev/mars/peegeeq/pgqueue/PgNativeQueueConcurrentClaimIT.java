@@ -17,7 +17,7 @@ import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -40,7 +40,7 @@ class PgNativeQueueConcurrentClaimIT {
     private static final String TOPIC = "it-concurrent-claim-topic";
 
     @Container
-    static final PostgreSQLContainer<?> postgres =
+    static final PostgreSQLContainer postgres =
         PeeGeeQTestContainerFactory.createContainer(BASIC);
 
     private PeeGeeQManager manager;
