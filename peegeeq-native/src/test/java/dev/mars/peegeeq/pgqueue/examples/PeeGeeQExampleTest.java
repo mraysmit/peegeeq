@@ -87,7 +87,7 @@ class PeeGeeQExampleTest {
         container.withDatabaseName(DB_NAME);
         container.withUsername(DB_USER);
         container.withPassword(DB_PASSWORD);
-        container.withSharedMemorySize(256 * 1024 * 1024L) // 256MB for better performance;
+        container.withSharedMemorySize(256 * 1024 * 1024L); // 256MB for better performance
         container.withReuse(false);
         return container;
     }

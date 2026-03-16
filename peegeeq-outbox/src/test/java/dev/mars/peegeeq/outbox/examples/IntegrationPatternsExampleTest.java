@@ -177,7 +177,7 @@ public class IntegrationPatternsExampleTest {
             
             try {
                 replyProducer.send(reply);
-                logger.info("📤 Sent reply: {} to {}", reply.getMessageId(), reply.getDestination());
+                logger.info("Sent reply: {} to {}", reply.getMessageId(), reply.getDestination());
             } catch (Exception e) {
                 logger.error("Failed to send reply", e);
             }
@@ -199,7 +199,7 @@ public class IntegrationPatternsExampleTest {
         });
         
         // Send requests
-        logger.info("📤 Sending requests...");
+        logger.info("Sending requests...");
         for (int i = 1; i <= 3; i++) {
             String correlationId = "order-" + i;
             IntegrationMessage request = new IntegrationMessage(
@@ -224,7 +224,7 @@ public class IntegrationPatternsExampleTest {
         assertEquals(3, processedRequests.get(), "Should process 3 requests");
         assertEquals(3, receivedReplies.get(), "Should receive 3 replies");
         
-        logger.info("📊 Request-Reply Results:");
+        logger.info("Request-Reply Results:");
         logger.info("   Requests processed: {}", processedRequests.get());
         logger.info("   Replies received: {}", receivedReplies.get());
         
@@ -307,7 +307,7 @@ public class IntegrationPatternsExampleTest {
             emailProducer.send(event);
             analyticsProducer.send(event);
             auditProducer.send(event);
-            logger.info("📤 Published event: {} - {} to all subscribers", event.getMessageType(), event.getMessageId());
+            logger.info("Published event: {} - {} to all subscribers", event.getMessageType(), event.getMessageId());
         }
 
         // Wait for all subscribers to process events - increased timeout for integration test
@@ -318,7 +318,7 @@ public class IntegrationPatternsExampleTest {
         assertEquals(3, analyticsEvents.get(), "Analytics service should receive 3 events");
         assertEquals(3, auditEvents.get(), "Audit service should receive 3 events");
 
-        logger.info("📊 Publish-Subscribe Results:");
+        logger.info("Publish-Subscribe Results:");
         logger.info("   Email Service events: {}", emailEvents.get());
         logger.info("   Analytics Service events: {}", analyticsEvents.get());
         logger.info("   Audit Service events: {}", auditEvents.get());
@@ -374,7 +374,7 @@ public class IntegrationPatternsExampleTest {
                     logger.info("⚡ Routed to express: {}", order.getMessageId());
                 } else if ("US".equals(country)) {
                     domesticProducer.send(order);
-                    logger.info("🏠 Routed to domestic: {}", order.getMessageId());
+                    logger.info("Routed to domestic: {}", order.getMessageId());
                 } else {
                     internationalProducer.send(order);
                     logger.info("🌍 Routed to international: {}", order.getMessageId());
@@ -388,7 +388,7 @@ public class IntegrationPatternsExampleTest {
 
         // Set up destination consumers
         domesticConsumer.subscribe(message -> {
-            logger.info("🏠 Domestic processor received: {}", message.getPayload().getMessageId());
+            logger.info("Domestic processor received: {}", message.getPayload().getMessageId());
             domesticCount.incrementAndGet();
             checkpoint.flag();
             return CompletableFuture.completedFuture(null);
@@ -409,7 +409,7 @@ public class IntegrationPatternsExampleTest {
         });
 
         // Send test messages with different routing criteria
-        logger.info("📤 Sending orders for routing...");
+        logger.info("Sending orders for routing...");
 
         // Domestic order
         IntegrationMessage domesticOrder = new IntegrationMessage(
@@ -434,13 +434,13 @@ public class IntegrationPatternsExampleTest {
             inputProducer.send(expressOrder);
         }
 
-        logger.info("📤 All orders sent for routing");
+        logger.info("All orders sent for routing");
 
         // Wait for routing to complete - increased timeout for integration test
         assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "All messages should be routed within timeout");
 
         // Log current counts for debugging
-        logger.info("📊 Current routing counts: domestic={}, international={}, express={}, latch={}",
+        logger.info("Current routing counts: domestic={}, international={}, express={}, latch={}",
             domesticCount.get(), internationalCount.get(), expressCount.get(), latch.getCount());
 
         // Validate routing results
@@ -449,7 +449,7 @@ public class IntegrationPatternsExampleTest {
         assertEquals(1, internationalCount.get(), "Should route 1 international order");
         assertEquals(4, expressCount.get(), "Should route 4 express orders");
 
-        logger.info("📊 Message Router Results:");
+        logger.info("Message Router Results:");
         logger.info("   Domestic orders: {}", domesticCount.get());
         logger.info("   International orders: {}", internationalCount.get());
         logger.info("   Express orders: {}", expressCount.get());
@@ -474,7 +474,7 @@ public class IntegrationPatternsExampleTest {
     @Test
     void testContentBasedRouterPattern() throws Exception {
         logger.info("=== Testing Content-Based Router Pattern ===");
-        logger.info("🔍 Content-Based Router: Routes messages based on message content analysis");
+        logger.info("Content-Based Router: Routes messages based on message content analysis");
         logger.info("   This pattern would analyze message payload and route accordingly");
         logger.info("   Implementation would parse JSON/XML content and make routing decisions");
 
@@ -490,7 +490,7 @@ public class IntegrationPatternsExampleTest {
     @Test
     void testAggregatorPattern() throws Exception {
         logger.info("=== Testing Aggregator Pattern ===");
-        logger.info("🔗 Aggregator Pattern: Combines related messages into a single message");
+        logger.info("Aggregator Pattern: Combines related messages into a single message");
         logger.info("   This pattern would collect and combine messages based on correlation");
         logger.info("   Implementation would buffer messages and aggregate when complete");
 
@@ -538,7 +538,7 @@ public class IntegrationPatternsExampleTest {
     @Test
     void testCQRSPattern() throws Exception {
         logger.info("=== Testing CQRS Pattern ===");
-        logger.info("📊 CQRS Pattern: Separates command and query responsibilities");
+        logger.info("CQRS Pattern: Separates command and query responsibilities");
         logger.info("   This pattern would separate read and write models");
         logger.info("   Implementation would use different data stores for commands and queries");
 

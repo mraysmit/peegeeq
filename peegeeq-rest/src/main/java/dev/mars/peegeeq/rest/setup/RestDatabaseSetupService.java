@@ -71,6 +71,7 @@ public class RestDatabaseSetupService implements DatabaseSetupService {
      *
      * @param delegate The DatabaseSetupService implementation to delegate to
      */
+    @Deprecated(since = "1.0", forRemoval = true)
     public RestDatabaseSetupService(DatabaseSetupService delegate) {
         this.delegate = delegate;
         logger.info("RestDatabaseSetupService initialized with delegate: {}", delegate.getClass().getSimpleName());
@@ -99,6 +100,7 @@ public class RestDatabaseSetupService implements DatabaseSetupService {
      *
      * @return List of factory registration callbacks
      */
+    @Deprecated(since = "1.0", forRemoval = true)
     public List<Consumer<QueueFactoryRegistrar>> getFactoryRegistrations() {
         return factoryRegistrations;
     }
@@ -106,36 +108,43 @@ public class RestDatabaseSetupService implements DatabaseSetupService {
     // ========== DatabaseSetupService delegation ==========
 
     @Override
+    @Deprecated(since = "1.0", forRemoval = true)
     public CompletableFuture<DatabaseSetupResult> createCompleteSetup(DatabaseSetupRequest request) {
         return delegate.createCompleteSetup(request);
     }
 
     @Override
+    @Deprecated(since = "1.0", forRemoval = true)
     public CompletableFuture<Void> destroySetup(String setupId) {
         return delegate.destroySetup(setupId);
     }
 
     @Override
+    @Deprecated(since = "1.0", forRemoval = true)
     public CompletableFuture<DatabaseSetupStatus> getSetupStatus(String setupId) {
         return delegate.getSetupStatus(setupId);
     }
 
     @Override
+    @Deprecated(since = "1.0", forRemoval = true)
     public CompletableFuture<DatabaseSetupResult> getSetupResult(String setupId) {
         return delegate.getSetupResult(setupId);
     }
 
     @Override
+    @Deprecated(since = "1.0", forRemoval = true)
     public CompletableFuture<Void> addQueue(String setupId, QueueConfig queueConfig) {
         return delegate.addQueue(setupId, queueConfig);
     }
 
     @Override
+    @Deprecated(since = "1.0", forRemoval = true)
     public CompletableFuture<Void> addEventStore(String setupId, EventStoreConfig eventStoreConfig) {
         return delegate.addEventStore(setupId, eventStoreConfig);
     }
 
     @Override
+    @Deprecated(since = "1.0", forRemoval = true)
     public CompletableFuture<Set<String>> getAllActiveSetupIds() {
         return delegate.getAllActiveSetupIds();
     }
@@ -143,21 +152,25 @@ public class RestDatabaseSetupService implements DatabaseSetupService {
     // ========== ServiceProvider delegation ==========
 
     @Override
+    @Deprecated(since = "1.0", forRemoval = true)
     public SubscriptionService getSubscriptionServiceForSetup(String setupId) {
         return delegate.getSubscriptionServiceForSetup(setupId);
     }
 
     @Override
+    @Deprecated(since = "1.0", forRemoval = true)
     public DeadLetterService getDeadLetterServiceForSetup(String setupId) {
         return delegate.getDeadLetterServiceForSetup(setupId);
     }
 
     @Override
+    @Deprecated(since = "1.0", forRemoval = true)
     public HealthService getHealthServiceForSetup(String setupId) {
         return delegate.getHealthServiceForSetup(setupId);
     }
 
     @Override
+    @Deprecated(since = "1.0", forRemoval = true)
     public QueueFactoryProvider getQueueFactoryProviderForSetup(String setupId) {
         return delegate.getQueueFactoryProviderForSetup(setupId);
     }
