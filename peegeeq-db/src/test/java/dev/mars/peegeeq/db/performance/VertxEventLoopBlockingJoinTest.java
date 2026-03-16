@@ -47,13 +47,12 @@ class VertxEventLoopBlockingJoinTest {
                     timerObserved.flag();
                 });
 
-                // Intentionally block the event loop for a short period.
-                CompletableFuture<Void> unblockLater = new CompletableFuture<>();
-                CompletableFuture.runAsync(() -> {
-                    vertx.timer(250).toCompletionStage().toCompletableFuture().join();
-                    unblockLater.complete(null);
-                });
-                unblockLater.join();
+                // Intentionally block the event loop with Thread.sleep.
+                try {
+                    Thread.sleep(250);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                }
             });
 
             assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Timer callback should eventually run");
@@ -62,9 +61,7 @@ class VertxEventLoopBlockingJoinTest {
                 "Expected timer delay >= 150ms due to event-loop blocking, actual delay=" + timerDelayMs.get() + "ms"
             );
         } finally {
-            Checkpoint closed = testContext.checkpoint(1);
-            vertx.close().onComplete(ar -> closed.flag());
-            assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Vertx should close cleanly");
+            vertx.close().toCompletionStage().toCompletableFuture().join();
         }
     }
 
@@ -92,16 +89,13 @@ class VertxEventLoopBlockingJoinTest {
                 workerDone.flag();
             });
 
-            assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Timer callback should run quickly");
-            assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Worker should complete after waiting");
+            assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "All checkpoints should be reached");
             assertTrue(
                 timerDelayMs.get() < 150,
                 "Expected timer delay < 150ms when join() is off event loop, actual delay=" + timerDelayMs.get() + "ms"
             );
         } finally {
-            Checkpoint closed = testContext.checkpoint(1);
-            vertx.close().onComplete(ar -> closed.flag());
-            assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Vertx should close cleanly");
+            vertx.close().toCompletionStage().toCompletableFuture().join();
         }
     }
 }

@@ -29,8 +29,6 @@ import java.time.Duration;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import io.vertx.junit5.VertxTestContext;
-
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -51,13 +49,13 @@ class BackpressureManagerTest {
     private Vertx vertx;
 
     @BeforeEach
-    void setUp(Vertx vertx, VertxTestContext testContext) {
+    void setUp(Vertx vertx) {
         this.vertx = vertx;
         backpressureManager = new BackpressureManager(3, Duration.ofSeconds(1));
     }
 
     @Test
-    void testBackpressureManagerInitialization(VertxTestContext testContext) {
+    void testBackpressureManagerInitialization() {
         assertNotNull(backpressureManager);
         
         BackpressureManager.BackpressureMetrics metrics = backpressureManager.getMetrics();
@@ -68,7 +66,7 @@ class BackpressureManagerTest {
     }
 
     @Test
-    void testSuccessfulOperation(VertxTestContext testContext) throws Exception {
+    void testSuccessfulOperation() throws Exception {
         String result = backpressureManager.execute("test-operation", () -> "success");
         assertEquals("success", result);
         
@@ -80,7 +78,7 @@ class BackpressureManagerTest {
     }
 
     @Test
-    void testFailedOperation(VertxTestContext testContext) {
+    void testFailedOperation() {
         System.out.println("🧪 ===== RUNNING INTENTIONAL BACKPRESSURE FAILURE TEST ===== 🧪");
         System.out.println("🔥 **INTENTIONAL TEST** 🔥 This test deliberately throws an exception to verify backpressure failure handling");
         System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Throwing RuntimeException in backpressure operation");
@@ -102,7 +100,7 @@ class BackpressureManagerTest {
     }
 
     @Test
-    void testVoidOperation(VertxTestContext testContext) throws Exception {
+    void testVoidOperation() throws Exception {
         AtomicInteger counter = new AtomicInteger(0);
         
         backpressureManager.executeVoid("test-void", counter::incrementAndGet);
@@ -156,7 +154,7 @@ class BackpressureManagerTest {
     }
 
     @Test
-    void testOperationTimeout(VertxTestContext testContext) {
+    void testOperationTimeout() {
         BackpressureManager shortTimeoutManager = new BackpressureManager(1, Duration.ofMillis(100));
         
         // Start a long-running operation to consume the permit
@@ -187,7 +185,7 @@ class BackpressureManagerTest {
     }
 
     @Test
-    void testAdaptiveRateLimiting(VertxTestContext testContext) throws Exception {
+    void testAdaptiveRateLimiting() throws Exception {
         System.out.println("🧪 ===== RUNNING INTENTIONAL ADAPTIVE RATE LIMITING FAILURE TEST ===== 🧪");
         System.out.println("🔥 **INTENTIONAL TEST** 🔥 This test deliberately generates multiple failures to test adaptive rate limiting");
         System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Generating 5 failing operations to trigger adaptive limiting");
@@ -220,7 +218,7 @@ class BackpressureManagerTest {
     }
 
     @Test
-    void testMetricsReset(VertxTestContext testContext) throws Exception {
+    void testMetricsReset() throws Exception {
         // Generate some metrics
         backpressureManager.execute("test", () -> "success");
         try {
@@ -245,7 +243,7 @@ class BackpressureManagerTest {
     }
 
     @Test
-    void testLimitAdjustment(VertxTestContext testContext) throws Exception {
+    void testLimitAdjustment() throws Exception {
         // Test increasing limit
         backpressureManager.adjustLimit(5);
         
@@ -344,7 +342,7 @@ class BackpressureManagerTest {
     }
 
     @Test
-    void testInterruptedOperation(VertxTestContext testContext) throws Exception {
+    void testInterruptedOperation() throws Exception {
         Thread testThread = new Thread(() -> {
             try {
                 backpressureManager.execute("interrupted-test", () -> {
@@ -364,7 +362,7 @@ class BackpressureManagerTest {
     }
 
     @Test
-    void testMetricsToString(VertxTestContext testContext) throws Exception {
+    void testMetricsToString() throws Exception {
         backpressureManager.execute("test", () -> "success");
         
         BackpressureManager.BackpressureMetrics metrics = backpressureManager.getMetrics();
@@ -379,7 +377,7 @@ class BackpressureManagerTest {
     }
 
     @Test
-    void testSuccessRateAdaptation(VertxTestContext testContext) throws Exception {
+    void testSuccessRateAdaptation() throws Exception {
         System.out.println("🧪 ===== RUNNING INTENTIONAL SUCCESS RATE ADAPTATION FAILURE TEST ===== 🧪");
         System.out.println("🔥 **INTENTIONAL TEST** 🔥 This test deliberately generates high failure rate to test success rate adaptation");
         System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Generating 8 failing operations to test success rate adaptation");
@@ -412,7 +410,7 @@ class BackpressureManagerTest {
     }
 
     @Test
-    void testCounterReset(VertxTestContext testContext) throws Exception {
+    void testCounterReset() throws Exception {
         BackpressureManager resetTestManager = new BackpressureManager(10, Duration.ofSeconds(1));
         
         // Generate many operations to trigger counter reset

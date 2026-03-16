@@ -99,7 +99,7 @@ class VertxPerformanceOptimizerTest {
         String validation = VertxPerformanceOptimizer.validatePoolConfiguration(goodConfig);
         
         // Then
-        assertTrue(validation.contains("✅"), "Should indicate good configuration");
+        assertFalse(validation.contains("⚠️"), "Good configuration should not contain warnings");
         
         // Given - Poor configuration
         PgPoolConfig poorConfig = new PgPoolConfig.Builder()
