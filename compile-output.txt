@@ -1,3 +1,7 @@
+WARNING: A terminally deprecated method in sun.misc.Unsafe has been called
+WARNING: sun.misc.Unsafe::staticFieldBase has been called by com.google.inject.internal.aop.HiddenClassDefiner (file:/C:/Users/mraysmit/scoop/apps/maven/current/lib/guice-5.1.0-classes.jar)
+WARNING: Please consider reporting this to the maintainers of class com.google.inject.internal.aop.HiddenClassDefiner
+WARNING: sun.misc.Unsafe::staticFieldBase will be removed in a future release
 [INFO] Scanning for projects...
 [INFO] ------------------------------------------------------------------------
 [INFO] Reactor Build Order:
@@ -5,9 +9,25 @@
 [INFO] PeeGeeQ                                                            [pom]
 [INFO] PeeGeeQ API                                                        [jar]
 [INFO] PeeGeeQ DB                                                         [jar]
+[INFO] PeeGeeQ Test Support                                               [jar]
+[INFO] PeeGeeQ Vert.x Outbox                                              [jar]
+[INFO] PeeGeeQ Native                                                     [jar]
+[INFO] PeeGeeQ Bi-Temporal                                                [jar]
+[INFO] PeeGeeQ Runtime                                                    [jar]
+[INFO] PeeGeeQ REST API                                                   [jar]
+[INFO] PeeGeeQ Client                                                     [jar]
+[INFO] PeeGeeQ Service Manager                                            [jar]
+[INFO] PeeGeeQ Performance Test Harness                                   [jar]
+[INFO] PeeGeeQ Examples                                                   [jar]
+[INFO] PeeGeeQ Examples Spring                                            [jar]
+[INFO] PeeGeeQ Migrations                                                 [jar]
+[INFO] PeeGeeQ Management UI                                              [pom]
+[INFO] PeeGeeQ OpenAPI                                                    [jar]
+[INFO] PeeGeeQ Integration Tests                                          [jar]
+[INFO] PeeGeeQ Coverage Report                                            [pom]
 [INFO] 
 [INFO] --------------------------< dev.mars:peegeeq >--------------------------
-[INFO] Building PeeGeeQ 1.0-SNAPSHOT                                      [1/3]
+[INFO] Building PeeGeeQ 1.0-SNAPSHOT                                     [1/19]
 [INFO]   from pom.xml
 [INFO] --------------------------------[ pom ]---------------------------------
 [INFO] 
@@ -21,7 +41,7 @@
 [INFO] Rule 0: org.apache.maven.enforcer.rules.version.RequireMavenVersion passed
 [INFO] 
 [INFO] ------------------------< dev.mars:peegeeq-api >------------------------
-[INFO] Building PeeGeeQ API 1.0-SNAPSHOT                                  [2/3]
+[INFO] Building PeeGeeQ API 1.0-SNAPSHOT                                 [2/19]
 [INFO]   from peegeeq-api\pom.xml
 [INFO] --------------------------------[ jar ]---------------------------------
 [INFO] 
@@ -45,16 +65,8 @@
 [INFO] Changes detected - recompiling the module! :source
 [INFO] Compiling 69 source files with javac [forked debug release 21] to target\classes
 [INFO] 
-[INFO] --- resources:3.3.1:testResources (default-testResources) @ peegeeq-api ---
-[INFO] Copying 1 resource from src\test\resources to target\test-classes
-[INFO] 
-[INFO] --- compiler:3.11.0:testCompile (default-testCompile) @ peegeeq-api ---
-[INFO] Toolchain in maven-compiler-plugin: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
-[INFO] Changes detected - recompiling the module! :dependency
-[INFO] Compiling 31 source files with javac [forked debug release 21] to target\test-classes
-[INFO] 
 [INFO] ------------------------< dev.mars:peegeeq-db >-------------------------
-[INFO] Building PeeGeeQ DB 1.0-SNAPSHOT                                   [3/3]
+[INFO] Building PeeGeeQ DB 1.0-SNAPSHOT                                  [3/19]
 [INFO]   from peegeeq-db\pom.xml
 [INFO] --------------------------------[ jar ]---------------------------------
 [INFO] 
@@ -78,322 +90,1003 @@
 [INFO] Changes detected - recompiling the module! :dependency
 [INFO] Compiling 52 source files with javac [forked debug release 21] to target\classes
 [INFO] 
-[INFO] --- resources:3.3.1:testResources (default-testResources) @ peegeeq-db ---
-[INFO] Copying 4 resources from src\test\resources to target\test-classes
+[INFO] -------------------< dev.mars:peegeeq-test-support >--------------------
+[INFO] Building PeeGeeQ Test Support 1.0-SNAPSHOT                        [4/19]
+[INFO]   from peegeeq-test-support\pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
 [INFO] 
-[INFO] --- compiler:3.11.0:testCompile (default-testCompile) @ peegeeq-db ---
+[INFO] --- clean:3.2.0:clean (default-clean) @ peegeeq-test-support ---
+[INFO] Deleting C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-test-support\target
+[INFO] 
+[INFO] --- toolchains:3.1.0:toolchain (default) @ peegeeq-test-support ---
+[INFO] Required toolchain: jdk [ version='21' ]
+[INFO] Found matching toolchain for type jdk: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] 
+[INFO] --- enforcer:3.4.1:enforce (enforce-maven-version) @ peegeeq-test-support ---
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ peegeeq-test-support ---
+[INFO] Copying 2 resources from src\main\resources to target\classes
+[INFO] 
+[INFO] --- compiler:3.11.0:compile (default-compile) @ peegeeq-test-support ---
 [INFO] Toolchain in maven-compiler-plugin: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
 [INFO] Changes detected - recompiling the module! :dependency
-[INFO] Compiling 99 source files with javac [forked debug release 21] to target\test-classes
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\MultiConfigurationExampleTest.java:[101,8] error: cannot find symbol
-  symbol:   variable vertx
-  location: class MultiConfigurationExampleTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\MultiConfigurationExampleTest.java:[105,8] error: cannot find symbol
-  symbol:   variable vertx
-  location: class MultiConfigurationExampleTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\MultiConfigurationExampleTest.java:[109,8] error: cannot find symbol
-  symbol:   variable vertx
-  location: class MultiConfigurationExampleTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\PeeGeeQPerformanceTest.java:[151,20] error: cannot find symbol
-  symbol:   variable testContext
-  location: class PeeGeeQPerformanceTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\PeeGeeQPerformanceTest.java:[197,32] error: cannot find symbol
-  symbol:   variable vertx
-  location: class PeeGeeQPerformanceTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\PeeGeeQPerformanceTest.java:[214,20] error: cannot find symbol
-  symbol:   variable testContext
-  location: class PeeGeeQPerformanceTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\PeeGeeQPerformanceTest.java:[269,20] error: cannot find symbol
-  symbol:   variable testContext
-  location: class PeeGeeQPerformanceTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\PeeGeeQPerformanceTest.java:[336,20] error: cannot find symbol
-  symbol:   variable testContext
-  location: class PeeGeeQPerformanceTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\PeeGeeQPerformanceTest.java:[369,8] error: cannot find symbol
-  symbol:   variable vertx
-  location: class PeeGeeQPerformanceTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\PeeGeeQPerformanceTest.java:[395,8] error: cannot find symbol
-  symbol:   variable vertx
-  location: class PeeGeeQPerformanceTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[129,24] error: cannot find symbol
-  symbol:   variable testContext
-  location: class CompletionTrackerIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[135,20] error: cannot find symbol
-  symbol:   variable testContext
-  location: class CompletionTrackerIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[138,19] error: cannot find symbol
-  symbol:   variable testContext
-  location: class CompletionTrackerIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[205,24] error: cannot find symbol
-  symbol:   variable testContext
-  location: class CompletionTrackerIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[211,20] error: cannot find symbol
-  symbol:   variable testContext
-  location: class CompletionTrackerIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[214,19] error: cannot find symbol
-  symbol:   variable testContext
-  location: class CompletionTrackerIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[253,24] error: cannot find symbol
-  symbol:   variable testContext
-  location: class CompletionTrackerIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[259,20] error: cannot find symbol
-  symbol:   variable testContext
-  location: class CompletionTrackerIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[262,19] error: cannot find symbol
-  symbol:   variable testContext
-  location: class CompletionTrackerIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[302,24] error: cannot find symbol
-  symbol:   variable testContext
-  location: class CompletionTrackerIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[307,20] error: cannot find symbol
-  symbol:   variable testContext
-  location: class CompletionTrackerIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[310,19] error: cannot find symbol
-  symbol:   variable testContext
-  location: class CompletionTrackerIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[358,24] error: cannot find symbol
-  symbol:   variable testContext
-  location: class CompletionTrackerIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[364,20] error: cannot find symbol
-  symbol:   variable testContext
-  location: class CompletionTrackerIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[367,19] error: cannot find symbol
-  symbol:   variable testContext
-  location: class CompletionTrackerIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[411,24] error: cannot find symbol
-  symbol:   variable testContext
-  location: class CompletionTrackerIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[416,20] error: cannot find symbol
-  symbol:   variable testContext
-  location: class CompletionTrackerIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[419,19] error: cannot find symbol
-  symbol:   variable testContext
-  location: class CompletionTrackerIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[453,32] error: cannot find symbol
-  symbol:   variable testContext
-  location: class CompletionTrackerIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[456,20] error: cannot find symbol
-  symbol:   variable testContext
-  location: class CompletionTrackerIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[459,19] error: cannot find symbol
-  symbol:   variable testContext
-  location: class CompletionTrackerIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[510,24] error: cannot find symbol
-  symbol:   variable testContext
-  location: class CompletionTrackerIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[515,20] error: cannot find symbol
-  symbol:   variable testContext
-  location: class CompletionTrackerIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\consumer\CompletionTrackerIntegrationTest.java:[518,19] error: cannot find symbol
-  symbol:   variable testContext
-  location: class CompletionTrackerIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\SimpleConsumerGroupTestTest.java:[214,52] error: cannot find symbol
-  symbol:   variable testContext
-  location: class SimpleConsumerGroupTestTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\SimpleConsumerGroupTestTest.java:[230,8] error: cannot find symbol
-  symbol:   variable vertx
-  location: class SimpleConsumerGroupTestTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\SimpleConsumerGroupTestTest.java:[241,31] error: cannot find symbol
-  symbol:   variable testContext
-  location: class SimpleConsumerGroupTestTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\SimpleConsumerGroupTestTest.java:[264,8] error: cannot find symbol
-  symbol:   variable vertx
-  location: class SimpleConsumerGroupTestTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\SimpleConsumerGroupTestTest.java:[267,8] error: cannot find symbol
-  symbol:   variable vertx
-  location: class SimpleConsumerGroupTestTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\SimpleConsumerGroupTestTest.java:[270,8] error: cannot find symbol
-  symbol:   variable vertx
-  location: class SimpleConsumerGroupTestTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\SimpleConsumerGroupTestTest.java:[290,8] error: cannot find symbol
-  symbol:   variable vertx
-  location: class SimpleConsumerGroupTestTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\SimpleConsumerGroupTestTest.java:[293,8] error: cannot find symbol
-  symbol:   variable vertx
-  location: class SimpleConsumerGroupTestTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\SimpleConsumerGroupTestTest.java:[314,8] error: cannot find symbol
-  symbol:   variable vertx
-  location: class SimpleConsumerGroupTestTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\SimpleConsumerGroupTestTest.java:[317,8] error: cannot find symbol
-  symbol:   variable vertx
-  location: class SimpleConsumerGroupTestTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\SimpleConsumerGroupTestTest.java:[320,8] error: cannot find symbol
-  symbol:   variable vertx
-  location: class SimpleConsumerGroupTestTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\cleanup\DeadConsumerDetectorIntegrationTest.java:[142,20] error: cannot find symbol
-  symbol:   variable testContext
-  location: class DeadConsumerDetectorIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\cleanup\DeadConsumerDetectorIntegrationTest.java:[144,27] error: cannot find symbol
-  symbol:   variable testContext
-  location: class DeadConsumerDetectorIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\cleanup\DeadConsumerDetectorIntegrationTest.java:[146,19] error: cannot find symbol
-  symbol:   variable testContext
-  location: class DeadConsumerDetectorIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\cleanup\DeadConsumerDetectorIntegrationTest.java:[190,20] error: cannot find symbol
-  symbol:   variable testContext
-  location: class DeadConsumerDetectorIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\cleanup\DeadConsumerDetectorIntegrationTest.java:[192,27] error: cannot find symbol
-  symbol:   variable testContext
-  location: class DeadConsumerDetectorIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\cleanup\DeadConsumerDetectorIntegrationTest.java:[194,19] error: cannot find symbol
-  symbol:   variable testContext
-  location: class DeadConsumerDetectorIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\cleanup\DeadConsumerDetectorIntegrationTest.java:[269,20] error: cannot find symbol
-  symbol:   variable testContext
-  location: class DeadConsumerDetectorIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\cleanup\DeadConsumerDetectorIntegrationTest.java:[271,27] error: cannot find symbol
-  symbol:   variable testContext
-  location: class DeadConsumerDetectorIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\cleanup\DeadConsumerDetectorIntegrationTest.java:[273,19] error: cannot find symbol
-  symbol:   variable testContext
-  location: class DeadConsumerDetectorIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\cleanup\DeadConsumerDetectorIntegrationTest.java:[333,20] error: cannot find symbol
-  symbol:   variable testContext
-  location: class DeadConsumerDetectorIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\cleanup\DeadConsumerDetectorIntegrationTest.java:[335,27] error: cannot find symbol
-  symbol:   variable testContext
-  location: class DeadConsumerDetectorIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\cleanup\DeadConsumerDetectorIntegrationTest.java:[337,19] error: cannot find symbol
-  symbol:   variable testContext
-  location: class DeadConsumerDetectorIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\fanout\DeadConsumerDetectionJobIntegrationTest.java:[478,27] error: cannot find symbol
-  symbol:   variable SECONDS
-  location: class DeadConsumerDetectionJobIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\fanout\DeadConsumerDetectionJobIntegrationTest.java:[478,8] error: cannot find symbol
-  symbol:   method await()
-  location: class DeadConsumerDetectionJobIntegrationTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\PerformanceComparisonExampleTest.java:[203,12] error: cannot find symbol
-  symbol:   variable vertx
-  location: class PerformanceComparisonExampleTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\SecurityConfigurationExampleTest.java:[225,26] error: cannot find symbol
-  symbol:   variable SECONDS
-  location: class SecurityConfigurationExampleTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\examples\SecurityConfigurationExampleTest.java:[225,8] error: cannot find symbol
-  symbol:   method await()
-  location: class SecurityConfigurationExampleTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\VertxEventLoopBlockingJoinTest.java:[33,12] error: cannot find symbol
-  symbol:   class CountDownLatch
-  location: class VertxEventLoopBlockingJoinTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\VertxEventLoopBlockingJoinTest.java:[33,47] error: cannot find symbol
-  symbol:   class CountDownLatch
-  location: class VertxEventLoopBlockingJoinTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\VertxEventLoopBlockingJoinTest.java:[64,12] error: cannot find symbol
-  symbol:   class CountDownLatch
-  location: class VertxEventLoopBlockingJoinTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\VertxEventLoopBlockingJoinTest.java:[64,40] error: cannot find symbol
-  symbol:   class CountDownLatch
-  location: class VertxEventLoopBlockingJoinTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\VertxEventLoopBlockingJoinTest.java:[76,12] error: cannot find symbol
-  symbol:   class CountDownLatch
-  location: class VertxEventLoopBlockingJoinTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\VertxEventLoopBlockingJoinTest.java:[76,47] error: cannot find symbol
-  symbol:   class CountDownLatch
-  location: class VertxEventLoopBlockingJoinTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\VertxEventLoopBlockingJoinTest.java:[77,12] error: cannot find symbol
-  symbol:   class CountDownLatch
-  location: class VertxEventLoopBlockingJoinTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\VertxEventLoopBlockingJoinTest.java:[77,44] error: cannot find symbol
-  symbol:   class CountDownLatch
-  location: class VertxEventLoopBlockingJoinTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\VertxEventLoopBlockingJoinTest.java:[101,12] error: cannot find symbol
-  symbol:   class CountDownLatch
-  location: class VertxEventLoopBlockingJoinTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\performance\VertxEventLoopBlockingJoinTest.java:[101,40] error: cannot find symbol
-  symbol:   class CountDownLatch
-  location: class VertxEventLoopBlockingJoinTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\deadletter\DeadLetterQueueManagerTest.java:[216,26] error: cannot find symbol
-  symbol:   variable SECONDS
-  location: class DeadLetterQueueManagerTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\deadletter\DeadLetterQueueManagerTest.java:[216,8] error: cannot find symbol
-  symbol:   method await()
-  location: class DeadLetterQueueManagerTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\deadletter\DeadLetterQueueManagerTest.java:[257,26] error: cannot find symbol
-  symbol:   variable SECONDS
-  location: class DeadLetterQueueManagerTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\deadletter\DeadLetterQueueManagerTest.java:[257,8] error: cannot find symbol
-  symbol:   method await()
-  location: class DeadLetterQueueManagerTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\deadletter\DeadLetterQueueManagerTest.java:[372,27] error: cannot find symbol
-  symbol:   variable SECONDS
-  location: class DeadLetterQueueManagerTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\deadletter\DeadLetterQueueManagerTest.java:[372,8] error: cannot find symbol
-  symbol:   method await()
-  location: class DeadLetterQueueManagerTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\deadletter\DeadLetterQueueManagerTest.java:[536,27] error: cannot find symbol
-  symbol:   variable SECONDS
-  location: class DeadLetterQueueManagerTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\deadletter\DeadLetterQueueManagerTest.java:[536,8] error: cannot find symbol
-  symbol:   method await()
-  location: class DeadLetterQueueManagerTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\deadletter\DeadLetterQueueManagerTest.java:[542,105] error: cannot find symbol
-  symbol:   variable retries
-  location: class DeadLetterQueueManagerTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\resilience\BackpressureManagerTest.java:[125,24] error: cannot find symbol
-  symbol:   variable vertx
-  location: class BackpressureManagerTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\resilience\BackpressureManagerTest.java:[136,20] error: cannot find symbol
-  symbol:   variable completetestContext
-  location: class BackpressureManagerTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\resilience\BackpressureManagerTest.java:[141,8] error: cannot find symbol
-  symbol:   variable starttestContext
-  location: class BackpressureManagerTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\resilience\BackpressureManagerTest.java:[160,20] error: cannot find symbol
-  symbol:   variable vertx
-  location: class BackpressureManagerTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\resilience\BackpressureManagerTest.java:[170,12] error: cannot find symbol
-  symbol:   variable vertx
-  location: class BackpressureManagerTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\health\HealthCheckManagerTest.java:[168,27] error: cannot find symbol
-  symbol:   variable SECONDS
-  location: class HealthCheckManagerTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\health\HealthCheckManagerTest.java:[168,8] error: cannot find symbol
-  symbol:   method await()
-  location: class HealthCheckManagerTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\health\HealthCheckManagerTest.java:[178,27] error: cannot find symbol
-  symbol:   variable SECONDS
-  location: class HealthCheckManagerTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\health\HealthCheckManagerTest.java:[178,8] error: cannot find symbol
-  symbol:   method await()
-  location: class HealthCheckManagerTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\health\HealthCheckManagerTest.java:[200,27] error: cannot find symbol
-  symbol:   variable SECONDS
-  location: class HealthCheckManagerTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\health\HealthCheckManagerTest.java:[200,8] error: cannot find symbol
-  symbol:   method await()
-  location: class HealthCheckManagerTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\health\HealthCheckManagerTest.java:[220,27] error: cannot find symbol
-  symbol:   variable SECONDS
-  location: class HealthCheckManagerTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\health\HealthCheckManagerTest.java:[220,8] error: cannot find symbol
-  symbol:   method await()
-  location: class HealthCheckManagerTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\health\HealthCheckManagerTest.java:[249,27] error: cannot find symbol
-  symbol:   variable SECONDS
-  location: class HealthCheckManagerTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\health\HealthCheckManagerTest.java:[249,8] error: cannot find symbol
-  symbol:   method await()
-  location: class HealthCheckManagerTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\health\HealthCheckManagerTest.java:[265,27] error: cannot find symbol
-  symbol:   variable SECONDS
-  location: class HealthCheckManagerTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\health\HealthCheckManagerTest.java:[265,8] error: cannot find symbol
-  symbol:   method await()
-  location: class HealthCheckManagerTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\health\HealthCheckManagerTest.java:[289,27] error: cannot find symbol
-  symbol:   variable SECONDS
-  location: class HealthCheckManagerTest
-[ERROR] C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-db\src\test\java\dev\mars\peegeeq\db\health\HealthCheckManagerTest.java:[289,8] error: cannot find symbol
-  symbol:   method await()
-  location: class HealthCheckManagerTest
+[INFO] Compiling 23 source files with javac [forked debug release 21] to target\classes
+[INFO] 
+[INFO] ----------------------< dev.mars:peegeeq-outbox >-----------------------
+[INFO] Building PeeGeeQ Vert.x Outbox 1.0-SNAPSHOT                       [5/19]
+[INFO]   from peegeeq-outbox\pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ peegeeq-outbox ---
+[INFO] Deleting C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-outbox\target
+[INFO] 
+[INFO] --- toolchains:3.1.0:toolchain (default) @ peegeeq-outbox ---
+[INFO] Required toolchain: jdk [ version='21' ]
+[INFO] Found matching toolchain for type jdk: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] 
+[INFO] --- enforcer:3.4.1:enforce (enforce-maven-version) @ peegeeq-outbox ---
+[INFO] 
+[INFO] --- jacoco:0.8.12:prepare-agent (default) @ peegeeq-outbox ---
+[INFO] argLine set to -javaagent:C:\\Users\\mraysmit\\.m2\\repository\\org\\jacoco\\org.jacoco.agent\\0.8.12\\org.jacoco.agent-0.8.12-runtime.jar=destfile=C:\\Users\\mraysmit\\dev\\idea-projects\\peegeeq\\peegeeq-outbox\\target\\jacoco.exec
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ peegeeq-outbox ---
+[INFO] Copying 1 resource from src\main\resources to target\classes
+[INFO] 
+[INFO] --- compiler:3.11.0:compile (default-compile) @ peegeeq-outbox ---
+[INFO] Toolchain in maven-compiler-plugin: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] Changes detected - recompiling the module! :dependency
+[INFO] Compiling 18 source files with javac [forked debug release 21] to target\classes
+[INFO] 
+[INFO] ----------------------< dev.mars:peegeeq-native >-----------------------
+[INFO] Building PeeGeeQ Native 1.0-SNAPSHOT                              [6/19]
+[INFO]   from peegeeq-native\pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ peegeeq-native ---
+[INFO] Deleting C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-native\target
+[INFO] 
+[INFO] --- toolchains:3.1.0:toolchain (default) @ peegeeq-native ---
+[INFO] Required toolchain: jdk [ version='21' ]
+[INFO] Found matching toolchain for type jdk: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] 
+[INFO] --- enforcer:3.4.1:enforce (enforce-maven-version) @ peegeeq-native ---
+[INFO] 
+[INFO] --- jacoco:0.8.12:prepare-agent (default) @ peegeeq-native ---
+[INFO] argLine set to -javaagent:C:\\Users\\mraysmit\\.m2\\repository\\org\\jacoco\\org.jacoco.agent\\0.8.12\\org.jacoco.agent-0.8.12-runtime.jar=destfile=C:\\Users\\mraysmit\\dev\\idea-projects\\peegeeq\\peegeeq-native\\target\\jacoco.exec
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ peegeeq-native ---
+[INFO] Copying 1 resource from src\main\resources to target\classes
+[INFO] 
+[INFO] --- compiler:3.11.0:compile (default-compile) @ peegeeq-native ---
+[INFO] Toolchain in maven-compiler-plugin: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] Changes detected - recompiling the module! :dependency
+[INFO] Compiling 14 source files with javac [forked debug release 21] to target\classes
+[INFO] 
+[INFO] --------------------< dev.mars:peegeeq-bitemporal >---------------------
+[INFO] Building PeeGeeQ Bi-Temporal 1.0-SNAPSHOT                         [7/19]
+[INFO]   from peegeeq-bitemporal\pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ peegeeq-bitemporal ---
+[INFO] Deleting C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-bitemporal\target
+[INFO] 
+[INFO] --- toolchains:3.1.0:toolchain (default) @ peegeeq-bitemporal ---
+[INFO] Required toolchain: jdk [ version='21' ]
+[INFO] Found matching toolchain for type jdk: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] 
+[INFO] --- enforcer:3.4.1:enforce (enforce-maven-version) @ peegeeq-bitemporal ---
+[INFO] 
+[INFO] --- jacoco:0.8.12:prepare-agent (default) @ peegeeq-bitemporal ---
+[INFO] argLine set to -javaagent:C:\\Users\\mraysmit\\.m2\\repository\\org\\jacoco\\org.jacoco.agent\\0.8.12\\org.jacoco.agent-0.8.12-runtime.jar=destfile=C:\\Users\\mraysmit\\dev\\idea-projects\\peegeeq\\peegeeq-bitemporal\\target\\jacoco.exec
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ peegeeq-bitemporal ---
+[INFO] Copying 1 resource from src\main\resources to target\classes
+[INFO] 
+[INFO] --- compiler:3.11.0:compile (default-compile) @ peegeeq-bitemporal ---
+[INFO] Toolchain in maven-compiler-plugin: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] Changes detected - recompiling the module! :dependency
+[INFO] Compiling 5 source files with javac [forked debug release 21] to target\classes
+[INFO] 
+[INFO] ----------------------< dev.mars:peegeeq-runtime >----------------------
+[INFO] Building PeeGeeQ Runtime 1.0-SNAPSHOT                             [8/19]
+[INFO]   from peegeeq-runtime\pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ peegeeq-runtime ---
+[INFO] Deleting C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-runtime\target
+[INFO] 
+[INFO] --- toolchains:3.1.0:toolchain (default) @ peegeeq-runtime ---
+[INFO] Required toolchain: jdk [ version='21' ]
+[INFO] Found matching toolchain for type jdk: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] 
+[INFO] --- enforcer:3.4.1:enforce (enforce-maven-version) @ peegeeq-runtime ---
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ peegeeq-runtime ---
+[INFO] skip non existing resourceDirectory C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-runtime\src\main\resources
+[INFO] 
+[INFO] --- compiler:3.11.0:compile (default-compile) @ peegeeq-runtime ---
+[INFO] Toolchain in maven-compiler-plugin: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] Changes detected - recompiling the module! :dependency
+[INFO] Compiling 4 source files with javac [forked debug release 21] to target\classes
+[INFO] 
+[INFO] -----------------------< dev.mars:peegeeq-rest >------------------------
+[INFO] Building PeeGeeQ REST API 1.0-SNAPSHOT                            [9/19]
+[INFO]   from peegeeq-rest\pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ peegeeq-rest ---
+[INFO] Deleting C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-rest\target
+[INFO] 
+[INFO] --- toolchains:3.1.0:toolchain (default) @ peegeeq-rest ---
+[INFO] Required toolchain: jdk [ version='21' ]
+[INFO] Found matching toolchain for type jdk: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] 
+[INFO] --- enforcer:3.4.1:enforce (enforce-maven-version) @ peegeeq-rest ---
+[INFO] 
+[INFO] --- jacoco:0.8.12:prepare-agent (default) @ peegeeq-rest ---
+[INFO] argLine set to -javaagent:C:\\Users\\mraysmit\\.m2\\repository\\org\\jacoco\\org.jacoco.agent\\0.8.12\\org.jacoco.agent-0.8.12-runtime.jar=destfile=C:\\Users\\mraysmit\\dev\\idea-projects\\peegeeq\\peegeeq-rest\\target\\jacoco.exec
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ peegeeq-rest ---
+[INFO] Copying 5 resources from src\main\resources to target\classes
+[INFO] 
+[INFO] --- compiler:3.11.0:compile (default-compile) @ peegeeq-rest ---
+[INFO] Toolchain in maven-compiler-plugin: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] Changes detected - recompiling the module! :dependency
+[INFO] Compiling 25 source files with javac [forked debug release 21] to target\classes
+[INFO] 
+[INFO] --------------------< dev.mars:peegeeq-rest-client >--------------------
+[INFO] Building PeeGeeQ Client 1.0-SNAPSHOT                             [10/19]
+[INFO]   from peegeeq-rest-client\pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ peegeeq-rest-client ---
+[INFO] Deleting C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-rest-client\target
+[INFO] 
+[INFO] --- toolchains:3.1.0:toolchain (default) @ peegeeq-rest-client ---
+[INFO] Required toolchain: jdk [ version='21' ]
+[INFO] Found matching toolchain for type jdk: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] 
+[INFO] --- enforcer:3.4.1:enforce (enforce-maven-version) @ peegeeq-rest-client ---
+[INFO] 
+[INFO] --- jacoco:0.8.12:prepare-agent (default) @ peegeeq-rest-client ---
+[INFO] argLine set to -javaagent:C:\\Users\\mraysmit\\.m2\\repository\\org\\jacoco\\org.jacoco.agent\\0.8.12\\org.jacoco.agent-0.8.12-runtime.jar=destfile=C:\\Users\\mraysmit\\dev\\idea-projects\\peegeeq\\peegeeq-rest-client\\target\\jacoco.exec
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ peegeeq-rest-client ---
+[INFO] skip non existing resourceDirectory C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-rest-client\src\main\resources
+[INFO] 
+[INFO] --- compiler:3.11.0:compile (default-compile) @ peegeeq-rest-client ---
+[INFO] Toolchain in maven-compiler-plugin: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] Changes detected - recompiling the module! :dependency
+[INFO] Compiling 28 source files with javac [forked debug release 21] to target\classes
+[INFO] 
+[INFO] ------------------< dev.mars:peegeeq-service-manager >------------------
+[INFO] Building PeeGeeQ Service Manager 1.0-SNAPSHOT                    [11/19]
+[INFO]   from peegeeq-service-manager\pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ peegeeq-service-manager ---
+[INFO] Deleting C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-service-manager\target
+[INFO] 
+[INFO] --- toolchains:3.1.0:toolchain (default) @ peegeeq-service-manager ---
+[INFO] Required toolchain: jdk [ version='21' ]
+[INFO] Found matching toolchain for type jdk: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] 
+[INFO] --- enforcer:3.4.1:enforce (enforce-maven-version) @ peegeeq-service-manager ---
+[INFO] 
+[INFO] --- jacoco:0.8.12:prepare-agent (default) @ peegeeq-service-manager ---
+[INFO] argLine set to -javaagent:C:\\Users\\mraysmit\\.m2\\repository\\org\\jacoco\\org.jacoco.agent\\0.8.12\\org.jacoco.agent-0.8.12-runtime.jar=destfile=C:\\Users\\mraysmit\\dev\\idea-projects\\peegeeq\\peegeeq-service-manager\\target\\jacoco.exec
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ peegeeq-service-manager ---
+[INFO] skip non existing resourceDirectory C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-service-manager\src\main\resources
+[INFO] 
+[INFO] --- compiler:3.11.0:compile (default-compile) @ peegeeq-service-manager ---
+[INFO] Toolchain in maven-compiler-plugin: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] Changes detected - recompiling the module! :dependency
+[INFO] Compiling 13 source files with javac [forked debug release 21] to target\classes
+[INFO] 
+[INFO] -------------< dev.mars:peegeeq-performance-test-harness >--------------
+[INFO] Building PeeGeeQ Performance Test Harness 1.0-SNAPSHOT           [12/19]
+[INFO]   from peegeeq-performance-test-harness\pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ peegeeq-performance-test-harness ---
+[INFO] Deleting C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-performance-test-harness\target
+[INFO] 
+[INFO] --- toolchains:3.1.0:toolchain (default) @ peegeeq-performance-test-harness ---
+[INFO] Required toolchain: jdk [ version='21' ]
+[INFO] Found matching toolchain for type jdk: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] 
+[INFO] --- enforcer:3.4.1:enforce (enforce-maven-version) @ peegeeq-performance-test-harness ---
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ peegeeq-performance-test-harness ---
+[INFO] Copying 2 resources from src\main\resources to target\classes
+[INFO] 
+[INFO] --- compiler:3.11.0:compile (default-compile) @ peegeeq-performance-test-harness ---
+[INFO] Toolchain in maven-compiler-plugin: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] Changes detected - recompiling the module! :dependency
+[INFO] Compiling 9 source files with javac [forked debug release 21] to target\classes
+[INFO] 
+[INFO] ---------------------< dev.mars:peegeeq-examples >----------------------
+[INFO] Building PeeGeeQ Examples 1.0-SNAPSHOT                           [13/19]
+[INFO]   from peegeeq-examples\pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ peegeeq-examples ---
+[INFO] Deleting C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-examples\target
+[INFO] 
+[INFO] --- toolchains:3.1.0:toolchain (default) @ peegeeq-examples ---
+[INFO] Required toolchain: jdk [ version='21' ]
+[INFO] Found matching toolchain for type jdk: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] 
+[INFO] --- enforcer:3.4.1:enforce (enforce-maven-version) @ peegeeq-examples ---
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ peegeeq-examples ---
+[INFO] Copying 18 resources from src\main\resources to target\classes
+[INFO] 
+[INFO] --- compiler:3.11.0:compile (default-compile) @ peegeeq-examples ---
+[INFO] Toolchain in maven-compiler-plugin: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] Changes detected - recompiling the module! :dependency
+[INFO] Compiling 27 source files with javac [forked debug release 21] to target\classes
+[INFO] 
+[INFO] ------------------< dev.mars:peegeeq-examples-spring >------------------
+[INFO] Building PeeGeeQ Examples Spring 1.0-SNAPSHOT                    [14/19]
+[INFO]   from peegeeq-examples-spring\pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ peegeeq-examples-spring ---
+[INFO] Deleting C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-examples-spring\target
+[INFO] 
+[INFO] --- toolchains:3.1.0:toolchain (default) @ peegeeq-examples-spring ---
+[INFO] Required toolchain: jdk [ version='21' ]
+[INFO] Found matching toolchain for type jdk: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] 
+[INFO] --- enforcer:3.4.1:enforce (enforce-maven-version) @ peegeeq-examples-spring ---
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ peegeeq-examples-spring ---
+[INFO] Copying 18 resources from src\main\resources to target\classes
+[INFO] 
+[INFO] --- compiler:3.11.0:compile (default-compile) @ peegeeq-examples-spring ---
+[INFO] Toolchain in maven-compiler-plugin: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] Changes detected - recompiling the module! :dependency
+[INFO] Compiling 140 source files with javac [forked debug release 21] to target\classes
+[INFO] 
+[INFO] --------------------< dev.mars:peegeeq-migrations >---------------------
+[INFO] Building PeeGeeQ Migrations 1.0-SNAPSHOT                         [15/19]
+[INFO]   from peegeeq-migrations\pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ peegeeq-migrations ---
+[INFO] Deleting C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-migrations\target
+[INFO] 
+[INFO] --- toolchains:3.1.0:toolchain (default) @ peegeeq-migrations ---
+[INFO] Required toolchain: jdk [ version='21' ]
+[INFO] Found matching toolchain for type jdk: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] 
+[INFO] --- enforcer:3.4.1:enforce (enforce-maven-version) @ peegeeq-migrations ---
+[INFO] 
+[INFO] --- jacoco:0.8.12:prepare-agent (default) @ peegeeq-migrations ---
+[INFO] argLine set to -javaagent:C:\\Users\\mraysmit\\.m2\\repository\\org\\jacoco\\org.jacoco.agent\\0.8.12\\org.jacoco.agent-0.8.12-runtime.jar=destfile=C:\\Users\\mraysmit\\dev\\idea-projects\\peegeeq\\peegeeq-migrations\\target\\jacoco.exec
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ peegeeq-migrations ---
+[INFO] Copying 5 resources from src\main\resources to target\classes
+[INFO] 
+[INFO] --- compiler:3.11.0:compile (default-compile) @ peegeeq-migrations ---
+[INFO] Toolchain in maven-compiler-plugin: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] Changes detected - recompiling the module! :source
+[INFO] Compiling 1 source file with javac [forked debug release 21] to target\classes
+[INFO] 
+[INFO] -------------------< dev.mars:peegeeq-management-ui >-------------------
+[INFO] Building PeeGeeQ Management UI 1.0-SNAPSHOT                      [16/19]
+[INFO]   from peegeeq-management-ui\pom.xml
+[INFO] --------------------------------[ pom ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ peegeeq-management-ui ---
+[INFO] 
+[INFO] --- toolchains:3.1.0:toolchain (default) @ peegeeq-management-ui ---
+[INFO] Required toolchain: jdk [ version='21' ]
+[INFO] Found matching toolchain for type jdk: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] 
+[INFO] --- enforcer:3.4.1:enforce (enforce-maven-version) @ peegeeq-management-ui ---
+[INFO] 
+[INFO] --- frontend:1.15.1:install-node-and-npm (install-node-and-npm) @ peegeeq-management-ui ---
+[INFO] Node v20.11.0 is already installed.
+[INFO] NPM 10.2.4 is already installed.
+[INFO] 
+[INFO] --- frontend:1.15.1:npm (npm-install) @ peegeeq-management-ui ---
+[INFO] Running 'npm install' in C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-management-ui
+[INFO] npm WARN EBADENGINE Unsupported engine {
+[INFO] npm WARN EBADENGINE   package: 'undici@7.16.0',
+[INFO] npm WARN EBADENGINE   required: { node: '>=20.18.1' },
+[INFO] npm WARN EBADENGINE   current: { node: 'v20.11.0', npm: '10.2.4' }
+[INFO] npm WARN EBADENGINE }
+[INFO] 
+[INFO] up to date, audited 588 packages in 29s
+[INFO] 
+[INFO] 94 packages are looking for funding
+[INFO]   run `npm fund` for details
+[INFO] 
+[INFO] 19 vulnerabilities (6 moderate, 13 high)
+[INFO] 
+[INFO] To address all issues, run:
+[INFO]   npm audit fix
+[INFO] 
+[INFO] Run `npm audit` for details.
+[INFO] 
+[INFO] ----------------------< dev.mars:peegeeq-openapi >----------------------
+[INFO] Building PeeGeeQ OpenAPI 1.0-SNAPSHOT                            [17/19]
+[INFO]   from peegeeq-openapi\pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ peegeeq-openapi ---
+[INFO] Deleting C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target
+[INFO] 
+[INFO] --- toolchains:3.1.0:toolchain (default) @ peegeeq-openapi ---
+[INFO] Required toolchain: jdk [ version='21' ]
+[INFO] Found matching toolchain for type jdk: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] 
+[INFO] --- enforcer:3.4.1:enforce (enforce-maven-version) @ peegeeq-openapi ---
+[INFO] 
+[INFO] --- openapi-generator:7.10.0:generate (generate-java-client) @ peegeeq-openapi ---
+[INFO] Generating with dryRun=false
+[INFO] Output directory (C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java) does not exist, or is inaccessible. No file (.openapi-generator-ignore) will be evaluated.
+[INFO] OpenAPI Generator: java (client)
+[INFO] Generator 'java' is considered stable.
+[INFO] Environment variable JAVA_POST_PROCESS_FILE not defined so the Java code may not be properly formatted. To define it, try 'export JAVA_POST_PROCESS_FILE="/usr/local/bin/clang-format -i"' (Linux/Mac)
+[INFO] NOTE: To enable file post-processing, 'enablePostProcessFile' must be set to `true` (--enable-post-process-file for CLI).
+[INFO] Inline schema created as deleteEventStoreByName_200_response. To have complete control of the model name, set the `title` field or use the modelNameMapping option (e.g. --model-name-mappings deleteEventStoreByName_200_response=NewModel,ModelA=NewModelA in CLI) or inlineSchemaNameMapping option (--inline-schema-name-mappings deleteEventStoreByName_200_response=NewModel,ModelA=NewModelA in CLI).
+[INFO] Inline schema created as SystemMetricsResponse_memory. To have complete control of the model name, set the `title` field or use the modelNameMapping option (e.g. --model-name-mappings SystemMetricsResponse_memory=NewModel,ModelA=NewModelA in CLI) or inlineSchemaNameMapping option (--inline-schema-name-mappings SystemMetricsResponse_memory=NewModel,ModelA=NewModelA in CLI).
+[INFO] Inline schema created as SystemMetricsResponse_connections. To have complete control of the model name, set the `title` field or use the modelNameMapping option (e.g. --model-name-mappings SystemMetricsResponse_connections=NewModel,ModelA=NewModelA in CLI) or inlineSchemaNameMapping option (--inline-schema-name-mappings SystemMetricsResponse_connections=NewModel,ModelA=NewModelA in CLI).
+[INFO] Inline schema created as SystemMetricsResponse_throughput. To have complete control of the model name, set the `title` field or use the modelNameMapping option (e.g. --model-name-mappings SystemMetricsResponse_throughput=NewModel,ModelA=NewModelA in CLI) or inlineSchemaNameMapping option (--inline-schema-name-mappings SystemMetricsResponse_throughput=NewModel,ModelA=NewModelA in CLI).
+[INFO] Processing operation listSetups
+[INFO] Processing operation createSetup
+[INFO] Processing operation getSetup
+[INFO] Processing operation deleteSetup
+[INFO] Processing operation getSetupStatus
+[INFO] Processing operation destroySetup
+[INFO] Processing operation addQueueToSetup
+[INFO] Processing operation addEventStoreToSetup
+[INFO] Processing operation getQueueDetails
+[INFO] Processing operation getQueueStats
+[INFO] Processing operation listQueueConsumers
+[INFO] Processing operation listQueueBindings
+[INFO] Processing operation purgeQueue
+[INFO] Processing operation sendMessage
+[INFO] Processing operation sendBatchMessages
+[INFO] Processing operation getNextMessage
+[INFO] Processing operation getMessages
+[INFO] Processing operation acknowledgeMessage
+[INFO] Processing operation listConsumerGroups
+[INFO] Processing operation createConsumerGroup
+[INFO] Processing operation getConsumerGroup
+[INFO] Processing operation deleteConsumerGroup
+[INFO] Processing operation joinConsumerGroup
+[INFO] Processing operation leaveConsumerGroup
+[INFO] Processing operation listSubscriptions
+[INFO] Processing operation getSubscription
+[INFO] Processing operation cancelSubscription
+[INFO] Processing operation pauseSubscription
+[INFO] Processing operation resumeSubscription
+[INFO] Processing operation updateHeartbeat
+[INFO] Processing operation listDeadLetterMessages
+[INFO] Processing operation getDeadLetterStats
+[INFO] Processing operation getDeadLetterMessage
+[INFO] Processing operation deleteDeadLetterMessage
+[INFO] Processing operation reprocessDeadLetterMessage
+[INFO] Processing operation cleanupDeadLetterQueue
+[INFO] Processing operation queryEvents
+[INFO] Processing operation storeEvent
+[INFO] Processing operation getEvent
+[INFO] Processing operation getEventVersions
+[INFO] Processing operation getEventAsOf
+[INFO] Processing operation appendCorrection
+[INFO] Processing operation getEventStoreStats
+[INFO] Processing operation streamEvents
+[INFO] Processing operation deleteEventStoreByName
+[INFO] Processing operation getSetupHealth
+[INFO] Processing operation listComponentHealth
+[INFO] Processing operation getComponentHealth
+[INFO] Processing operation getSystemOverview
+[INFO] Processing operation getAllQueues
+[INFO] Processing operation createQueueViaManagement
+[INFO] Processing operation updateQueueViaManagement
+[INFO] Processing operation deleteQueueViaManagement
+[INFO] Processing operation getAllConsumerGroups
+[INFO] Processing operation createConsumerGroupViaManagement
+[INFO] Processing operation deleteConsumerGroupViaManagement
+[INFO] Processing operation getAllEventStores
+[INFO] Processing operation createEventStoreViaManagement
+[INFO] Processing operation deleteEventStoreViaManagement
+[INFO] Processing operation getMessagesViaManagement
+[INFO] Processing operation getSystemMetrics
+[INFO] Processing operation healthCheck
+[INFO] Processing operation managementHealthCheck
+[INFO] Processing operation getMetrics
+[INFO] Processing operation streamQueueMessages
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\AckResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\AckResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\AckResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\AddEventStoreRequest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\AddEventStoreRequestTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\AddEventStoreRequest.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\AddQueueRequest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\AddQueueRequestTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\AddQueueRequest.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\AppendCorrectionRequest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\AppendCorrectionRequestTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\AppendCorrectionRequest.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\BasicHealthResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\BasicHealthResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\BasicHealthResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\BatchMessageResult.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\BatchMessageResultTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\BatchMessageResult.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\BatchSentResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\BatchSentResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\BatchSentResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\BindingInfo.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\BindingInfoTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\BindingInfo.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\BindingListResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\BindingListResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\BindingListResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\ComponentHealth.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\ComponentHealthTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\ComponentHealth.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\ComponentHealthListResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\ComponentHealthListResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\ComponentHealthListResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\ComponentHealthResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\ComponentHealthResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\ComponentHealthResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\ConsumerGroupCreatedResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\ConsumerGroupCreatedResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\ConsumerGroupCreatedResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\ConsumerGroupDeletedResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\ConsumerGroupDeletedResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\ConsumerGroupDeletedResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\ConsumerGroupDetailsResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\ConsumerGroupDetailsResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\ConsumerGroupDetailsResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\ConsumerGroupListResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\ConsumerGroupListResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\ConsumerGroupListResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\ConsumerGroupSummary.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\ConsumerGroupSummaryTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\ConsumerGroupSummary.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\ConsumerInfo.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\ConsumerInfoTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\ConsumerInfo.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\ConsumerListResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\ConsumerListResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\ConsumerListResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\CorrectionAppendedResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\CorrectionAppendedResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\CorrectionAppendedResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\CreateConsumerGroupRequest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\CreateConsumerGroupRequestTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\CreateConsumerGroupRequest.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\DatabaseSetupRequest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\DatabaseSetupRequestTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\DatabaseSetupRequest.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\DeadLetterCleanupRequest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\DeadLetterCleanupRequestTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\DeadLetterCleanupRequest.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\DeadLetterCleanupResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\DeadLetterCleanupResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\DeadLetterCleanupResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\DeadLetterDeletedResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\DeadLetterDeletedResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\DeadLetterDeletedResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\DeadLetterListResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\DeadLetterListResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\DeadLetterListResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\DeadLetterMessage.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\DeadLetterMessageTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\DeadLetterMessage.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\DeadLetterMessageResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\DeadLetterMessageResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\DeadLetterMessageResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\DeadLetterReprocessedResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\DeadLetterReprocessedResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\DeadLetterReprocessedResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\DeadLetterStatsResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\DeadLetterStatsResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\DeadLetterStatsResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\DeleteEventStoreByName200Response.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\DeleteEventStoreByName200ResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\DeleteEventStoreByName200Response.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\ErrorResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\ErrorResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\ErrorResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\EventAsOfResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\EventAsOfResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\EventAsOfResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\EventQueryResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\EventQueryResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\EventQueryResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\EventRecord.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\EventRecordTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\EventRecord.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\EventResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\EventResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\EventResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\EventStoreAddedResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\EventStoreAddedResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\EventStoreAddedResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\EventStoreConfig.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\EventStoreConfigTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\EventStoreConfig.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\EventStoreStatsResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\EventStoreStatsResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\EventStoreStatsResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\EventStoredResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\EventStoredResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\EventStoredResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\EventVersionsResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\EventVersionsResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\EventVersionsResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\HeartbeatResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\HeartbeatResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\HeartbeatResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\JoinConsumerGroupRequest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\JoinConsumerGroupRequestTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\JoinConsumerGroupRequest.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\JoinConsumerGroupResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\JoinConsumerGroupResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\JoinConsumerGroupResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\LeaveConsumerGroupRequest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\LeaveConsumerGroupRequestTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\LeaveConsumerGroupRequest.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\LeaveConsumerGroupResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\LeaveConsumerGroupResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\LeaveConsumerGroupResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\ManagementConsumerGroupCreatedResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\ManagementConsumerGroupCreatedResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\ManagementConsumerGroupCreatedResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\ManagementConsumerGroupDeletedResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\ManagementConsumerGroupDeletedResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\ManagementConsumerGroupDeletedResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\ManagementConsumerGroupInfo.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\ManagementConsumerGroupInfoTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\ManagementConsumerGroupInfo.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\ManagementConsumerGroupListResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\ManagementConsumerGroupListResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\ManagementConsumerGroupListResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\ManagementCreateConsumerGroupRequest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\ManagementCreateConsumerGroupRequestTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\ManagementCreateConsumerGroupRequest.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\ManagementCreateEventStoreRequest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\ManagementCreateEventStoreRequestTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\ManagementCreateEventStoreRequest.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\ManagementCreateQueueRequest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\ManagementCreateQueueRequestTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\ManagementCreateQueueRequest.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\ManagementEventStoreCreatedResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\ManagementEventStoreCreatedResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\ManagementEventStoreCreatedResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\ManagementEventStoreDeletedResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\ManagementEventStoreDeletedResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\ManagementEventStoreDeletedResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\ManagementEventStoreInfo.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\ManagementEventStoreInfoTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\ManagementEventStoreInfo.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\ManagementEventStoreListResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\ManagementEventStoreListResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\ManagementEventStoreListResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\ManagementHealthResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\ManagementHealthResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\ManagementHealthResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\ManagementMessageInfo.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\ManagementMessageInfoTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\ManagementMessageInfo.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\ManagementMessagesResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\ManagementMessagesResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\ManagementMessagesResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\ManagementQueueCreatedResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\ManagementQueueCreatedResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\ManagementQueueCreatedResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\ManagementQueueDeletedResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\ManagementQueueDeletedResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\ManagementQueueDeletedResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\ManagementQueueInfo.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\ManagementQueueInfoTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\ManagementQueueInfo.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\ManagementQueueListResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\ManagementQueueListResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\ManagementQueueListResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\ManagementQueueUpdatedResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\ManagementQueueUpdatedResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\ManagementQueueUpdatedResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\ManagementUpdateQueueRequest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\ManagementUpdateQueueRequestTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\ManagementUpdateQueueRequest.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\MessageResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\MessageResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\MessageResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\MessageSentResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\MessageSentResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\MessageSentResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\MessagesResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\MessagesResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\MessagesResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\PauseSubscriptionRequest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\PauseSubscriptionRequestTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\PauseSubscriptionRequest.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\QueueAddedResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\QueueAddedResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\QueueAddedResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\QueueConfig.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\QueueConfigTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\QueueConfig.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\QueueDetailsResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\QueueDetailsResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\QueueDetailsResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\QueuePurgedResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\QueuePurgedResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\QueuePurgedResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\QueueStats.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\QueueStatsTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\QueueStats.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\QueueStatsResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\QueueStatsResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\QueueStatsResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\SendBatchRequest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\SendBatchRequestTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\SendBatchRequest.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\SendMessageRequest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\SendMessageRequestTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\SendMessageRequest.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\SetupCreatedResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\SetupCreatedResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\SetupCreatedResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\SetupDeletedResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\SetupDeletedResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\SetupDeletedResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\SetupDestroyedResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\SetupDestroyedResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\SetupDestroyedResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\SetupDetailsResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\SetupDetailsResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\SetupDetailsResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\SetupHealthResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\SetupHealthResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\SetupHealthResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\SetupListResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\SetupListResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\SetupListResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\SetupStatusResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\SetupStatusResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\SetupStatusResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\SetupSummary.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\SetupSummaryTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\SetupSummary.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\StoreEventRequest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\StoreEventRequestTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\StoreEventRequest.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\SubscriptionCancelledResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\SubscriptionCancelledResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\SubscriptionCancelledResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\SubscriptionDetailsResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\SubscriptionDetailsResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\SubscriptionDetailsResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\SubscriptionListResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\SubscriptionListResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\SubscriptionListResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\SubscriptionPausedResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\SubscriptionPausedResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\SubscriptionPausedResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\SubscriptionResumedResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\SubscriptionResumedResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\SubscriptionResumedResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\SubscriptionStats.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\SubscriptionStatsTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\SubscriptionStats.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\SubscriptionSummary.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\SubscriptionSummaryTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\SubscriptionSummary.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\SystemMetricsResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\SystemMetricsResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\SystemMetricsResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\SystemMetricsResponseConnections.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\SystemMetricsResponseConnectionsTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\SystemMetricsResponseConnections.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\SystemMetricsResponseMemory.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\SystemMetricsResponseMemoryTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\SystemMetricsResponseMemory.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\SystemMetricsResponseThroughput.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\SystemMetricsResponseThroughputTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\SystemMetricsResponseThroughput.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\SystemOverviewResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\model\SystemOverviewResponseTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\SystemOverviewResponse.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\api\ConsumerGroupsApi.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\api\ConsumerGroupsApiTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\ConsumerGroupsApi.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\api\DatabaseSetupApi.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\api\DatabaseSetupApiTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\DatabaseSetupApi.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\api\DeadLetterQueueApi.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\api\DeadLetterQueueApiTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\DeadLetterQueueApi.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\api\EventStoreApi.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\api\EventStoreApiTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\EventStoreApi.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\api\HealthApi.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\api\HealthApiTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\HealthApi.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\api\ManagementApi.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\api\ManagementApiTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\ManagementApi.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\api\QueueManagementApi.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\api\QueueManagementApiTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\QueueManagementApi.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\api\QueueMessagesApi.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\api\QueueMessagesApiTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\QueueMessagesApi.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\api\StreamingApi.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\api\StreamingApiTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\StreamingApi.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\api\SubscriptionsApi.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\test\java\dev\mars\peegeeq\openapi\client\api\SubscriptionsApiTest.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\docs\SubscriptionsApi.md
+[INFO] Skipping generation of Webhooks.
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\pom.xml
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\README.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\build.gradle
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\build.sbt
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\settings.gradle
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\gradle.properties
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\AndroidManifest.xml
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\.travis.yml
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\ApiClient.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\ServerConfiguration.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\ServerVariable.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\.github\workflows\maven.yml
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\api\openapi.yaml
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\StringUtil.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\auth\HttpBasicAuth.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\auth\HttpBearerAuth.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\auth\ApiKeyAuth.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\gradlew
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\gradlew.bat
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\gradle\wrapper\gradle-wrapper.properties
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\gradle\wrapper\gradle-wrapper.jar
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\git_push.sh
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\.gitignore
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\ApiException.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\Configuration.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\Pair.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\auth\Authentication.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\ApiCallback.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\ApiResponse.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\JSON.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\ProgressRequestBody.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\ProgressResponseBody.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\GzipRequestInterceptor.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java\dev\mars\peegeeq\openapi\client\model\AbstractOpenApiSchema.java
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\.openapi-generator-ignore
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\.openapi-generator\VERSION
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\.openapi-generator\FILES
+################################################################################
+# Thanks for using OpenAPI Generator.                                          #
+# Please consider donation to help us maintain this project ?                 #
+# https://opencollective.com/openapi_generator/donate                          #
+################################################################################
+[INFO] 
+[INFO] --- openapi-generator:7.10.0:generate (generate-typescript-client) @ peegeeq-openapi ---
+[INFO] Generating with dryRun=false
+[INFO] Output directory (C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript) does not exist, or is inaccessible. No file (.openapi-generator-ignore) will be evaluated.
+[INFO] OpenAPI Generator: typescript-fetch (client)
+[INFO] Generator 'typescript-fetch' is considered stable.
+[INFO] Hint: Environment variable 'TS_POST_PROCESS_FILE' (optional) not defined. E.g. to format the source code, please try 'export TS_POST_PROCESS_FILE="/usr/local/bin/prettier --write"' (Linux/Mac)
+[INFO] Note: To enable file post-processing, 'enablePostProcessFile' must be set to `true` (--enable-post-process-file for CLI).
+[WARNING] The value (generator's option) must be either boolean or string. Default to `false`.
+[INFO] Inline schema created as deleteEventStoreByName_200_response. To have complete control of the model name, set the `title` field or use the modelNameMapping option (e.g. --model-name-mappings deleteEventStoreByName_200_response=NewModel,ModelA=NewModelA in CLI) or inlineSchemaNameMapping option (--inline-schema-name-mappings deleteEventStoreByName_200_response=NewModel,ModelA=NewModelA in CLI).
+[INFO] Inline schema created as SystemMetricsResponse_memory. To have complete control of the model name, set the `title` field or use the modelNameMapping option (e.g. --model-name-mappings SystemMetricsResponse_memory=NewModel,ModelA=NewModelA in CLI) or inlineSchemaNameMapping option (--inline-schema-name-mappings SystemMetricsResponse_memory=NewModel,ModelA=NewModelA in CLI).
+[INFO] Inline schema created as SystemMetricsResponse_connections. To have complete control of the model name, set the `title` field or use the modelNameMapping option (e.g. --model-name-mappings SystemMetricsResponse_connections=NewModel,ModelA=NewModelA in CLI) or inlineSchemaNameMapping option (--inline-schema-name-mappings SystemMetricsResponse_connections=NewModel,ModelA=NewModelA in CLI).
+[INFO] Inline schema created as SystemMetricsResponse_throughput. To have complete control of the model name, set the `title` field or use the modelNameMapping option (e.g. --model-name-mappings SystemMetricsResponse_throughput=NewModel,ModelA=NewModelA in CLI) or inlineSchemaNameMapping option (--inline-schema-name-mappings SystemMetricsResponse_throughput=NewModel,ModelA=NewModelA in CLI).
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\AckResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\AddEventStoreRequest.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\AddQueueRequest.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\AppendCorrectionRequest.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\BasicHealthResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\BatchMessageResult.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\BatchSentResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\BindingInfo.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\BindingListResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\ComponentHealth.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\ComponentHealthListResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\ComponentHealthResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\ConsumerGroupCreatedResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\ConsumerGroupDeletedResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\ConsumerGroupDetailsResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\ConsumerGroupListResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\ConsumerGroupSummary.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\ConsumerInfo.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\ConsumerListResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\CorrectionAppendedResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\CreateConsumerGroupRequest.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\DatabaseSetupRequest.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\DeadLetterCleanupRequest.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\DeadLetterCleanupResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\DeadLetterDeletedResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\DeadLetterListResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\DeadLetterMessage.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\DeadLetterMessageResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\DeadLetterReprocessedResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\DeadLetterStatsResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\DeleteEventStoreByName200Response.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\ErrorResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\EventAsOfResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\EventQueryResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\EventRecord.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\EventResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\EventStoreAddedResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\EventStoreConfig.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\EventStoreStatsResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\EventStoredResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\EventVersionsResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\HeartbeatResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\JoinConsumerGroupRequest.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\JoinConsumerGroupResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\LeaveConsumerGroupRequest.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\LeaveConsumerGroupResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\ManagementConsumerGroupCreatedResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\ManagementConsumerGroupDeletedResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\ManagementConsumerGroupInfo.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\ManagementConsumerGroupListResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\ManagementCreateConsumerGroupRequest.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\ManagementCreateEventStoreRequest.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\ManagementCreateQueueRequest.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\ManagementEventStoreCreatedResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\ManagementEventStoreDeletedResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\ManagementEventStoreInfo.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\ManagementEventStoreListResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\ManagementHealthResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\ManagementMessageInfo.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\ManagementMessagesResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\ManagementQueueCreatedResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\ManagementQueueDeletedResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\ManagementQueueInfo.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\ManagementQueueListResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\ManagementQueueUpdatedResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\ManagementUpdateQueueRequest.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\MessageResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\MessageSentResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\MessagesResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\PauseSubscriptionRequest.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\QueueAddedResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\QueueConfig.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\QueueDetailsResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\QueuePurgedResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\QueueStats.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\QueueStatsResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\SendBatchRequest.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\SendMessageRequest.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\SetupCreatedResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\SetupDeletedResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\SetupDestroyedResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\SetupDetailsResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\SetupHealthResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\SetupListResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\SetupStatusResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\SetupSummary.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\StoreEventRequest.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\SubscriptionCancelledResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\SubscriptionDetailsResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\SubscriptionListResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\SubscriptionPausedResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\SubscriptionResumedResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\SubscriptionStats.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\SubscriptionSummary.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\SystemMetricsResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\SystemMetricsResponseConnections.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\SystemMetricsResponseMemory.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\SystemMetricsResponseThroughput.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\SystemOverviewResponse.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\apis\ConsumerGroupsApi.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\apis\DatabaseSetupApi.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\apis\DeadLetterQueueApi.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\apis\EventStoreApi.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\apis\HealthApi.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\apis\ManagementApi.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\apis\QueueManagementApi.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\apis\QueueMessagesApi.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\apis\StreamingApi.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\apis\SubscriptionsApi.ts
+[INFO] Skipping generation of Webhooks.
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\index.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\runtime.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\README.md
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\package.json
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\tsconfig.json
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\tsconfig.esm.json
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\.npmignore
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\.gitignore
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\models\index.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\src\apis\index.ts
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\.openapi-generator-ignore
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\.openapi-generator\VERSION
+[INFO] writing file C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\typescript\.openapi-generator\FILES
+################################################################################
+# Thanks for using OpenAPI Generator.                                          #
+# Please consider donation to help us maintain this project ?                 #
+# https://opencollective.com/openapi_generator/donate                          #
+################################################################################
+[INFO] 
+[INFO] --- build-helper:3.6.0:add-source (add-generated-sources) @ peegeeq-openapi ---
+[INFO] Source directory: C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-openapi\target\generated-sources\java\src\main\java added.
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ peegeeq-openapi ---
+[INFO] Copying 1 resource from src\main\resources to target\classes
+[INFO] 
+[INFO] --- compiler:3.11.0:compile (default-compile) @ peegeeq-openapi ---
+[INFO] Toolchain in maven-compiler-plugin: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] Changes detected - recompiling the module! :source
+[INFO] Compiling 127 source files with javac [forked debug release 21] to target\classes
+[INFO] 
+[INFO] -----------------< dev.mars:peegeeq-integration-tests >-----------------
+[INFO] Building PeeGeeQ Integration Tests 1.0-SNAPSHOT                  [18/19]
+[INFO]   from peegeeq-integration-tests\pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ peegeeq-integration-tests ---
+[INFO] Deleting C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-integration-tests\target
+[INFO] 
+[INFO] --- toolchains:3.1.0:toolchain (default) @ peegeeq-integration-tests ---
+[INFO] Required toolchain: jdk [ version='21' ]
+[INFO] Found matching toolchain for type jdk: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] 
+[INFO] --- enforcer:3.4.1:enforce (enforce-maven-version) @ peegeeq-integration-tests ---
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ peegeeq-integration-tests ---
+[INFO] skip non existing resourceDirectory C:\Users\mraysmit\dev\idea-projects\peegeeq\peegeeq-integration-tests\src\main\resources
+[INFO] 
+[INFO] --- compiler:3.11.0:compile (default-compile) @ peegeeq-integration-tests ---
+[INFO] Toolchain in maven-compiler-plugin: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] No sources to compile
+[INFO] 
+[INFO] ------------------< dev.mars:peegeeq-coverage-report >------------------
+[INFO] Building PeeGeeQ Coverage Report 1.0-SNAPSHOT                    [19/19]
+[INFO]   from peegeeq-coverage-report\pom.xml
+[INFO] --------------------------------[ pom ]---------------------------------
+[INFO] 
+[INFO] --- clean:3.2.0:clean (default-clean) @ peegeeq-coverage-report ---
+[INFO] 
+[INFO] --- toolchains:3.1.0:toolchain (default) @ peegeeq-coverage-report ---
+[INFO] Required toolchain: jdk [ version='21' ]
+[INFO] Found matching toolchain for type jdk: JDK[C:\Users\mraysmit\.jdks\corretto-21.0.0_35]
+[INFO] 
+[INFO] --- enforcer:3.4.1:enforce (enforce-maven-version) @ peegeeq-coverage-report ---
+[INFO] 
+[INFO] --- jacoco:0.8.12:prepare-agent (default) @ peegeeq-coverage-report ---
+[INFO] Skipping JaCoCo execution because property jacoco.skip is set.
+[INFO] argLine set to empty
 [INFO] ------------------------------------------------------------------------
 [INFO] Reactor Summary for PeeGeeQ 1.0-SNAPSHOT:
 [INFO] 
-[INFO] PeeGeeQ ............................................ SUCCESS [  1.043 s]
-[INFO] PeeGeeQ API ........................................ SUCCESS [ 11.996 s]
-[INFO] PeeGeeQ DB ......................................... SUCCESS [ 15.060 s]
+[INFO] PeeGeeQ ............................................ SUCCESS [  0.364 s]
+[INFO] PeeGeeQ API ........................................ SUCCESS [  5.237 s]
+[INFO] PeeGeeQ DB ......................................... SUCCESS [  6.275 s]
+[INFO] PeeGeeQ Test Support ............................... SUCCESS [  4.325 s]
+[INFO] PeeGeeQ Vert.x Outbox .............................. SUCCESS [  4.180 s]
+[INFO] PeeGeeQ Native ..................................... SUCCESS [  3.729 s]
+[INFO] PeeGeeQ Bi-Temporal ................................ SUCCESS [  3.653 s]
+[INFO] PeeGeeQ Runtime .................................... SUCCESS [  1.943 s]
+[INFO] PeeGeeQ REST API ................................... SUCCESS [  4.786 s]
+[INFO] PeeGeeQ Client ..................................... SUCCESS [  3.362 s]
+[INFO] PeeGeeQ Service Manager ............................ SUCCESS [  3.793 s]
+[INFO] PeeGeeQ Performance Test Harness ................... SUCCESS [  3.211 s]
+[INFO] PeeGeeQ Examples ................................... SUCCESS [  4.095 s]
+[INFO] PeeGeeQ Examples Spring ............................ SUCCESS [  7.553 s]
+[INFO] PeeGeeQ Migrations ................................. SUCCESS [  2.003 s]
+[INFO] PeeGeeQ Management UI .............................. SUCCESS [ 31.184 s]
+[INFO] PeeGeeQ OpenAPI .................................... SUCCESS [ 13.054 s]
+[INFO] PeeGeeQ Integration Tests .......................... SUCCESS [  0.087 s]
+[INFO] PeeGeeQ Coverage Report ............................ SUCCESS [  0.128 s]
 [INFO] ------------------------------------------------------------------------
 [INFO] BUILD SUCCESS
 [INFO] ------------------------------------------------------------------------
-[INFO] Total time:  28.993 s
-[INFO] Finished at: 2026-03-15T20:52:57+08:00
+[INFO] Total time:  01:43 min
+[INFO] Finished at: 2026-03-16T21:55:03+08:00
 [INFO] ------------------------------------------------------------------------

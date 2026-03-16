@@ -71,7 +71,7 @@ class VertxPerformanceOptimizationValidationTest {
         container.withDatabaseName("peegeeq_test");
         container.withUsername("test");
         container.withPassword("test");
-        container.withSharedMemorySize(256 * 1024 * 1024L) // 256MB shared memory;
+        container.withSharedMemorySize(256 * 1024 * 1024L); // 256MB shared memory
         container.withCommand("postgres", "-c", "max_connections=300"); // Simple connection limit increase;
         return container;
     }

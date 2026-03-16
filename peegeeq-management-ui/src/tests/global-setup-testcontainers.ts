@@ -37,7 +37,7 @@ async function globalSetup() {
     const database = postgresContainer.getDatabase()
     const containerId = postgresContainer.getId()
 
-    console.log('PostgreSQL container started:')
+    console.log('✅ PostgreSQL container started:')
     console.log(`   Host: ${host}`)
     console.log(`   Port: ${port}`)
     console.log(`   Database: ${database}`)
@@ -53,9 +53,9 @@ async function globalSetup() {
     ])
 
     if (createUserResult.exitCode === 0) {
-      console.log('peegeeq user created successfully')
+      console.log('✅ peegeeq user created successfully')
     } else if (createUserResult.output.includes('already exists')) {
-      console.log('peegeeq user already exists')
+      console.log('✅ peegeeq user already exists')
     } else {
       console.error('❌ Failed to create peegeeq user:', createUserResult.output)
       throw new Error('Failed to create peegeeq user')
@@ -76,7 +76,7 @@ async function globalSetup() {
       const isSuperuser = checkResult.output.trim() === 't'
 
       if (isSuperuser) {
-        console.log('peegeeq user has SUPERUSER privilege (includes all privileges)')
+        console.log('✅ peegeeq user has SUPERUSER privilege (includes all privileges)')
       } else {
         console.error('❌ peegeeq user does not have SUPERUSER privilege')
         console.error('   Query result:', checkResult.output)
@@ -130,7 +130,7 @@ async function globalSetup() {
         process.exit(1)
       }
 
-      console.log('Backend is running and healthy')
+      console.log('✅ Backend is running and healthy')
     } catch (error) {
       console.error('\n❌ Cannot connect to PeeGeeQ backend at http://127.0.0.1:8080')
       console.error('   Error:', error instanceof Error ? error.message : String(error))
@@ -168,13 +168,13 @@ async function globalSetup() {
             }
           }
         }
-        console.log('Database cleanup complete')
+        console.log('✅ Database cleanup complete')
       }
     } catch (error) {
       console.warn('⚠️  Error during database cleanup:', error instanceof Error ? error.message : String(error))
     }
 
-    console.log('\nTestContainers setup complete')
+    console.log('\n✅ TestContainers setup complete')
     console.log('   Database setup will be created through UI in database-setup.spec.ts\n')
   } catch (error) {
     console.error('\n❌ Failed to start PostgreSQL container')
@@ -197,7 +197,7 @@ async function globalTeardown() {
     // Clean up state file
     if (fs.existsSync(CONTAINER_INFO_FILE)) {
       fs.unlinkSync(CONTAINER_INFO_FILE)
-      console.log('Container state file removed')
+      console.log('✅ Container state file removed')
     }
 
     // Keep testcontainers-db.json for backend to use
