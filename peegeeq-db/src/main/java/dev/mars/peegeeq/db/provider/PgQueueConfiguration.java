@@ -137,21 +137,6 @@ public class PgQueueConfiguration implements QueueConfiguration {
         return additionalProperties.get(key);
     }
     
-    @Override
-    public <T> T getProperty(String key, T defaultValue) {
-        Object value = additionalProperties.get(key);
-        if (value == null) {
-            return defaultValue;
-        }
-        
-        try {
-            return (T) value;
-        } catch (ClassCastException e) {
-            logger.warn("Property {} has wrong type, returning default value", key, e);
-            return defaultValue;
-        }
-    }
-    
     /**
      * Sets an additional property.
      * 

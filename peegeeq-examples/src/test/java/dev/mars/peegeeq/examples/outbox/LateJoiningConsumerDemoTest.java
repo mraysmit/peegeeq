@@ -44,7 +44,7 @@ import org.springframework.test.context.DynamicPropertySource;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
@@ -92,7 +92,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class LateJoiningConsumerDemoTest {
     private static final Logger logger = LoggerFactory.getLogger(LateJoiningConsumerDemoTest.class);
     
-    static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
+    static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {

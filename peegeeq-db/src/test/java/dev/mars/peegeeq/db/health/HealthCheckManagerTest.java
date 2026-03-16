@@ -30,7 +30,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.ResourceLock;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.sql.SQLException;
 import java.time.Duration;
@@ -85,7 +85,7 @@ class HealthCheckManagerTest {
 
     @BeforeEach
     void setUp() throws SQLException {
-        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
+        PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
         vertx = Vertx.vertx();
         connectionManager = new PgConnectionManager(vertx);
 
@@ -541,7 +541,7 @@ class HealthCheckManagerTest {
 
     @Test
     void testReactiveHealthCheckManager() {
-        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
+        PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
         // Create connection config for reactive pool
         PgConnectionConfig reactiveConnectionConfig = new PgConnectionConfig.Builder()

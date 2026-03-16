@@ -15,7 +15,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -44,7 +44,7 @@ class PgBiTemporalEventStorePerformanceTest {
 
     @Container
     @SuppressWarnings("resource") // Managed by Testcontainers framework
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
+    static PostgreSQLContainer postgres = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)
             .withDatabaseName("peegeeq_perf_test")
             .withUsername("peegeeq_test")
             .withPassword("peegeeq_test")
@@ -98,7 +98,7 @@ class PgBiTemporalEventStorePerformanceTest {
         restoreTestProperties();
     }
 
-    private void configureSystemPropertiesForContainer(PostgreSQLContainer<?> postgres) {
+    private void configureSystemPropertiesForContainer(PostgreSQLContainer postgres) {
         setTestProperty("peegeeq.database.host", postgres.getHost());
         setTestProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
         setTestProperty("peegeeq.database.name", postgres.getDatabaseName());

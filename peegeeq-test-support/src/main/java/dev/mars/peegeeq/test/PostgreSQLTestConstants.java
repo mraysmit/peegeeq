@@ -16,7 +16,7 @@ package dev.mars.peegeeq.test;
  * limitations under the License.
  */
 
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 /**
  * Centralized PostgreSQL version constants for all PeeGeeQ tests and examples.
@@ -27,13 +27,13 @@ import org.testcontainers.containers.PostgreSQLContainer;
  * Usage:
  * ```java
  * // CORRECT - Use the centralized constant
- * PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
+ * PostgreSQLContainer postgres = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)
  *     .withDatabaseName("test_db")
  *     .withUsername("test_user")
  *     .withPassword("test_password");
  * 
  * // ❌ WRONG - Don't hardcode versions
- * PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15")
+ * PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:15")
  * ```
  * 
  * @author Mark Andrew Ray-Smith Cityline Ltd
@@ -88,8 +88,9 @@ public final class PostgreSQLTestConstants {
      * 
      * @return configured PostgreSQL container
      */
-    public static PostgreSQLContainer<?> createStandardContainer() {
-        return new PostgreSQLContainer<>(POSTGRES_IMAGE)
+    @SuppressWarnings("resource") // Container lifecycle is owned by the caller (typically @Container in tests)
+    public static PostgreSQLContainer createStandardContainer() {
+        return new PostgreSQLContainer(POSTGRES_IMAGE)
                 .withDatabaseName(DEFAULT_DATABASE_NAME)
                 .withUsername(DEFAULT_USERNAME)
                 .withPassword(DEFAULT_PASSWORD)
@@ -105,8 +106,9 @@ public final class PostgreSQLTestConstants {
      * @param password the password
      * @return configured PostgreSQL container
      */
-    public static PostgreSQLContainer<?> createContainer(String databaseName, String username, String password) {
-        return new PostgreSQLContainer<>(POSTGRES_IMAGE)
+    @SuppressWarnings("resource") // Container lifecycle is owned by the caller (typically @Container in tests)
+    public static PostgreSQLContainer createContainer(String databaseName, String username, String password) {
+        return new PostgreSQLContainer(POSTGRES_IMAGE)
                 .withDatabaseName(databaseName)
                 .withUsername(username)
                 .withPassword(password)
@@ -122,8 +124,9 @@ public final class PostgreSQLTestConstants {
      * @param password the password
      * @return configured high-performance PostgreSQL container
      */
-    public static PostgreSQLContainer<?> createHighPerformanceContainer(String databaseName, String username, String password) {
-        return new PostgreSQLContainer<>(POSTGRES_IMAGE)
+    @SuppressWarnings("resource") // Container lifecycle is owned by the caller (typically @Container in tests)
+    public static PostgreSQLContainer createHighPerformanceContainer(String databaseName, String username, String password) {
+        return new PostgreSQLContainer(POSTGRES_IMAGE)
                 .withDatabaseName(databaseName)
                 .withUsername(username)
                 .withPassword(password)

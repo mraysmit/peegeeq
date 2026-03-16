@@ -24,7 +24,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -60,10 +60,10 @@ class ConsumerModeTypeSafetyTest {
     private static final Logger logger = LoggerFactory.getLogger(ConsumerModeTypeSafetyTest.class);
 
     @Container
-    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+    static PostgreSQLContainer postgres = createPostgresContainer();
 
-    private static PostgreSQLContainer<?> createPostgresContainer() {
-        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+    private static PostgreSQLContainer createPostgresContainer() {
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
         container.withDatabaseName("peegeeq_test");
         container.withUsername("peegeeq_user");
         container.withPassword("peegeeq_password");
@@ -222,6 +222,7 @@ class ConsumerModeTypeSafetyTest {
         logger.info("🧪 Testing List type safety across all consumer modes");
 
         String topicName = "test-list-type-safety";
+        @SuppressWarnings("unchecked")
         Class<List<String>> listClass = (Class<List<String>>) (Class<?>) List.class;
         // Use ArrayList instead of List.of() to match Jackson deserialization behavior
         List<String> testMessage = new ArrayList<>(List.of("item1", "item2", "item3"));
@@ -243,6 +244,7 @@ class ConsumerModeTypeSafetyTest {
         logger.info("🧪 Testing Map type safety across all consumer modes");
 
         String topicName = "test-map-type-safety";
+        @SuppressWarnings("unchecked")
         Class<Map<String, Object>> mapClass = (Class<Map<String, Object>>) (Class<?>) Map.class;
         // Use LinkedHashMap instead of Map.of() to match Jackson deserialization behavior
         Map<String, Object> testMessage = new LinkedHashMap<>();

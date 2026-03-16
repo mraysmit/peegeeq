@@ -22,7 +22,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -54,7 +54,7 @@ class MultiConfigurationIntegrationTest {
     private static final Logger logger = LoggerFactory.getLogger(MultiConfigurationIntegrationTest.class);
 
     private MultiConfigurationManager configManager;
-    private PostgreSQLContainer<?> postgres;
+    private PostgreSQLContainer postgres;
 
     /**
      * Generate unique queue name for test independence

@@ -34,7 +34,7 @@ import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 
 import dev.mars.peegeeq.test.categories.TestCategories;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -79,7 +79,7 @@ class PeeGeeQPerformanceTest {
 
     @BeforeEach
     void setUp() {
-        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
+        PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
         // Configure for performance testing
         Properties testProps = new Properties();

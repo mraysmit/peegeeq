@@ -52,6 +52,7 @@ class RealServiceDiscoveryIntegrationTest {
     
     private static final Logger logger = LoggerFactory.getLogger(RealServiceDiscoveryIntegrationTest.class);
     
+    @SuppressWarnings("resource") // Container managed by @Testcontainers lifecycle
     @Container
     static ConsulContainer consul = new ConsulContainer("hashicorp/consul:1.15.3")
             .waitingFor(Wait.forHttp("/v1/status/leader").forPort(8500).forStatusCode(200));

@@ -25,7 +25,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -61,10 +61,10 @@ public class DatabaseSetupServiceIntegrationTest {
     private static final Logger logger = LoggerFactory.getLogger(DatabaseSetupServiceIntegrationTest.class);
     
     @Container
-    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+    static PostgreSQLContainer postgres = createPostgresContainer();
 
-    private static PostgreSQLContainer<?> createPostgresContainer() {
-        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20");
+    private static PostgreSQLContainer createPostgresContainer() {
+        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
         container.withDatabaseName("peegeeq_setup_test");
         container.withUsername("peegeeq_test");
         container.withPassword("peegeeq_test");

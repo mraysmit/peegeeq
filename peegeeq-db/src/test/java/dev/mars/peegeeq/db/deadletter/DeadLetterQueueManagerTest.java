@@ -31,7 +31,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.ResourceLock;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Instant;
 import java.util.HashMap;
@@ -69,7 +69,7 @@ class DeadLetterQueueManagerTest {
 
     @BeforeEach
     void setUp() {
-        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
+        PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
         vertx = Vertx.vertx();
         connectionManager = new PgConnectionManager(vertx);
         objectMapper = new ObjectMapper();
@@ -688,7 +688,7 @@ class DeadLetterQueueManagerTest {
 
     @Test
     void testReactiveDeadLetterQueueManager() {
-        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
+        PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
         // Create connection config for reactive pool
         PgConnectionConfig reactiveConnectionConfig = new PgConnectionConfig.Builder()

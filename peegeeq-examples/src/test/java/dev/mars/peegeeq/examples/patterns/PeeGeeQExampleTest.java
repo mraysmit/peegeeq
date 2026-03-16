@@ -33,7 +33,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.io.ByteArrayOutputStream;
 import java.io.PrintStream;
@@ -106,7 +106,7 @@ class PeeGeeQExampleTest {
         logger.info("Testing PeeGeeQExample with TestContainers database");
 
         // Start PostgreSQL container
-        try (PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)) {
+        try (PostgreSQLContainer postgres = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)) {
             postgres.withDatabaseName("peegeeq_test")
                     .withUsername("peegeeq_test")
                     .withPassword("peegeeq_test");
@@ -145,7 +145,7 @@ class PeeGeeQExampleTest {
 
         // Start PostgreSQL container with proper JUnit lifecycle management
         logger.info(">> Starting PostgreSQL container...");
-        try (PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)) {
+        try (PostgreSQLContainer postgres = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)) {
             postgres.withDatabaseName("peegeeq_demo")
                     .withUsername("peegeeq_demo")
                     .withPassword("peegeeq_demo")
@@ -175,7 +175,7 @@ class PeeGeeQExampleTest {
     /**
      * Configures system properties to use the TestContainer database.
      */
-    private void configureSystemPropertiesForContainer(PostgreSQLContainer<?> postgres) {
+    private void configureSystemPropertiesForContainer(PostgreSQLContainer postgres) {
         logger.info("⚙️  Configuring PeeGeeQ to use container database...");
 
         // Set database connection properties

@@ -29,7 +29,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -64,7 +64,7 @@ public class PerformanceComparisonExampleTest {
     void setUp() {
         logger.info("Setting up Performance Comparison Example Test");
 
-        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
+        PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
         // Configure system properties for container
         configureSystemPropertiesForContainer(postgres);
@@ -185,7 +185,7 @@ public class PerformanceComparisonExampleTest {
         logger.info("🔧 Threads: {}, Batch Size: {}, Polling Interval: {}", threads, batchSize, pollingInterval);
 
         // Re-configure database properties to ensure they're set (in case other tests modified them)
-        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
+        PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
         configureSystemPropertiesForContainer(postgres);
 
         // Set performance-specific system properties
@@ -242,7 +242,7 @@ public class PerformanceComparisonExampleTest {
     /**
      * Configures system properties to use the TestContainer database.
      */
-    private void configureSystemPropertiesForContainer(PostgreSQLContainer<?> postgres) {
+    private void configureSystemPropertiesForContainer(PostgreSQLContainer postgres) {
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
         System.setProperty("peegeeq.database.name", postgres.getDatabaseName());

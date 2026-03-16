@@ -32,7 +32,7 @@ import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.SqlConnection;
 import io.vertx.sqlclient.TransactionPropagation;
 import org.junit.jupiter.api.*;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -45,7 +45,6 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -69,10 +68,10 @@ class PgBiTemporalEventStoreComplexTest {
     private static final String DATABASE_SCHEMA_PROPERTY = "peegeeq.database.schema";
     
     @Container
-    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+    static PostgreSQLContainer postgres = createPostgresContainer();
 
-    private static PostgreSQLContainer<?> createPostgresContainer() {
-        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+    private static PostgreSQLContainer createPostgresContainer() {
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
         container.withDatabaseName("peegeeq_test_" + System.currentTimeMillis());
         container.withUsername("test");
         container.withPassword("test");
@@ -88,6 +87,7 @@ class PgBiTemporalEventStoreComplexTest {
         return future.toCompletionStage().toCompletableFuture().join();
     }
 
+    @SuppressWarnings("unused")
     private static <T> T await(java.util.concurrent.CompletionStage<T> stage) {
         return stage.toCompletableFuture().join();
     }
@@ -587,12 +587,14 @@ class PgBiTemporalEventStoreComplexTest {
         Instant tAfterV1 = Instant.now();
         awaitAsyncDelay(80);
 
+        @SuppressWarnings("unused")
         BiTemporalEvent<TestEvent> v2 = await(eventStore
             .appendCorrection(v1.getEventId(), "ChainEvent", new TestEvent("chain", "v2", 2), validTime, "c1")
         );
         Instant tAfterV2 = Instant.now();
         awaitAsyncDelay(80);
 
+        @SuppressWarnings("unused")
         BiTemporalEvent<TestEvent> v3 = await(eventStore
             .appendCorrection(v1.getEventId(), "ChainEvent", new TestEvent("chain", "v3", 3), validTime, "c2")
         );

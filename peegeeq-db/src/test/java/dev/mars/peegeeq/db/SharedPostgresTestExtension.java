@@ -20,7 +20,7 @@ import org.junit.jupiter.api.extension.BeforeAllCallback;
 import org.junit.jupiter.api.extension.ExtensionContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -46,7 +46,7 @@ import java.util.concurrent.locks.ReentrantLock;
  * class MyTest {
  *     @Test
  *     void myTest() {
- *         PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
+ *         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
  *         // Use postgres container
  *     }
  * }
@@ -62,7 +62,7 @@ public class SharedPostgresTestExtension implements BeforeAllCallback {
     private static final Logger logger = LoggerFactory.getLogger(SharedPostgresTestExtension.class);
     
     private static final Lock INIT_LOCK = new ReentrantLock();
-    private static volatile PostgreSQLContainer<?> container;
+    private static volatile PostgreSQLContainer container;
     private static volatile boolean schemaInitialized = false;
 
     /**
@@ -71,7 +71,7 @@ public class SharedPostgresTestExtension implements BeforeAllCallback {
      * @return the shared container
      * @throws IllegalStateException if container has not been initialized or started
      */
-    public static PostgreSQLContainer<?> getContainer() {
+    public static PostgreSQLContainer getContainer() {
         if (container == null) {
             throw new IllegalStateException("PostgreSQL container not initialized. Ensure @ExtendWith(SharedPostgresTestExtension.class) is present.");
         }
@@ -110,7 +110,7 @@ public class SharedPostgresTestExtension implements BeforeAllCallback {
      * </ul>
      */
     private void initializeContainer() {
-        PostgreSQLContainer<?> tempContainer = new PostgreSQLContainer<>("postgres:15.13-alpine3.20");
+        PostgreSQLContainer tempContainer = new PostgreSQLContainer("postgres:15.13-alpine3.20");
         tempContainer.withDatabaseName("peegeeq_test");
         tempContainer.withUsername("peegeeq_test");
         tempContainer.withPassword("peegeeq_test");

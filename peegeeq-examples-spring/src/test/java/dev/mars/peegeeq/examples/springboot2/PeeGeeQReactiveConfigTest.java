@@ -34,7 +34,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.TestPropertySource;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.slf4j.Logger;
@@ -98,7 +98,7 @@ class PeeGeeQReactiveConfigTest {
     private PeeGeeQProperties properties;
 
     @Container
-    static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
+    static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
@@ -106,7 +106,7 @@ class PeeGeeQReactiveConfigTest {
         SharedTestContainers.configureSharedProperties(registry);
 
         // Override the hardcoded properties with actual container values
-        PostgreSQLContainer<?> container = SharedTestContainers.getSharedPostgreSQLContainer();
+        PostgreSQLContainer container = SharedTestContainers.getSharedPostgreSQLContainer();
         registry.add("peegeeq.database.host", container::getHost);
         registry.add("peegeeq.database.port", () -> container.getFirstMappedPort().toString());
         registry.add("peegeeq.database.name", container::getDatabaseName);

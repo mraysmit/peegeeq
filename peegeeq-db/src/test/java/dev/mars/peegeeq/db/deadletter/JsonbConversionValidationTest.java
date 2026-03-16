@@ -28,7 +28,7 @@ import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -52,10 +52,10 @@ class JsonbConversionValidationTest {
     private static final Logger logger = LoggerFactory.getLogger(JsonbConversionValidationTest.class);
 
     @Container
-    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+    static PostgreSQLContainer postgres = createPostgresContainer();
 
-    private static PostgreSQLContainer<?> createPostgresContainer() {
-        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20");
+    private static PostgreSQLContainer createPostgresContainer() {
+        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
         container.withDatabaseName("testdb");
         container.withUsername("testuser");
         container.withPassword("testpass");
@@ -276,7 +276,7 @@ class JsonbConversionValidationTest {
         logger.info("Dead letter message reprocessing with JSONB data successful");
     }
 
-    private void initializeSchema(PostgreSQLContainer<?> postgres) {
+    private void initializeSchema(PostgreSQLContainer postgres) {
         try (Connection conn = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {
             // Create dead_letter_queue table with JSONB columns
             String createTableSql = """

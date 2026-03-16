@@ -17,7 +17,7 @@ import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -47,7 +47,7 @@ public class QueueManagementAdvancedE2ETest {
     private static final int TEST_PORT = 18102;
 
     @Container
-    private static final PostgreSQLContainer<?> postgres = PostgreSQLTestConstants.createStandardContainer();
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQRestServer server;
     private String deploymentId;

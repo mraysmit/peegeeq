@@ -1,6 +1,6 @@
 package dev.mars.peegeeq.test.containers;
 
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -17,14 +17,14 @@ import java.util.HashMap;
  * Usage:
  * ```java
  * // Basic testing
- * PostgreSQLContainer<?> container = PeeGeeQTestContainerFactory.createContainer(BASIC);
+ * PostgreSQLContainer container = PeeGeeQTestContainerFactory.createContainer(BASIC);
  * 
  * // High-performance testing
- * PostgreSQLContainer<?> container = PeeGeeQTestContainerFactory.createContainer(HIGH_PERFORMANCE);
+ * PostgreSQLContainer container = PeeGeeQTestContainerFactory.createContainer(HIGH_PERFORMANCE);
  * 
  * // Custom configuration
  * Map<String, String> custom = Map.of("max_connections", "500");
- * PostgreSQLContainer<?> container = PeeGeeQTestContainerFactory.createContainer(CUSTOM, custom);
+ * PostgreSQLContainer container = PeeGeeQTestContainerFactory.createContainer(CUSTOM, custom);
  * ```
  * 
  * @author Mark Andrew Ray-Smith Cityline Ltd
@@ -102,7 +102,7 @@ public class PeeGeeQTestContainerFactory {
      * @param profile the performance profile to use
      * @return configured PostgreSQL container
      */
-    public static PostgreSQLContainer<?> createContainer(PerformanceProfile profile) {
+    public static PostgreSQLContainer createContainer(PerformanceProfile profile) {
         return createContainer(profile, null, null, null, null);
     }
     
@@ -116,7 +116,7 @@ public class PeeGeeQTestContainerFactory {
      * @param customSettings custom PostgreSQL settings (only used with CUSTOM profile)
      * @return configured PostgreSQL container
      */
-    public static PostgreSQLContainer<?> createContainer(PerformanceProfile profile,
+    public static PostgreSQLContainer createContainer(PerformanceProfile profile,
                                                         String databaseName,
                                                         String username,
                                                         String password,
@@ -130,7 +130,7 @@ public class PeeGeeQTestContainerFactory {
         logger.debug("Creating PostgreSQL container with profile: {} for database: {}", 
                     profile.getDisplayName(), dbName);
         
-        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(POSTGRES_IMAGE)
+        PostgreSQLContainer container = new PostgreSQLContainer(POSTGRES_IMAGE)
                 .withDatabaseName(dbName)
                 .withUsername(dbUser)
                 .withPassword(dbPassword)
@@ -214,7 +214,7 @@ public class PeeGeeQTestContainerFactory {
      * @param customSettings map of PostgreSQL parameter name to value
      * @return configured container
      */
-    private static PostgreSQLContainer<?> applyCustomSettings(PostgreSQLContainer<?> container, 
+    private static PostgreSQLContainer applyCustomSettings(PostgreSQLContainer container, 
                                                              Map<String, String> customSettings) {
         
         logger.debug("Applying {} custom PostgreSQL settings", customSettings.size());
@@ -239,7 +239,7 @@ public class PeeGeeQTestContainerFactory {
      * 
      * @return PostgreSQL container configured like BaseIntegrationTest
      */
-    public static PostgreSQLContainer<?> createBaseIntegrationTestContainer() {
+    public static PostgreSQLContainer createBaseIntegrationTestContainer() {
         return createContainer(PerformanceProfile.STANDARD)
                 .withReuse(true); // BaseIntegrationTest uses reuse=true
     }

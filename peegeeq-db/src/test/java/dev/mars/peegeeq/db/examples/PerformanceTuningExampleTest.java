@@ -30,7 +30,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Instant;
 import java.util.HashMap;
@@ -67,7 +67,7 @@ public class PerformanceTuningExampleTest {
     void setUp() {
         logger.info("Setting up Performance Tuning Example Test");
 
-        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
+        PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
         // Configure system properties for optimized performance
         configurePerformanceProperties(postgres);
@@ -240,7 +240,7 @@ public class PerformanceTuningExampleTest {
     /**
      * Configures performance properties for optimization.
      */
-    private void configurePerformanceProperties(PostgreSQLContainer<?> postgres) {
+    private void configurePerformanceProperties(PostgreSQLContainer postgres) {
         // Database connection properties
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));

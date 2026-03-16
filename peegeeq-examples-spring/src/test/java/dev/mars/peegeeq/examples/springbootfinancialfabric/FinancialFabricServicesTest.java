@@ -37,7 +37,7 @@ import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -72,7 +72,7 @@ public class FinancialFabricServicesTest {
     private static final Logger log = LoggerFactory.getLogger(FinancialFabricServicesTest.class);
     
     @Container
-    static PostgreSQLContainer<?> postgres = SharedTestContainers.getSharedPostgreSQLContainer();
+    static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
     @BeforeAll
     static void initializeSchema() {
@@ -140,6 +140,7 @@ public class FinancialFabricServicesTest {
         String tradeId = "TRADE-" + UUID.randomUUID().toString();
         Instant validTime = Instant.now();
         
+        @SuppressWarnings("resource") // Lifecycle managed by PeeGeeQManager teardown
         DatabaseService databaseService = new PgDatabaseService(peeGeeQManager);
 
         // Execute the complete workflow in a transaction

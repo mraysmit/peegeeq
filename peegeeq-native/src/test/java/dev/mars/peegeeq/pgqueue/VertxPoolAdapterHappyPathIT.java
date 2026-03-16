@@ -12,7 +12,7 @@ import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.RowSet;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -28,7 +28,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class VertxPoolAdapterHappyPathIT {
 
     @Container
-    static final PostgreSQLContainer<?> postgres = createContainer(BASIC);
+    static final PostgreSQLContainer postgres = createContainer(BASIC);
 
     private PeeGeeQManager manager;
 

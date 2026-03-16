@@ -143,14 +143,4 @@ public interface QueueConfiguration {
      * @return The property value, or null if not found
      */
     Object getProperty(String key);
-    
-    /**
-     * Gets a specific configuration property with a default value.
-     * 
-     * @param key The property key
-     * @param defaultValue The default value to return if the property is not found
-     * @param <T> The type of the property value
-     * @return The property value, or the default value if not found
-     */
-    <T> T getProperty(String key, T defaultValue);
 }

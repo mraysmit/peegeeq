@@ -29,7 +29,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
@@ -70,12 +70,13 @@ public class VertxPerformanceOptimizationExampleTest {
     private static final Logger logger = LoggerFactory.getLogger(VertxPerformanceOptimizationExampleTest.class);
     
     // Use a shared container that persists across multiple test classes to prevent port conflicts
-    private static PostgreSQLContainer<?> sharedPostgres;
+    private static PostgreSQLContainer sharedPostgres;
 
     static {
         // Initialize shared container only once across all example test classes
         if (sharedPostgres == null) {
-            PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
+            @SuppressWarnings("resource") // Container closed via shutdown hook
+            PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)
                     .withDatabaseName("peegeeq_vertx_perf_test")
                     .withUsername("postgres")
                     .withPassword("password")
@@ -483,7 +484,7 @@ public class VertxPerformanceOptimizationExampleTest {
     /**
      * Configures system properties to use the TestContainer database.
      */
-    private void configureSystemPropertiesForContainer(PostgreSQLContainer<?> postgres) {
+    private void configureSystemPropertiesForContainer(PostgreSQLContainer postgres) {
         setTestProperty("peegeeq.database.host", postgres.getHost());
         setTestProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
         setTestProperty("peegeeq.database.name", postgres.getDatabaseName());

@@ -31,7 +31,7 @@ import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -65,10 +65,10 @@ public class PeeGeeQRestPerformanceTest {
     private static final int TEST_PORT = 8082;
     
     @Container
-    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+    static PostgreSQLContainer postgres = createPostgresContainer();
 
-    private static PostgreSQLContainer<?> createPostgresContainer() {
-        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20");
+    private static PostgreSQLContainer createPostgresContainer() {
+        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
         container.withDatabaseName("peegeeq_perf_test");
         container.withUsername("peegeeq_test");
         container.withPassword("peegeeq_test");
@@ -115,7 +115,7 @@ public class PeeGeeQRestPerformanceTest {
         logger.info("=== Testing Concurrent Database Setup Creation ===");
         
         int concurrentSetups = 5;
-        List<Future<Void>> futures = new ArrayList<>();
+        List<Future<?>> futures = new ArrayList<>();
         AtomicInteger successCount = new AtomicInteger(0);
         
         long startTime = System.currentTimeMillis();
@@ -124,7 +124,7 @@ public class PeeGeeQRestPerformanceTest {
             String setupId = testSetupId + "_concurrent_" + i;
             JsonObject setupRequest = createPerformanceTestSetupRequest(setupId);
             
-            Future<Void> future = client.post(TEST_PORT, "localhost", "/api/v1/database-setup/create")
+            Future<?> future = client.post(TEST_PORT, "localhost", "/api/v1/database-setup/create")
                     .putHeader("content-type", "application/json")
                     .timeout(60000)
                     .sendJsonObject(setupRequest)
@@ -140,10 +140,8 @@ public class PeeGeeQRestPerformanceTest {
             
             futures.add(future);
         }
-        
-        @SuppressWarnings({})
-        List<Future<?>> rawFutures = (List<Future<?>>) (List<?>) futures;
-        Future.join(rawFutures)
+
+        Future.join(futures)
             .onSuccess(result -> {
                 long endTime = System.currentTimeMillis();
                 long duration = endTime - startTime;
@@ -179,7 +177,7 @@ public class PeeGeeQRestPerformanceTest {
                     logger.info("Setup created for message performance test");
                     
                     int messageCount = 100;
-                    List<Future<Void>> messageFutures = new ArrayList<>();
+                    List<Future<?>> messageFutures = new ArrayList<>();
                     AtomicInteger messageSuccessCount = new AtomicInteger(0);
                     
                     long startTime = System.currentTimeMillis();
@@ -192,7 +190,7 @@ public class PeeGeeQRestPerformanceTest {
                                         .put("data", "Performance test message " + i))
                                 .put("priority", i % 10);
                         
-                        Future<Void> messageFuture = client.post(TEST_PORT, "localhost", 
+                        Future<?> messageFuture = client.post(TEST_PORT, "localhost", 
                                 "/api/v1/queues/" + testSetupId + "/perf_queue/messages")
                                 .putHeader("content-type", "application/json")
                                 .timeout(30000)
@@ -206,10 +204,8 @@ public class PeeGeeQRestPerformanceTest {
                         
                         messageFutures.add(messageFuture);
                     }
-                    
-                    @SuppressWarnings({})
-                    List<Future<?>> rawMessageFutures = (List<Future<?>>) (List<?>) messageFutures;
-                    return Future.join(rawMessageFutures)
+
+                    return Future.join(messageFutures)
                             .map(result -> {
                                 long endTime = System.currentTimeMillis();
                                 long duration = endTime - startTime;
@@ -246,7 +242,7 @@ public class PeeGeeQRestPerformanceTest {
                     logger.info("Setup created for event storage performance test");
                     
                     int eventCount = 50;
-                    List<Future<Void>> eventFutures = new ArrayList<>();
+                    List<Future<?>> eventFutures = new ArrayList<>();
                     AtomicInteger eventSuccessCount = new AtomicInteger(0);
                     
                     long startTime = System.currentTimeMillis();
@@ -260,7 +256,7 @@ public class PeeGeeQRestPerformanceTest {
                                         .put("data", "Performance test event " + i))
                                 .put("correlationId", "perf-test-" + i);
                         
-                        Future<Void> eventFuture = client.post(TEST_PORT, "localhost", 
+                        Future<?> eventFuture = client.post(TEST_PORT, "localhost", 
                                 "/api/v1/eventstores/" + testSetupId + "/perf_events/events")
                                 .putHeader("content-type", "application/json")
                                 .timeout(30000)
@@ -274,10 +270,8 @@ public class PeeGeeQRestPerformanceTest {
                         
                         eventFutures.add(eventFuture);
                     }
-                    
-                    @SuppressWarnings({})
-                    List<Future<?>> rawEventFutures = (List<Future<?>>) (List<?>) eventFutures;
-                    return Future.join(rawEventFutures)
+
+                    return Future.join(eventFutures)
                             .map(result -> {
                                 long endTime = System.currentTimeMillis();
                                 long duration = endTime - startTime;
@@ -314,7 +308,7 @@ public class PeeGeeQRestPerformanceTest {
                 .compose(createResponse -> {
                     logger.info("Complete setup created for throughput test");
                     
-                    List<Future<Void>> allOperations = new ArrayList<>();
+                    List<Future<?>> allOperations = new ArrayList<>();
                     AtomicInteger totalSuccessCount = new AtomicInteger(0);
                     
                     long startTime = System.currentTimeMillis();
@@ -326,7 +320,7 @@ public class PeeGeeQRestPerformanceTest {
                                 .put("payload", new JsonObject().put("id", i))
                                 .put("priority", 5);
                         
-                        Future<Void> messageFuture = client.post(TEST_PORT, "localhost", 
+                        Future<?> messageFuture = client.post(TEST_PORT, "localhost", 
                                 "/api/v1/queues/" + testSetupId + "/perf_queue/messages")
                                 .putHeader("content-type", "application/json")
                                 .timeout(30000)
@@ -341,7 +335,7 @@ public class PeeGeeQRestPerformanceTest {
                                 .put("eventType", "LoadTestEvent")
                                 .put("eventData", new JsonObject().put("id", i));
                         
-                        Future<Void> eventFuture = client.post(TEST_PORT, "localhost", 
+                        Future<?> eventFuture = client.post(TEST_PORT, "localhost", 
                                 "/api/v1/eventstores/" + testSetupId + "/perf_events/events")
                                 .putHeader("content-type", "application/json")
                                 .timeout(30000)
@@ -352,7 +346,7 @@ public class PeeGeeQRestPerformanceTest {
                                 });
                         
                         // Check status
-                        Future<Void> statusFuture = client.get(TEST_PORT, "localhost", 
+                        Future<?> statusFuture = client.get(TEST_PORT, "localhost", 
                                 "/api/v1/database-setup/" + testSetupId + "/status")
                                 .timeout(10000)
                                 .send()
@@ -365,10 +359,8 @@ public class PeeGeeQRestPerformanceTest {
                         allOperations.add(eventFuture);
                         allOperations.add(statusFuture);
                     }
-                    
-                    @SuppressWarnings({})
-                    List<Future<?>> rawAllOperations = (List<Future<?>>) (List<?>) allOperations;
-                    return Future.join(rawAllOperations)
+
+                    return Future.join(allOperations)
                             .map(result -> {
                                 long endTime = System.currentTimeMillis();
                                 long duration = endTime - startTime;

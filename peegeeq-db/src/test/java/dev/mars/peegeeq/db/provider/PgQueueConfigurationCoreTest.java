@@ -197,23 +197,6 @@ public class PgQueueConfigurationCoreTest {
     }
 
     @Test
-    void testGetPropertyWithDefault() {
-        PgQueueConfiguration config = new PgQueueConfiguration(peeGeeQConfig);
-        assertEquals("default", config.getProperty("non.existent", "default"));
-    }
-
-    @Test
-    void testGetPropertyWithCorrectType() {
-        Map<String, Object> additionalProps = new HashMap<>();
-        additionalProps.put("number.key", 42);
-
-        PgQueueConfiguration config = new PgQueueConfiguration(peeGeeQConfig, additionalProps);
-        // Requesting as Integer when it's an Integer
-        Integer result = config.getProperty("number.key", 0);
-        assertEquals(42, result);
-    }
-
-    @Test
     void testSetProperty() {
         PgQueueConfiguration config = new PgQueueConfiguration(peeGeeQConfig);
         config.setProperty("new.key", "new.value");

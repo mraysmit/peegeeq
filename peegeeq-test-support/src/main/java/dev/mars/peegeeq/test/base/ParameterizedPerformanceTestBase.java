@@ -1,7 +1,7 @@
 package dev.mars.peegeeq.test.base;
 
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,19 +51,19 @@ public abstract class ParameterizedPerformanceTestBase extends PeeGeeQTestBase {
      * Performance test context containing test execution information.
      */
     public static class PerformanceTestContext {
-        private final PostgreSQLContainer<?> container;
+        private final PostgreSQLContainer container;
         private final PerformanceProfile profile;
         private final String testName;
         private final Instant startTime;
         
-        public PerformanceTestContext(PostgreSQLContainer<?> container, PerformanceProfile profile, String testName) {
+        public PerformanceTestContext(PostgreSQLContainer container, PerformanceProfile profile, String testName) {
             this.container = container;
             this.profile = profile;
             this.testName = testName;
             this.startTime = Instant.now();
         }
         
-        public PostgreSQLContainer<?> getContainer() { return container; }
+        public PostgreSQLContainer getContainer() { return container; }
         public PerformanceProfile getProfile() { return profile; }
         public String getTestName() { return testName; }
         public Instant getStartTime() { return startTime; }

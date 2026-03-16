@@ -31,7 +31,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.ResourceLock;
 
 import dev.mars.peegeeq.test.categories.TestCategories;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
 import java.util.Properties;
@@ -59,7 +59,7 @@ public class PeeGeeQManagerIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
+        PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
         // Create test configuration
         Properties testProps = new Properties();
@@ -265,7 +265,7 @@ public class PeeGeeQManagerIntegrationTest {
 
     @Test
     void testConfigurationProfiles() {
-        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
+        PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
         // Test that configuration is loaded correctly
         assertEquals("test", configuration.getProfile());

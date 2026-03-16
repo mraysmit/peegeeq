@@ -13,7 +13,7 @@ import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.junit.jupiter.api.parallel.Isolated;
 
 
@@ -52,7 +52,7 @@ public class AdvancedConfigurationExampleTest {
     void setUp() throws Exception {
         logger.info("Setting up Advanced Configuration Example Test");
 
-        PostgreSQLContainer<?> postgres = SharedPostgresTestExtension.getContainer();
+        PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
         // Set database properties from TestContainer
         System.setProperty("peegeeq.database.host", postgres.getHost());

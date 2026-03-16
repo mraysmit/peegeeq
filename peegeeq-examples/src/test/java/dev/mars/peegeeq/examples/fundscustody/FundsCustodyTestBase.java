@@ -26,7 +26,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.concurrent.CompletableFuture;
@@ -58,7 +58,7 @@ public abstract class FundsCustodyTestBase {
 
     // Get fresh container reference in setUp() instead of static initialization
     // to avoid stale port numbers when container is restarted between test classes
-    protected PostgreSQLContainer<?> postgres;
+    protected PostgreSQLContainer postgres;
     
     protected PeeGeeQManager manager;
     protected BiTemporalEventStoreFactory factory;

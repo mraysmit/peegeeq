@@ -32,7 +32,7 @@ import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
@@ -42,7 +42,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -58,11 +57,11 @@ public class TransactionParticipationIntegrationTest {
     private static final Logger logger = LoggerFactory.getLogger(TransactionParticipationIntegrationTest.class);
     
     @Container
-    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+    static PostgreSQLContainer postgres = createPostgresContainer();
 
-    private static PostgreSQLContainer<?> createPostgresContainer() {
-        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("transaction_" + System.currentTimeMillis() + "_" + System.nanoTime())  // Unique database name with timestamp;
+    private static PostgreSQLContainer createPostgresContainer() {
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        container.withDatabaseName("transaction_" + System.currentTimeMillis() + "_" + System.nanoTime());  // Unique database name with timestamp;
         container.withUsername("peegeeq");
         container.withPassword("peegeeq_test_password");
         return container;
@@ -1220,8 +1219,8 @@ public class TransactionParticipationIntegrationTest {
 
             logger.info("📊 Performance metrics:");
             logger.info("  Total time: {} ms", duration);
-            logger.info("  Average per operation: {:.2f} ms", avgTimePerOp);
-            logger.info("  Operations per second: {:.2f}", 1000.0 / avgTimePerOp);
+            logger.info("  Average per operation: {} ms", String.format("%.2f", avgTimePerOp));
+            logger.info("  Operations per second: {}", String.format("%.2f", 1000.0 / avgTimePerOp));
 
             logger.info("COMPREHENSIVE BATCH OPERATION PERFORMANCE TEST PASSED: {} events processed in {} ms", BATCH_SIZE, duration);
 

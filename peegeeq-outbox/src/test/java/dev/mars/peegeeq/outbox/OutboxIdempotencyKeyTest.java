@@ -18,7 +18,7 @@ import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -48,10 +48,10 @@ class OutboxIdempotencyKeyTest {
     private static final Logger logger = LoggerFactory.getLogger(OutboxIdempotencyKeyTest.class);
 
     @Container
-    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+    static PostgreSQLContainer postgres = createPostgresContainer();
 
-    private static PostgreSQLContainer<?> createPostgresContainer() {
-        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15-alpine");
+    private static PostgreSQLContainer createPostgresContainer() {
+        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15-alpine");
         container.withDatabaseName("testdb");
         container.withUsername("test");
         container.withPassword("test");
@@ -196,6 +196,7 @@ class OutboxIdempotencyKeyTest {
         String idempotencyKey = "concurrent-key-" + UUID.randomUUID();
         int threadCount = 10;
         CompletableFuture<Void> startSignal = new CompletableFuture<>();
+        @SuppressWarnings("unchecked")
         CompletableFuture<Void>[] threadFutures = new CompletableFuture[threadCount];
         AtomicInteger successCount = new AtomicInteger(0);
         AtomicInteger failureCount = new AtomicInteger(0);

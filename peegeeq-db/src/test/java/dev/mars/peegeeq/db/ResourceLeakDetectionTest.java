@@ -12,7 +12,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Isolated;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -53,10 +53,10 @@ public class ResourceLeakDetectionTest {
     private static final Logger logger = LoggerFactory.getLogger(ResourceLeakDetectionTest.class);
     
     @Container
-    private static final PostgreSQLContainer<?> postgres = createPostgresContainer();
+    private static final PostgreSQLContainer postgres = createPostgresContainer();
 
-    private static PostgreSQLContainer<?> createPostgresContainer() {
-        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20");
+    private static PostgreSQLContainer createPostgresContainer() {
+        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
         container.withDatabaseName("peegeeq_test");
         container.withUsername("peegeeq_user");
         container.withPassword("peegeeq_pass");
@@ -431,6 +431,7 @@ public class ResourceLeakDetectionTest {
     void testMultipleManagerInstancesNoLeaks() throws Exception {
         // Create and close multiple managers
         for (int i = 0; i < 3; i++) {
+            @SuppressWarnings("resource") // Closed via closeReactive() below
             PeeGeeQManager manager = new PeeGeeQManager(configuration, new SimpleMeterRegistry());
             manager.start();
             manager.closeReactive().toCompletionStage().toCompletableFuture().join();

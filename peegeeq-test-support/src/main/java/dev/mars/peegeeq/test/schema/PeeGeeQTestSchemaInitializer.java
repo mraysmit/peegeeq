@@ -20,7 +20,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.flywaydb.core.Flyway;
 import org.flywaydb.core.api.MigrationInfo;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.sql.Connection;
 import java.sql.DriverManager;
@@ -87,7 +87,7 @@ public class PeeGeeQTestSchemaInitializer {
      * @param postgres the PostgreSQL container
      * @param components the schema components to initialize
      */
-    public static void initializeSchema(PostgreSQLContainer<?> postgres, SchemaComponent... components) {
+    public static void initializeSchema(PostgreSQLContainer postgres, SchemaComponent... components) {
         initializeSchema(postgres, "public", components);
     }
 
@@ -110,7 +110,7 @@ public class PeeGeeQTestSchemaInitializer {
      * @param schema the schema name to use
      * @param components the schema components to initialize
      */
-    public static void initializeSchema(PostgreSQLContainer<?> postgres, String schema, SchemaComponent... components) {
+    public static void initializeSchema(PostgreSQLContainer postgres, String schema, SchemaComponent... components) {
         initializeSchema(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword(), schema, components);
     }
 
@@ -166,7 +166,7 @@ public class PeeGeeQTestSchemaInitializer {
      * @param postgres the PostgreSQL container
      * @param components the schema components to clean
      */
-    public static void cleanupTestData(PostgreSQLContainer<?> postgres, SchemaComponent... components) {
+    public static void cleanupTestData(PostgreSQLContainer postgres, SchemaComponent... components) {
         cleanupTestData(postgres, "public", components);
     }
 
@@ -189,7 +189,7 @@ public class PeeGeeQTestSchemaInitializer {
      * @param schema the schema name to use
      * @param components the schema components to clean
      */
-    public static void cleanupTestData(PostgreSQLContainer<?> postgres, String schema, SchemaComponent... components) {
+    public static void cleanupTestData(PostgreSQLContainer postgres, String schema, SchemaComponent... components) {
         cleanupTestData(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword(), schema, components);
     }
 

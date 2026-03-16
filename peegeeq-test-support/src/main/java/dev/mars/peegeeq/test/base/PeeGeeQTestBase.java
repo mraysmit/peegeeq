@@ -5,7 +5,7 @@ import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceP
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.AfterEach;
@@ -50,7 +50,7 @@ public abstract class PeeGeeQTestBase {
     
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQTestBase.class);
     
-    protected PostgreSQLContainer<?> container;
+    protected PostgreSQLContainer container;
     protected PeeGeeQMetrics metrics;
     protected MeterRegistry meterRegistry;
     protected String testInstanceId;
@@ -233,7 +233,7 @@ public abstract class PeeGeeQTestBase {
      * 
      * @return the PostgreSQL container
      */
-    protected PostgreSQLContainer<?> getContainer() {
+    protected PostgreSQLContainer getContainer() {
         return container;
     }
     

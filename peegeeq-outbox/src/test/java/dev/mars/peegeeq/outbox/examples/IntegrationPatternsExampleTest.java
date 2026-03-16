@@ -25,7 +25,7 @@ import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -64,10 +64,10 @@ public class IntegrationPatternsExampleTest {
     private static final Logger logger = LoggerFactory.getLogger(IntegrationPatternsExampleTest.class);
     
     @Container
-    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+    static PostgreSQLContainer postgres = createPostgresContainer();
 
-    private static PostgreSQLContainer<?> createPostgresContainer() {
-        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20");
+    private static PostgreSQLContainer createPostgresContainer() {
+        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
         container.withDatabaseName("peegeeq_integration_test");
         container.withUsername("postgres");
         container.withPassword("password");
@@ -438,10 +438,6 @@ public class IntegrationPatternsExampleTest {
 
         // Wait for routing to complete - increased timeout for integration test
         assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "All messages should be routed within timeout");
-
-        // Log current counts for debugging
-        logger.info("Current routing counts: domestic={}, international={}, express={}, latch={}",
-            domesticCount.get(), internationalCount.get(), expressCount.get(), latch.getCount());
 
         // Validate routing results
 

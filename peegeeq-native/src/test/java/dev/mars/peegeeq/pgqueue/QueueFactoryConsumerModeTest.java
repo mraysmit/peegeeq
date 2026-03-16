@@ -20,7 +20,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.containers.PostgreSQLContainer;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
@@ -28,7 +28,6 @@ import java.time.Duration;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -55,10 +54,10 @@ class QueueFactoryConsumerModeTest {
     private static final Logger logger = LoggerFactory.getLogger(QueueFactoryConsumerModeTest.class);
 
     @Container
-    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+    static PostgreSQLContainer postgres = createPostgresContainer();
 
-    private static PostgreSQLContainer<?> createPostgresContainer() {
-        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+    private static PostgreSQLContainer createPostgresContainer() {
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
         container.withDatabaseName("peegeeq_test");
         container.withUsername("peegeeq_user");
         container.withPassword("peegeeq_password");
@@ -312,6 +311,7 @@ class QueueFactoryConsumerModeTest {
 
         // Create multiple consumers concurrently
         int consumerCount = 3;
+        @SuppressWarnings("unchecked")
         MessageConsumer<String>[] consumers = new MessageConsumer[consumerCount];
         VertxTestContext creationCtx = new VertxTestContext();
         io.vertx.junit5.Checkpoint allDone = creationCtx.checkpoint(consumerCount);
