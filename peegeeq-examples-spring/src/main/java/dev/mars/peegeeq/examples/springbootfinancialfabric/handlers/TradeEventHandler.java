@@ -51,9 +51,9 @@ public class TradeEventHandler {
             public CompletableFuture<Void> handle(Message<BiTemporalEvent<TradeEvent>> message) {
                 return handleTradingEvent(message.getPayload());
             }
-        }).whenComplete((result, error) -> {
-            if (error != null) {
-                log.error("Failed to subscribe to trading events", error);
+        }).onComplete(ar -> {
+            if (ar.failed()) {
+                log.error("Failed to subscribe to trading events", ar.cause());
             } else {
                 log.info("Successfully subscribed to trading events");
             }
@@ -65,9 +65,9 @@ public class TradeEventHandler {
         log.info("Shutting down TradeEventHandler - processed {} total events ({} captures, {} confirmations)",
                 eventsProcessed.get(), captureEventsProcessed.get(), confirmationEventsProcessed.get());
         
-        tradingEventStore.unsubscribe().whenComplete((result, error) -> {
-            if (error != null) {
-                log.error("Error unsubscribing from trading events", error);
+        tradingEventStore.unsubscribe().onComplete(ar -> {
+            if (ar.failed()) {
+                log.error("Error unsubscribing from trading events", ar.cause());
             } else {
                 log.info("Successfully unsubscribed from trading events");
             }

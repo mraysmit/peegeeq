@@ -312,9 +312,6 @@ class PostgreSQLErrorHandlingTest {
                     throw e;
                 }
             }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new RuntimeException("Interrupted during deadlock simulation", e);
         }
     }
 

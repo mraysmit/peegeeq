@@ -66,6 +66,11 @@ class PgBiTemporalEventStorePerformanceTest {
         return stage.toCompletableFuture().get(timeout, unit);
     }
 
+    @SuppressWarnings("unchecked")
+    private static Class<Map<String, Object>> mapClass() {
+        return (Class<Map<String, Object>>) (Class<?>) Map.class;
+    }
+
     @BeforeEach
     void setUp() throws Exception {
         logger.info("Setting up performance test...");
@@ -74,9 +79,8 @@ class PgBiTemporalEventStorePerformanceTest {
         
         peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
         peeGeeQManager.start();
-        
-        @SuppressWarnings("unchecked")
-        Class<Map<String, Object>> mapClass = (Class<Map<String, Object>>) (Class<?>) Map.class;
+
+        Class<Map<String, Object>> mapClass = mapClass();
         eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "perf_test_events", new ObjectMapper());
         
         logger.info("Performance test setup completed");

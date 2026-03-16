@@ -48,9 +48,9 @@ public class CashEventHandler {
             public CompletableFuture<Void> handle(Message<BiTemporalEvent<CashMovementEvent>> message) {
                 return handleCashEvent(message.getPayload());
             }
-        }).whenComplete((result, error) -> {
-            if (error != null) {
-                log.error("Failed to subscribe to cash events", error);
+        }).onComplete(ar -> {
+            if (ar.failed()) {
+                log.error("Failed to subscribe to cash events", ar.cause());
             } else {
                 log.info("Successfully subscribed to cash events");
             }
@@ -62,9 +62,9 @@ public class CashEventHandler {
         log.info("Shutting down CashEventHandler - processed {} total events ({} movements)",
                 eventsProcessed.get(), movementEventsProcessed.get());
         
-        cashEventStore.unsubscribe().whenComplete((result, error) -> {
-            if (error != null) {
-                log.error("Error unsubscribing from cash events", error);
+        cashEventStore.unsubscribe().onComplete(ar -> {
+            if (ar.failed()) {
+                log.error("Error unsubscribing from cash events", ar.cause());
             } else {
                 log.info("Successfully unsubscribed from cash events");
             }

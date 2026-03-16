@@ -152,7 +152,7 @@ class PeeGeeQExampleTest {
     }
 
     @Test
-    void testHealthChecks(Vertx vertx, VertxTestContext testContext) {
+    void testHealthChecks(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
         logger.info("=== Testing Health Checks ===");
 
         // Wait for the reactive health check scheduler to populate statuses
@@ -205,7 +205,7 @@ class PeeGeeQExampleTest {
     }
 
     @Test
-    void testBackpressure(Vertx vertx, VertxTestContext testContext) {
+    void testBackpressure(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
         logger.info("=== Testing Backpressure ===");
         
         demonstrateBackpressure(manager, vertx, testContext);
@@ -214,7 +214,7 @@ class PeeGeeQExampleTest {
     }
 
     @Test
-    void testDeadLetterQueue(Vertx vertx, VertxTestContext testContext) {
+    void testDeadLetterQueue(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
         logger.info("=== Testing Dead Letter Queue ===");
         
         demonstrateDeadLetterQueue(manager, vertx, testContext);
@@ -223,7 +223,7 @@ class PeeGeeQExampleTest {
     }
 
     @Test
-    void testSystemMonitoring(Vertx vertx, VertxTestContext testContext) {
+    void testSystemMonitoring(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
         logger.info("=== Testing System Monitoring ===");
         
         monitorSystem(manager, vertx, testContext);

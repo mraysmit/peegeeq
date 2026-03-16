@@ -31,6 +31,7 @@ import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 
 /**
  * Service for managing settlement instruction lifecycle using bi-temporal event store.
@@ -92,7 +93,7 @@ public class SettlementService {
         
         // Use current CompletableFuture API
         CompletableFuture<BiTemporalEvent<SettlementEvent>> future = 
-            eventStore.append(eventType, event, event.getEventTime());
+            toCompletableFuture(eventStore.append(eventType, event, event.getEventTime()));
         
         return adapter.toMono(future)
             .doOnSuccess(result -> logger.info("Settlement event recorded: {} for instruction: {}", 
@@ -112,7 +113,7 @@ public class SettlementService {
         
         // Use current CompletableFuture API
         CompletableFuture<List<BiTemporalEvent<SettlementEvent>>> future = 
-            eventStore.query(EventQuery.all());
+            toCompletableFuture(eventStore.query(EventQuery.all()));
         
         return adapter.toFlux(future)
             .filter(event -> instructionId.equals(event.getPayload().getInstructionId()))
@@ -180,6 +181,14 @@ public class SettlementService {
             .doOnComplete(() -> logger.info("Retrieved corrections for instruction: {}", instructionId))
             .doOnError(error -> logger.error("Failed to retrieve corrections for instruction: {}", 
                 instructionId, error));
+    }
+
+    private static <T> CompletableFuture<T> toCompletableFuture(CompletionStage<T> stage) {
+        return stage.toCompletableFuture();
+    }
+
+    private static <T> CompletableFuture<T> toCompletableFuture(io.vertx.core.Future<T> future) {
+        return future.toCompletionStage().toCompletableFuture();
     }
     
     // ========== APPROACH B: Using Native Vert.x Future API (Proposed - Commented Out) ==========

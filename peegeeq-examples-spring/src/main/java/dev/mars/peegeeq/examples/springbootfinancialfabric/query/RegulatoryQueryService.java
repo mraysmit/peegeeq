@@ -6,6 +6,7 @@ import dev.mars.peegeeq.api.TemporalRange;
 import dev.mars.peegeeq.bitemporal.PgBiTemporalEventStore;
 import dev.mars.peegeeq.examples.springbootfinancialfabric.events.RegulatoryReportEvent;
 import dev.mars.peegeeq.examples.springbootfinancialfabric.events.TradeEvent;
+import io.vertx.core.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -15,6 +16,7 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.stream.Collectors;
 
 /**
@@ -51,14 +53,14 @@ public class RegulatoryQueryService {
         Instant startOfDay = reportDate.truncatedTo(ChronoUnit.DAYS);
         Instant endOfDay = startOfDay.plus(1, ChronoUnit.DAYS);
         
-        return tradingEventStore.query(
+        return toCompletableFuture(tradingEventStore.query(
             EventQuery.builder()
                 .eventType("trading.equities.capture.completed")
                 .validTimeRange(new TemporalRange(startOfDay, endOfDay))
                 .includeCorrections(true)
                 .sortOrder(EventQuery.SortOrder.VALID_TIME_ASC)
                 .build()
-        ).thenApply(events -> {
+        )).thenApply(events -> {
             MiFIDIIReport report = new MiFIDIIReport();
             report.reportDate = reportDate;
             report.generatedAt = Instant.now();
@@ -97,23 +99,23 @@ public class RegulatoryQueryService {
         
         // Query trading events
         CompletableFuture<List<BiTemporalEvent<TradeEvent>>> tradingEvents = 
-            tradingEventStore.query(
+            toCompletableFuture(tradingEventStore.query(
                 EventQuery.builder()
                     .correlationId(correlationId)
                     .includeCorrections(true)
                     .sortOrder(EventQuery.SortOrder.TRANSACTION_TIME_ASC)
                     .build()
-            );
+            ));
         
         // Query regulatory events
         CompletableFuture<List<BiTemporalEvent<RegulatoryReportEvent>>> regulatoryEvents = 
-            regulatoryEventStore.query(
+            toCompletableFuture(regulatoryEventStore.query(
                 EventQuery.builder()
                     .correlationId(correlationId)
                     .includeCorrections(true)
                     .sortOrder(EventQuery.SortOrder.TRANSACTION_TIME_ASC)
                     .build()
-            );
+            ));
         
         return CompletableFuture.allOf(tradingEvents, regulatoryEvents)
             .thenApply(v -> {
@@ -136,13 +138,13 @@ public class RegulatoryQueryService {
             Instant startTime, Instant endTime) {
         log.info("Querying regulatory reports between {} and {}", startTime, endTime);
         
-        return regulatoryEventStore.query(
+        return toCompletableFuture(regulatoryEventStore.query(
             EventQuery.builder()
                 .eventType("regulatory.mifid2.submitted")
                 .validTimeRange(new TemporalRange(startTime, endTime))
                 .sortOrder(EventQuery.SortOrder.VALID_TIME_ASC)
                 .build()
-        );
+        ));
     }
     
     /**
@@ -153,13 +155,13 @@ public class RegulatoryQueryService {
             Instant startTime, Instant endTime) {
         log.info("Querying trade corrections between {} and {}", startTime, endTime);
         
-        return tradingEventStore.query(
+        return toCompletableFuture(tradingEventStore.query(
             EventQuery.builder()
                 .transactionTimeRange(new TemporalRange(startTime, endTime))
                 .includeCorrections(true)
                 .sortOrder(EventQuery.SortOrder.TRANSACTION_TIME_ASC)
                 .build()
-        ).thenApply(events -> 
+        )).thenApply(events -> 
             events.stream()
                 .filter(BiTemporalEvent::isCorrection)
                 .collect(Collectors.toList())
@@ -174,14 +176,14 @@ public class RegulatoryQueryService {
             String tradeId, Instant reportingTime) {
         log.info("Reconstructing trade {} as reported at {}", tradeId, reportingTime);
         
-        return tradingEventStore.query(
+        return toCompletableFuture(tradingEventStore.query(
             EventQuery.builder()
                 .aggregateId(tradeId)
                 .transactionTimeRange(TemporalRange.until(reportingTime))
                 .sortOrder(EventQuery.SortOrder.TRANSACTION_TIME_DESC)
                 .limit(1)
                 .build()
-        ).thenApply(events -> {
+        )).thenApply(events -> {
             if (events.isEmpty()) {
                 log.warn("No trade found for {} as reported at {}", tradeId, reportingTime);
                 return null;
@@ -198,13 +200,13 @@ public class RegulatoryQueryService {
             Instant startTime, Instant endTime) {
         log.info("Querying trades with corrections between {} and {}", startTime, endTime);
         
-        return tradingEventStore.query(
+        return toCompletableFuture(tradingEventStore.query(
             EventQuery.builder()
                 .validTimeRange(new TemporalRange(startTime, endTime))
                 .includeCorrections(true)
                 .sortOrder(EventQuery.SortOrder.VALID_TIME_ASC)
                 .build()
-        ).thenApply(events -> {
+        )).thenApply(events -> {
             Set<String> tradesWithCorrections = new HashSet<>();
             
             for (BiTemporalEvent<TradeEvent> event : events) {
@@ -246,6 +248,14 @@ public class RegulatoryQueryService {
                         report.totalReports, report.totalCorrections);
                 return report;
             });
+    }
+
+    private static <T> CompletableFuture<T> toCompletableFuture(CompletionStage<T> stage) {
+        return stage.toCompletableFuture();
+    }
+
+    private static <T> CompletableFuture<T> toCompletableFuture(Future<T> future) {
+        return future.toCompletionStage().toCompletableFuture();
     }
     
     /**

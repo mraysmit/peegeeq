@@ -94,7 +94,7 @@ public class ExceptionEventHandler {
     /**
      * Subscribe to an event store and filter for failure events.
      */
-    @SuppressWarnings({})
+    @SuppressWarnings("unchecked")
     private void subscribeToEventStore(PgBiTemporalEventStore<?> eventStore, String domain) {
         eventStore.subscribe(null, null, (MessageHandler) new MessageHandler<BiTemporalEvent<?>>() {
             @Override
@@ -108,13 +108,11 @@ public class ExceptionEventHandler {
 
                 return CompletableFuture.completedFuture(null);
             }
-        }).whenComplete((result, error) -> {
-            if (error != null) {
-                log.error("Failed to subscribe to {} events for exception handling", domain, error);
-            } else {
-                log.info("Successfully subscribed to {} events for exception handling", domain);
-            }
-        });
+        }).onSuccess(v ->
+            log.info("Successfully subscribed to {} events for exception handling", domain)
+        ).onFailure(err ->
+            log.error("Failed to subscribe to {} events for exception handling", domain, err)
+        );
     }
     
     /**

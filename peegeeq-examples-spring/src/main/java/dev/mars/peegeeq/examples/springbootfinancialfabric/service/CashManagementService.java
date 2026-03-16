@@ -21,6 +21,7 @@ import dev.mars.peegeeq.bitemporal.PgBiTemporalEventStore;
 import dev.mars.peegeeq.examples.springbootfinancialfabric.cloudevents.FinancialCloudEventBuilder;
 import dev.mars.peegeeq.examples.springbootfinancialfabric.events.CashMovementEvent;
 import io.cloudevents.CloudEvent;
+import io.vertx.core.Future;
 import io.vertx.sqlclient.SqlConnection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,6 +31,7 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 
 /**
  * Service for managing cash movement events.
@@ -86,20 +88,20 @@ public class CashManagementService {
                 validTime
             );
 
-            return cashEventStore.appendInTransaction(
-                    "cash.movement.completed",
-                    cashMovementEvent,  // Store the CashMovementEvent payload
-                    validTime,
-                    Map.of(
+            return toCompletableFuture(cashEventStore.appendBuilder()
+                    .eventType("cash.movement.completed")
+                    .payload(cashMovementEvent)
+                    .validTime(validTime)
+                    .headers(Map.of(
                         "correlationId", correlationId,
                         "currency", cashMovementEvent.getCurrency(),
                         "movementType", cashMovementEvent.getMovementType(),
                         "cloudEventId", cloudEvent.getId()
-                    ),
-                    correlationId,
-                    cashMovementEvent.getMovementId(),
-                    connection
-                )
+                    ))
+                    .correlationId(correlationId)
+                    .aggregateId(cashMovementEvent.getMovementId())
+                    .inTransaction(connection)
+                    .execute())
                 .thenApply(biTemporalEvent -> {
                     log.info("Cash movement recorded successfully: movementId={}, eventId={}, cloudEventId={}",
                         cashMovementEvent.getMovementId(), biTemporalEvent.getEventId(), cloudEvent.getId());
@@ -109,6 +111,14 @@ public class CashManagementService {
             log.error("Failed to serialize cash movement: movementId={}", cashMovementEvent.getMovementId(), e);
             return CompletableFuture.failedFuture(new RuntimeException("Failed to serialize cash movement", e));
         }
+    }
+
+    private static <T> CompletableFuture<T> toCompletableFuture(CompletionStage<T> stage) {
+        return stage.toCompletableFuture();
+    }
+
+    private static <T> CompletableFuture<T> toCompletableFuture(Future<T> future) {
+        return future.toCompletionStage().toCompletableFuture();
     }
 }
 

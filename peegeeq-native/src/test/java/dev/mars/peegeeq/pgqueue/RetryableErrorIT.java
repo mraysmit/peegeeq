@@ -8,8 +8,11 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
-import org.junit.jupiter.api.Disabled;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -29,15 +32,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * NOTE: Disabled temporarily while we implement a reliable 40001/40P01 contention setup.
  * Avoids a red build while we design the deterministic contention without mocks.
  */
-@Testcontainers
-@Disabled("Pending deterministic 40001/40P01 contention IT—will re-enable once implemented")
+@Testcontainers@ExtendWith(VertxExtension.class)
 public class RetryableErrorIT {
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName("testdb")
-            .withUsername("testuser")
-            .withPassword("testpass");
+    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        container.withDatabaseName("testdb")
+                .withUsername("testuser")
+                .withPassword("testpass");
+        return container;
+    }
 
     private PeeGeeQManager manager;
     private PgNativeQueueFactory factory;

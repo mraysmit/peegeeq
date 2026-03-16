@@ -50,12 +50,17 @@ public class BiTemporalPerformanceBenchmarkTest {
     private static final Logger logger = LoggerFactory.getLogger(BiTemporalPerformanceBenchmarkTest.class);
 
     @Container
-    static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName("peegeeq_benchmark_test")  // Unique database name for benchmark tests
+    static final PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        container.withDatabaseName("peegeeq_benchmark_test")  // Unique database name for benchmark tests
             .withUsername("test")
             .withPassword("test")
             .withSharedMemorySize(256 * 1024 * 1024L) // 256MB shared memory
             .withCommand("postgres", "-c", "max_connections=300"); // Simple connection limit increase
+        return container;
+    }
 
     private PeeGeeQManager manager;
     private BiTemporalEventStoreFactory factory;
@@ -129,12 +134,16 @@ public class BiTemporalPerformanceBenchmarkTest {
 
         // Create factory and event store
         factory = new BiTemporalEventStoreFactory(manager);
-        eventStore = factory.createEventStore(TestEvent.class);
+        eventStore = factory.createEventStore(TestEvent.class, "bitemporal_event_log");
 
         // Ensure reactive notification handler is active by triggering pool creation
         // This follows the pattern from working ReactiveNotificationTest
         TestEvent warmupEvent = new TestEvent("warmup", "warmup", 1);
-        await(eventStore.append("WarmupEvent", warmupEvent, Instant.now()), 5, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder()
+            .eventType("WarmupEvent")
+            .payload(warmupEvent)
+            .validTime(Instant.now())
+            .execute(), 5, TimeUnit.SECONDS);
 
         // Give the reactive notification handler time to become active
         awaitAsyncDelay(1000);
@@ -209,8 +218,14 @@ public class BiTemporalPerformanceBenchmarkTest {
         
         for (int i = 0; i < messageCount; i++) {
             TestEvent event = new TestEvent("seq-" + i, "Sequential test data " + i, i);
-                await(eventStore.append("SequentialTest", event, validTime, headers,
-                         "seq-correlation-" + i, null, "seq-aggregate-" + i), 5, TimeUnit.SECONDS);
+                await(eventStore.appendBuilder()
+                                 .eventType("SequentialTest")
+                                 .payload(event)
+                                 .validTime(validTime)
+                                 .headers(headers)
+                                 .correlationId("seq-correlation-" + i)
+                                 .aggregateId("seq-aggregate-" + i)
+                                 .execute(), 5, TimeUnit.SECONDS);
         }
         
         long sequentialEndTime = System.currentTimeMillis();
@@ -229,8 +244,14 @@ public class BiTemporalPerformanceBenchmarkTest {
 
         for (int i = 0; i < messageCount; i++) {
             TestEvent event = new TestEvent("conc-" + i, "Concurrent test data " + i, i);
-            CompletableFuture<BiTemporalEvent<TestEvent>> future = eventStore.append("ConcurrentTest", event, validTime, headers,
-                                                                   "conc-correlation-" + i, null, "conc-aggregate-" + i)
+            CompletableFuture<BiTemporalEvent<TestEvent>> future = eventStore.appendBuilder()
+                .eventType("ConcurrentTest")
+                .payload(event)
+                .validTime(validTime)
+                .headers(headers)
+                .correlationId("conc-correlation-" + i)
+                .aggregateId("conc-aggregate-" + i)
+                .execute()
                 .toCompletionStage().toCompletableFuture();
             allFutures.add(future);
         }
@@ -275,7 +296,11 @@ public class BiTemporalPerformanceBenchmarkTest {
         for (int i = 0; i < datasetSize; i++) {
             TestEvent event = new TestEvent("query-test-" + i, "Query test data " + i, i % 100);
             Instant validTime = baseTime.plusSeconds(i);
-            CompletableFuture<BiTemporalEvent<TestEvent>> future = eventStore.append("QueryTest", event, validTime)
+            CompletableFuture<BiTemporalEvent<TestEvent>> future = eventStore.appendBuilder()
+                .eventType("QueryTest")
+                .payload(event)
+                .validTime(validTime)
+                .execute()
                 .toCompletionStage().toCompletableFuture();
             populationFutures.add(future);
         }
@@ -410,7 +435,11 @@ public class BiTemporalPerformanceBenchmarkTest {
             // Create batch of futures
             for (int i = batch; i < endIndex; i++) {
                 TestEvent event = new TestEvent("mem-test-" + i, "Memory test data " + i, i);
-                CompletableFuture<BiTemporalEvent<TestEvent>> future = eventStore.append("MemoryTest", event, Instant.now())
+                CompletableFuture<BiTemporalEvent<TestEvent>> future = eventStore.appendBuilder()
+                    .eventType("MemoryTest")
+                    .payload(event)
+                    .validTime(Instant.now())
+                    .execute()
                     .toCompletionStage().toCompletableFuture();
                 futures.add(future);
             }
@@ -490,7 +519,11 @@ public class BiTemporalPerformanceBenchmarkTest {
 
             for (int i = batch; i < endIndex; i++) {
                 TestEvent event = new TestEvent("notify-" + i, "Notification test " + i, i);
-                CompletableFuture<BiTemporalEvent<TestEvent>> future = eventStore.append("NotificationTest", event, Instant.now())
+                CompletableFuture<BiTemporalEvent<TestEvent>> future = eventStore.appendBuilder()
+                    .eventType("NotificationTest")
+                    .payload(event)
+                    .validTime(Instant.now())
+                    .execute()
                     .toCompletionStage().toCompletableFuture();
                 appendFutures.add(future);
             }
@@ -559,7 +592,11 @@ public class BiTemporalPerformanceBenchmarkTest {
 
             for (int i = batch; i < endIndex; i++) {
                 TestEvent event = new TestEvent("throughput-" + i, "High throughput test " + i, i % 1000);
-                CompletableFuture<BiTemporalEvent<TestEvent>> future = eventStore.append("ThroughputTest", event, Instant.now())
+                CompletableFuture<BiTemporalEvent<TestEvent>> future = eventStore.appendBuilder()
+                    .eventType("ThroughputTest")
+                    .payload(event)
+                    .validTime(Instant.now())
+                    .execute()
                     .toCompletionStage().toCompletableFuture();
                 futures.add(future);
             }
@@ -629,8 +666,14 @@ public class BiTemporalPerformanceBenchmarkTest {
             long startTime = System.nanoTime();
 
             TestEvent event = new TestEvent("latency-" + i, "Latency test data " + i, i);
-                await(eventStore.append("LatencyTest", event, validTime, headers,
-                         "latency-corr-" + i, null, "latency-agg-" + i), 5, TimeUnit.SECONDS);
+                await(eventStore.appendBuilder()
+                                 .eventType("LatencyTest")
+                                 .payload(event)
+                                 .validTime(validTime)
+                                 .headers(headers)
+                                 .correlationId("latency-corr-" + i)
+                                 .aggregateId("latency-agg-" + i)
+                                 .execute(), 5, TimeUnit.SECONDS);
 
             long endTime = System.nanoTime();
             long latencyNs = endTime - startTime;
@@ -694,8 +737,14 @@ public class BiTemporalPerformanceBenchmarkTest {
 
         for (int i = 0; i < messageCount; i++) {
             TestEvent event = new TestEvent("individual-" + i, "Individual test data " + i, i);
-                await(eventStore.append("IndividualTest", event, validTime, headers,
-                         "individual-corr-" + i, null, "individual-agg-" + i), 5, TimeUnit.SECONDS);
+                await(eventStore.appendBuilder()
+                                 .eventType("IndividualTest")
+                                 .payload(event)
+                                 .validTime(validTime)
+                                 .headers(headers)
+                                 .correlationId("individual-corr-" + i)
+                                 .aggregateId("individual-agg-" + i)
+                                 .execute(), 5, TimeUnit.SECONDS);
         }
 
         long individualEndTime = System.currentTimeMillis();
@@ -712,8 +761,14 @@ public class BiTemporalPerformanceBenchmarkTest {
         List<CompletableFuture<BiTemporalEvent<TestEvent>>> batchFutures = new ArrayList<>();
         for (int i = 0; i < messageCount; i++) {
             TestEvent event = new TestEvent("batch-" + i, "Batch test data " + i, i);
-            CompletableFuture<BiTemporalEvent<TestEvent>> future = eventStore.append("BatchTest", event, validTime, headers,
-                                                               "batch-corr-" + i, null, "batch-agg-" + i)
+            CompletableFuture<BiTemporalEvent<TestEvent>> future = eventStore.appendBuilder()
+                .eventType("BatchTest")
+                .payload(event)
+                .validTime(validTime)
+                .headers(headers)
+                .correlationId("batch-corr-" + i)
+                .aggregateId("batch-agg-" + i)
+                .execute()
                 .toCompletionStage().toCompletableFuture();
             batchFutures.add(future);
         }
@@ -782,8 +837,14 @@ public class BiTemporalPerformanceBenchmarkTest {
 
             for (int i = batch; i < endIndex; i++) {
                 TestEvent event = new TestEvent("memory-" + i, "Memory test data " + i, i % 100);
-                CompletableFuture<BiTemporalEvent<TestEvent>> future = eventStore.append("MemoryTest", event, validTime, headers,
-                                                                   "memory-corr-" + i, null, "memory-agg-" + i)
+                CompletableFuture<BiTemporalEvent<TestEvent>> future = eventStore.appendBuilder()
+                    .eventType("MemoryTest")
+                    .payload(event)
+                    .validTime(validTime)
+                    .headers(headers)
+                    .correlationId("memory-corr-" + i)
+                    .aggregateId("memory-agg-" + i)
+                    .execute()
                     .toCompletionStage().toCompletableFuture();
                 batchFutures.add(future);
             }
@@ -878,9 +939,14 @@ public class BiTemporalPerformanceBenchmarkTest {
                         int messageId = finalThreadId * messagesPerThread + i;
                         TestEvent event = new TestEvent("resource-" + messageId,
                                                        "Resource test data " + messageId, messageId);
-                        CompletableFuture<BiTemporalEvent<TestEvent>> future = eventStore.append(
-                            "ResourceTest", event, validTime, headers,
-                            "resource-corr-" + messageId, null, "resource-agg-" + messageId)
+                        CompletableFuture<BiTemporalEvent<TestEvent>> future = eventStore.appendBuilder()
+                            .eventType("ResourceTest")
+                            .payload(event)
+                            .validTime(validTime)
+                            .headers(headers)
+                            .correlationId("resource-corr-" + messageId)
+                            .aggregateId("resource-agg-" + messageId)
+                            .execute()
                             .toCompletionStage().toCompletableFuture();
                         messageFutures.add(future);
                     }
@@ -1012,11 +1078,14 @@ public class BiTemporalPerformanceBenchmarkTest {
                 TestEvent event = new TestEvent("high-throughput-" + i, "High throughput validation " + i, i);
 
                 // Use standard transactional append - focus on Vert.x threading optimization first
-                CompletableFuture<BiTemporalEvent<TestEvent>> future = eventStore.append("HighThroughputTest", event,
-                                                                       Instant.now(), Map.of(),
-                                                                       "high-throughput-correlation-" + i,
-                                                                       null,
-                                                                       "high-throughput-aggregate-" + i)
+                CompletableFuture<BiTemporalEvent<TestEvent>> future = eventStore.appendBuilder()
+                    .eventType("HighThroughputTest")
+                    .payload(event)
+                    .validTime(Instant.now())
+                    .headers(Map.of())
+                    .correlationId("high-throughput-correlation-" + i)
+                    .aggregateId("high-throughput-aggregate-" + i)
+                    .execute()
                     .toCompletionStage().toCompletableFuture();
                 batchFutures.add(future);
             }

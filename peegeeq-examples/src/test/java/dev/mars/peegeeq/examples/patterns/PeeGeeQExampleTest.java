@@ -106,10 +106,10 @@ class PeeGeeQExampleTest {
         logger.info("Testing PeeGeeQExample with TestContainers database");
 
         // Start PostgreSQL container
-        try (PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-                .withDatabaseName("peegeeq_test")
-                .withUsername("peegeeq_test")
-                .withPassword("peegeeq_test")) {
+        try (PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)) {
+            postgres.withDatabaseName("peegeeq_test")
+                    .withUsername("peegeeq_test")
+                    .withPassword("peegeeq_test");
 
             postgres.start();
             logger.info("PostgreSQL container started: {}", postgres.getJdbcUrl());
@@ -145,12 +145,12 @@ class PeeGeeQExampleTest {
 
         // Start PostgreSQL container with proper JUnit lifecycle management
         logger.info(">> Starting PostgreSQL container...");
-        try (PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-                .withDatabaseName("peegeeq_demo")
-                .withUsername("peegeeq_demo")
-                .withPassword("peegeeq_demo")
-                .withSharedMemorySize(256 * 1024 * 1024L) // 256MB for better performance
-                .withReuse(false)) { // Always start fresh for test
+        try (PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)) {
+            postgres.withDatabaseName("peegeeq_demo")
+                    .withUsername("peegeeq_demo")
+                    .withPassword("peegeeq_demo")
+                    .withSharedMemorySize(256 * 1024 * 1024L) // 256MB for better performance
+                    .withReuse(false); // Always start fresh for test
 
             postgres.start();
             logger.info(">> PostgreSQL container started successfully");
@@ -367,8 +367,6 @@ class PeeGeeQExampleTest {
             logger.info(" > Current Utilization: {}%", metrics.getUtilization() * 100);
             logger.info(" > Success Rate: {}%", metrics.getCurrentSuccessRate() * 100);
 
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
         } finally {
             shutdownExecutorGracefully(executor, "backpressure-demo");
         }
@@ -424,8 +422,6 @@ class PeeGeeQExampleTest {
             vertx.setTimer(5000, id -> delay.complete(null));
             delay.join();
 
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
         } finally {
             shutdownExecutorGracefully(monitor, "system-monitor");
             logger.info("Monitoring completed");

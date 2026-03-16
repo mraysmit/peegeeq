@@ -21,6 +21,7 @@ import dev.mars.peegeeq.bitemporal.PgBiTemporalEventStore;
 import dev.mars.peegeeq.examples.springbootfinancialfabric.cloudevents.FinancialCloudEventBuilder;
 import dev.mars.peegeeq.examples.springbootfinancialfabric.events.SettlementInstructionEvent;
 import io.cloudevents.CloudEvent;
+import io.vertx.core.Future;
 import io.vertx.sqlclient.SqlConnection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,6 +31,7 @@ import org.springframework.stereotype.Service;
 import java.time.Instant;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 
 /**
  * Service for managing settlement instruction lifecycle events.
@@ -85,15 +87,15 @@ public class SettlementService {
                 validTime
             );
 
-            return settlementEventStore.appendInTransaction(
-                    "instruction.settlement.submitted",
-                    instructionEvent,  // Store the payload, not the CloudEvent
-                    validTime,
-                    Map.of("correlationId", correlationId, "custodian", instructionEvent.getCustodian(), "cloudEventId", cloudEvent.getId()),
-                    correlationId,
-                    instructionEvent.getInstructionId(),
-                    connection
-                )
+            return toCompletableFuture(settlementEventStore.appendBuilder()
+                    .eventType("instruction.settlement.submitted")
+                    .payload(instructionEvent)
+                    .validTime(validTime)
+                    .headers(Map.of("correlationId", correlationId, "custodian", instructionEvent.getCustodian(), "cloudEventId", cloudEvent.getId()))
+                    .correlationId(correlationId)
+                    .aggregateId(instructionEvent.getInstructionId())
+                    .inTransaction(connection)
+                    .execute())
                 .thenApply(biTemporalEvent -> {
                     log.info("Settlement instruction submitted successfully: instructionId={}, eventId={}, cloudEventId={}",
                         instructionEvent.getInstructionId(), biTemporalEvent.getEventId(), cloudEvent.getId());
@@ -144,15 +146,15 @@ public class SettlementService {
                 validTime
             );
 
-            return settlementEventStore.appendInTransaction(
-                    "instruction.settlement.confirmed",
-                    confirmationEvent,  // Store the SettlementInstructionEvent payload
-                    validTime,
-                    Map.of("correlationId", correlationId, "cloudEventId", cloudEvent.getId(), "status", "CONFIRMED"),
-                    correlationId,
-                    instructionId,
-                    connection
-                )
+            return toCompletableFuture(settlementEventStore.appendBuilder()
+                    .eventType("instruction.settlement.confirmed")
+                    .payload(confirmationEvent)
+                    .validTime(validTime)
+                    .headers(Map.of("correlationId", correlationId, "cloudEventId", cloudEvent.getId(), "status", "CONFIRMED"))
+                    .correlationId(correlationId)
+                    .aggregateId(instructionId)
+                    .inTransaction(connection)
+                    .execute())
                 .thenApply(biTemporalEvent -> {
                     log.info("Settlement confirmed successfully: instructionId={}, eventId={}, cloudEventId={}",
                         instructionId, biTemporalEvent.getEventId(), cloudEvent.getId());
@@ -162,6 +164,14 @@ public class SettlementService {
             log.error("Failed to serialize settlement confirmation: instructionId={}", instructionId, e);
             return CompletableFuture.failedFuture(new RuntimeException("Failed to serialize settlement confirmation", e));
         }
+    }
+
+    private static <T> CompletableFuture<T> toCompletableFuture(CompletionStage<T> stage) {
+        return stage.toCompletableFuture();
+    }
+
+    private static <T> CompletableFuture<T> toCompletableFuture(Future<T> future) {
+        return future.toCompletionStage().toCompletableFuture();
     }
 }
 
