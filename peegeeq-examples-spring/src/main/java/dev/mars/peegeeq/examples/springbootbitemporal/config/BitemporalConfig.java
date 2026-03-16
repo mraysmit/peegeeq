@@ -96,7 +96,7 @@ public class BitemporalConfig {
     @Bean
     public EventStore<TransactionEvent> transactionEventStore(BiTemporalEventStoreFactory factory) {
         logger.info("Creating TransactionEvent event store");
-        eventStore = factory.createEventStore(TransactionEvent.class);
+        eventStore = factory.createEventStore(TransactionEvent.class, "bitemporal_event_log");
         logger.info("TransactionEvent event store created successfully");
         return eventStore;
     }
@@ -151,4 +151,5 @@ public class BitemporalConfig {
         logger.debug("System properties configured successfully");
     }
 }
+
 

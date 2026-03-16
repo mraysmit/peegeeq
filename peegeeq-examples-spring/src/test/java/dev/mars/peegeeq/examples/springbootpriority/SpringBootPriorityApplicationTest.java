@@ -37,7 +37,10 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.client.TestRestTemplate;
+import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.ResponseEntity;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.test.context.ActiveProfiles;
@@ -200,11 +203,7 @@ public class SpringBootPriorityApplicationTest {
         request.settlementDate = LocalDate.now().plusDays(1);
         request.failureReason = "Settlement system unavailable";
         
-        ResponseEntity<Map> response = restTemplate.postForEntity(
-            "/api/trades/settlement-fail",
-            request,
-            Map.class
-        );
+        ResponseEntity<Map<String, Object>> response = postForMap("/api/trades/settlement-fail", request);
         
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertNotNull(response.getBody());
@@ -234,11 +233,7 @@ public class SpringBootPriorityApplicationTest {
         request.currency = "EUR";
         request.settlementDate = LocalDate.now().plusDays(2);
         
-        ResponseEntity<Map> response = restTemplate.postForEntity(
-            "/api/trades/amendment",
-            request,
-            Map.class
-        );
+        ResponseEntity<Map<String, Object>> response = postForMap("/api/trades/amendment", request);
         
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertNotNull(response.getBody());
@@ -268,11 +263,7 @@ public class SpringBootPriorityApplicationTest {
         request.currency = "GBP";
         request.settlementDate = LocalDate.now().plusDays(3);
         
-        ResponseEntity<Map> response = restTemplate.postForEntity(
-            "/api/trades/confirmation",
-            request,
-            Map.class
-        );
+        ResponseEntity<Map<String, Object>> response = postForMap("/api/trades/confirmation", request);
         
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertNotNull(response.getBody());
@@ -295,10 +286,7 @@ public class SpringBootPriorityApplicationTest {
     void testProducerMetrics() {
         log.info("=== Testing Producer Metrics ===");
         
-        ResponseEntity<Map> response = restTemplate.getForEntity(
-            "/api/trades/metrics",
-            Map.class
-        );
+        ResponseEntity<Map<String, Object>> response = getForMap("/api/trades/metrics");
         
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertNotNull(response.getBody());
@@ -316,20 +304,14 @@ public class SpringBootPriorityApplicationTest {
         log.info("=== Testing Monitoring Endpoints ===");
         
         // Test overall metrics
-        ResponseEntity<Map> metricsResponse = restTemplate.getForEntity(
-            "/api/monitoring/metrics",
-            Map.class
-        );
+        ResponseEntity<Map<String, Object>> metricsResponse = getForMap("/api/monitoring/metrics");
         assertEquals(HttpStatus.OK, metricsResponse.getStatusCode());
         assertNotNull(metricsResponse.getBody());
         assertTrue(metricsResponse.getBody().containsKey("producer"));
         assertTrue(metricsResponse.getBody().containsKey("consumers"));
         
         // Test health endpoint
-        ResponseEntity<Map> healthResponse = restTemplate.getForEntity(
-            "/api/monitoring/health",
-            Map.class
-        );
+        ResponseEntity<Map<String, Object>> healthResponse = getForMap("/api/monitoring/health");
         assertEquals(HttpStatus.OK, healthResponse.getStatusCode());
         assertNotNull(healthResponse.getBody());
         assertEquals("UP", healthResponse.getBody().get("status"));
@@ -401,7 +383,25 @@ public class SpringBootPriorityApplicationTest {
             request.failureReason = "Test failure";
         }
         
-        restTemplate.postForEntity("/api/trades/" + endpoint, request, Map.class);
+        postForMap("/api/trades/" + endpoint, request);
+    }
+
+    private ResponseEntity<Map<String, Object>> postForMap(String path, Object request) {
+        return restTemplate.exchange(
+            path,
+            HttpMethod.POST,
+            new HttpEntity<>(request),
+            new ParameterizedTypeReference<Map<String, Object>>() {}
+        );
+    }
+
+    private ResponseEntity<Map<String, Object>> getForMap(String path) {
+        return restTemplate.exchange(
+            path,
+            HttpMethod.GET,
+            null,
+            new ParameterizedTypeReference<Map<String, Object>>() {}
+        );
     }
 }
 

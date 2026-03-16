@@ -64,12 +64,17 @@ class VertxPerformanceOptimizationValidationTest {
     private static final Logger logger = LoggerFactory.getLogger(VertxPerformanceOptimizationValidationTest.class);
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName("peegeeq_test")
-            .withUsername("test")
-            .withPassword("test")
-            .withSharedMemorySize(256 * 1024 * 1024L) // 256MB shared memory
-            .withCommand("postgres", "-c", "max_connections=300"); // Simple connection limit increase
+    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        container.withDatabaseName("peegeeq_test");
+        container.withUsername("test");
+        container.withPassword("test");
+        container.withSharedMemorySize(256 * 1024 * 1024L) // 256MB shared memory;
+        container.withCommand("postgres", "-c", "max_connections=300"); // Simple connection limit increase;
+        return container;
+    }
 
     private PeeGeeQManager manager;
     private PgBiTemporalEventStore<TestEvent> eventStore;
@@ -150,7 +155,7 @@ class VertxPerformanceOptimizationValidationTest {
         TestEvent event = new TestEvent("pipeline-test", "Testing pipelined client");
         
         long startTime = System.currentTimeMillis();
-        BiTemporalEvent<TestEvent> result = await(eventStore.append("test.pipeline", event, Instant.now()), 10, TimeUnit.SECONDS);
+        BiTemporalEvent<TestEvent> result = await(eventStore.appendBuilder().eventType("test.pipeline").payload(event).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
         long duration = System.currentTimeMillis() - startTime;
         
         assertNotNull(result);
@@ -175,7 +180,7 @@ class VertxPerformanceOptimizationValidationTest {
         
         for (int i = 0; i < concurrentOperations; i++) {
             TestEvent event = new TestEvent("pool-test-" + i, "Testing pool configuration " + i);
-            futures.add(eventStore.append("test.pool", event, Instant.now()).toCompletionStage().toCompletableFuture());
+            futures.add(eventStore.appendBuilder().eventType("test.pool").payload(event).validTime(Instant.now()).execute().toCompletionStage().toCompletableFuture());
         }
         
         // All operations should complete without pool exhaustion
@@ -245,7 +250,7 @@ class VertxPerformanceOptimizationValidationTest {
         // Perform some operations to generate metrics
         for (int i = 0; i < 10; i++) {
             TestEvent event = new TestEvent("monitor-test-" + i, "Performance monitoring test " + i);
-            await(eventStore.append("test.monitoring", event, Instant.now()), 5, TimeUnit.SECONDS);
+            await(eventStore.appendBuilder().eventType("test.monitoring").payload(event).validTime(Instant.now()).execute(), 5, TimeUnit.SECONDS);
         }
         
         // Give monitoring time to collect metrics
@@ -285,7 +290,7 @@ class VertxPerformanceOptimizationValidationTest {
         
         // Test that operations work with the configured values
         TestEvent event = new TestEvent("config-test", "Configuration profile test");
-        BiTemporalEvent<TestEvent> result = await(eventStore.append("test.config", event, Instant.now()), 5, TimeUnit.SECONDS);
+        BiTemporalEvent<TestEvent> result = await(eventStore.appendBuilder().eventType("test.config").payload(event).validTime(Instant.now()).execute(), 5, TimeUnit.SECONDS);
         
         assertNotNull(result);
         assertEquals("config-test", result.getPayload().getId());
@@ -308,7 +313,7 @@ class VertxPerformanceOptimizationValidationTest {
         // Mix of individual and batch operations
         for (int i = 0; i < totalEvents / 2; i++) {
             TestEvent event = new TestEvent("perf-test-" + i, "Performance test " + i);
-            futures.add(eventStore.append("test.performance", event, Instant.now()).toCompletionStage().toCompletableFuture());
+            futures.add(eventStore.appendBuilder().eventType("test.performance").payload(event).validTime(Instant.now()).execute().toCompletionStage().toCompletableFuture());
         }
         
         // Add a batch operation

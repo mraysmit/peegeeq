@@ -48,12 +48,17 @@ public class OutboxProducerIntegrationTest {
     private static final Logger logger = LoggerFactory.getLogger(OutboxProducerIntegrationTest.class);
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName(PostgreSQLTestConstants.DEFAULT_DATABASE_NAME)
-            .withUsername(PostgreSQLTestConstants.DEFAULT_USERNAME)
-            .withPassword(PostgreSQLTestConstants.DEFAULT_PASSWORD)
-            .withSharedMemorySize(PostgreSQLTestConstants.DEFAULT_SHARED_MEMORY_SIZE)
-            .withReuse(false);
+    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        container.withDatabaseName(PostgreSQLTestConstants.DEFAULT_DATABASE_NAME);
+        container.withUsername(PostgreSQLTestConstants.DEFAULT_USERNAME);
+        container.withPassword(PostgreSQLTestConstants.DEFAULT_PASSWORD);
+        container.withSharedMemorySize(PostgreSQLTestConstants.DEFAULT_SHARED_MEMORY_SIZE);
+        container.withReuse(false);
+        return container;
+    }
 
     private PgClientFactory clientFactory;
     private ObjectMapper objectMapper;

@@ -54,10 +54,15 @@ class JsonbConversionValidationTest {
     private static final Logger logger = LoggerFactory.getLogger(JsonbConversionValidationTest.class);
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName("peegeeq_bitemporal_test")
-            .withUsername("peegeeq_test")
-            .withPassword("peegeeq_test");
+    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        container.withDatabaseName("peegeeq_bitemporal_test");
+        container.withUsername("peegeeq_test");
+        container.withPassword("peegeeq_test");
+        return container;
+    }
 
     private PeeGeeQManager manager;
     private PgBiTemporalEventStore<TestEvent> eventStore;
@@ -133,7 +138,7 @@ class JsonbConversionValidationTest {
         Instant validTime = Instant.now();
 
         // Append event
-        BiTemporalEvent<TestEvent> event = await(eventStore.append(eventType, testEvent, validTime));
+        BiTemporalEvent<TestEvent> event = await(eventStore.appendBuilder().eventType(eventType).payload(testEvent).validTime(validTime).execute());
 
         assertNotNull(event);
         assertEquals(testEvent.orderId, event.getPayload().orderId);
@@ -180,7 +185,7 @@ class JsonbConversionValidationTest {
         Instant validTime = Instant.now();
 
         // Append event
-        BiTemporalEvent<TestEvent> event = await(eventStore.append(eventType, testEvent, validTime));
+        BiTemporalEvent<TestEvent> event = await(eventStore.appendBuilder().eventType(eventType).payload(testEvent).validTime(validTime).execute());
 
         assertNotNull(event);
         assertEquals(testEvent.orderId, event.getPayload().orderId);
@@ -235,7 +240,7 @@ class JsonbConversionValidationTest {
         headers.put("priority", "high");
 
         // Append event with headers
-        BiTemporalEvent<TestEvent> event = await(eventStore.append(eventType, testEvent, validTime, headers));
+        BiTemporalEvent<TestEvent> event = await(eventStore.appendBuilder().eventType(eventType).payload(testEvent).validTime(validTime).headers(headers).execute());
 
         assertNotNull(event);
         assertEquals(testEvent.orderId, event.getPayload().orderId);

@@ -56,10 +56,15 @@ class ConsumerModeGracefulDegradationTest {
     private static final Logger logger = LoggerFactory.getLogger(ConsumerModeGracefulDegradationTest.class);
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName("peegeeq_test")
-            .withUsername("peegeeq_user")
-            .withPassword("peegeeq_pass");
+    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        container.withDatabaseName("peegeeq_test");
+        container.withUsername("peegeeq_user");
+        container.withPassword("peegeeq_pass");
+        return container;
+    }
 
     private PeeGeeQManager manager;
     private QueueFactory factory;

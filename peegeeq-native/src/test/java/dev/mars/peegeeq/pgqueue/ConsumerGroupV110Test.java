@@ -72,10 +72,15 @@ import static org.junit.jupiter.api.Assertions.*;
 class ConsumerGroupV110Test {
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName("testdb")
-            .withUsername("testuser")
-            .withPassword("testpass");
+    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        container.withDatabaseName("testdb");
+        container.withUsername("testuser");
+        container.withPassword("testpass");
+        return container;
+    }
 
     private PeeGeeQManager manager;
     private QueueFactory factory;

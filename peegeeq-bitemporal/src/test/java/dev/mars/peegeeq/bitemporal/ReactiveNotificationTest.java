@@ -141,12 +141,12 @@ class ReactiveNotificationTest {
 
         // Create factory and event store
         factory = new BiTemporalEventStoreFactory(manager);
-        eventStore = factory.createEventStore(TestEvent.class);
+        eventStore = factory.createEventStore(TestEvent.class, "bitemporal_event_log");
 
         // Ensure reactive notification handler is active by triggering pool creation
         // This follows the pattern from working integration tests
         TestEvent warmupEvent = new TestEvent("warmup", "warmup", 1);
-        await(eventStore.append("WarmupEvent", warmupEvent, Instant.now()), 5, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder().eventType("WarmupEvent").payload(warmupEvent).validTime(Instant.now()).execute(), 5, TimeUnit.SECONDS);
 
         // Give the reactive notification handler time to become active
         awaitAsyncDelay(1000);
@@ -194,7 +194,7 @@ class ReactiveNotificationTest {
         
         // Append an event (this should trigger a notification)
         TestEvent testEvent = new TestEvent("test-1", "notification test", 42);
-        BiTemporalEvent<TestEvent> appendedEvent = await(eventStore.append("TestEvent", testEvent, Instant.now()), 5, TimeUnit.SECONDS);
+        BiTemporalEvent<TestEvent> appendedEvent = await(eventStore.appendBuilder().eventType("TestEvent").payload(testEvent).validTime(Instant.now()).execute(), 5, TimeUnit.SECONDS);
         
         assertNotNull(appendedEvent);
         assertEquals("TestEvent", appendedEvent.getEventType());
@@ -243,7 +243,7 @@ class ReactiveNotificationTest {
         
         // First, append an event to have something in the database
         TestEvent testEvent = new TestEvent("manual-test", "manual notification test", 123);
-        BiTemporalEvent<TestEvent> appendedEvent = await(eventStore.append("TestEvent", testEvent, Instant.now()), 5, TimeUnit.SECONDS);
+        BiTemporalEvent<TestEvent> appendedEvent = await(eventStore.appendBuilder().eventType("TestEvent").payload(testEvent).validTime(Instant.now()).execute(), 5, TimeUnit.SECONDS);
         
         // Manually send a NOTIFY message using pure Vert.x (simulating what the database trigger would do)
         var dbConfig = manager.getConfiguration().getDatabaseConfig();
@@ -311,5 +311,6 @@ class ReactiveNotificationTest {
             "Timed out waiting for async processing delay");
     }
 }
+
 
 

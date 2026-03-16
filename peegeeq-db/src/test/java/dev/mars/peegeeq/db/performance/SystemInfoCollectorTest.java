@@ -26,14 +26,14 @@ class SystemInfoCollectorTest {
     void testCollectSystemInfo() {
         logger.info("Testing system information collection...");
         
-        Map<String, Object> systemInfo = SystemInfoCollector.collectSystemInfo();
+        SystemInfoCollector.SystemInfoSnapshot systemInfo = SystemInfoCollector.collectSystemInfo();
         
         // Verify basic structure
         assertNotNull(systemInfo, "System info should not be null");
-        assertTrue(systemInfo.containsKey("timestamp"), "Should contain timestamp");
-        assertTrue(systemInfo.containsKey("systemConfiguration"), "Should contain system configuration");
-        assertTrue(systemInfo.containsKey("databaseConfiguration"), "Should contain database configuration");
-        assertTrue(systemInfo.containsKey("peeGeeQConfiguration"), "Should contain PeeGeeQ configuration");
+        assertNotNull(systemInfo.timestamp(), "Should contain timestamp");
+        assertNotNull(systemInfo.systemConfiguration(), "Should contain system configuration");
+        assertNotNull(systemInfo.databaseConfiguration(), "Should contain database configuration");
+        assertNotNull(systemInfo.peeGeeQConfiguration(), "Should contain PeeGeeQ configuration");
         
         logger.info("System info structure validation passed");
     }
@@ -42,8 +42,8 @@ class SystemInfoCollectorTest {
     void testSystemConfiguration() {
         logger.info("Testing system configuration collection...");
         
-        Map<String, Object> systemInfo = SystemInfoCollector.collectSystemInfo();
-        Map<String, String> sysConfig = (Map<String, String>) systemInfo.get("systemConfiguration");
+        SystemInfoCollector.SystemInfoSnapshot systemInfo = SystemInfoCollector.collectSystemInfo();
+        Map<String, String> sysConfig = systemInfo.systemConfiguration();
         
         assertNotNull(sysConfig, "System configuration should not be null");
         
@@ -68,8 +68,8 @@ class SystemInfoCollectorTest {
     void testDatabaseConfiguration() {
         logger.info("Testing database configuration collection...");
         
-        Map<String, Object> systemInfo = SystemInfoCollector.collectSystemInfo();
-        Map<String, String> dbConfig = (Map<String, String>) systemInfo.get("databaseConfiguration");
+        SystemInfoCollector.SystemInfoSnapshot systemInfo = SystemInfoCollector.collectSystemInfo();
+        Map<String, String> dbConfig = systemInfo.databaseConfiguration();
         
         assertNotNull(dbConfig, "Database configuration should not be null");
         
@@ -165,9 +165,9 @@ class SystemInfoCollectorTest {
         System.setProperty("peegeeq.database.pipelining.limit", "1024");
         
         try {
-            Map<String, Object> systemInfo = SystemInfoCollector.collectSystemInfo();
+            SystemInfoCollector.SystemInfoSnapshot systemInfo = SystemInfoCollector.collectSystemInfo();
             
-            Map<String, String> peeGeeQConfig = (Map<String, String>) systemInfo.get("peeGeeQConfiguration");
+            Map<String, String> peeGeeQConfig = systemInfo.peeGeeQConfiguration();
             
             assertNotNull(peeGeeQConfig, "PeeGeeQ configuration should not be null");
             assertTrue(peeGeeQConfig.containsKey("peegeeq.test.property"), "Should contain test property");

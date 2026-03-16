@@ -35,10 +35,15 @@ public class SchemaContractTest {
     private static final Logger log = LoggerFactory.getLogger(SchemaContractTest.class);
 
     @Container
-    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName("peegeeq_contract_test")
-            .withUsername("test")
-            .withPassword("test");
+    private static final PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        container.withDatabaseName("peegeeq_contract_test");
+        container.withUsername("test");
+        container.withPassword("test");
+        return container;
+    }
 
     private static Flyway flyway;
 

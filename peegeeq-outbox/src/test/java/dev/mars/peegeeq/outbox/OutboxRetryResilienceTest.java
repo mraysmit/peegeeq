@@ -77,12 +77,17 @@ public class OutboxRetryResilienceTest {
     private static final Logger logger = LoggerFactory.getLogger(OutboxRetryResilienceTest.class);
 
     @Container
-    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_resilience_test")
-            .withUsername("resilience_test")
-            .withPassword("resilience_test")
-            .withSharedMemorySize(256 * 1024 * 1024L)
-            .withReuse(false);
+    private static final PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20");
+        container.withDatabaseName("peegeeq_resilience_test");
+        container.withUsername("resilience_test");
+        container.withPassword("resilience_test");
+        container.withSharedMemorySize(256 * 1024 * 1024L);
+        container.withReuse(false);
+        return container;
+    }
 
     private PeeGeeQManager manager;
     private MessageProducer<String> producer;

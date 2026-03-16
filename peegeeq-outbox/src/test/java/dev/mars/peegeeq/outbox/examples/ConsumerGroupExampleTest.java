@@ -62,10 +62,15 @@ public class ConsumerGroupExampleTest {
     private static final Logger logger = LoggerFactory.getLogger(ConsumerGroupExampleTest.class);
     
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_consumer_group_test")
-            .withUsername("postgres")
-            .withPassword("password");
+    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20");
+        container.withDatabaseName("peegeeq_consumer_group_test");
+        container.withUsername("postgres");
+        container.withPassword("password");
+        return container;
+    }
 
     private PeeGeeQManager manager;
     private QueueFactory factory;

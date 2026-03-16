@@ -58,10 +58,15 @@ public class TransactionParticipationIntegrationTest {
     private static final Logger logger = LoggerFactory.getLogger(TransactionParticipationIntegrationTest.class);
     
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName("transaction_" + System.currentTimeMillis() + "_" + System.nanoTime())  // Unique database name with timestamp
-            .withUsername("peegeeq")
-            .withPassword("peegeeq_test_password");
+    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        container.withDatabaseName("transaction_" + System.currentTimeMillis() + "_" + System.nanoTime())  // Unique database name with timestamp;
+        container.withUsername("peegeeq");
+        container.withPassword("peegeeq_test_password");
+        return container;
+    }
     
     private PeeGeeQManager peeGeeQManager;
     private PgBiTemporalEventStore<TestEvent> eventStore;
@@ -91,7 +96,7 @@ public class TransactionParticipationIntegrationTest {
 
         // Create the bitemporal event store using factory pattern
         BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(peeGeeQManager);
-        eventStore = (PgBiTemporalEventStore<TestEvent>) factory.createEventStore(TestEvent.class);
+        eventStore = (PgBiTemporalEventStore<TestEvent>) factory.createEventStore(TestEvent.class, "bitemporal_event_log");
 
         // Create a test business table for transaction testing
         createBusinessTable();
@@ -1225,5 +1230,6 @@ public class TransactionParticipationIntegrationTest {
         }
     }
 }
+
 
 

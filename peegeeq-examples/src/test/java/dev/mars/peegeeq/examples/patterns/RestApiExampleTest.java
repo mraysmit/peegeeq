@@ -67,10 +67,15 @@ public class RestApiExampleTest {
     private static final int REST_PORT = 18080; // Use non-standard port for tests
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_rest_test")
-            .withUsername("postgres")
-            .withPassword("password");
+    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20");
+        container.withDatabaseName("peegeeq_rest_test");
+        container.withUsername("postgres");
+        container.withPassword("password");
+        return container;
+    }
 
     private Vertx vertx;
     private WebClient client;

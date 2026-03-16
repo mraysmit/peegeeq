@@ -131,7 +131,7 @@ public class BiTemporalEventStoreFactory implements EventStoreFactory {
      * @return A new event store instance for String payloads
      */
     public EventStore<String> createStringEventStore() {
-        return createEventStore(String.class);
+        return createEventStore(String.class, "bitemporal_event_log");
     }
 
     /**
@@ -141,7 +141,7 @@ public class BiTemporalEventStoreFactory implements EventStoreFactory {
      * @return A new event store instance for Object payloads
      */
     public EventStore<Object> createObjectEventStore() {
-        return createEventStore(Object.class);
+        return createEventStore(Object.class, "bitemporal_event_log");
     }
 
     /**
@@ -176,3 +176,4 @@ public class BiTemporalEventStoreFactory implements EventStoreFactory {
         return mapper;
     }
 }
+

@@ -160,7 +160,7 @@ public class IntegratedConfig {
     @Bean
     public EventStore<OrderEvent> orderEventStore(BiTemporalEventStoreFactory factory) {
         logger.info("Creating OrderEvent event store");
-        eventStore = factory.createEventStore(OrderEvent.class);
+        eventStore = factory.createEventStore(OrderEvent.class, "bitemporal_event_log");
         logger.info("OrderEvent event store created successfully");
         return eventStore;
     }
@@ -215,4 +215,5 @@ public class IntegratedConfig {
         logger.debug("System properties configured successfully");
     }
 }
+
 

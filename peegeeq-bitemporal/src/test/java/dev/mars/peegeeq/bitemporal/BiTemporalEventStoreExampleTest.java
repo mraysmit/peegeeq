@@ -94,7 +94,7 @@ class BiTemporalEventStoreExampleTest {
         // Initialize shared container only once across all example test classes
         if (sharedPostgres == null) {
             PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
-            container.withDatabaseName("peegeeq_bitemporal_test")
+            container.withDatabaseName("peegeeq_bitemporal_test");
                 .withUsername("postgres")
                 .withPassword("password")
                 .withSharedMemorySize(256 * 1024 * 1024L) // 256MB shared memory
@@ -512,5 +512,6 @@ class BiTemporalEventStoreExampleTest {
         }
     }
 }
+
 
 

@@ -344,7 +344,7 @@ class WildcardPatternComprehensiveTest {
         awaitAsyncDelay(300); // Allow subscription to stabilize
 
         // Publish the event
-        await(eventStore.append(uniqueEventType, Map.of("testId", testId), Instant.now()), 5, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder().eventType(uniqueEventType).payload(Map.of("testId", testId)).validTime(Instant.now()).execute(), 5, TimeUnit.SECONDS);
 
         // Wait for notification (or timeout)
         boolean receivedNotification = latch.await(3, TimeUnit.SECONDS);

@@ -71,12 +71,17 @@ class ReactiveNotificationHandlerLifecycleTest {
     private static final Logger logger = LoggerFactory.getLogger(ReactiveNotificationHandlerLifecycleTest.class);
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("reactive_lifecycle_test")
-            .withUsername("test_user")
-            .withPassword("test_password")
-            .withSharedMemorySize(256 * 1024 * 1024L)
-            .withReuse(false);
+    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20");
+        container.withDatabaseName("reactive_lifecycle_test");
+        container.withUsername("test_user");
+        container.withPassword("test_password");
+        container.withSharedMemorySize(256 * 1024 * 1024L);
+        container.withReuse(false);
+        return container;
+    }
 
     private ObjectMapper objectMapper;
     private PgConnectOptions connectOptions;

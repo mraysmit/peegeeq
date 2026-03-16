@@ -38,10 +38,15 @@ class DatabaseWorkerVerticleTest {
     private static final Logger logger = LoggerFactory.getLogger(DatabaseWorkerVerticleTest.class);
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName("peegeeq_test")
-            .withUsername("test")
-            .withPassword("test");
+    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        container.withDatabaseName("peegeeq_test");
+                .withUsername("test")
+                .withPassword("test");
+        return container;
+    }
 
     private PeeGeeQManager manager;
     private PgBiTemporalEventStore<TestEvent> eventStore;
@@ -219,8 +224,8 @@ class DatabaseWorkerVerticleTest {
         PgBiTemporalEventStore.deployDatabaseWorkerVerticles(1, secondaryTable)
             .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
 
-        await(eventStore.append("table.primary", new TestEvent("p1", "primary", 1), Instant.now()), 10, TimeUnit.SECONDS);
-        await(secondaryEventStore.append("table.secondary", new TestEvent("s1", "secondary", 2), Instant.now()), 10, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder().eventType("table.primary").payload(new TestEvent("p1", "primary", 1)).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
+        await(secondaryEventStore.appendBuilder().eventType("table.secondary").payload(new TestEvent("s1", "secondary", 2)).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
 
         assertEquals(1L, countRowsForEventType(primaryTable, "table.primary"));
         assertEquals(0L, countRowsForEventType(primaryTable, "table.secondary"));
@@ -295,5 +300,6 @@ class DatabaseWorkerVerticleTest {
         return store.eventBusInstanceKey();
     }
 }
+
 
 

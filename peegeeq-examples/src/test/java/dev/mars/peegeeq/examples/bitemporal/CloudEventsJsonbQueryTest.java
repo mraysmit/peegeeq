@@ -67,10 +67,15 @@ public class CloudEventsJsonbQueryTest {
     private static final Logger logger = LoggerFactory.getLogger(CloudEventsJsonbQueryTest.class);
 
     @Container
-    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-        .withDatabaseName("peegeeq_test")
-        .withUsername("test")
-        .withPassword("test");
+    private static final PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        container.withDatabaseName("peegeeq_test");
+        container.withUsername("test");
+        container.withPassword("test");
+        return container;
+    }
 
     private static PeeGeeQManager manager;
     private static EventStore<CloudEvent> eventStore;
@@ -110,7 +115,7 @@ public class CloudEventsJsonbQueryTest {
 
         // Create bi-temporal event store for CloudEvents
         BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager);
-        eventStore = factory.createEventStore(CloudEvent.class);
+        eventStore = factory.createEventStore(CloudEvent.class, "bitemporal_event_log");
 
         logger.info("Setup complete - ready for CloudEvents JSONB query tests");
     }
@@ -288,12 +293,12 @@ public class CloudEventsJsonbQueryTest {
             .build();
 
         // Store events with appropriate valid times
-        await(eventStore.append("TradeNew", event1New, baseTime));
-        await(eventStore.append("TradeAffirmed", event1Affirmed, baseTime.plus(30, ChronoUnit.MINUTES)));
-        await(eventStore.append("TradeSettled", event1Settled, baseTime.plus(2, ChronoUnit.DAYS)));
-        await(eventStore.append("TradeNew", event2New, baseTime.plus(1, ChronoUnit.HOURS)));
-        await(eventStore.append("TradeAffirmed", event2Affirmed, baseTime.plus(2, ChronoUnit.HOURS)));
-        await(eventStore.append("TradeNew", event3New, baseTime.plus(3, ChronoUnit.HOURS)));
+        await(eventStore.appendBuilder().eventType("TradeNew").payload(event1New).validTime(baseTime).execute());
+        await(eventStore.appendBuilder().eventType("TradeAffirmed").payload(event1Affirmed).validTime(baseTime.plus(30, ChronoUnit.MINUTES)).execute());
+        await(eventStore.appendBuilder().eventType("TradeSettled").payload(event1Settled).validTime(baseTime.plus(2, ChronoUnit.DAYS)).execute());
+        await(eventStore.appendBuilder().eventType("TradeNew").payload(event2New).validTime(baseTime.plus(1, ChronoUnit.HOURS)).execute());
+        await(eventStore.appendBuilder().eventType("TradeAffirmed").payload(event2Affirmed).validTime(baseTime.plus(2, ChronoUnit.HOURS)).execute());
+        await(eventStore.appendBuilder().eventType("TradeNew").payload(event3New).validTime(baseTime.plus(3, ChronoUnit.HOURS)).execute());
 
         logger.info("Stored 6 trade lifecycle CloudEvents (3 trades in various stages)");
     }
@@ -836,6 +841,7 @@ public class CloudEventsJsonbQueryTest {
         logger.info("Successfully queried {} trades across multiple systems", count);
     }
 }
+
 
 
 

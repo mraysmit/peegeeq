@@ -59,10 +59,15 @@ import static org.junit.jupiter.api.Assertions.*;
 public class PgNativeQueueTestContainers {
 
     @Container
-    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName("testdb")
-            .withUsername("testuser")
-            .withPassword("testpass");
+    private static final PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        container.withDatabaseName("testdb");
+        container.withUsername("testuser");
+        container.withPassword("testpass");
+        return container;
+    }
 
     private Vertx vertx;
     private PgNativeQueue<JsonObject> queue;

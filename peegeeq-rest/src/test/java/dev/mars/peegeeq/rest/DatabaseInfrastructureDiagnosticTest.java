@@ -39,10 +39,15 @@ class DatabaseInfrastructureDiagnosticTest {
     private static final int TEST_PORT = 18094;
 
     @Container
-    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName("diagnostic_test")
-            .withUsername("test_user")
-            .withPassword("test_pass");
+    private static final PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        container.withDatabaseName("diagnostic_test");
+        container.withUsername("test_user");
+        container.withPassword("test_pass");
+        return container;
+    }
 
     private String deploymentId;
     private WebClient client;

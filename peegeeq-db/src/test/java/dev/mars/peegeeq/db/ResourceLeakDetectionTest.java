@@ -53,11 +53,16 @@ public class ResourceLeakDetectionTest {
     private static final Logger logger = LoggerFactory.getLogger(ResourceLeakDetectionTest.class);
     
     @Container
-    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-        .withDatabaseName("peegeeq_test")
-        .withUsername("peegeeq_user")
-        .withPassword("peegeeq_pass")
-        .withReuse(true);
+    private static final PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20");
+        container.withDatabaseName("peegeeq_test");
+        container.withUsername("peegeeq_user");
+        container.withPassword("peegeeq_pass");
+        container.withReuse(true);
+        return container;
+    }
     
     private PeeGeeQConfiguration configuration;
     private PeeGeeQManager testManager;
@@ -545,6 +550,7 @@ public class ResourceLeakDetectionTest {
         }
     }
 }
+
 
 
 

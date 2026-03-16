@@ -112,10 +112,15 @@ class TransactionParticipationAdvancedExampleTest {
     private static final Logger logger = LoggerFactory.getLogger(TransactionParticipationAdvancedExampleTest.class);
     
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_tx_participation_test")
-            .withUsername("postgres")
-            .withPassword("password");
+    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20");
+        container.withDatabaseName("peegeeq_tx_participation_test");
+        container.withUsername("postgres");
+        container.withPassword("password");
+        return container;
+    }
     
     private PeeGeeQManager manager;
     private QueueFactory outboxFactory;

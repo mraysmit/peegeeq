@@ -45,10 +45,15 @@ public class ReactiveOutboxProducerTest {
     private static final Logger logger = LoggerFactory.getLogger(ReactiveOutboxProducerTest.class);
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_reactive_test")
-            .withUsername("test")
-            .withPassword("test");
+    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20");
+        container.withDatabaseName("peegeeq_reactive_test");
+        container.withUsername("test");
+        container.withPassword("test");
+        return container;
+    }
 
     private PeeGeeQManager manager;
     private MessageProducer<String> producer;

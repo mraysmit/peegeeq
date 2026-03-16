@@ -72,10 +72,15 @@ import static org.junit.jupiter.api.Assertions.*;
 class OutboxConsumerGroupV110EdgeCasesTest {
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("testdb")
-            .withUsername("testuser")
-            .withPassword("testpass");
+    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20");
+        container.withDatabaseName("testdb");
+        container.withUsername("testuser");
+        container.withPassword("testpass");
+        return container;
+    }
 
     private PeeGeeQManager manager;
     private QueueFactory factory;

@@ -61,12 +61,17 @@ class BiTemporalQueryEdgeCasesTest {
     }
     
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName("peegeeq_integration_test")
-            .withUsername("peegeeq_test")
-            .withPassword("peegeeq_test")
-            .withSharedMemorySize(256 * 1024 * 1024L)
-            .withReuse(false);
+    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        container.withDatabaseName("peegeeq_integration_test");
+        container.withUsername("peegeeq_test");
+        container.withPassword("peegeeq_test");
+        container.withSharedMemorySize(256 * 1024 * 1024L);
+        container.withReuse(false);
+        return container;
+    }
     
     private PeeGeeQManager manager;
     private BiTemporalEventStoreFactory eventStoreFactory;
@@ -101,7 +106,7 @@ class BiTemporalQueryEdgeCasesTest {
 
         // Create bi-temporal event store - following exact pattern
         eventStoreFactory = new BiTemporalEventStoreFactory(manager);
-        eventStore = eventStoreFactory.createEventStore(OrderEvent.class);
+        eventStore = eventStoreFactory.createEventStore(OrderEvent.class, "bitemporal_event_log");
         logger.info("Bi-temporal event store created");
         
         logger.info("Bi-temporal query edge cases test setup completed");
@@ -151,15 +156,9 @@ class BiTemporalQueryEdgeCasesTest {
         OrderEvent event3 = IntegrationTestUtils.createOrderEvent("ORDER-003", "CUST-003", "CONFIRMED", "CA", validTime3);
 
         // Step 2: Append events to store - following exact API pattern
-        BiTemporalEvent<OrderEvent> storedEvent1 = await(eventStore.append(
-            "OrderEvent", event1, validTime1, Map.of("test", "boundary"), "test-corr-1", null, "ORDER-001"
-        ));
-        BiTemporalEvent<OrderEvent> storedEvent2 = await(eventStore.append(
-            "OrderEvent", event2, validTime2, Map.of("test", "boundary"), "test-corr-2", null, "ORDER-002"
-        ));
-        BiTemporalEvent<OrderEvent> storedEvent3 = await(eventStore.append(
-            "OrderEvent", event3, validTime3, Map.of("test", "boundary"), "test-corr-3", null, "ORDER-003"
-        ));
+        BiTemporalEvent<OrderEvent> storedEvent1 = await(eventStore.appendBuilder().eventType("OrderEvent").payload(event1).validTime(validTime1).headers(Map.of("test", "boundary")).correlationId("test-corr-1").causationId(null).aggregateId("ORDER-001").execute());
+        BiTemporalEvent<OrderEvent> storedEvent2 = await(eventStore.appendBuilder().eventType("OrderEvent").payload(event2).validTime(validTime2).headers(Map.of("test", "boundary")).correlationId("test-corr-2").causationId(null).aggregateId("ORDER-002").execute());
+        BiTemporalEvent<OrderEvent> storedEvent3 = await(eventStore.appendBuilder().eventType("OrderEvent").payload(event3).validTime(validTime3).headers(Map.of("test", "boundary")).correlationId("test-corr-3").causationId(null).aggregateId("ORDER-003").execute());
 
         // Step 3: Validate events were stored
         assertNotNull(storedEvent1);
@@ -195,9 +194,7 @@ class BiTemporalQueryEdgeCasesTest {
         Instant baseTime = Instant.now().truncatedTo(ChronoUnit.SECONDS);
         OrderEvent event = IntegrationTestUtils.createOrderEvent("ORDER-100", "CUST-100", "CREATED", "US", baseTime);
 
-        BiTemporalEvent<OrderEvent> storedEvent = await(eventStore.append(
-            "OrderEvent", event, baseTime, Map.of("test", "query-retrieval"), "test-corr-100", null, "ORDER-100"
-        ));
+        BiTemporalEvent<OrderEvent> storedEvent = await(eventStore.appendBuilder().eventType("OrderEvent").payload(event).validTime(baseTime).headers(Map.of("test", "query-retrieval")).correlationId("test-corr-100").causationId(null).aggregateId("ORDER-100").execute());
         assertNotNull(storedEvent);
 
         // Step 2: Query all events to verify storage
@@ -224,5 +221,6 @@ class BiTemporalQueryEdgeCasesTest {
         logger.info("Event query and retrieval test completed successfully");
     }
 }
+
 
 

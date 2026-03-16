@@ -59,10 +59,15 @@ public class CausationIdSchemaValidationTest {
     private static final Logger logger = LoggerFactory.getLogger(CausationIdSchemaValidationTest.class);
     
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName("causation_id_test_" + System.currentTimeMillis())
-            .withUsername("peegeeq")
-            .withPassword("peegeeq_test_password");
+    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        container.withDatabaseName("causation_id_test_" + System.currentTimeMillis());
+        container.withUsername("peegeeq");
+        container.withPassword("peegeeq_test_password");
+        return container;
+    }
     
     private PeeGeeQManager peeGeeQManager;
     private PgBiTemporalEventStore<Map<String, Object>> eventStore;
@@ -102,7 +107,7 @@ public class CausationIdSchemaValidationTest {
         // Create the bitemporal event store
         BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(peeGeeQManager);
         Class<Map<String, Object>> mapClass = mapClass();
-        eventStore = (PgBiTemporalEventStore<Map<String, Object>>) factory.createEventStore(mapClass);
+        eventStore = (PgBiTemporalEventStore<Map<String, Object>>) factory.createEventStore(mapClass, "bitemporal_event_log");
 
         logger.info("Setup completed successfully");
     }
@@ -175,15 +180,7 @@ public class CausationIdSchemaValidationTest {
         // This will INSERT into bitemporal_event_log which will trigger notify_bitemporal_event()
         // If the trigger references causation_id and the column doesn't exist, this will fail with:
         // "ERROR: record "new" has no field "causation_id""
-        BiTemporalEvent<Map<String, Object>> event = await(eventStore.append(
-            eventType, 
-            payload, 
-            validTime,
-            Map.of("test-header", "value"),
-            correlationId,
-            causationId,
-            aggregateId
-        ), 10, TimeUnit.SECONDS);
+        BiTemporalEvent<Map<String, Object>> event = await(eventStore.appendBuilder().eventType(eventType).payload(payload).validTime(validTime).headers(Map.of("test-header", "value")).correlationId(correlationId).causationId(causationId).aggregateId(aggregateId).execute(), 10, TimeUnit.SECONDS);
 
         assertNotNull(event, "Event should be successfully appended");
         assertEquals(causationId, event.getCausationId(), "Causation ID should match");

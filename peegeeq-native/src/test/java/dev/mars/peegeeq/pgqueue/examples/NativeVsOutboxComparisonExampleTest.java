@@ -78,12 +78,17 @@ class NativeVsOutboxComparisonExampleTest {
     private static final Logger logger = LoggerFactory.getLogger(NativeVsOutboxComparisonExampleTest.class);
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName("peegeeq_comparison_demo")
-            .withUsername("postgres")
-            .withPassword("password")
-            .withSharedMemorySize(256 * 1024 * 1024L)
-            .withReuse(false);
+    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        container.withDatabaseName("peegeeq_comparison_demo");
+        container.withUsername("postgres");
+        container.withPassword("password");
+        container.withSharedMemorySize(256 * 1024 * 1024L);
+        container.withReuse(false);
+        return container;
+    }
 
     private PeeGeeQManager manager;
 

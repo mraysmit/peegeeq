@@ -26,7 +26,7 @@ public class PerformanceTestResultsGenerator {
     
     private final String testSuiteName;
     private final String testEnvironment;
-    private final Map<String, Object> systemInfo;
+    private final SystemInfoCollector.SystemInfoSnapshot systemInfo;
     private final List<TestResult> testResults;
     private final Map<String, String> additionalInfo;
     
