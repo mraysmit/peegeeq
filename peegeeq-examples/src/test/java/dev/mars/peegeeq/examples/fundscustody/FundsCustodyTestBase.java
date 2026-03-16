@@ -174,9 +174,9 @@ public abstract class FundsCustodyTestBase {
 
         // Create event stores
         factory = new BiTemporalEventStoreFactory(manager);
-        tradeEventStore = factory.createEventStore(TradeEvent.class);
-        cancellationEventStore = factory.createEventStore(TradeCancelledEvent.class);
-        navEventStore = factory.createEventStore(NAVEvent.class);
+        tradeEventStore = factory.createEventStore(TradeEvent.class, "bitemporal_event_log");
+        cancellationEventStore = factory.createEventStore(TradeCancelledEvent.class, "bitemporal_event_log");
+        navEventStore = factory.createEventStore(NAVEvent.class, "bitemporal_event_log");
 
         // Create services (no Spring - plain constructor injection)
         tradeService = new TradeService(tradeEventStore, cancellationEventStore);
@@ -248,6 +248,7 @@ public abstract class FundsCustodyTestBase {
         System.clearProperty("peegeeq.health-check.queue-checks-enabled");
     }
 }
+
 
 
 

@@ -39,10 +39,15 @@ import static org.junit.jupiter.api.Assertions.*;
 class PeeGeeQTestSchemaInitializerSchemaParameterTest {
 
     @Container
-    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("test_db")
-            .withUsername("test_user")
-            .withPassword("test_password");
+    private static final PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20");
+        container.withDatabaseName("test_db");
+        container.withUsername("test_user");
+        container.withPassword("test_password");
+        return container;
+    }
 
     @BeforeAll
     static void setUp() {

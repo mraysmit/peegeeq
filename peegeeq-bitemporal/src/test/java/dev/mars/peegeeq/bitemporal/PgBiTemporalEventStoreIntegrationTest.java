@@ -57,12 +57,17 @@ class PgBiTemporalEventStoreIntegrationTest {
     }
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName("peegeeq_integration_test")
-            .withUsername("peegeeq_test")
-            .withPassword("peegeeq_test")
-            .withSharedMemorySize(256 * 1024 * 1024L)
-            .withReuse(false);
+    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        container.withDatabaseName("peegeeq_integration_test");
+        container.withUsername("peegeeq_test");
+        container.withPassword("peegeeq_test");
+        container.withSharedMemorySize(256 * 1024 * 1024L);
+        container.withReuse(false);
+        return container;
+    }
 
     private PeeGeeQManager peeGeeQManager;
     private PgBiTemporalEventStore<Map<String, Object>> eventStore;
@@ -251,13 +256,7 @@ class PgBiTemporalEventStoreIntegrationTest {
 
         // Append event - this should trigger notification via ReactiveNotificationHandler
         // Following established pattern: append(eventType, payload, validTime, headers, correlationId, causationId, aggregateId)
-        BiTemporalEvent<Map<String, Object>> appendedEvent = await(eventStore.append(
-            eventType, payload, Instant.now(),
-            Map.of("source", "integration-test"),
-            "test-correlation-" + System.currentTimeMillis(),
-            null,
-            aggregateId
-        ), 10, TimeUnit.SECONDS);
+        BiTemporalEvent<Map<String, Object>> appendedEvent = await(eventStore.appendBuilder().eventType(eventType).payload(payload).validTime(Instant.now()).headers(Map.of("source", "integration-test")).correlationId("test-correlation-" + System.currentTimeMillis()).causationId(null).aggregateId(aggregateId).execute(), 10, TimeUnit.SECONDS);
         logger.info("Event appended: {}", appendedEvent.getEventId());
 
         // Wait for notification - this tests the complete integration
@@ -369,7 +368,7 @@ class PgBiTemporalEventStoreIntegrationTest {
 
         // Append an event - use dot notation to match subscription
         Map<String, Object> payload = Map.of("subscribe", "test");
-        await(eventStore.append("test.subscribe", payload, Instant.now()), 10, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder().eventType("test.subscribe").payload(payload).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
 
         // Wait for notification
         boolean notified = latch.await(10, TimeUnit.SECONDS);
@@ -437,12 +436,12 @@ class PgBiTemporalEventStoreIntegrationTest {
 
         // Append event with dot notation
         Map<String, Object> dotPayload = Map.of("source", "dot");
-        await(eventStore.append("my.channel", dotPayload, Instant.now()), 10, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder().eventType("my.channel").payload(dotPayload).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
         logger.info("Appended event with type 'my.channel'");
 
         // Append event with underscore notation
         Map<String, Object> underscorePayload = Map.of("source", "underscore");
-        await(eventStore.append("my_channel", underscorePayload, Instant.now()), 10, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder().eventType("my_channel").payload(underscorePayload).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
         logger.info("Appended event with type 'my_channel'");
 
         // Wait for notifications
@@ -482,9 +481,7 @@ class PgBiTemporalEventStoreIntegrationTest {
 
         // Append an event
         Map<String, Object> payload = Map.of("asof", "test");
-        BiTemporalEvent<Map<String, Object>> event = await(eventStore.append(
-            "test.asof", payload, Instant.now()
-        ), 10, TimeUnit.SECONDS);
+        BiTemporalEvent<Map<String, Object>> event = await(eventStore.appendBuilder().eventType("test.asof").payload(payload).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
 
         // Query as of transaction time (slightly after the event was created)
         Instant queryTime = Instant.now();
@@ -511,16 +508,14 @@ class PgBiTemporalEventStoreIntegrationTest {
 
         // Append an event to ensure pools are created
         Map<String, Object> payload = Map.of("pool", "test");
-        await(eventStore.append("test.pool", payload, Instant.now()), 10, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder().eventType("test.pool").payload(payload).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
 
         // Test clearInstancePools
         eventStore.clearInstancePools();
 
         // Append another event to verify pools are recreated
         Map<String, Object> payload2 = Map.of("pool", "test2");
-        BiTemporalEvent<Map<String, Object>> event = await(eventStore.append(
-            "test.pool2", payload2, Instant.now()
-        ), 10, TimeUnit.SECONDS);
+        BiTemporalEvent<Map<String, Object>> event = await(eventStore.appendBuilder().eventType("test.pool2").payload(payload2).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
         assertNotNull(event);
 
         // Test clearCachedPools (static method)
@@ -541,7 +536,7 @@ class PgBiTemporalEventStoreIntegrationTest {
 
         // Append an event to ensure Vertx is created
         Map<String, Object> payload = Map.of("vertx", "test");
-        await(eventStore.append("test.vertx", payload, Instant.now()), 10, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder().eventType("test.vertx").payload(payload).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
 
         // Close the event store first
         eventStore.close();
@@ -590,9 +585,9 @@ class PgBiTemporalEventStoreIntegrationTest {
         awaitAsyncDelay(500);
 
         // Append 3 different event types
-        await(eventStore.append("order.created", Map.of("test", "1"), Instant.now()), 10, TimeUnit.SECONDS);
-        await(eventStore.append("order.shipped", Map.of("test", "2"), Instant.now()), 10, TimeUnit.SECONDS);
-        await(eventStore.append("payment.received", Map.of("test", "3"), Instant.now()), 10, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder().eventType("order.created").payload(Map.of("test", "1")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder().eventType("order.shipped").payload(Map.of("test", "2")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder().eventType("payment.received").payload(Map.of("test", "3")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
 
         // Wait for the expected event
         boolean received = latch.await(10, TimeUnit.SECONDS);
@@ -637,9 +632,9 @@ class PgBiTemporalEventStoreIntegrationTest {
         awaitAsyncDelay(500);
 
         // Append 3 different event types
-        await(eventStore.append("order.created", Map.of("test", "1"), Instant.now()), 10, TimeUnit.SECONDS);
-        await(eventStore.append("order.shipped", Map.of("test", "2"), Instant.now()), 10, TimeUnit.SECONDS);
-        await(eventStore.append("payment.received", Map.of("test", "3"), Instant.now()), 10, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder().eventType("order.created").payload(Map.of("test", "1")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder().eventType("order.shipped").payload(Map.of("test", "2")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder().eventType("payment.received").payload(Map.of("test", "3")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
 
         // Wait for all events
         boolean received = latch.await(10, TimeUnit.SECONDS);
@@ -691,9 +686,9 @@ class PgBiTemporalEventStoreIntegrationTest {
         awaitAsyncDelay(500);
 
         // Append 3 different event types
-        await(eventStore.append("order.created", Map.of("test", "1"), Instant.now()), 10, TimeUnit.SECONDS);
-        await(eventStore.append("order.shipped", Map.of("test", "2"), Instant.now()), 10, TimeUnit.SECONDS);
-        await(eventStore.append("payment.received", Map.of("test", "3"), Instant.now()), 10, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder().eventType("order.created").payload(Map.of("test", "1")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder().eventType("order.shipped").payload(Map.of("test", "2")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder().eventType("payment.received").payload(Map.of("test", "3")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
 
         // Wait for expected events
         boolean received = latch.await(10, TimeUnit.SECONDS);
@@ -740,9 +735,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         awaitAsyncDelay(500);
 
         // Append 1 event
-        BiTemporalEvent<Map<String, Object>> appendedEvent = await(eventStore.append(
-            "test.event", Map.of("test", "no-duplicates"), Instant.now()
-        ), 10, TimeUnit.SECONDS);
+        BiTemporalEvent<Map<String, Object>> appendedEvent = await(eventStore.appendBuilder().eventType("test.event").payload(Map.of("test", "no-duplicates")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
         String expectedEventId = appendedEvent.getEventId();
 
         // Wait for event and give extra time for any duplicates
@@ -789,9 +782,9 @@ class PgBiTemporalEventStoreIntegrationTest {
         awaitAsyncDelay(500);
 
         // Append events
-        await(eventStore.append("order.created", Map.of("test", "1"), Instant.now()), 10, TimeUnit.SECONDS);
-        await(eventStore.append("order.shipped", Map.of("test", "2"), Instant.now()), 10, TimeUnit.SECONDS);
-        await(eventStore.append("payment.received", Map.of("test", "3"), Instant.now()), 10, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder().eventType("order.created").payload(Map.of("test", "1")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder().eventType("order.shipped").payload(Map.of("test", "2")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder().eventType("payment.received").payload(Map.of("test", "3")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
 
         // Wait for expected events
         boolean received = latch.await(10, TimeUnit.SECONDS);
@@ -837,9 +830,9 @@ class PgBiTemporalEventStoreIntegrationTest {
         awaitAsyncDelay(500);
 
         // Append events
-        await(eventStore.append("order.created", Map.of("test", "1"), Instant.now()), 10, TimeUnit.SECONDS);
-        await(eventStore.append("payment.created", Map.of("test", "2"), Instant.now()), 10, TimeUnit.SECONDS);
-        await(eventStore.append("order.shipped", Map.of("test", "3"), Instant.now()), 10, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder().eventType("order.created").payload(Map.of("test", "1")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder().eventType("payment.created").payload(Map.of("test", "2")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder().eventType("order.shipped").payload(Map.of("test", "3")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
 
         // Wait for expected events
         boolean received = latch.await(10, TimeUnit.SECONDS);
@@ -885,9 +878,9 @@ class PgBiTemporalEventStoreIntegrationTest {
         awaitAsyncDelay(500);
 
         // Append events
-        await(eventStore.append("order.payment.completed", Map.of("test", "1"), Instant.now()), 10, TimeUnit.SECONDS);
-        await(eventStore.append("order.shipping.completed", Map.of("test", "2"), Instant.now()), 10, TimeUnit.SECONDS);
-        await(eventStore.append("order.created", Map.of("test", "3"), Instant.now()), 10, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder().eventType("order.payment.completed").payload(Map.of("test", "1")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder().eventType("order.shipping.completed").payload(Map.of("test", "2")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder().eventType("order.created").payload(Map.of("test", "3")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
 
         // Wait for expected events
         boolean received = latch.await(10, TimeUnit.SECONDS);
@@ -934,9 +927,9 @@ class PgBiTemporalEventStoreIntegrationTest {
         awaitAsyncDelay(500);
 
         // Append events - only order.created should match
-        await(eventStore.append("order.created", Map.of("test", "1"), Instant.now()), 10, TimeUnit.SECONDS);
-        await(eventStore.append("orders.created", Map.of("test", "2"), Instant.now()), 10, TimeUnit.SECONDS);
-        await(eventStore.append("order", Map.of("test", "3"), Instant.now()), 10, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder().eventType("order.created").payload(Map.of("test", "1")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder().eventType("orders.created").payload(Map.of("test", "2")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder().eventType("order").payload(Map.of("test", "3")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
 
         // Wait for expected event
         boolean received = latch.await(10, TimeUnit.SECONDS);
@@ -980,9 +973,9 @@ class PgBiTemporalEventStoreIntegrationTest {
         awaitAsyncDelay(500);
 
         // Append events
-        await(eventStore.append("foo.order.bar", Map.of("test", "1"), Instant.now()), 10, TimeUnit.SECONDS);
-        await(eventStore.append("abc.order.xyz", Map.of("test", "2"), Instant.now()), 10, TimeUnit.SECONDS);
-        await(eventStore.append("order.created", Map.of("test", "3"), Instant.now()), 10, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder().eventType("foo.order.bar").payload(Map.of("test", "1")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder().eventType("abc.order.xyz").payload(Map.of("test", "2")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder().eventType("order.created").payload(Map.of("test", "3")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
 
         // Wait for expected events
         boolean received = latch.await(10, TimeUnit.SECONDS);

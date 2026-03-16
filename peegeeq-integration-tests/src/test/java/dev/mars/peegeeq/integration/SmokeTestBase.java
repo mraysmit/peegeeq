@@ -62,10 +62,15 @@ public abstract class SmokeTestBase extends BaseConfigurableTest {
     protected static DatabaseSetupService setupService;
 
     @Container
-    protected static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName("peegeeq_smoke_test")
-            .withUsername("postgres")
-            .withPassword("postgres");
+    protected static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        container.withDatabaseName("peegeeq_smoke_test");
+        container.withUsername("postgres");
+        container.withPassword("postgres");
+        return container;
+    }
 
     @BeforeAll
     static void startServer() throws Exception {

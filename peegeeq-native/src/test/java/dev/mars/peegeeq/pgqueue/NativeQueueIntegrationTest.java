@@ -79,10 +79,15 @@ class NativeQueueIntegrationTest {
     private static final Logger logger = LoggerFactory.getLogger(NativeQueueIntegrationTest.class);
 
     @Container
-    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName("native_queue_test")
-            .withUsername("test_user")
-            .withPassword("test_pass");
+    private static final PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        container.withDatabaseName("native_queue_test");
+        container.withUsername("test_user");
+        container.withPassword("test_pass");
+        return container;
+    }
 
     private PeeGeeQManager manager;
     private QueueFactory queueFactory;

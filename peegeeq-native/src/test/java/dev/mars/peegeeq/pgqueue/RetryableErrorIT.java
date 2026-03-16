@@ -40,7 +40,7 @@ public class RetryableErrorIT {
 
     private static PostgreSQLContainer<?> createPostgresContainer() {
         PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("testdb")
+        container.withDatabaseName("testdb");
                 .withUsername("testuser")
                 .withPassword("testpass");
         return container;
@@ -181,6 +181,7 @@ public class RetryableErrorIT {
         }
     }
 }
+
 
 
 

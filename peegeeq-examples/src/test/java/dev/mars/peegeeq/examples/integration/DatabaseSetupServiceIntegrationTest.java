@@ -61,12 +61,17 @@ public class DatabaseSetupServiceIntegrationTest {
     private static final Logger logger = LoggerFactory.getLogger(DatabaseSetupServiceIntegrationTest.class);
     
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_setup_test")
-            .withUsername("peegeeq_test")
-            .withPassword("peegeeq_test")
-            .withSharedMemorySize(256 * 1024 * 1024L)
-            .withReuse(false);
+    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20");
+        container.withDatabaseName("peegeeq_setup_test");
+        container.withUsername("peegeeq_test");
+        container.withPassword("peegeeq_test");
+        container.withSharedMemorySize(256 * 1024 * 1024L);
+        container.withReuse(false);
+        return container;
+    }
     
     private DatabaseSetupService setupService;
     private String testSetupId;

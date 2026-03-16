@@ -65,7 +65,7 @@ class MultiTenantSchemaIsolationTest {
 
     private static PostgreSQLContainer<?> createPostgresContainer() {
         PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("multitenant_test")
+        container.withDatabaseName("multitenant_test");
                 .withUsername("test_user")
                 .withPassword("test_pass");
         return container;
@@ -257,6 +257,7 @@ class MultiTenantSchemaIsolationTest {
         logger.info("Aggregate ID isolation verified");
     }
 }
+
 
 
 

@@ -80,12 +80,17 @@ class PeeGeeQExampleTest {
     private static final String DB_PASSWORD = "peegeeq_example";
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName(DB_NAME)
-            .withUsername(DB_USER)
-            .withPassword(DB_PASSWORD)
-            .withSharedMemorySize(256 * 1024 * 1024L) // 256MB for better performance
-            .withReuse(false);
+    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        container.withDatabaseName(DB_NAME);
+        container.withUsername(DB_USER);
+        container.withPassword(DB_PASSWORD);
+        container.withSharedMemorySize(256 * 1024 * 1024L) // 256MB for better performance;
+        container.withReuse(false);
+        return container;
+    }
 
     private PeeGeeQManager manager;
 

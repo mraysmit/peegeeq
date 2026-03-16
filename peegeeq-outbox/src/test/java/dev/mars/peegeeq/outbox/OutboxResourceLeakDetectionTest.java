@@ -56,10 +56,15 @@ public class OutboxResourceLeakDetectionTest {
     private static final Logger logger = LoggerFactory.getLogger(OutboxResourceLeakDetectionTest.class);
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-        .withDatabaseName("peegeeq_test")
-        .withUsername("peegeeq")
-        .withPassword("peegeeq");
+    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20");
+        container.withDatabaseName("peegeeq_test");
+        container.withUsername("peegeeq");
+        container.withPassword("peegeeq");
+        return container;
+    }
 
     private PeeGeeQManager manager;
     private QueueFactory queueFactory;

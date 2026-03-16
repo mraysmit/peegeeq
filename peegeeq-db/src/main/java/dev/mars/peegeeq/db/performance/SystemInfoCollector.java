@@ -37,21 +37,30 @@ import java.util.Properties;
  */
 public class SystemInfoCollector {
     private static final Logger logger = LoggerFactory.getLogger(SystemInfoCollector.class);
+
+    /**
+     * Immutable typed snapshot of collected system information.
+     */
+    public record SystemInfoSnapshot(
+        String timestamp,
+        Map<String, String> systemConfiguration,
+        Map<String, String> databaseConfiguration,
+        Map<String, String> peeGeeQConfiguration
+    ) {
+    }
     
     /**
      * Collects comprehensive system information.
      * 
-     * @return Map containing all system information organized by category
+     * @return Typed system information snapshot organized by category
      */
-    public static Map<String, Object> collectSystemInfo() {
-        Map<String, Object> systemInfo = new LinkedHashMap<>();
-        
-        systemInfo.put("timestamp", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
-        systemInfo.put("systemConfiguration", collectSystemConfiguration());
-        systemInfo.put("databaseConfiguration", collectDatabaseConfiguration());
-        systemInfo.put("peeGeeQConfiguration", collectPeeGeeQConfiguration());
-        
-        return systemInfo;
+    public static SystemInfoSnapshot collectSystemInfo() {
+        return new SystemInfoSnapshot(
+            LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
+            collectSystemConfiguration(),
+            collectDatabaseConfiguration(),
+            collectPeeGeeQConfiguration()
+        );
     }
     
     /**
@@ -267,14 +276,13 @@ public class SystemInfoCollector {
      * @param systemInfo System information map
      * @return Formatted markdown string
      */
-    @SuppressWarnings("unchecked")
-    public static String formatAsMarkdown(Map<String, Object> systemInfo) {
+    public static String formatAsMarkdown(SystemInfoSnapshot systemInfo) {
         StringBuilder md = new StringBuilder();
 
         md.append("## System Configuration\n\n");
 
         // System Configuration section
-        Map<String, String> sysConfig = (Map<String, String>) systemInfo.get("systemConfiguration");
+        Map<String, String> sysConfig = systemInfo.systemConfiguration();
         if (sysConfig != null) {
             for (Map.Entry<String, String> entry : sysConfig.entrySet()) {
                 md.append("- **").append(entry.getKey()).append(":** ").append(entry.getValue()).append("\n");
@@ -284,7 +292,7 @@ public class SystemInfoCollector {
         md.append("\n## Database Configuration\n\n");
 
         // Database Configuration section
-        Map<String, String> dbConfig = (Map<String, String>) systemInfo.get("databaseConfiguration");
+        Map<String, String> dbConfig = systemInfo.databaseConfiguration();
         if (dbConfig != null) {
             for (Map.Entry<String, String> entry : dbConfig.entrySet()) {
                 md.append("- **").append(entry.getKey()).append(":** ").append(entry.getValue()).append("\n");
@@ -292,7 +300,7 @@ public class SystemInfoCollector {
         }
 
         // PeeGeeQ Configuration section (only if there are custom properties)
-        Map<String, String> peeGeeQConfig = (Map<String, String>) systemInfo.get("peeGeeQConfiguration");
+        Map<String, String> peeGeeQConfig = systemInfo.peeGeeQConfiguration();
         if (peeGeeQConfig != null && !peeGeeQConfig.isEmpty() &&
             !peeGeeQConfig.containsKey("Configuration")) {
             md.append("\n## PeeGeeQ Configuration\n\n");
@@ -310,7 +318,7 @@ public class SystemInfoCollector {
      * @return Compact summary string
      */
     public static String formatAsSummary() {
-        Map<String, Object> systemInfo = collectSystemInfo();
+        SystemInfoSnapshot systemInfo = collectSystemInfo();
         return formatAsSummary(systemInfo);
     }
 
@@ -320,12 +328,11 @@ public class SystemInfoCollector {
      * @param systemInfo System information map
      * @return Compact summary string
      */
-    @SuppressWarnings("unchecked")
-    public static String formatAsSummary(Map<String, Object> systemInfo) {
+    public static String formatAsSummary(SystemInfoSnapshot systemInfo) {
         StringBuilder summary = new StringBuilder();
 
-        Map<String, String> sysConfig = (Map<String, String>) systemInfo.get("systemConfiguration");
-        Map<String, String> dbConfig = (Map<String, String>) systemInfo.get("databaseConfiguration");
+        Map<String, String> sysConfig = systemInfo.systemConfiguration();
+        Map<String, String> dbConfig = systemInfo.databaseConfiguration();
 
         if (sysConfig != null) {
             summary.append("System: ").append(sysConfig.get("OS")).append(", ");

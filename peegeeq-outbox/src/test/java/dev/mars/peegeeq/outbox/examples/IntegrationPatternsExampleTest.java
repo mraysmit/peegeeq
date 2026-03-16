@@ -64,10 +64,15 @@ public class IntegrationPatternsExampleTest {
     private static final Logger logger = LoggerFactory.getLogger(IntegrationPatternsExampleTest.class);
     
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_integration_test")
-            .withUsername("postgres")
-            .withPassword("password");
+    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20");
+        container.withDatabaseName("peegeeq_integration_test");
+        container.withUsername("postgres");
+        container.withPassword("password");
+        return container;
+    }
 
     private PeeGeeQManager manager;
     private QueueFactory outboxFactory;

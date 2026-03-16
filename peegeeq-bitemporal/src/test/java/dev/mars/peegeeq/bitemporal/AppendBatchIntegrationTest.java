@@ -161,7 +161,7 @@ class AppendBatchIntegrationTest {
         manager.start();
 
         factory = new BiTemporalEventStoreFactory(manager);
-        eventStore = (PgBiTemporalEventStore<TestEvent>) factory.createEventStore(TestEvent.class);
+        eventStore = (PgBiTemporalEventStore<TestEvent>) factory.createEventStore(TestEvent.class, "bitemporal_event_log");
     }
 
     @AfterEach
@@ -416,6 +416,7 @@ class AppendBatchIntegrationTest {
         assertNull(batchData.aggregateId);
     }
 }
+
 
 
 

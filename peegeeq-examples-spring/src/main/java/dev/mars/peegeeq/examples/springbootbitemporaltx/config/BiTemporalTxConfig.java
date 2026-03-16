@@ -146,7 +146,7 @@ public class BiTemporalTxConfig {
     @Bean
     public EventStore<OrderEvent> orderEventStore(BiTemporalEventStoreFactory factory) {
         logger.info("Creating Order Event Store for order lifecycle management");
-        EventStore<OrderEvent> store = factory.createEventStore(OrderEvent.class);
+        EventStore<OrderEvent> store = factory.createEventStore(OrderEvent.class, "bitemporal_event_log");
         logger.info("Order Event Store created successfully");
         return store;
     }
@@ -161,7 +161,7 @@ public class BiTemporalTxConfig {
     @Bean
     public EventStore<InventoryEvent> inventoryEventStore(BiTemporalEventStoreFactory factory) {
         logger.info("Creating Inventory Event Store for stock movement tracking");
-        EventStore<InventoryEvent> store = factory.createEventStore(InventoryEvent.class);
+        EventStore<InventoryEvent> store = factory.createEventStore(InventoryEvent.class, "bitemporal_event_log");
         logger.info("Inventory Event Store created successfully");
         return store;
     }
@@ -176,7 +176,7 @@ public class BiTemporalTxConfig {
     @Bean
     public EventStore<PaymentEvent> paymentEventStore(BiTemporalEventStoreFactory factory) {
         logger.info("Creating Payment Event Store for payment processing");
-        EventStore<PaymentEvent> store = factory.createEventStore(PaymentEvent.class);
+        EventStore<PaymentEvent> store = factory.createEventStore(PaymentEvent.class, "bitemporal_event_log");
         logger.info("Payment Event Store created successfully");
         return store;
     }
@@ -191,7 +191,7 @@ public class BiTemporalTxConfig {
     @Bean
     public EventStore<AuditEvent> auditEventStore(BiTemporalEventStoreFactory factory) {
         logger.info("Creating Audit Event Store for regulatory compliance");
-        EventStore<AuditEvent> store = factory.createEventStore(AuditEvent.class);
+        EventStore<AuditEvent> store = factory.createEventStore(AuditEvent.class, "bitemporal_event_log");
         logger.info("Audit Event Store created successfully");
         return store;
     }
@@ -231,3 +231,4 @@ public class BiTemporalTxConfig {
         logger.debug("System properties configured successfully for bi-temporal transaction coordination");
     }
 }
+

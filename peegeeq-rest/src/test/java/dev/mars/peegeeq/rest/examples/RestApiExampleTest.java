@@ -58,10 +58,15 @@ public class RestApiExampleTest {
     
     private static final Logger logger = LoggerFactory.getLogger(RestApiExampleTest.class);
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_rest_demo")
-            .withUsername("postgres")
-            .withPassword("password");
+    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20");
+        container.withDatabaseName("peegeeq_rest_demo");
+        container.withUsername("postgres");
+        container.withPassword("password");
+        return container;
+    }
     
     private Vertx vertx;
     private WebClient client;

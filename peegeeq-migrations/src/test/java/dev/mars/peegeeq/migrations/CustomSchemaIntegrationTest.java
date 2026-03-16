@@ -30,10 +30,15 @@ class CustomSchemaIntegrationTest {
     private static final Logger log = LoggerFactory.getLogger(CustomSchemaIntegrationTest.class);
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName("peegeeq_custom_schema_test")
-            .withUsername("test")
-            .withPassword("test");
+    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        container.withDatabaseName("peegeeq_custom_schema_test");
+        container.withUsername("test");
+        container.withPassword("test");
+        return container;
+    }
 
     @Test
     void testMigrationsToCustomSchemaViaJdbcUrl() throws SQLException {

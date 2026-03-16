@@ -55,10 +55,15 @@ public class ModernVertxCompositionExampleTest {
     private static final Logger logger = LoggerFactory.getLogger(ModernVertxCompositionExampleTest.class);
     
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_composition_test")
-            .withUsername("postgres")
-            .withPassword("password");
+    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20");
+        container.withDatabaseName("peegeeq_composition_test");
+        container.withUsername("postgres");
+        container.withPassword("password");
+        return container;
+    }
     
     private WebClient client;
     

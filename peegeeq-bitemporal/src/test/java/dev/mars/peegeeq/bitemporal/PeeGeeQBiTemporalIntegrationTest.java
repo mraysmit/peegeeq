@@ -71,12 +71,17 @@ class PeeGeeQBiTemporalIntegrationTest {
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQBiTemporalIntegrationTest.class);
     
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName("peegeeq_integration_test")
-            .withUsername("peegeeq_test")
-            .withPassword("peegeeq_test")
-            .withSharedMemorySize(256 * 1024 * 1024L)
-            .withReuse(false);
+    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        container.withDatabaseName("peegeeq_integration_test");
+        container.withUsername("peegeeq_test");
+        container.withPassword("peegeeq_test");
+        container.withSharedMemorySize(256 * 1024 * 1024L);
+        container.withReuse(false);
+        return container;
+    }
     
     private PeeGeeQManager manager;
     private BiTemporalEventStoreFactory eventStoreFactory;
@@ -127,7 +132,7 @@ class PeeGeeQBiTemporalIntegrationTest {
         
         // Create bi-temporal event store
         eventStoreFactory = new BiTemporalEventStoreFactory(manager);
-        eventStore = eventStoreFactory.createEventStore(OrderEvent.class);
+        eventStore = eventStoreFactory.createEventStore(OrderEvent.class, "bitemporal_event_log");
         logger.info("Bi-temporal event store created");
         
         // Create PeeGeeQ components
@@ -303,15 +308,7 @@ class PeeGeeQBiTemporalIntegrationTest {
             }
 
             String resolvedCorrelationId = correlationId;
-            return eventStore.append(
-                "OrderEvent",
-                message.getPayload(),
-                validTime,
-                message.getHeaders(),
-                resolvedCorrelationId,
-                null,
-                message.getPayload().getOrderId()
-            ).toCompletionStage().toCompletableFuture().handle((event, error) -> {
+            return eventStore.appendBuilder().eventType("OrderEvent").payload(message.getPayload()).validTime(validTime).headers(message.getHeaders()).correlationId(resolvedCorrelationId).causationId(null).aggregateId(message.getPayload().getOrderId()).execute().toCompletionStage().toCompletableFuture().handle((event, error) -> {
                 if (error != null) {
                     logger.error("Failed to persist to bi-temporal store", error);
                 } else {
@@ -405,15 +402,7 @@ class PeeGeeQBiTemporalIntegrationTest {
 
         // Directly append event to bi-temporal store (simulating real-time processing)
         logger.info("Appending event directly to bi-temporal store...");
-        BiTemporalEvent<OrderEvent> appendedEvent = await(eventStore.append(
-            "OrderEvent",
-            orderEvent,
-            orderEvent.getOrderTimeAsInstant(),
-            Map.of("source", "direct-append", "version", "1.0"),
-            correlationId,
-            null,
-            aggregateId
-        ));
+        BiTemporalEvent<OrderEvent> appendedEvent = await(eventStore.appendBuilder().eventType("OrderEvent").payload(orderEvent).validTime(orderEvent.getOrderTimeAsInstant()).headers(Map.of("source", "direct-append", "version", "1.0")).correlationId(correlationId).causationId(null).aggregateId(aggregateId).execute());
 
         logger.info("Event appended with ID: {}", appendedEvent.getEventId());
 
@@ -485,15 +474,7 @@ class PeeGeeQBiTemporalIntegrationTest {
             }
 
             String resolvedCorrelationId = correlationId;
-            return eventStore.append(
-                "OrderEvent",
-                message.getPayload(),
-                message.getPayload().getOrderTimeAsInstant(),
-                message.getHeaders(),
-                resolvedCorrelationId,
-                null,
-                message.getPayload().getOrderId()
-            ).toCompletionStage().toCompletableFuture().handle((event, error) -> {
+            return eventStore.appendBuilder().eventType("OrderEvent").payload(message.getPayload()).validTime(message.getPayload().getOrderTimeAsInstant()).headers(message.getHeaders()).correlationId(resolvedCorrelationId).causationId(null).aggregateId(message.getPayload().getOrderId()).execute().toCompletionStage().toCompletableFuture().handle((event, error) -> {
                 if (error != null) {
                     logger.error("Failed to persist event", error);
                 } else {
@@ -587,5 +568,6 @@ class PeeGeeQBiTemporalIntegrationTest {
             "Timed out waiting for async processing delay");
     }
 }
+
 
 

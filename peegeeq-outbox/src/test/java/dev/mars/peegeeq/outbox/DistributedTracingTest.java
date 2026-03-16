@@ -70,10 +70,15 @@ class DistributedTracingTest {
     private static final Logger logger = LoggerFactory.getLogger(DistributedTracingTest.class);
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15-alpine")
-            .withDatabaseName("testdb")
-            .withUsername("test")
-            .withPassword("test");
+    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15-alpine");
+        container.withDatabaseName("testdb");
+        container.withUsername("test");
+        container.withPassword("test");
+        return container;
+    }
 
     private PeeGeeQManager manager;
     private OutboxFactory outboxFactory;

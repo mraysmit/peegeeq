@@ -44,10 +44,15 @@ public class OutboxConfigurationIntegrationTest {
     private static final Logger logger = LoggerFactory.getLogger(OutboxConfigurationIntegrationTest.class);
     
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_test")
-            .withUsername("peegeeq_user")
-            .withPassword("peegeeq_password");
+    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20");
+        container.withDatabaseName("peegeeq_test");
+        container.withUsername("peegeeq_user");
+        container.withPassword("peegeeq_password");
+        return container;
+    }
 
     private PeeGeeQManager manager;
     private MessageProducer<String> producer;

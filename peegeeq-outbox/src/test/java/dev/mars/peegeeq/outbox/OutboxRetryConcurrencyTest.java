@@ -79,12 +79,17 @@ public class OutboxRetryConcurrencyTest {
     private static final Logger logger = LoggerFactory.getLogger(OutboxRetryConcurrencyTest.class);
 
     @Container
-    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_concurrency_test")
-            .withUsername("concurrency_test")
-            .withPassword("concurrency_test")
-            .withSharedMemorySize(256 * 1024 * 1024L)
-            .withReuse(false);
+    private static final PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20");
+        container.withDatabaseName("peegeeq_concurrency_test");
+        container.withUsername("concurrency_test");
+        container.withPassword("concurrency_test");
+        container.withSharedMemorySize(256 * 1024 * 1024L);
+        container.withReuse(false);
+        return container;
+    }
 
     private PeeGeeQManager manager;
     private List<MessageProducer<String>> producers;

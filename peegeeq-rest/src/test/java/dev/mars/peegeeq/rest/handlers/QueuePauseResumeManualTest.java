@@ -36,12 +36,17 @@ public class QueuePauseResumeManualTest {
     private static final int TEST_PORT = 18099;
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName("peegeeq_pause_test")
-            .withUsername("peegeeq_test")
-            .withPassword("peegeeq_test")
-            .withSharedMemorySize(PostgreSQLTestConstants.DEFAULT_SHARED_MEMORY_SIZE)
-            .withReuse(false);
+    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        container.withDatabaseName("peegeeq_pause_test");
+        container.withUsername("peegeeq_test");
+        container.withPassword("peegeeq_test");
+        container.withSharedMemorySize(PostgreSQLTestConstants.DEFAULT_SHARED_MEMORY_SIZE);
+        container.withReuse(false);
+        return container;
+    }
 
     private PeeGeeQRestServer server;
     private String deploymentId;

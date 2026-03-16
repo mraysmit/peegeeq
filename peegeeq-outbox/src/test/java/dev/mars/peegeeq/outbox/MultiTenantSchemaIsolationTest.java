@@ -59,10 +59,15 @@ public class MultiTenantSchemaIsolationTest {
     private static final Logger logger = LoggerFactory.getLogger(MultiTenantSchemaIsolationTest.class);
 
     @Container
-    private static final PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("multitenant_test")
-            .withUsername("test_user")
-            .withPassword("test_pass");
+    private static final PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20");
+        container.withDatabaseName("multitenant_test");
+        container.withUsername("test_user");
+        container.withPassword("test_pass");
+        return container;
+    }
 
     private PeeGeeQManager managerTenantA;
     private PeeGeeQManager managerTenantB;

@@ -108,7 +108,7 @@ public class ReactiveBiTemporalConfig {
     @Bean
     public EventStore<SettlementEvent> settlementEventStore(BiTemporalEventStoreFactory factory) {
         logger.info("Creating SettlementEvent event store");
-        eventStore = factory.createEventStore(SettlementEvent.class);
+        eventStore = factory.createEventStore(SettlementEvent.class, "bitemporal_event_log");
         logger.info("SettlementEvent event store created successfully");
         return eventStore;
     }
@@ -163,4 +163,5 @@ public class ReactiveBiTemporalConfig {
         logger.debug("System properties configured successfully");
     }
 }
+
 

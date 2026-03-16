@@ -67,11 +67,16 @@ class MemoryAndResourceLeakTest {
     private static final Logger logger = LoggerFactory.getLogger(MemoryAndResourceLeakTest.class);
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName("peegeeq_test")
-            .withUsername("peegeeq_user")
-            .withPassword("peegeeq_password")
-            .withCommand("postgres", "-c", "log_statement=all", "-c", "log_min_duration_statement=0");
+    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        container.withDatabaseName("peegeeq_test");
+        container.withUsername("peegeeq_user");
+        container.withPassword("peegeeq_password");
+        container.withCommand("postgres", "-c", "log_statement=all", "-c", "log_min_duration_statement=0");
+        return container;
+    }
 
     private PeeGeeQManager manager;
     private QueueFactory factory;

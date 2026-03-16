@@ -58,10 +58,15 @@ public class BatchOperationsWithPropagationExampleTest {
     private static final Logger logger = LoggerFactory.getLogger(BatchOperationsWithPropagationExampleTest.class);
     
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_batch_ops_test")
-            .withUsername("postgres")
-            .withPassword("password");
+    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20");
+        container.withDatabaseName("peegeeq_batch_ops_test");
+        container.withUsername("postgres");
+        container.withPassword("password");
+        return container;
+    }
     
     private PeeGeeQManager manager;
     

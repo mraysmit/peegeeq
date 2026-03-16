@@ -68,12 +68,17 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQBiTemporalWorkingIntegrationTest.class);
     
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName("peegeeq_integration_test")
-            .withUsername("peegeeq_test")
-            .withPassword("peegeeq_test")
-            .withSharedMemorySize(256 * 1024 * 1024L)
-            .withReuse(false);
+    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        container.withDatabaseName("peegeeq_integration_test");
+        container.withUsername("peegeeq_test");
+        container.withPassword("peegeeq_test");
+        container.withSharedMemorySize(256 * 1024 * 1024L);
+        container.withReuse(false);
+        return container;
+    }
     
     private PeeGeeQManager manager;
     private BiTemporalEventStoreFactory eventStoreFactory;
@@ -116,7 +121,7 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
         
         // Create bi-temporal event store
         eventStoreFactory = new BiTemporalEventStoreFactory(manager);
-        eventStore = eventStoreFactory.createEventStore(OrderEvent.class);
+        eventStore = eventStoreFactory.createEventStore(OrderEvent.class, "bitemporal_event_log");
         logger.info("Bi-temporal event store created");
         
         // Create PeeGeeQ components
@@ -265,15 +270,7 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
                     correlationId = "bitemporal-test-3";
                 }
 
-                return eventStore.append(
-                    "OrderEvent",
-                    message.getPayload(),
-                    message.getPayload().getOrderTimeAsInstant(),
-                    message.getHeaders(),
-                    correlationId,
-                    null,
-                    message.getPayload().getOrderId()
-                ).toCompletionStage().toCompletableFuture().thenAccept(event -> {
+                return eventStore.appendBuilder().eventType("OrderEvent").payload(message.getPayload()).validTime(message.getPayload().getOrderTimeAsInstant()).headers(message.getHeaders()).correlationId(correlationId).causationId(null).aggregateId(message.getPayload().getOrderId()).execute().toCompletionStage().toCompletableFuture().thenAccept(event -> {
                     persistedEvents.add(event);
                     logger.info("💾 Persisted to bi-temporal store: {} (Event ID: {})",
                                message.getPayload().getOrderId(), event.getEventId());
@@ -399,15 +396,7 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
             
             // Persist with validation
             try {
-                return eventStore.append(
-                    "OrderEvent",
-                    message.getPayload(),
-                    testTime,
-                    message.getHeaders(),
-                    correlationId,
-                    null,
-                    message.getPayload().getOrderId()
-                ).toCompletionStage().toCompletableFuture().thenAccept(event -> {
+                return eventStore.appendBuilder().eventType("OrderEvent").payload(message.getPayload()).validTime(testTime).headers(message.getHeaders()).correlationId(correlationId).causationId(null).aggregateId(message.getPayload().getOrderId()).execute().toCompletionStage().toCompletableFuture().thenAccept(event -> {
                     assertEquals(testOrder, event.getPayload(), "Persisted payload should match original");
                     assertEquals(correlationId, event.getCorrelationId(), "Persisted correlation ID should match");
                     assertEquals(testOrder.getOrderId(), event.getAggregateId(), "Aggregate ID should match order ID");
@@ -457,5 +446,6 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
         logger.info("🎯 Correlation ID '{}' successfully tracked through entire pipeline", correlationId);
     }
 }
+
 
 

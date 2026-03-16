@@ -220,12 +220,12 @@ class PgBiTemporalEventStorePerformanceTest {
         logger.info("=== Test: Batch Append vs Single Append Performance ===");
 
         // Warm up
-        await(eventStore.append("warmup", Map.of("data", "warmup"), Instant.now()), 5, TimeUnit.SECONDS);
+        await(eventStore.appendBuilder().eventType("warmup").payload(Map.of("data", "warmup")).validTime(Instant.now()).execute(), 5, TimeUnit.SECONDS);
 
         // Single append timing
         long singleStart = System.currentTimeMillis();
         for (int i = 0; i < BATCH_SIZE; i++) {
-            await(eventStore.append("single.event", Map.of("index", i), Instant.now()), 5, TimeUnit.SECONDS);
+            await(eventStore.appendBuilder().eventType("single.event").payload(Map.of("index", i)).validTime(Instant.now()).execute(), 5, TimeUnit.SECONDS);
         }
         long singleDuration = System.currentTimeMillis() - singleStart;
         double singleThroughput = BATCH_SIZE * 1000.0 / singleDuration;
@@ -282,7 +282,7 @@ class PgBiTemporalEventStorePerformanceTest {
         long publishStart = System.currentTimeMillis();
         List<CompletableFuture<BiTemporalEvent<Map<String, Object>>>> futures = new ArrayList<>();
         for (int i = 0; i < eventCount; i++) {
-            futures.add(eventStore.append("throughput.test", Map.of("index", i), Instant.now()).toCompletionStage().toCompletableFuture());
+            futures.add(eventStore.appendBuilder().eventType("throughput.test").payload(Map.of("index", i)).validTime(Instant.now()).execute().toCompletionStage().toCompletableFuture());
         }
         CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).get(30, TimeUnit.SECONDS);
         long publishDuration = System.currentTimeMillis() - publishStart;
@@ -322,7 +322,7 @@ class PgBiTemporalEventStorePerformanceTest {
                     startLatch.await(); // Wait for signal to start
                     for (int i = 0; i < EVENTS_PER_THREAD; i++) {
                         CompletableFuture<BiTemporalEvent<Map<String, Object>>> future =
-                            eventStore.append("concurrent.event", Map.of("thread", threadId, "index", i), Instant.now()).toCompletionStage().toCompletableFuture();
+                            eventStore.appendBuilder().eventType("concurrent.event").payload(Map.of("thread", threadId, "index", i)).validTime(Instant.now()).execute().toCompletionStage().toCompletableFuture();
                         allFutures.add(future);
                     }
                 } catch (Exception e) {
@@ -378,7 +378,7 @@ class PgBiTemporalEventStorePerformanceTest {
 
         long exactPublishStart = System.currentTimeMillis();
         for (int i = 0; i < eventCount; i++) {
-            await(eventStore.append("perf.exact.event", Map.of("index", i), Instant.now()), 5, TimeUnit.SECONDS);
+            await(eventStore.appendBuilder().eventType("perf.exact.event").payload(Map.of("index", i)).validTime(Instant.now()).execute(), 5, TimeUnit.SECONDS);
         }
         exactLatch.await(30, TimeUnit.SECONDS);
         long exactTotalTime = System.currentTimeMillis() - exactPublishStart;
@@ -397,7 +397,7 @@ class PgBiTemporalEventStorePerformanceTest {
 
         long wildcardPublishStart = System.currentTimeMillis();
         for (int i = 0; i < eventCount; i++) {
-            await(eventStore.append("perf.wildcard.event", Map.of("index", i), Instant.now()), 5, TimeUnit.SECONDS);
+            await(eventStore.appendBuilder().eventType("perf.wildcard.event").payload(Map.of("index", i)).validTime(Instant.now()).execute(), 5, TimeUnit.SECONDS);
         }
         wildcardLatch.await(30, TimeUnit.SECONDS);
         long wildcardTotalTime = System.currentTimeMillis() - wildcardPublishStart;

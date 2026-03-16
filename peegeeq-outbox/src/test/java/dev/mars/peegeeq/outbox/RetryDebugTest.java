@@ -57,10 +57,15 @@ public class RetryDebugTest {
     private static final Logger logger = LoggerFactory.getLogger(RetryDebugTest.class);
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>("postgres:15.13-alpine3.20")
-            .withDatabaseName("peegeeq_debug")
-            .withUsername("debug")
-            .withPassword("debug");
+    static PostgreSQLContainer<?> postgres = createPostgresContainer();
+
+    private static PostgreSQLContainer<?> createPostgresContainer() {
+        PostgreSQLContainer<?> container = new PostgreSQLContainer<>("postgres:15.13-alpine3.20");
+        container.withDatabaseName("peegeeq_debug");
+        container.withUsername("debug");
+        container.withPassword("debug");
+        return container;
+    }
 
     private PeeGeeQManager manager;
     private MessageProducer<String> producer;
