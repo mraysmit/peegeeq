@@ -247,7 +247,7 @@ public class CrossLayerPropagationIntegrationTest {
                     // Look for our test message
                     if (data.contains("testField") && data.contains("testValue")) {
                         receivedPayload.set(data);
-                        logger.info("✅ Received test message via SSE: {}", data);
+                        logger.info("Received test message via SSE: {}", data);
                         messageLatch.countDown();
                     }
                 });
@@ -281,7 +281,7 @@ public class CrossLayerPropagationIntegrationTest {
             assertNotNull(receivedPayload.get(), "Received payload should not be null");
             assertTrue(receivedPayload.get().contains("testValue"),
                 "Payload should contain the test value");
-            logger.info("✅ Complete flow verified: REST → Producer → DB → SSE Consumer");
+            logger.info("Complete flow verified: REST → Producer → DB → SSE Consumer");
         });
 
         // Close SSE connection
@@ -339,7 +339,7 @@ public class CrossLayerPropagationIntegrationTest {
                         logger.info("DLQ stats response: {}", statsResponse.bodyAsString());
                     }
 
-                    logger.info("✅ DLQ REST API cross-layer verification complete");
+                    logger.info("DLQ REST API cross-layer verification complete");
                 });
                 testContext.completeNow();
             })
@@ -437,7 +437,7 @@ public class CrossLayerPropagationIntegrationTest {
                 "At least one SSE consumer should receive the message");
             logger.info("Consumer 1 received: {}, Consumer 2 received: {}",
                 consumer1Received, consumer2Received);
-            logger.info("✅ Multiple SSE consumers test complete");
+            logger.info("Multiple SSE consumers test complete");
         });
 
         // Close connections
@@ -501,7 +501,7 @@ public class CrossLayerPropagationIntegrationTest {
                         logger.info("Queue stats response: {}", statsResponse.bodyAsString());
                     }
 
-                    logger.info("✅ Queue stats REST API cross-layer verification complete");
+                    logger.info("Queue stats REST API cross-layer verification complete");
                 });
                 testContext.completeNow();
             })
@@ -573,14 +573,14 @@ public class CrossLayerPropagationIntegrationTest {
                 testContext.verify(() -> {
                     logger.info("Database query returned {} rows", rows.size());
                     // Just verify we can query - priority verification depends on schema
-                    logger.info("✅ Priority message sending cross-layer verification complete");
+                    logger.info("Priority message sending cross-layer verification complete");
                 });
                 testContext.completeNow();
             })
             .onFailure(err -> {
                 // Database query might fail if table structure is different - that's OK
                 logger.info("Database verification skipped: {}", err.getMessage());
-                logger.info("✅ Priority message sending via REST verified (DB check skipped)");
+                logger.info("Priority message sending via REST verified (DB check skipped)");
                 testContext.completeNow();
             });
     }
@@ -636,7 +636,7 @@ public class CrossLayerPropagationIntegrationTest {
                         logger.info("Components health response: {}", componentsResponse.bodyAsString());
                     }
 
-                    logger.info("✅ Health check REST API cross-layer verification complete");
+                    logger.info("Health check REST API cross-layer verification complete");
                 });
                 testContext.completeNow();
             })
@@ -678,7 +678,7 @@ public class CrossLayerPropagationIntegrationTest {
                             response.statusCode());
                     }
 
-                    logger.info("✅ Subscription lifecycle REST API cross-layer verification complete");
+                    logger.info("Subscription lifecycle REST API cross-layer verification complete");
                 });
                 testContext.completeNow();
             })
@@ -729,7 +729,7 @@ public class CrossLayerPropagationIntegrationTest {
                             "Response should contain the same correlation ID");
                     }
 
-                    logger.info("✅ Correlation ID propagation cross-layer verification complete");
+                    logger.info("Correlation ID propagation cross-layer verification complete");
                 });
                 testContext.completeNow();
             })
@@ -780,7 +780,7 @@ public class CrossLayerPropagationIntegrationTest {
                             "Response should contain the same message group");
                     }
 
-                    logger.info("✅ Message group propagation cross-layer verification complete");
+                    logger.info("Message group propagation cross-layer verification complete");
                 });
                 testContext.completeNow();
             })
@@ -835,7 +835,7 @@ public class CrossLayerPropagationIntegrationTest {
                             "Response should indicate 3 custom headers");
                     }
 
-                    logger.info("✅ Message headers propagation cross-layer verification complete");
+                    logger.info("Message headers propagation cross-layer verification complete");
                 });
                 testContext.completeNow();
             })

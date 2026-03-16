@@ -278,8 +278,8 @@ class BiTemporalEventStoreExampleTest {
             assertNotNull(events, "System must support audit trail queries for regulatory inspection");
         }, "System must support regulatory audit queries");
 
-        logger.info("✅ Regulatory compliance system is ready for financial transaction processing");
-        logger.info("✅ System readiness validation completed successfully");
+        logger.info("Regulatory compliance system is ready for financial transaction processing");
+        logger.info("System readiness validation completed successfully");
     }
     
     /**
@@ -451,7 +451,7 @@ class BiTemporalEventStoreExampleTest {
         assertEquals(0, new BigDecimal("75625.00").compareTo(noonTradeEvent.getPayload().getNotionalAmount()), "Notional amount must be accurate for position calculation");
         assertEquals("SELL", noonTradeEvent.getPayload().getSide(), "Trade side must be correct for position reconciliation");
 
-        logger.info("✅ End-of-day position reconciliation temporal queries completed successfully");
+        logger.info("End-of-day position reconciliation temporal queries completed successfully");
     }
 
     /**
@@ -508,7 +508,7 @@ class BiTemporalEventStoreExampleTest {
         assertTrue(trade1String.contains("150250.00"), "Notional amount must be in audit logs for compliance");
         assertTrue(trade1String.contains("BUY"), "Trade side must be in audit logs for position tracking");
 
-        logger.info("✅ Trade event data integrity validation completed successfully");
+        logger.info("Trade event data integrity validation completed successfully");
     }
 
     /**
@@ -548,7 +548,7 @@ class BiTemporalEventStoreExampleTest {
         assertEquals(tradeId, events.get(0).getPayload().getTradeId(), "Trade ID must match for audit trail");
         assertEquals(0, new BigDecimal("15025.00").compareTo(events.get(0).getPayload().getNotionalAmount()), "Notional amount must be accurate for position tracking");
 
-        logger.info("✅ High-frequency trading async processing completed successfully");
+        logger.info("High-frequency trading async processing completed successfully");
     }
 
     /**
@@ -706,8 +706,8 @@ class BiTemporalEventStoreExampleTest {
         assertTrue(finalEvent.getValidTime().isAfter(captureEvent.getValidTime()),
             "Settlement time must be after capture time for temporal consistency");
 
-        logger.info("✅ Complete trade lifecycle processing with full audit trail completed successfully");
-        logger.info("✅ Trade {} processed through all stages: CAPTURED → ENRICHED → VALIDATED → SETTLED", tradeId);
+        logger.info("Complete trade lifecycle processing with full audit trail completed successfully");
+        logger.info("Trade {} processed through all stages: CAPTURED → ENRICHED → VALIDATED → SETTLED", tradeId);
     }
 
     /**
@@ -843,8 +843,8 @@ class BiTemporalEventStoreExampleTest {
         assertTrue(hasOriginal, "Audit trail must preserve original MiFID II report");
         assertTrue(hasCorrected, "Audit trail must contain corrected MiFID II report");
 
-        logger.info("✅ MiFID II transaction reporting with complete audit trail reconstruction completed successfully");
-        logger.info("✅ Regulatory compliance validated: Original report preserved, correction recorded, audit trail complete");
+        logger.info("MiFID II transaction reporting with complete audit trail reconstruction completed successfully");
+        logger.info("Regulatory compliance validated: Original report preserved, correction recorded, audit trail complete");
     }
 
     /**
@@ -1007,8 +1007,8 @@ class BiTemporalEventStoreExampleTest {
         assertTrue(actualSettlementTypes.containsAll(expectedSettlementTypes),
             "Settlement audit trail must contain all operational stages");
 
-        logger.info("✅ Complete settlement failure and operational risk management completed successfully");
-        logger.info("✅ Settlement lifecycle: INSTRUCTED → FAILED → RETRY → SETTLED with full risk management");
+        logger.info("Complete settlement failure and operational risk management completed successfully");
+        logger.info("Settlement lifecycle: INSTRUCTED → FAILED → RETRY → SETTLED with full risk management");
     }
 
     // ========== INVESTMENT BANKING TRADE PROCESSING DOMAIN MODELS ==========

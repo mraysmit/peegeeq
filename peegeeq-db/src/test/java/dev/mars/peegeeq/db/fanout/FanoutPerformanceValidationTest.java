@@ -125,7 +125,7 @@ public class FanoutPerformanceValidationTest extends BaseIntegrationTest {
         topicConfigService.createTopic(config)
             .toCompletionStage().toCompletableFuture().get();
 
-        logger.info("✅ Topic created: {}", topic);
+        logger.info("Topic created: {}", topic);
 
         // Step 2: Create consumer group subscriptions
         List<String> groups = new ArrayList<>();
@@ -136,7 +136,7 @@ public class FanoutPerformanceValidationTest extends BaseIntegrationTest {
                 .toCompletionStage().toCompletableFuture().get();
         }
 
-        logger.info("✅ Created {} consumer group subscriptions", consumerGroupCount);
+        logger.info("Created {} consumer group subscriptions", consumerGroupCount);
 
         // Step 3: Publish messages in batches and measure throughput
         long publishStartTime = System.currentTimeMillis();
@@ -169,7 +169,7 @@ public class FanoutPerformanceValidationTest extends BaseIntegrationTest {
         long publishDurationMs = publishEndTime - publishStartTime;
         double publishThroughput = (messageCount * 1000.0) / publishDurationMs;
 
-        logger.info("✅ Published {} messages in {} ms ({} msg/sec)",
+        logger.info("Published {} messages in {} ms ({} msg/sec)",
             messageCount, publishDurationMs, String.format("%.2f", publishThroughput));
 
         // Step 4: Verify fanout - each message should have required_consumer_groups = 4
@@ -178,7 +178,7 @@ public class FanoutPerformanceValidationTest extends BaseIntegrationTest {
         assertEquals(consumerGroupCount, requiredGroups,
             "Messages should be fanned out to all consumer groups");
 
-        logger.info("✅ Fanout verified: required_consumer_groups = {}", requiredGroups);
+        logger.info("Fanout verified: required_consumer_groups = {}", requiredGroups);
 
         // Step 5: Consume messages from all groups and measure throughput
         long consumeStartTime = System.currentTimeMillis();
@@ -187,14 +187,14 @@ public class FanoutPerformanceValidationTest extends BaseIntegrationTest {
         for (String groupName : groups) {
             int consumed = consumeAllMessages(topic, groupName, messageCount);
             totalConsumed.addAndGet(consumed);
-            logger.info("✅ Group {} consumed {} messages", groupName, consumed);
+            logger.info("Group {} consumed {} messages", groupName, consumed);
         }
 
         long consumeEndTime = System.currentTimeMillis();
         long consumeDurationMs = consumeEndTime - consumeStartTime;
         double consumeThroughput = (totalConsumed.get() * 1000.0) / consumeDurationMs;
 
-        logger.info("✅ Consumed {} total messages in {} ms ({} msg/sec)",
+        logger.info("Consumed {} total messages in {} ms ({} msg/sec)",
             totalConsumed.get(), consumeDurationMs, String.format("%.2f", consumeThroughput));
 
         // Step 6: Verify all messages are completed
@@ -209,7 +209,7 @@ public class FanoutPerformanceValidationTest extends BaseIntegrationTest {
         long cleanupEndTime = System.currentTimeMillis();
         long cleanupDurationMs = cleanupEndTime - cleanupStartTime;
 
-        logger.info("✅ Cleanup deleted {} messages in {} ms",
+        logger.info("Cleanup deleted {} messages in {} ms",
             deletedCount, cleanupDurationMs);
 
         // Performance Summary

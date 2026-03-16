@@ -17,7 +17,7 @@ try {
         -ContentType 'application/json' `
         -Body $body
     
-    Write-Host "`n✅ Success!" -ForegroundColor Green
+    Write-Host "`nSuccess!" -ForegroundColor Green
     Write-Host ($response | ConvertTo-Json -Depth 5)
 } catch {
     Write-Host "`n❌ Error!" -ForegroundColor Red

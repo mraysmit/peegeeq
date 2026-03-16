@@ -85,10 +85,10 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  * <h2>Expected Test Results</h2>
  * <p>All tests should <b>PASS</b> by correctly handling the intentional failures:</p>
  * <ul>
- *   <li>✅ Success scenarios complete without errors</li>
- *   <li>✅ Failure scenarios trigger expected exceptions and rollbacks</li>
- *   <li>✅ All transactions maintain ACID properties</li>
- *   <li>✅ No partial state changes remain after rollbacks</li>
+ *   <li>Success scenarios complete without errors</li>
+ *   <li>Failure scenarios trigger expected exceptions and rollbacks</li>
+ *   <li>All transactions maintain ACID properties</li>
+ *   <li>No partial state changes remain after rollbacks</li>
  * </ul>
  *
  * <h2>Error Log Messages</h2>
@@ -213,7 +213,7 @@ public class ErrorHandlingRollbackExampleTest {
             String result = failResult.get(10, TimeUnit.SECONDS);
             fail("Order should have failed but succeeded: " + result);
         } catch (Exception e) {
-            logger.info("✅ INTENTIONAL FAILURE: Order correctly failed and rolled back as expected");
+            logger.info("INTENTIONAL FAILURE: Order correctly failed and rolled back as expected");
             logger.info("   📋 Error details: {}", e.getMessage());
             logger.info("   🎯 This failure demonstrates proper business rule validation and automatic rollback");
 
@@ -279,7 +279,7 @@ public class ErrorHandlingRollbackExampleTest {
             String result = failResult.get(15, TimeUnit.SECONDS);
             fail("Multi-stage operation should have failed but succeeded: " + result);
         } catch (Exception e) {
-            logger.info("✅ INTENTIONAL FAILURE: Multi-stage operation correctly failed and rolled back as expected");
+            logger.info("INTENTIONAL FAILURE: Multi-stage operation correctly failed and rolled back as expected");
             logger.info("   📋 Error details: {}", e.getMessage());
             logger.info("   🎯 This failure demonstrates proper multi-stage rollback when any stage fails");
 
@@ -348,9 +348,9 @@ public class ErrorHandlingRollbackExampleTest {
         } catch (Exception e) {
             if (e.getMessage().contains(expectedError) ||
                 (e.getCause() != null && e.getCause().getMessage().contains(expectedError))) {
-                logger.info("✅ INTENTIONAL FAILURE: Validation correctly failed as expected: {}", expectedError);
+                logger.info("INTENTIONAL FAILURE: Validation correctly failed as expected: {}", expectedError);
             } else {
-                logger.info("✅ INTENTIONAL FAILURE: Validation failed with wrapped error (still expected)");
+                logger.info("INTENTIONAL FAILURE: Validation failed with wrapped error (still expected)");
                 logger.info("   📋 Actual error: {}", e.getMessage());
                 logger.info("   🎯 This demonstrates proper error handling and rollback behavior");
                 // Still pass the test as long as it failed (which is expected)

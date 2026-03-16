@@ -136,7 +136,7 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
         assertEquals(StartPosition.FROM_BEGINNING, retrievedOptions.getStartPosition(),
             "Retrieved StartPosition MUST be FROM_BEGINNING");
         
-        logger.info("✅ Round-trip verification PASSED: FROM_BEGINNING → DB(1) → FROM_BEGINNING");
+        logger.info("Round-trip verification PASSED: FROM_BEGINNING → DB(1) → FROM_BEGINNING");
     }
     
     @Test
@@ -199,7 +199,7 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
                 "Message ID should match maxId + 1");
         }
 
-        logger.info("✅ Round-trip verification PASSED: FROM_NOW → DB({}) → {}",
+        logger.info("Round-trip verification PASSED: FROM_NOW → DB({}) → {}",
             maxId + 1, retrievedOptions.getStartPosition());
     }
     
@@ -250,7 +250,7 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
         assertEquals(explicitMessageId, retrievedOptions.getStartFromMessageId(),
             "Retrieved message ID MUST match stored value");
 
-        logger.info("✅ Round-trip verification PASSED: FROM_MESSAGE_ID({}) → DB({}) → FROM_MESSAGE_ID({})",
+        logger.info("Round-trip verification PASSED: FROM_MESSAGE_ID({}) → DB({}) → FROM_MESSAGE_ID({})",
             explicitMessageId, dbState.startFromMessageId, retrievedOptions.getStartFromMessageId());
     }
     
@@ -312,7 +312,7 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
         assertTrue(retrievedDiffMillis < 1000,
             "Retrieved timestamp should match within 1 second");
 
-        logger.info("✅ Round-trip verification PASSED: FROM_TIMESTAMP({}) → DB({}) → FROM_TIMESTAMP({})",
+        logger.info("Round-trip verification PASSED: FROM_TIMESTAMP({}) → DB({}) → FROM_TIMESTAMP({})",
             explicitTimestamp, dbState.startFromTimestamp, retrievedOptions.getStartFromTimestamp());
     }
     
@@ -343,7 +343,7 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
         assertEquals(0L, dbState.startFromMessageId,
             "Should accept and store message ID = 0");
         
-        logger.info("✅ Edge case PASSED: message ID = 0 handled correctly");
+        logger.info("Edge case PASSED: message ID = 0 handled correctly");
     }
     
     @Test
@@ -399,7 +399,7 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
         assertNotEquals(initialState.startFromMessageId, updatedState.startFromMessageId,
             "Start position should have changed in database");
 
-        logger.info("✅ Update PASSED: {} → 1 (FROM_NOW → FROM_BEGINNING)",
+        logger.info("Update PASSED: {} → 1 (FROM_NOW → FROM_BEGINNING)",
             initialState.startFromMessageId);
     }
     

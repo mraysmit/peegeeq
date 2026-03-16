@@ -185,7 +185,7 @@ class OrderControllerTest {
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals("Order Controller is healthy", response.getBody());
 
-        logger.info("✅ Health check endpoint test passed - Status: {}, Body: {}",
+        logger.info("Health check endpoint test passed - Status: {}, Body: {}",
                    response.getStatusCode(), response.getBody());
     }
     
@@ -218,7 +218,7 @@ class OrderControllerTest {
         assertEquals("CREATED", response.getBody().getStatus());
         assertEquals("Order created successfully", response.getBody().getMessage());
 
-        logger.info("✅ Successful order creation test passed - OrderId: {}, Status: {}",
+        logger.info("Successful order creation test passed - OrderId: {}, Status: {}",
                    response.getBody().getOrderId(), response.getBody().getStatus());
     }
     
@@ -243,7 +243,7 @@ class OrderControllerTest {
         assertEquals("ERROR", response.getBody().getStatus());
         assertTrue(response.getBody().getMessage().contains("Validation error"));
 
-        logger.info("✅ Order validation endpoint test passed - Status: {}, Message: {}",
+        logger.info("Order validation endpoint test passed - Status: {}, Message: {}",
                    response.getStatusCode(), response.getBody().getMessage());
     }
     
@@ -283,7 +283,7 @@ class OrderControllerTest {
         assertEquals("ERROR", response.getBody().getStatus());
         assertTrue(response.getBody().getMessage().contains("rolled back"));
 
-        logger.info("✅ Business validation rollback test passed - Status: {}, Message: {}",
+        logger.info("Business validation rollback test passed - Status: {}, Message: {}",
                    response.getStatusCode(), response.getBody().getMessage());
     }
     
@@ -323,7 +323,7 @@ class OrderControllerTest {
         assertEquals("ERROR", response.getBody().getStatus());
         assertTrue(response.getBody().getMessage().contains("rolled back"));
 
-        logger.info("✅ Invalid customer rollback test passed - Status: {}, Message: {}",
+        logger.info("Invalid customer rollback test passed - Status: {}, Message: {}",
                    response.getStatusCode(), response.getBody().getMessage());
     }
     
@@ -363,7 +363,7 @@ class OrderControllerTest {
         assertEquals("ERROR", response.getBody().getStatus());
         assertTrue(response.getBody().getMessage().contains("rolled back"));
 
-        logger.info("✅ Database constraints rollback test passed - Status: {}, Message: {}",
+        logger.info("Database constraints rollback test passed - Status: {}, Message: {}",
                    response.getStatusCode(), response.getBody().getMessage());
     }
     
@@ -395,7 +395,7 @@ class OrderControllerTest {
         assertEquals("CREATED", response.getBody().getStatus());
         assertTrue(response.getBody().getMessage().contains("multiple events"));
 
-        logger.info("✅ Multiple events success test passed - OrderId: {}, Message: {}",
+        logger.info("Multiple events success test passed - OrderId: {}, Message: {}",
                    response.getBody().getOrderId(), response.getBody().getMessage());
     }
     

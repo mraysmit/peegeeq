@@ -37,7 +37,7 @@ function Find-HardcodedVersions {
     }
     
     if ($hardcodedFiles.Count -eq 0) {
-        Write-Host "✅ No hardcoded PostgreSQL versions found!" -ForegroundColor Green
+        Write-Host "No hardcoded PostgreSQL versions found!" -ForegroundColor Green
         return $false
     }
     
@@ -83,7 +83,7 @@ function Migrate-File {
         if ($lastImportIndex -ge 0) {
             $lines = $lines[0..$lastImportIndex] + $CONSTANT_IMPORT + $lines[($lastImportIndex + 1)..($lines.Count - 1)]
             $content = $lines -join "`r`n"
-            Write-Host "   ✅ Added import statement" -ForegroundColor Green
+            Write-Host "   Added import statement" -ForegroundColor Green
         }
     }
     
@@ -93,7 +93,7 @@ function Migrate-File {
     
     if ($content -match $pattern) {
         $content = $content -replace $pattern, $replacement
-        Write-Host "   ✅ Replaced hardcoded versions with constant" -ForegroundColor Green
+        Write-Host "   Replaced hardcoded versions with constant" -ForegroundColor Green
         
         # Show changes
         $originalLines = $originalContent -split "`r?`n"
@@ -130,7 +130,7 @@ function Verify-Migration {
     $remaining = Find-HardcodedVersions
     
     if (-not $remaining) {
-        Write-Host "✅ Migration successful! No hardcoded versions remaining." -ForegroundColor Green
+        Write-Host "Migration successful! No hardcoded versions remaining." -ForegroundColor Green
         return $true
     } else {
         Write-Host "❌ Migration incomplete. Remaining hardcoded versions found." -ForegroundColor Red
@@ -155,7 +155,7 @@ function Show-Statistics {
     }
     
     Write-Host "   📦 Total PostgreSQL containers: $totalContainers"
-    Write-Host "   ✅ Using constant: $constantUsages"
+    Write-Host "   Using constant: $constantUsages"
     Write-Host "   ❌ Hardcoded versions: $hardcodedUsages"
     
     if ($hardcodedUsages -eq 0) {
@@ -218,7 +218,7 @@ function Main {
             Write-Host "   2. Run 'mvn test' to ensure all tests still pass"
             Write-Host "   3. Commit the changes to version control"
             Write-Host ""
-            Write-Host "✅ Your project now uses a single PostgreSQL version: $STANDARD_VERSION" -ForegroundColor Green
+            Write-Host "Your project now uses a single PostgreSQL version: $STANDARD_VERSION" -ForegroundColor Green
         } else {
             Write-Host ""
             Write-Host "❌ Migration failed. Please review the remaining files manually." -ForegroundColor Red

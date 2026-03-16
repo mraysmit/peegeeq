@@ -151,7 +151,7 @@ public class HighPriorityConsumerService {
             .withTransaction(CLIENT_ID, connection -> {
                 return storeTrade(connection, event)
                     .compose(result -> {
-                        log.info("✅ [HIGH+] Trade processed: tradeId={}, priority={}, status={}, processedBy={}",
+                        log.info("[HIGH+] Trade processed: tradeId={}, priority={}, status={}, processedBy={}",
                             event.getTradeId(), priority, event.getStatus(), consumerInstanceId);
 
                         // Update metrics by priority

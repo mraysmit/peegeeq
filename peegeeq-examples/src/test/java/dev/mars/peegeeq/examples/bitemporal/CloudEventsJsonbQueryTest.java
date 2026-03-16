@@ -295,7 +295,7 @@ public class CloudEventsJsonbQueryTest {
         await(eventStore.append("TradeAffirmed", event2Affirmed, baseTime.plus(2, ChronoUnit.HOURS)));
         await(eventStore.append("TradeNew", event3New, baseTime.plus(3, ChronoUnit.HOURS)));
 
-        logger.info("✅ Stored 6 trade lifecycle CloudEvents (3 trades in various stages)");
+        logger.info("Stored 6 trade lifecycle CloudEvents (3 trades in various stages)");
     }
 
     @Test
@@ -329,7 +329,7 @@ public class CloudEventsJsonbQueryTest {
         }
 
         assertEquals(3, count, "Should find 3 NEW trade events");
-        logger.info("✅ Successfully queried {} NEW trade events by CloudEvent type", count);
+        logger.info("Successfully queried {} NEW trade events by CloudEvent type", count);
     }
 
     @Test
@@ -366,7 +366,7 @@ public class CloudEventsJsonbQueryTest {
         }
 
         assertEquals(3, count, "Should find 3 lifecycle events for TRD-001 (NEW, AFFIRMED, SETTLED)");
-        logger.info("✅ Successfully queried {} lifecycle events by correlationid", count);
+        logger.info("Successfully queried {} lifecycle events by correlationid", count);
     }
 
     @Test
@@ -402,7 +402,7 @@ public class CloudEventsJsonbQueryTest {
         }
 
         assertEquals(4, count, "Should find 4 events processed through Murex (TRD-001: 3 events, TRD-003: 1 event)");
-        logger.info("✅ Successfully queried {} events by booking system", count);
+        logger.info("Successfully queried {} events by booking system", count);
     }
 
     @Test
@@ -440,7 +440,7 @@ public class CloudEventsJsonbQueryTest {
         }
 
         assertTrue(count >= 1, "Should find at least 1 trade with notional > 100,000");
-        logger.info("✅ Successfully queried {} large trades by notional amount", count);
+        logger.info("Successfully queried {} large trades by notional amount", count);
     }
 
 
@@ -480,7 +480,7 @@ public class CloudEventsJsonbQueryTest {
         }
 
         assertEquals(1, count, "Should find 1 AFFIRMED trade with Goldman Sachs");
-        logger.info("✅ Successfully queried {} trades by counterparty and status", count);
+        logger.info("Successfully queried {} trades by counterparty and status", count);
     }
 
     @Test
@@ -520,7 +520,7 @@ public class CloudEventsJsonbQueryTest {
         }
 
         assertTrue(count >= 1, "Should find at least 1 DTCC trade before cutoff");
-        logger.info("✅ Successfully queried {} DTCC trades with time range", count);
+        logger.info("Successfully queried {} DTCC trades with time range", count);
     }
 
     @Test
@@ -558,7 +558,7 @@ public class CloudEventsJsonbQueryTest {
         }
 
         assertEquals(2, count, "Should find 2 affirmation events");
-        logger.info("✅ Successfully queried {} events by source system", count);
+        logger.info("Successfully queried {} events by source system", count);
     }
 
     @Test
@@ -598,7 +598,7 @@ public class CloudEventsJsonbQueryTest {
         }
 
         assertEquals(3, count, "Should find 3 AAPL BUY events (NEW, AFFIRMED, SETTLED)");
-        logger.info("✅ Successfully queried {} AAPL BUY trades", count);
+        logger.info("Successfully queried {} AAPL BUY trades", count);
     }
 
     @Test
@@ -640,7 +640,7 @@ public class CloudEventsJsonbQueryTest {
         }
 
         assertEquals(3, count, "Should have 3 counterparties");
-        logger.info("✅ Successfully executed aggregation query on {} counterparties", count);
+        logger.info("Successfully executed aggregation query on {} counterparties", count);
     }
 
     @Test
@@ -685,7 +685,7 @@ public class CloudEventsJsonbQueryTest {
         }
 
         assertTrue(count >= 1, "Should find at least 1 DTCC trade at point in time");
-        logger.info("✅ Successfully executed bi-temporal point-in-time query with {} results", count);
+        logger.info("Successfully executed bi-temporal point-in-time query with {} results", count);
     }
 
     @Test
@@ -740,7 +740,7 @@ public class CloudEventsJsonbQueryTest {
         }
 
         assertEquals(3, count, "Should have complete lifecycle: NEW -> AFFIRMED -> SETTLED");
-        logger.info("✅ Successfully reconstructed complete trade lifecycle with {} stages", count);
+        logger.info("Successfully reconstructed complete trade lifecycle with {} stages", count);
     }
 
     @Test
@@ -782,7 +782,7 @@ public class CloudEventsJsonbQueryTest {
         }
 
         assertTrue(count >= 1, "Should find at least 1 trade settling on or after 2025-10-18");
-        logger.info("✅ Successfully queried {} trades by settlement date range", count);
+        logger.info("Successfully queried {} trades by settlement date range", count);
     }
 
     @Test
@@ -833,7 +833,7 @@ public class CloudEventsJsonbQueryTest {
         }
 
         assertTrue(count >= 2, "Should find at least 2 trades matching criteria");
-        logger.info("✅ Successfully queried {} trades across multiple systems", count);
+        logger.info("Successfully queried {} trades across multiple systems", count);
     }
 }
 

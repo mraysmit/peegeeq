@@ -97,10 +97,10 @@ class SpringBootOutboxApplicationTest {
         
         // If we reach this point, the Spring context has loaded successfully
         // This means all beans have been created and autowired correctly
-        logger.info("✅ Spring Boot application context loaded successfully");
-        logger.info("✅ All PeeGeeQ beans created and configured");
-        logger.info("✅ Database connectivity established");
-        logger.info("✅ Async task executor configured");
+        logger.info("Spring Boot application context loaded successfully");
+        logger.info("All PeeGeeQ beans created and configured");
+        logger.info("Database connectivity established");
+        logger.info("Async task executor configured");
         
         logger.info("Spring Boot Application Context Loading test completed successfully!");
     }
@@ -117,10 +117,10 @@ class SpringBootOutboxApplicationTest {
         
         // The application is already started by @SpringBootTest
         // We just need to verify it's running properly
-        logger.info("✅ Application started successfully");
-        logger.info("✅ All components initialized");
-        logger.info("✅ Database connections established");
-        logger.info("✅ PeeGeeQ Manager running");
+        logger.info("Application started successfully");
+        logger.info("All components initialized");
+        logger.info("Database connections established");
+        logger.info("PeeGeeQ Manager running");
         
         // Spring Boot test framework will handle shutdown automatically
         logger.info("Application Lifecycle Management test completed successfully!");

@@ -45,7 +45,7 @@ class PeeGeeQTestContainerFactoryTest {
         assertEquals("peegeeq_test", container.getPassword());
         assertFalse(container.isShouldBeReused(), "Container should not be reused by default");
         
-        logger.info("✅ Basic container creation test passed");
+        logger.info("Basic container creation test passed");
         
         System.err.println("=== TEST METHOD COMPLETED: testBasicContainerCreation ===");
         System.err.flush();
@@ -84,7 +84,7 @@ class PeeGeeQTestContainerFactoryTest {
         assertEquals(profile.getDisplayName(), profileInfo.get("displayName"));
         assertEquals(profile.getDescription(), profileInfo.get("description"));
         
-        logger.info("✅ Performance profile test passed for: {}", profile.getDisplayName());
+        logger.info("Performance profile test passed for: {}", profile.getDisplayName());
         
         System.err.println("=== TEST METHOD COMPLETED: testAllPerformanceProfiles(" + profile + ") ===");
         System.err.flush();
@@ -109,7 +109,7 @@ class PeeGeeQTestContainerFactoryTest {
         assertEquals(customUsername, container.getUsername());
         assertEquals(customPassword, container.getPassword());
         
-        logger.info("✅ Custom database settings test passed");
+        logger.info("Custom database settings test passed");
         
         System.err.println("=== TEST METHOD COMPLETED: testCustomDatabaseSettings ===");
         System.err.flush();
@@ -134,7 +134,7 @@ class PeeGeeQTestContainerFactoryTest {
         assertNotNull(container, "Container should not be null");
         assertEquals("peegeeq_test", container.getDatabaseName()); // Should use defaults
         
-        logger.info("✅ Custom profile with settings test passed");
+        logger.info("Custom profile with settings test passed");
         
         System.err.println("=== TEST METHOD COMPLETED: testCustomProfileWithSettings ===");
         System.err.flush();
@@ -153,7 +153,7 @@ class PeeGeeQTestContainerFactoryTest {
         assertNotNull(container, "Container should not be null");
         assertEquals("peegeeq_test", container.getDatabaseName());
         
-        logger.info("✅ Custom profile without settings test passed (fallback to STANDARD)");
+        logger.info("Custom profile without settings test passed (fallback to STANDARD)");
         
         System.err.println("=== TEST METHOD COMPLETED: testCustomProfileWithoutSettings ===");
         System.err.flush();
@@ -174,7 +174,7 @@ class PeeGeeQTestContainerFactoryTest {
         assertEquals("peegeeq_test", container.getPassword());
         assertTrue(container.isShouldBeReused(), "BaseIntegrationTest container should be reused");
         
-        logger.info("✅ BaseIntegrationTest compatibility test passed");
+        logger.info("BaseIntegrationTest compatibility test passed");
         
         System.err.println("=== TEST METHOD COMPLETED: testBaseIntegrationTestCompatibility ===");
         System.err.flush();
@@ -200,7 +200,7 @@ class PeeGeeQTestContainerFactoryTest {
             logger.debug("Profile info for {}: {}", profile, info);
         }
         
-        logger.info("✅ Profile information retrieval test passed");
+        logger.info("Profile information retrieval test passed");
         
         System.err.println("=== TEST METHOD COMPLETED: testProfileInfoRetrieval ===");
         System.err.flush();

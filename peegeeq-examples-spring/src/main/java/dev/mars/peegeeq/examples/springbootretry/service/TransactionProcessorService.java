@@ -180,7 +180,7 @@ public class TransactionProcessorService {
                         transaction.getRetryCount()
                     ))
                     .compose(result -> {
-                        log.info("✅ Transaction processed successfully: transactionId={}, amount={}", 
+                        log.info("Transaction processed successfully: transactionId={}, amount={}", 
                             event.getTransactionId(), event.getAmount());
                         
                         transactionsProcessed.incrementAndGet();

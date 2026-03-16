@@ -120,7 +120,7 @@ class ListenNotifyOnlyEdgeCaseTest {
         producer.send("Message 2 - Before Consumer").get(5, TimeUnit.SECONDS);
         producer.send("Message 3 - Before Consumer").get(5, TimeUnit.SECONDS);
 
-        logger.info("✅ Sent 3 messages before consumer setup");
+        logger.info("Sent 3 messages before consumer setup");
 
         // Now create LISTEN_NOTIFY_ONLY consumer
         ConsumerConfig config = ConsumerConfig.builder()
@@ -146,7 +146,7 @@ class ListenNotifyOnlyEdgeCaseTest {
 
         consumer.close();
         producer.close();
-        logger.info("✅ LISTEN_NOTIFY_ONLY correctly processed existing messages");
+        logger.info("LISTEN_NOTIFY_ONLY correctly processed existing messages");
     }
 
     @Test
@@ -182,7 +182,7 @@ class ListenNotifyOnlyEdgeCaseTest {
 
         consumer.close();
         producer.close();
-        logger.info("✅ LISTEN_NOTIFY_ONLY handles special characters in topic names");
+        logger.info("LISTEN_NOTIFY_ONLY handles special characters in topic names");
     }
 
     @Test
@@ -225,7 +225,7 @@ class ListenNotifyOnlyEdgeCaseTest {
 
         consumer.close();
         producer.close();
-        logger.info("✅ LISTEN_NOTIFY_ONLY handles large payloads correctly");
+        logger.info("LISTEN_NOTIFY_ONLY handles large payloads correctly");
     }
 
     @Test
@@ -272,7 +272,7 @@ class ListenNotifyOnlyEdgeCaseTest {
         assertEquals(10, messageCount.get(), "Should have processed exactly 10 messages");
 
         consumer.close();
-        logger.info("✅ LISTEN_NOTIFY_ONLY handles concurrent producers correctly");
+        logger.info("LISTEN_NOTIFY_ONLY handles concurrent producers correctly");
     }
 
     @Test
@@ -322,7 +322,7 @@ class ListenNotifyOnlyEdgeCaseTest {
         });
 
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
-        logger.info("✅ LISTEN_NOTIFY_ONLY handles shutdown during processing gracefully");
+        logger.info("LISTEN_NOTIFY_ONLY handles shutdown during processing gracefully");
     }
 }
 

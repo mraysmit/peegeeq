@@ -197,7 +197,7 @@ class PeeGeeQMetricsTest {
 
         assertEquals(3.0, meterRegistry.get("peegeeq.messages.failed").tag("instance", "test-instance").counter().count());
 
-        System.out.println("✅ **SUCCESS** ✅ Message failure metrics were properly recorded and tracked");
+        System.out.println("**SUCCESS** Message failure metrics were properly recorded and tracked");
         System.out.println("🧪 ===== INTENTIONAL FAILURE TEST COMPLETED ===== 🧪");
     }
 
@@ -435,7 +435,7 @@ class PeeGeeQMetricsTest {
         // Queue depth gauges should return 0 on database failure
         assertEquals(0.0, meterRegistry.get("peegeeq.queue.depth.outbox").gauge().value());
 
-        System.out.println("✅ **SUCCESS** ✅ Metrics system properly handled database failure");
+        System.out.println("**SUCCESS** Metrics system properly handled database failure");
         System.out.println("🧪 ===== INTENTIONAL FAILURE TEST COMPLETED ===== 🧪");
     }
 

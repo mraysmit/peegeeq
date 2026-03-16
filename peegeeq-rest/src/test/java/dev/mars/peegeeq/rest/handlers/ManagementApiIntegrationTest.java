@@ -226,7 +226,7 @@ public class ManagementApiIntegrationTest {
                             JsonObject queue = queues.getJsonObject(i);
                             validateQueueStructure(queue, "Queue at index " + i);
                         }
-                        logger.info("✅ All queue objects have valid structure matching frontend contract");
+                        logger.info("All queue objects have valid structure matching frontend contract");
                     }
 
                     testContext.completeNow();
@@ -579,7 +579,7 @@ public class ManagementApiIntegrationTest {
                     assertFalse(body.getBoolean("metricsEnabled"));
                     assertEquals("daily", body.getString("partitionStrategy"));
 
-                    logger.info("✅ Event store created with all parameters:");
+                    logger.info("Event store created with all parameters:");
                     logger.info("   - queryLimit: {}", body.getInteger("queryLimit"));
                     logger.info("   - metricsEnabled: {}", body.getBoolean("metricsEnabled"));
                     logger.info("   - partitionStrategy: {}", body.getString("partitionStrategy"));
@@ -634,7 +634,7 @@ public class ManagementApiIntegrationTest {
                     assertTrue(body.getBoolean("fifoEnabled"));
                     assertEquals(queueName + "_dlq", body.getString("deadLetterQueueName"));
 
-                    logger.info("✅ Queue created with all parameters:");
+                    logger.info("Queue created with all parameters:");
                     logger.info("   - maxRetries: {}", body.getInteger("maxRetries"));
                     logger.info("   - visibilityTimeoutSeconds: {}", body.getInteger("visibilityTimeoutSeconds"));
                     logger.info("   - deadLetterEnabled: {}", body.getBoolean("deadLetterEnabled"));
@@ -671,7 +671,7 @@ public class ManagementApiIntegrationTest {
         webClient.post(TEST_PORT, "localhost", "/api/v1/management/queues")
             .sendJsonObject(queueRequest)
             .compose(createResponse -> {
-                logger.info("✅ Queue created: {}", purgeQueueName);
+                logger.info("Queue created: {}", purgeQueueName);
 
                 // Step 2: Send 10 messages to the queue
                 Future<Void> sendMessages = Future.succeededFuture();
@@ -692,7 +692,7 @@ public class ManagementApiIntegrationTest {
                 return sendMessages;
             })
             .compose(v -> {
-                logger.info("✅ Sent 10 messages to queue");
+                logger.info("Sent 10 messages to queue");
 
                 // Step 3: Verify messages exist (browse)
                 return webClient.get(TEST_PORT, "localhost",
@@ -720,7 +720,7 @@ public class ManagementApiIntegrationTest {
                     assertNotNull(body.getInteger("purgedCount"), "Should have purgedCount field");
 
                     int purgedCount = body.getInteger("purgedCount");
-                    logger.info("✅ Purged {} messages from queue", purgedCount);
+                    logger.info("Purged {} messages from queue", purgedCount);
                     assertTrue(purgedCount >= 0, "Purged count should be >= 0");
                 });
 
@@ -736,7 +736,7 @@ public class ManagementApiIntegrationTest {
                     logger.info("Messages in queue after purge: {}", messageCount);
                     assertEquals(0, messageCount, "Queue should be empty after purge");
 
-                    logger.info("✅ CRITICAL GAP 1 PASSED: Queue Purge works correctly!");
+                    logger.info("CRITICAL GAP 1 PASSED: Queue Purge works correctly!");
                     testContext.completeNow();
                 });
             })
@@ -761,7 +761,7 @@ public class ManagementApiIntegrationTest {
         webClient.post(TEST_PORT, "localhost", "/api/v1/management/queues")
             .sendJsonObject(queueRequest)
             .compose(createResponse -> {
-                logger.info("✅ Queue created: {}", browseQueueName);
+                logger.info("Queue created: {}", browseQueueName);
 
                 // Step 2: Send 5 messages with unique content
                 Future<Void> sendMessages = Future.succeededFuture();
@@ -786,7 +786,7 @@ public class ManagementApiIntegrationTest {
                 return sendMessages;
             })
             .compose(v -> {
-                logger.info("✅ Sent 5 messages to queue");
+                logger.info("Sent 5 messages to queue");
 
                 // Step 3: Browse messages (should return all 5)
                 return webClient.get(TEST_PORT, "localhost",
@@ -805,7 +805,7 @@ public class ManagementApiIntegrationTest {
                     assertNotNull(messages, "Should have messages array");
 
                     int messageCount = body.getInteger("messageCount");
-                    logger.info("✅ Browsed {} messages", messageCount);
+                    logger.info("Browsed {} messages", messageCount);
 
                     // Verify message structure
                     for (int i = 0; i < messages.size(); i++) {
@@ -824,12 +824,12 @@ public class ManagementApiIntegrationTest {
                 testContext.verify(() -> {
                     JsonObject body = browseResponse2.bodyAsJsonObject();
                     int messageCount = body.getInteger("messageCount");
-                    logger.info("✅ Second browse returned {} messages (should be same as first)", messageCount);
+                    logger.info("Second browse returned {} messages (should be same as first)", messageCount);
 
                     // Messages should still be there (browsing doesn't consume)
                     assertTrue(messageCount >= 0, "Should have messages (browsing doesn't consume)");
 
-                    logger.info("✅ CRITICAL GAP 2 PASSED: Message Browsing works correctly!");
+                    logger.info("CRITICAL GAP 2 PASSED: Message Browsing works correctly!");
                     testContext.completeNow();
                 });
             })
@@ -854,7 +854,7 @@ public class ManagementApiIntegrationTest {
         webClient.post(TEST_PORT, "localhost", "/api/v1/management/queues")
             .sendJsonObject(queueRequest)
             .compose(createResponse -> {
-                logger.info("✅ Queue created: {}", pollingQueueName);
+                logger.info("Queue created: {}", pollingQueueName);
 
                 // Step 2: Send 3 messages
                 Future<Void> sendMessages = Future.succeededFuture();
@@ -878,7 +878,7 @@ public class ManagementApiIntegrationTest {
                 return sendMessages;
             })
             .compose(v -> {
-                logger.info("✅ Sent 3 messages to queue");
+                logger.info("Sent 3 messages to queue");
 
                 // Step 3: Poll messages (count=2, ackMode=manual)
                 return webClient.get(TEST_PORT, "localhost",
@@ -898,7 +898,7 @@ public class ManagementApiIntegrationTest {
                     assertNotNull(messages, "Should have messages array");
 
                     int messageCount = body.getInteger("messageCount");
-                    logger.info("✅ Polled {} messages (requested 2)", messageCount);
+                    logger.info("Polled {} messages (requested 2)", messageCount);
 
                     // Verify we got messages
                     assertTrue(messageCount >= 0, "Should return messages");
@@ -910,7 +910,7 @@ public class ManagementApiIntegrationTest {
                         logger.info("  Polled message {}: id={}", i + 1, msg.getString("id"));
                     }
 
-                    logger.info("✅ CRITICAL GAP 3 PASSED: Message Polling works correctly!");
+                    logger.info("CRITICAL GAP 3 PASSED: Message Polling works correctly!");
                     testContext.completeNow();
                 });
             })
@@ -939,7 +939,7 @@ public class ManagementApiIntegrationTest {
                 testContext.verify(() -> {
                     assertEquals(201, createResponse.statusCode(), "Event store should be created");
                 });
-                logger.info("✅ Event store created: {}", eventStoreName);
+                logger.info("Event store created: {}", eventStoreName);
 
                 // Step 2: Append 3 events to the event store
                 Future<Void> appendEvents = Future.succeededFuture();
@@ -963,7 +963,7 @@ public class ManagementApiIntegrationTest {
                 return appendEvents;
             })
             .compose(v -> {
-                logger.info("✅ Appended 3 events to event store");
+                logger.info("Appended 3 events to event store");
 
                 // Step 3: Get overview (should include recent activity)
                 return webClient.get(TEST_PORT, "localhost", "/api/v1/management/overview")
@@ -980,7 +980,7 @@ public class ManagementApiIntegrationTest {
                     JsonArray recentActivity = body.getJsonArray("recentActivity");
                     assertNotNull(recentActivity, "Should have recentActivity array");
 
-                    logger.info("✅ Recent activity contains {} items", recentActivity.size());
+                    logger.info("Recent activity contains {} items", recentActivity.size());
 
                     // Verify activity structure
                     for (int i = 0; i < recentActivity.size(); i++) {
@@ -992,7 +992,7 @@ public class ManagementApiIntegrationTest {
                             i + 1, activity.getString("type"), activity.getString("timestamp"));
                     }
 
-                    logger.info("✅ CRITICAL GAP 4 PASSED: Recent Activity works correctly!");
+                    logger.info("CRITICAL GAP 4 PASSED: Recent Activity works correctly!");
                     testContext.completeNow();
                 });
             })

@@ -215,7 +215,7 @@ class MultiTenantSchemaIsolationTest {
                     JsonObject stats = response.bodyAsJsonObject();
                     int totalMessages = stats.getInteger("totalMessages", 0);
                     assertEquals(1, totalMessages, "Tenant A should have 1 message");
-                    logger.info("✅ Message isolation verified - Tenant A has 1 message, Tenant B has 0");
+                    logger.info("Message isolation verified - Tenant A has 1 message, Tenant B has 0");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -280,7 +280,7 @@ class MultiTenantSchemaIsolationTest {
                     JsonObject stats = response.bodyAsJsonObject();
                     assertEquals(2, stats.getInteger("totalMessages"), "Tenant B should see 2 messages");
                     logger.info("Tenant B stats: {}", stats.encode());
-                    logger.info("✅ Stats isolation verified");
+                    logger.info("Stats isolation verified");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -332,7 +332,7 @@ class MultiTenantSchemaIsolationTest {
                     int totalMessages = stats.getInteger("totalMessages", 0);
                     assertEquals(1, totalMessages, "Tenant B should have exactly 1 message");
                     logger.info("Tenant B has 1 message in queue '{}'", sharedQueueName);
-                    logger.info("✅ Same queue name isolation verified - both tenants have separate queues");
+                    logger.info("Same queue name isolation verified - both tenants have separate queues");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);

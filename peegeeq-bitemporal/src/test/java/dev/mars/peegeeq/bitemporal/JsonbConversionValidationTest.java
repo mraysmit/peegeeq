@@ -88,7 +88,7 @@ class JsonbConversionValidationTest {
         // Create event store
         eventStore = new PgBiTemporalEventStore<>(manager, TestEvent.class, "test_events", new ObjectMapper());
 
-        logger.info("✅ Test setup complete - Bi-temporal event store ready for JSONB validation");
+        logger.info("Test setup complete - Bi-temporal event store ready for JSONB validation");
     }
 
     @AfterEach
@@ -100,7 +100,7 @@ class JsonbConversionValidationTest {
             manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
         restoreTestProperties();
-        logger.info("✅ Test cleanup complete");
+        logger.info("Test cleanup complete");
     }
 
     private void setTestProperty(String key, String value) {
@@ -137,7 +137,7 @@ class JsonbConversionValidationTest {
 
         assertNotNull(event);
         assertEquals(testEvent.orderId, event.getPayload().orderId);
-        logger.info("✅ Event appended successfully: {}", event.getEventId());
+        logger.info("Event appended successfully: {}", event.getEventId());
 
         // Validate JSONB storage using direct database query
         try (Connection conn = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {
@@ -164,7 +164,7 @@ class JsonbConversionValidationTest {
                 String extractedValue = rs.getString("extracted_value");
                 assertEquals(testEvent.orderId, extractedValue, "Should be able to extract orderId using JSON operators");
 
-                logger.info("✅ JSONB validation successful - payload stored as object with type: {}", payloadType);
+                logger.info("JSONB validation successful - payload stored as object with type: {}", payloadType);
             }
         }
     }
@@ -184,7 +184,7 @@ class JsonbConversionValidationTest {
 
         assertNotNull(event);
         assertEquals(testEvent.orderId, event.getPayload().orderId);
-        logger.info("✅ Complex event appended successfully: {}", event.getEventId());
+        logger.info("Complex event appended successfully: {}", event.getEventId());
 
         // Validate JSONB storage using direct database query
         try (Connection conn = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {
@@ -214,7 +214,7 @@ class JsonbConversionValidationTest {
                 assertEquals(testEvent.orderId, extractedOrderId, "Should extract orderId using JSON operators");
                 assertEquals(testEvent.status, extractedStatus, "Should extract status using JSON operators");
 
-                logger.info("✅ Complex JSONB validation successful - extracted orderId: {}, status: {}", 
+                logger.info("Complex JSONB validation successful - extracted orderId: {}, status: {}", 
                           extractedOrderId, extractedStatus);
             }
         }
@@ -239,7 +239,7 @@ class JsonbConversionValidationTest {
 
         assertNotNull(event);
         assertEquals(testEvent.orderId, event.getPayload().orderId);
-        logger.info("✅ Event with headers appended successfully: {}", event.getEventId());
+        logger.info("Event with headers appended successfully: {}", event.getEventId());
 
         // Validate headers JSONB storage using direct database query
         try (Connection conn = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {
@@ -269,7 +269,7 @@ class JsonbConversionValidationTest {
                 assertEquals("test-correlation-123", extractedCorrelationId, "Should extract correlationId using JSON operators");
                 assertEquals("jsonb-test", extractedSource, "Should extract source using JSON operators");
 
-                logger.info("✅ Headers JSONB validation successful - extracted correlationId: {}, source: {}", 
+                logger.info("Headers JSONB validation successful - extracted correlationId: {}, source: {}", 
                           extractedCorrelationId, extractedSource);
             }
         }
@@ -297,7 +297,7 @@ class JsonbConversionValidationTest {
 
             try (PreparedStatement stmt = conn.prepareStatement(createTableSql)) {
                 stmt.execute();
-                logger.info("✅ Bi-temporal event log table created successfully");
+                logger.info("Bi-temporal event log table created successfully");
             }
 
             try (PreparedStatement stmt = conn.prepareStatement("ALTER TABLE test_events ADD COLUMN IF NOT EXISTS causation_id VARCHAR(255)")) {

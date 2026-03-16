@@ -87,7 +87,7 @@ public class ConsumerModePerformanceTest {
         );
 
         initializeManagerAndFactory();
-        logger.info("✅ ConsumerModePerformanceTest setup completed");
+        logger.info("ConsumerModePerformanceTest setup completed");
     }
 
     @AfterEach
@@ -176,7 +176,7 @@ public class ConsumerModePerformanceTest {
         assertTrue(hybridResult.throughput > 7.0,
             "HYBRID mode should have good throughput in test environment");
 
-        logger.info("✅ Throughput comparison test completed successfully");
+        logger.info("Throughput comparison test completed successfully");
     }
 
     @Test
@@ -212,7 +212,7 @@ public class ConsumerModePerformanceTest {
                     result.mode, result.averageLatency));
         }
 
-        logger.info("✅ Latency comparison test completed successfully");
+        logger.info("Latency comparison test completed successfully");
     }
 
     private PerformanceResult measureThroughput(String topicName, ConsumerMode mode, 

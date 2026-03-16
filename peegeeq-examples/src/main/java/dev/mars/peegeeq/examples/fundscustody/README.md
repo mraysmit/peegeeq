@@ -5,13 +5,13 @@ This example demonstrates **minimal, production-ready** bi-temporal event sourci
 ## Overview
 
 Phase 1 implements the foundation for trade lifecycle management and position tracking with:
-- ✅ Trade recording with bi-temporal tracking (trade date vs confirmation time)
-- ✅ Trade cancellation with full audit trail
-- ✅ Position calculation as of any date
-- ✅ Late trade confirmation detection
-- ✅ Position history over time ranges
-- ✅ **No Spring Framework** - Plain Java with constructor injection
-- ✅ **Minimal dependencies** - Only PeeGeeQ core + SLF4J
+- Trade recording with bi-temporal tracking (trade date vs confirmation time)
+- Trade cancellation with full audit trail
+- Position calculation as of any date
+- Late trade confirmation detection
+- Position history over time ranges
+- **No Spring Framework** - Plain Java with constructor injection
+- **Minimal dependencies** - Only PeeGeeQ core + SLF4J
 
 ## Architecture
 
@@ -60,10 +60,10 @@ The example uses PeeGeeQ's bi-temporal event store to track **two time dimension
    - Cancellation time for cancellations
 
 This enables powerful capabilities:
-- ✅ **Late Trade Detection** - Identify trades confirmed after NAV cut-off
-- ✅ **Point-in-Time Queries** - Calculate positions as of any date
-- ✅ **Complete Audit Trail** - Track all changes with timestamps
-- ✅ **Backdated Corrections** - Cancel trades with original trade date as valid time
+- **Late Trade Detection** - Identify trades confirmed after NAV cut-off
+- **Point-in-Time Queries** - Calculate positions as of any date
+- **Complete Audit Trail** - Track all changes with timestamps
+- **Backdated Corrections** - Cancel trades with original trade date as valid time
 
 ### Trade Lifecycle
 
@@ -245,14 +245,14 @@ Queries:
 
 ## Phase 1 Success Criteria
 
-- ✅ Can record trades with trade date as valid time
-- ✅ Can cancel trades with audit trail
-- ✅ Can query trades by fund efficiently
-- ✅ Can detect late trade confirmations
-- ✅ Can calculate positions as of any date
-- ✅ Can get position history over time
-- ✅ All tests pass with no Spring dependencies
-- ✅ Clean, minimal code with good documentation
+- Can record trades with trade date as valid time
+- Can cancel trades with audit trail
+- Can query trades by fund efficiently
+- Can detect late trade confirmations
+- Can calculate positions as of any date
+- Can get position history over time
+- All tests pass with no Spring dependencies
+- Clean, minimal code with good documentation
 
 ## Next Phases
 

@@ -50,7 +50,7 @@ public class PropertyNameValidationTest {
         assertEquals(5, config.getQueueConfig().getMaxRetries(),
             "Incorrect property name 'peegeeq.Max-retries' should not be recognized, should use value from properties file");
 
-        logger.info("✅ Confirmed that incorrect property name 'peegeeq.Max-retries' is ignored");
+        logger.info("Confirmed that incorrect property name 'peegeeq.Max-retries' is ignored");
     }
     
     @Test
@@ -66,7 +66,7 @@ public class PropertyNameValidationTest {
         assertEquals(8, config.getQueueConfig().getMaxRetries(),
             "Correct property name 'peegeeq.queue.max-retries' should override properties file");
 
-        logger.info("✅ Confirmed that correct property name 'peegeeq.queue.max-retries' works");
+        logger.info("Confirmed that correct property name 'peegeeq.queue.max-retries' works");
     }
     
     @Test
@@ -83,7 +83,7 @@ public class PropertyNameValidationTest {
         assertEquals(9, config.getQueueConfig().getMaxRetries(),
             "When both properties are set, the correct property name should take precedence");
 
-        logger.info("✅ Confirmed that correct property name takes precedence when both are set");
+        logger.info("Confirmed that correct property name takes precedence when both are set");
     }
     
     @Test
@@ -97,6 +97,6 @@ public class PropertyNameValidationTest {
         assertEquals(5, config.getQueueConfig().getMaxRetries(),
             "Should use value from properties file when no system property is set");
 
-        logger.info("✅ Confirmed properties file value is used when no system property is set");
+        logger.info("Confirmed properties file value is used when no system property is set");
     }
 }

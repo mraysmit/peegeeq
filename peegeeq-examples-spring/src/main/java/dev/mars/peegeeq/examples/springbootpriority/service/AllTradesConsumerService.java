@@ -159,7 +159,7 @@ public class AllTradesConsumerService {
                         messagesProcessed.incrementAndGet();
                         criticalProcessed.incrementAndGet();
 
-                        log.info("✅ [ALL-CRITICAL] Trade processed: tradeId={}, priority={}, status={}, processedBy={}",
+                        log.info("[ALL-CRITICAL] Trade processed: tradeId={}, priority={}, status={}, processedBy={}",
                             event.getTradeId(), event.getPriority(), event.getStatus(), consumerInstanceId);
 
                         return updateConsumerMetrics(connection);
@@ -191,7 +191,7 @@ public class AllTradesConsumerService {
                         messagesProcessed.incrementAndGet();
                         highProcessed.incrementAndGet();
 
-                        log.info("✅ [ALL-HIGH] Trade processed: tradeId={}, priority={}, status={}, processedBy={}",
+                        log.info("[ALL-HIGH] Trade processed: tradeId={}, priority={}, status={}, processedBy={}",
                             event.getTradeId(), event.getPriority(), event.getStatus(), consumerInstanceId);
 
                         return updateConsumerMetrics(connection);
@@ -223,7 +223,7 @@ public class AllTradesConsumerService {
                         messagesProcessed.incrementAndGet();
                         normalProcessed.incrementAndGet();
 
-                        log.info("✅ [ALL-NORMAL] Trade processed: tradeId={}, priority={}, status={}, processedBy={}",
+                        log.info("[ALL-NORMAL] Trade processed: tradeId={}, priority={}, status={}, processedBy={}",
                             event.getTradeId(), event.getPriority(), event.getStatus(), consumerInstanceId);
 
                         return updateConsumerMetrics(connection);

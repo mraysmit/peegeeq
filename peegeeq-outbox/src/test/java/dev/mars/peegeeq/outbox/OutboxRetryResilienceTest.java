@@ -139,7 +139,7 @@ public class OutboxRetryResilienceTest {
 
         testReactivePool = connectionManager.getOrCreateReactivePool("test-verification", connectionConfig, poolConfig);
 
-        logger.info("✅ OutboxRetryResilienceTest setup completed");
+        logger.info("OutboxRetryResilienceTest setup completed");
     }
 
     @AfterEach
@@ -186,7 +186,7 @@ public class OutboxRetryResilienceTest {
             }
         }
 
-        logger.info("✅ OutboxRetryResilienceTest cleanup completed");
+        logger.info("OutboxRetryResilienceTest cleanup completed");
     }
 
     @Test
@@ -231,7 +231,7 @@ public class OutboxRetryResilienceTest {
         vertx.timer(2000).toCompletionStage().toCompletableFuture().join();
         verifyMessageInDeadLetterQueue(testMessage);
 
-        logger.info("✅ Connection timeout resilience test completed successfully");
+        logger.info("Connection timeout resilience test completed successfully");
         logger.info("   Total attempts: {}", attemptCount.get());
         logger.info("   Last error: {}", lastError.get());
     }
@@ -265,13 +265,13 @@ public class OutboxRetryResilienceTest {
 
         // Send message after consumer is subscribed
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
-        logger.info("✅ Message sent successfully");
+        logger.info("Message sent successfully");
 
         // Wait for all retry attempts
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 4 times despite database issues");
         assertEquals(4, attemptCount.get(), "Should have made exactly 4 processing attempts");
 
-        logger.info("✅ Database unavailability resilience test completed successfully");
+        logger.info("Database unavailability resilience test completed successfully");
         logger.info("   Total attempts: {}", attemptCount.get());
     }
 
@@ -289,7 +289,7 @@ public class OutboxRetryResilienceTest {
         }).toCompletionStage().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
 
         assertTrue(count > 0, "Message should be found in dead letter queue");
-        logger.info("✅ Verified message in dead letter queue: {} entries found", count);
+        logger.info("Verified message in dead letter queue: {} entries found", count);
     }
 
     @Test
@@ -328,7 +328,7 @@ public class OutboxRetryResilienceTest {
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should have attempted processing despite pool exhaustion");
         assertTrue(attemptCount.get() >= 1, "Should have made at least 1 processing attempt");
 
-        logger.info("✅ Connection pool exhaustion resilience test completed successfully");
+        logger.info("Connection pool exhaustion resilience test completed successfully");
         logger.info("   Total attempts: {}", attemptCount.get());
     }
 
@@ -368,7 +368,7 @@ public class OutboxRetryResilienceTest {
         // Verify retry state consistency after rollbacks
         verifyRetryStateConsistency(testMessage);
 
-        logger.info("✅ Transaction rollback resilience test completed successfully");
+        logger.info("Transaction rollback resilience test completed successfully");
         logger.info("   Total attempts: {}", attemptCount.get());
     }
 
@@ -401,7 +401,7 @@ public class OutboxRetryResilienceTest {
                 // Simulate database failure for first 2 attempts
                 throw new RuntimeException("INTENTIONAL FAILURE: Database temporarily unavailable, attempt " + attempt);
             } else {
-                logger.info("✅ SUCCESS: Database recovered, processing attempt {} for message: {}",
+                logger.info("SUCCESS: Database recovered, processing attempt {} for message: {}",
                     attempt, message.getPayload());
 
                 // Simulate database recovery - process successfully
@@ -416,7 +416,7 @@ public class OutboxRetryResilienceTest {
         assertTrue(attemptCount.get() >= 3, "Should have made at least 3 attempts (2 failures + 1 success)");
         assertEquals(1, successCount.get(), "Should have succeeded exactly once after recovery");
 
-        logger.info("✅ Database recovery resilience test completed successfully");
+        logger.info("Database recovery resilience test completed successfully");
         logger.info("   Total attempts: {}", attemptCount.get());
         logger.info("   Successful processing: {}", successCount.get());
     }
@@ -434,7 +434,7 @@ public class OutboxRetryResilienceTest {
                         int retryCount = row.getInteger("retry_count");
                         String status = row.getString("status");
 
-                        logger.info("✅ Retry state verification: retry_count={}, status={}", retryCount, status);
+                        logger.info("Retry state verification: retry_count={}, status={}", retryCount, status);
 
                         // Verify retry count is within expected bounds
                         assertTrue(retryCount >= 0 && retryCount <= 4,

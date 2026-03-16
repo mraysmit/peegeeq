@@ -157,13 +157,13 @@ mvn test -pl peegeeq-performance-test-harness -Pload-test
 - CAS/bitmap conflict rates
 
 **Acceptance Thresholds:**
-- ✅ Throughput ≥ 30,000 msg/sec (2KB payload, 4 groups)
-- ✅ p95 latency < 300ms
-- ✅ DB CPU < 70%
-- ✅ Missing IDs = 0 (no data loss)
-- ✅ Duplicates < 0.5% during crash tests
-- ✅ Bitmap conflicts < 10% at N=16
-- ✅ CAS conflicts < 5%
+- Throughput ≥ 30,000 msg/sec (2KB payload, 4 groups)
+- p95 latency < 300ms
+- DB CPU < 70%
+- Missing IDs = 0 (no data loss)
+- Duplicates < 0.5% during crash tests
+- Bitmap conflicts < 10% at N=16
+- CAS conflicts < 5%
 
 ## Consumer Group Fan-Out Test Harness
 
@@ -217,9 +217,9 @@ mvn exec:java -Dexec.mainClass="dev.mars.peegeeq.fanout.benchmark.ThroughputBenc
 - Consumer groups: {4, 8, 16}
 
 **Pass Criteria:**
-- ✅ Throughput ≥ 30,000 msg/sec (2KB, 4 groups, batch=500)
-- ✅ p95 latency < 300ms
-- ✅ DB CPU < 70%
+- Throughput ≥ 30,000 msg/sec (2KB, 4 groups, batch=500)
+- p95 latency < 300ms
+- DB CPU < 70%
 
 #### FanoutScalingBenchmark (P2)
 
@@ -235,9 +235,9 @@ mvn exec:java -Dexec.mainClass="dev.mars.peegeeq.fanout.benchmark.FanoutScalingB
 - Compares Bitmap vs Offset modes
 
 **Pass Criteria:**
-- ✅ DB CPU < 70% at N=16 for both modes
-- ✅ Offset mode: O(1) CPU scaling
-- ✅ Bitmap mode: O(N) CPU scaling for N ≤ 64
+- DB CPU < 70% at N=16 for both modes
+- Offset mode: O(1) CPU scaling
+- Bitmap mode: O(N) CPU scaling for N ≤ 64
 
 ### Database Schema
 

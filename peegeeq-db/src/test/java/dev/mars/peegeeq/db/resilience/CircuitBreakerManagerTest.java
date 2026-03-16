@@ -145,7 +145,7 @@ class CircuitBreakerManagerTest {
         assertEquals(0, metrics.getSuccessfulCalls());
         assertEquals(1, metrics.getFailedCalls());
 
-        System.out.println("✅ **SUCCESS** ✅ Circuit breaker properly tracked the intentional failure");
+        System.out.println("**SUCCESS** Circuit breaker properly tracked the intentional failure");
         System.out.println("🧪 ===== INTENTIONAL FAILURE TEST COMPLETED ===== 🧪");
     }
 
@@ -184,7 +184,7 @@ class CircuitBreakerManagerTest {
         // Circuit breaker should be open after enough failures
         assertTrue(metrics.getState().equals("OPEN") || metrics.getFailedCalls() >= config.getFailureThreshold());
 
-        System.out.println("✅ **SUCCESS** ✅ Circuit breaker properly opened after multiple failures");
+        System.out.println("**SUCCESS** Circuit breaker properly opened after multiple failures");
         System.out.println("🧪 ===== INTENTIONAL FAILURE TEST COMPLETED ===== 🧪");
     }
 

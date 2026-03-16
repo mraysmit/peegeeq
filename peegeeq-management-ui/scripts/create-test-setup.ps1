@@ -64,7 +64,7 @@ try {
         -TimeoutSec 120
     
     Write-Host ""
-    Write-Host "✅ Setup created successfully!" -ForegroundColor Green
+    Write-Host "Setup created successfully!" -ForegroundColor Green
     Write-Host ""
     Write-Host "Setup ID: e2e-test-setup" -ForegroundColor Cyan
     Write-Host "Database: $dbName" -ForegroundColor Cyan
@@ -86,7 +86,7 @@ try {
     Write-Host ($queues | ConvertTo-Json -Depth 3)
     Write-Host ""
     
-    Write-Host "✅ Setup verification complete!" -ForegroundColor Green
+    Write-Host "Setup verification complete!" -ForegroundColor Green
     Write-Host ""
     Write-Host "Next steps:" -ForegroundColor Cyan
     Write-Host "1. Open http://localhost:3000 to view the UI" -ForegroundColor White

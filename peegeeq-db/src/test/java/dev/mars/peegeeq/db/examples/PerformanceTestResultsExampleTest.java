@@ -63,7 +63,7 @@ public class PerformanceTestResultsExampleTest {
         assertTrue(report.contains("Outbox Pattern Test"), "Report should contain outbox pattern test");
         assertTrue(report.contains("PASSED"), "Report should contain test results");
         
-        logger.info("✅ Simple report generation validated successfully");
+        logger.info("Simple report generation validated successfully");
     }
 
     /**
@@ -86,7 +86,7 @@ public class PerformanceTestResultsExampleTest {
         assertTrue(report.contains("10,000+ msg/sec"), "Report should contain specific throughput values");
         assertTrue(report.contains("Vert.x Version"), "Report should contain Vert.x version info");
         
-        logger.info("✅ Detailed report generation validated successfully");
+        logger.info("Detailed report generation validated successfully");
     }
 
     /**
@@ -107,7 +107,7 @@ public class PerformanceTestResultsExampleTest {
         assertTrue(systemInfo.containsKey("os"), "System info should contain OS information");
         assertTrue(systemInfo.containsKey("java_version"), "System info should contain Java version");
         
-        logger.info("✅ System information collection validated successfully");
+        logger.info("System information collection validated successfully");
     }
 
     /**
@@ -135,7 +135,7 @@ public class PerformanceTestResultsExampleTest {
         assertTrue(report.contains("Native Performance Test"), "Report should contain native test");
         assertTrue(report.contains("Outbox Performance Test"), "Report should contain outbox test");
         
-        logger.info("✅ Test results integration validated successfully");
+        logger.info("Test results integration validated successfully");
     }
 
     // Helper methods that replicate the original example's functionality

@@ -29,7 +29,7 @@ MAGENTA='\033[0;35m'
 NC='\033[0m' # No Color
 
 # Helper functions
-write_success() { echo -e "${GREEN}✅ $*${NC}"; }
+write_success() { echo -e "${GREEN}$*${NC}"; }
 write_failure() { echo -e "${RED}❌ $*${NC}"; }
 write_info() { echo -e "${CYAN}ℹ️  $*${NC}"; }
 write_test() { echo -e "${YELLOW}🧪 $*${NC}"; }

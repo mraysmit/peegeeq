@@ -72,16 +72,16 @@ Four transactional patterns based on database deployment architecture and consis
 
 ### Benefits
 
-- ✅ **PeeGeeQ Remains Generic** - No domain-specific concepts in core system
-- ✅ **ACID Guarantees** - Pattern 4 provides true ACID with best performance
-- ✅ **Eventual Consistency** - Patterns 2 & 3 provide saga-based coordination
-- ✅ **Flexible Deployment** - Supports co-located and separated architectures
-- ✅ **Pure REST API** - Patterns 1, 2, 3 accessible via HTTP (no SDK required)
-- ✅ **Technology Agnostic** - Works with any client technology
-- ✅ **Audit Trail** - Bi-temporal event store captures complete history
-- ✅ **Automatic Compensation** - Pattern 2 handles rollback via saga compensation
-- ✅ **High Throughput** - Pattern 3 prevents connection starvation
-- ✅ **Simple Integration** - Pattern 4 uses library/sidecar for domain-first approach
+- **PeeGeeQ Remains Generic** - No domain-specific concepts in core system
+- **ACID Guarantees** - Pattern 4 provides true ACID with best performance
+- **Eventual Consistency** - Patterns 2 & 3 provide saga-based coordination
+- **Flexible Deployment** - Supports co-located and separated architectures
+- **Pure REST API** - Patterns 1, 2, 3 accessible via HTTP (no SDK required)
+- **Technology Agnostic** - Works with any client technology
+- **Audit Trail** - Bi-temporal event store captures complete history
+- **Automatic Compensation** - Pattern 2 handles rollback via saga compensation
+- **High Throughput** - Pattern 3 prevents connection starvation
+- **Simple Integration** - Pattern 4 uses library/sidecar for domain-first approach
 
 ---
 
@@ -90,11 +90,11 @@ Four transactional patterns based on database deployment architecture and consis
 ### Architectural Foundation
 
 This design aligns with the PeeGeeQ layered architecture documented in `peegeeq-integration-tests/docs/PEEGEEQ_CALL_PROPAGATION_DESIGN.md`:
-- ✅ **peegeeq-api** - Pure contracts layer (interfaces: `ConnectionProvider`, `EventStore`, `OutboxProducer`)
-- ✅ **peegeeq-runtime** - Composition layer that wires together all implementations
-- ✅ **peegeeq-rest** - REST layer that exposes `peegeeq-runtime` services over HTTP
-- ✅ **Transaction Participation** - Uses existing `appendInTransaction()` and `sendInTransaction()` methods that accept `SqlConnection` parameter
-- ✅ **Vert.x 5.x Native** - Uses Vert.x `Future` and `SqlConnection` types as primary API (not implementation details)
+- **peegeeq-api** - Pure contracts layer (interfaces: `ConnectionProvider`, `EventStore`, `OutboxProducer`)
+- **peegeeq-runtime** - Composition layer that wires together all implementations
+- **peegeeq-rest** - REST layer that exposes `peegeeq-runtime` services over HTTP
+- **Transaction Participation** - Uses existing `appendInTransaction()` and `sendInTransaction()` methods that accept `SqlConnection` parameter
+- **Vert.x 5.x Native** - Uses Vert.x `Future` and `SqlConnection` types as primary API (not implementation details)
 
 ### Pattern Overview
 
@@ -231,10 +231,10 @@ COMMIT (all succeed) OR ROLLBACK (any step fails)
 ```
 
 **Characteristics:**
-- ✅ **ACID Guarantees** - Single transaction across domain + PeeGeeQ tables
-- ✅ **PeeGeeQ Remains Generic** - No domain knowledge (uses callbacks)
-- ✅ **Strong Consistency** - All operations succeed or all fail
-- ✅ **Synchronous** - Client receives immediate confirmation
+- **ACID Guarantees** - Single transaction across domain + PeeGeeQ tables
+- **PeeGeeQ Remains Generic** - No domain knowledge (uses callbacks)
+- **Strong Consistency** - All operations succeed or all fail
+- **Synchronous** - Client receives immediate confirmation
 - ⚠️ **Callback in Transaction** - Anti-pattern but necessary for ACID
 - ⚠️ **Timeout Risk** - Callback must complete quickly
 
@@ -382,10 +382,10 @@ Saga Status: COMPENSATED (rolled back)
 ```
 
 **Characteristics:**
-- ✅ **Eventual Consistency** - Saga guarantees eventual state
-- ✅ **PeeGeeQ Remains Generic** - No domain knowledge
-- ✅ **Automatic Compensation** - Rollback via compensation logic
-- ✅ **Works Across Databases** - No shared transaction required
+- **Eventual Consistency** - Saga guarantees eventual state
+- **PeeGeeQ Remains Generic** - No domain knowledge
+- **Automatic Compensation** - Rollback via compensation logic
+- **Works Across Databases** - No shared transaction required
 - ⚠️ **Not ACID** - Intermediate states visible
 - ⚠️ **Complex** - Saga orchestration overhead
 
@@ -413,9 +413,9 @@ Pattern 1 (Callback) holds a database connection open while waiting for an exter
     *   **DB:** Opens new connection. Writes `event_store` + `outbox`. Updates `command_log` to `COMPLETED`. Commit.
 
 #### Characteristics
-- ✅ **High Performance** - No holding DB connections during HTTP calls.
-- ✅ **Reliability** - If server crashes, `PENDING` commands are retried.
-- ✅ **Decoupled** - Infrastructure scales independently of domain service latency.
+- **High Performance** - No holding DB connections during HTTP calls.
+- **Reliability** - If server crashes, `PENDING` commands are retried.
+- **Decoupled** - Infrastructure scales independently of domain service latency.
 - ⚠️ **Eventual Consistency** - Not ACID.
 - ⚠️ **Complexity** - Requires background worker and retry logic.
 
@@ -442,9 +442,9 @@ When the Database is Shared (Co-located), Pattern 1 attempts to coordinate a tra
     *   `COMMIT;`
 
 #### Characteristics
-- ✅ **True ACID** - Single atomic commit of Order + Event.
-- ✅ **Best Performance** - Zero "coordination" overhead or distributed locks.
-- ✅ **Simple Failure Model** - If anything fails, the database rolls back everything.
+- **True ACID** - Single atomic commit of Order + Event.
+- **Best Performance** - Zero "coordination" overhead or distributed locks.
+- **Simple Failure Model** - If anything fails, the database rolls back everything.
 - ❌ **Coupling** - Domain App must have permissions to write to PeeGeeQ tables (in shared DB).
 
 ---
@@ -454,7 +454,7 @@ When the Database is Shared (Co-located), Pattern 1 attempts to coordinate a tra
 | Aspect | Pattern 1: Callback (Original) | Pattern 2: Saga | Pattern 3: Reservation | Pattern 4: Inversion |
 |--------|----------------------|-------------------------|------------------------|----------------------|
 | **Database** | Shared DB | Separate DBs | Separate or Shared | Shared DB |
-| **ACID?** | ❌ NO (Technically separate Tx) | ❌ NO (Eventual) | ❌ NO (Eventual) | ✅ YES (True ACID) |
+| **ACID?** | ❌ NO (Technically separate Tx) | ❌ NO (Eventual) | ❌ NO (Eventual) | YES (True ACID) |
 | **Performance Risk** | 🔴 HIGH (Connection Starvation) | 🟡 MEDIUM (Latency) | 🟢 LOW (Async) | 🟢 LOW (Direct DB) |
 | **Complexity** | Low | High | Medium | Low (Code-level) |
 | **Consistency** | Weak (Window of failure) | Eventual | Eventual | Strong |
@@ -511,10 +511,10 @@ return connectionProvider.withTransaction("peegeeq-main", connection -> {
 ### Investigation Conclusion
 
 **Verdict:** The pattern is **production-ready** and **battle-tested** in Spring Boot examples. All required infrastructure exists:
-- ✅ `ConnectionProvider.withTransaction()` for transaction management
-- ✅ `EventStore.appendInTransaction()` for bi-temporal event storage
-- ✅ `OutboxProducer.sendInTransaction()` for outbox pattern
-- ✅ Proven pattern in `peegeeq-examples-spring`
+- `ConnectionProvider.withTransaction()` for transaction management
+- `EventStore.appendInTransaction()` for bi-temporal event storage
+- `OutboxProducer.sendInTransaction()` for outbox pattern
+- Proven pattern in `peegeeq-examples-spring`
 
 This design exposes this proven pattern through the core REST API to provide transactional capabilities to all REST clients.
 
@@ -531,7 +531,7 @@ This design exposes this proven pattern through the core REST API to provide tra
 Client                          Domain Application              PeeGeeQ REST API
   │
   ├─► POST /domain/orders        ─► INSERT INTO orders
-  │   (Business Operation)           ✅ Committed (Domain DB)
+  │   (Business Operation)           Committed (Domain DB)
   │
   ├─► POST /api/v1/eventstores   ─► INSERT INTO event_store
   │   (Event Logging)                ❌ FAILS (PeeGeeQ DB)
@@ -786,16 +786,16 @@ This design strictly adheres to the PeeGeeQ layered architecture principles docu
 - **No changes to existing REST endpoints** - backward compatible
 
 **4. Dependency Rules Compliance**
-- ✅ `peegeeq-rest` depends only on `peegeeq-api` and `peegeeq-runtime`
-- ✅ No direct access to `peegeeq-db`, `peegeeq-native`, `peegeeq-outbox`, `peegeeq-bitemporal`
-- ✅ All types referenced in REST handlers are from `peegeeq-api`
-- ✅ Actual implementations obtained via `peegeeq-runtime` services
+- `peegeeq-rest` depends only on `peegeeq-api` and `peegeeq-runtime`
+- No direct access to `peegeeq-db`, `peegeeq-native`, `peegeeq-outbox`, `peegeeq-bitemporal`
+- All types referenced in REST handlers are from `peegeeq-api`
+- Actual implementations obtained via `peegeeq-runtime` services
 
 **5. Vert.x 5.x as Primary Interface**
-- ✅ Uses Vert.x `Future<T>` for reactive composition
-- ✅ Uses Vert.x `SqlConnection` for transaction participation
-- ✅ Follows Vert.x 5.x composable patterns (`.compose()`, `.onSuccess()`, `.onFailure()`)
-- ✅ Vert.x types are the primary API, not implementation details
+- Uses Vert.x `Future<T>` for reactive composition
+- Uses Vert.x `SqlConnection` for transaction participation
+- Follows Vert.x 5.x composable patterns (`.compose()`, `.onSuccess()`, `.onFailure()`)
+- Vert.x types are the primary API, not implementation details
 
 ### Component Diagram
 
@@ -850,13 +850,13 @@ This design strictly adheres to the PeeGeeQ layered architecture principles docu
    ↓
 3. ConnectionProvider.withTransaction() begins
    ↓
-4. INSERT INTO orders (...)              ✅ Success
+4. INSERT INTO orders (...)              Success
    ↓
-5. INSERT INTO order_events (...)        ✅ Success
+5. INSERT INTO order_events (...)        Success
    ↓
-6. INSERT INTO outbox (...)              ✅ Success
+6. INSERT INTO outbox (...)              Success
    ↓
-7. COMMIT TRANSACTION                    ✅ All committed atomically
+7. COMMIT TRANSACTION                    All committed atomically
    ↓
 8. Return 201 Created with response
 ```
@@ -869,11 +869,11 @@ This design strictly adheres to the PeeGeeQ layered architecture principles docu
    ↓
 3. ConnectionProvider.withTransaction() begins
    ↓
-4. INSERT INTO orders (...)              ✅ Success
+4. INSERT INTO orders (...)              Success
    ↓
 5. INSERT INTO order_events (...)        ❌ CONSTRAINT VIOLATION
    ↓
-6. ROLLBACK TRANSACTION                  ✅ All rolled back
+6. ROLLBACK TRANSACTION                  All rolled back
    ↓
 7. Return 500 Internal Server Error
 ```
@@ -982,8 +982,8 @@ This design **extends** the existing PeeGeeQ REST API documented in `peegeeq-int
 - **Purpose:** Coordinate domain operations + event + outbox via generic mechanisms
 - **Pattern 1:** Callback hook pattern for same database (ACID)
 - **Pattern 2:** Saga orchestration for separate databases (eventual consistency)
-- **Backward Compatibility:** ✅ No changes to existing 49 endpoints
-- **Generic Design:** ✅ No domain-specific concepts in PeeGeeQ
+- **Backward Compatibility:** No changes to existing 49 endpoints
+- **Generic Design:** No domain-specific concepts in PeeGeeQ
 
 **Key Difference:**
 - **Existing API:** Separate endpoints for business operations and event logging (no ACID guarantees across calls)
@@ -1398,12 +1398,12 @@ Content-Type: application/json
 **Goal:** Implement single transactional endpoint as proof of concept
 
 **Tasks:**
-1. ✅ Create `TransactionalOrderHandler` class
-2. ✅ Implement request/response DTOs
-3. ✅ Wire up endpoint in `PeeGeeQRestServer`
-4. ✅ Implement transaction coordination logic
-5. ✅ Add integration tests
-6. ✅ Document API in OpenAPI spec
+1. Create `TransactionalOrderHandler` class
+2. Implement request/response DTOs
+3. Wire up endpoint in `PeeGeeQRestServer`
+4. Implement transaction coordination logic
+5. Add integration tests
+6. Document API in OpenAPI spec
 
 **Deliverables:**
 - Working `/api/v1/transactional/orders` endpoint
@@ -1417,12 +1417,12 @@ Content-Type: application/json
 **Goal:** Expand to common business domains
 
 **Tasks:**
-1. ✅ Implement `/api/v1/transactional/trades` endpoint
-2. ✅ Implement `/api/v1/transactional/inventory-reservations` endpoint
-3. ✅ Standardize request/response patterns
-4. ✅ Add comprehensive error handling
-5. ✅ Add validation framework
-6. ✅ Update OpenAPI documentation
+1. Implement `/api/v1/transactional/trades` endpoint
+2. Implement `/api/v1/transactional/inventory-reservations` endpoint
+3. Standardize request/response patterns
+4. Add comprehensive error handling
+5. Add validation framework
+6. Update OpenAPI documentation
 
 **Deliverables:**
 - 3 transactional endpoints
@@ -1435,12 +1435,12 @@ Content-Type: application/json
 **Goal:** Add production-ready features
 
 **Tasks:**
-1. ✅ Implement idempotency support (transaction IDs)
-2. ✅ Add batch transactional operations
-3. ✅ Add transaction status queries
-4. ✅ Add monitoring and metrics
-5. ✅ Add distributed tracing support
-6. ✅ Performance optimization
+1. Implement idempotency support (transaction IDs)
+2. Add batch transactional operations
+3. Add transaction status queries
+4. Add monitoring and metrics
+5. Add distributed tracing support
+6. Performance optimization
 
 **Deliverables:**
 - Idempotency support
@@ -1453,12 +1453,12 @@ Content-Type: application/json
 **Goal:** Prepare for production deployment
 
 **Tasks:**
-1. ✅ Load testing (1000+ concurrent transactions)
-2. ✅ Security audit
-3. ✅ Documentation review
-4. ✅ Client SDK updates
-5. ✅ Migration guide
-6. ✅ Release notes
+1. Load testing (1000+ concurrent transactions)
+2. Security audit
+3. Documentation review
+4. Client SDK updates
+5. Migration guide
+6. Release notes
 
 **Deliverables:**
 - Load test results
@@ -1738,7 +1738,7 @@ String sanitizedDescription =
 
 **Implementation:**
 ```java
-// ✅ SAFE - Parameterized query
+// SAFE - Parameterized query
 String sql = "INSERT INTO orders (id, customer_id, amount) VALUES ($1, $2, $3)";
 connection.preparedQuery(sql)
     .execute(Tuple.of(orderId, customerId, amount));
@@ -1994,17 +1994,17 @@ connectionProvider.withTransaction("client-id", connection -> {
 
 **Guarantee:** Existing endpoints remain unchanged
 
-- ✅ All existing PeeGeeQ REST endpoints continue to work
-- ✅ `/api/v1/eventstores/.../events` - Still works
-- ✅ `/api/v1/queues/.../messages` - Still works
-- ✅ All existing client code continues to function
+- All existing PeeGeeQ REST endpoints continue to work
+- `/api/v1/eventstores/.../events` - Still works
+- `/api/v1/queues/.../messages` - Still works
+- All existing client code continues to function
 
 **New Endpoints:** Additive only
 
-- ✅ `/api/v1/transactional/execute-with-callback` - New generic endpoint (Pattern 1)
-- ✅ `/api/v1/saga/execute` - New generic endpoint (Pattern 2)
-- ✅ No breaking changes to existing APIs
-- ✅ PeeGeeQ remains 100% generic
+- `/api/v1/transactional/execute-with-callback` - New generic endpoint (Pattern 1)
+- `/api/v1/saga/execute` - New generic endpoint (Pattern 2)
+- No breaking changes to existing APIs
+- PeeGeeQ remains 100% generic
 
 ---
 
@@ -2025,8 +2025,8 @@ POST /api/v1/transactional/execute
 ```
 
 **Pros:**
-- ✅ Highly flexible
-- ✅ Single endpoint for all domains
+- Highly flexible
+- Single endpoint for all domains
 
 **Cons:**
 - ❌ **CRITICAL SECURITY RISK:** Arbitrary SQL from clients
@@ -2050,8 +2050,8 @@ POST /api/v1/transactions/{id}/commit
 ```
 
 **Pros:**
-- ✅ Familiar pattern from distributed systems
-- ✅ Explicit transaction control
+- Familiar pattern from distributed systems
+- Explicit transaction control
 
 **Cons:**
 - ❌ Violates REST statelessness
@@ -2079,8 +2079,8 @@ POST /api/v1/transactional/coordinate
 ```
 
 **Pros:**
-- ✅ PeeGeeQ remains generic
-- ✅ No HTTP callbacks
+- PeeGeeQ remains generic
+- No HTTP callbacks
 
 **Cons:**
 - ❌ **Two separate transactions** (customer's and PeeGeeQ's)
@@ -2106,8 +2106,8 @@ POST /api/v1/batch
 ```
 
 **Pros:**
-- ✅ Reuses existing endpoints
-- ✅ Flexible
+- Reuses existing endpoints
+- Flexible
 
 **Cons:**
 - ❌ No transaction guarantees
@@ -2130,10 +2130,10 @@ POST /api/v1/transactional/orders
 ```
 
 **Pros:**
-- ✅ Type-safe and domain-specific
-- ✅ Clear semantics
-- ✅ Easy to validate
-- ✅ Good developer experience
+- Type-safe and domain-specific
+- Clear semantics
+- Easy to validate
+- Good developer experience
 
 **Cons:**
 - ❌ **Violates PeeGeeQ's generic infrastructure principle**
@@ -2258,13 +2258,13 @@ const result = await POST('https://peegeeq.com/api/v1/transactional/execute', {
 ```
 
 **Pros:**
-- ✅ **True ACID guarantees** (single database transaction)
-- ✅ **Pure REST API** (no SDK required, no callbacks)
-- ✅ **Best performance** (single HTTP call, no callback overhead)
-- ✅ **Technology agnostic** (any client can send SQL via REST)
-- ✅ **Simplest client** (single POST request with SQL + event + outbox)
-- ✅ **PeeGeeQ remains generic** (executes arbitrary SQL)
-- ✅ **No anti-patterns** (no HTTP callbacks in transaction)
+- **True ACID guarantees** (single database transaction)
+- **Pure REST API** (no SDK required, no callbacks)
+- **Best performance** (single HTTP call, no callback overhead)
+- **Technology agnostic** (any client can send SQL via REST)
+- **Simplest client** (single POST request with SQL + event + outbox)
+- **PeeGeeQ remains generic** (executes arbitrary SQL)
+- **No anti-patterns** (no HTTP callbacks in transaction)
 
 **Cons:**
 - ⚠️ **Requires same database** (domain and PeeGeeQ tables co-located)
@@ -2273,10 +2273,10 @@ const result = await POST('https://peegeeq.com/api/v1/transactional/execute', {
 - ⚠️ **No type safety** (SQL as strings in JSON)
 
 **When to Use:**
-- ✅ Domain tables co-located with PeeGeeQ tables
-- ✅ Simple CRUD operations (INSERT, UPDATE, DELETE)
-- ✅ ACID guarantees required
-- ✅ Client can construct SQL statements
+- Domain tables co-located with PeeGeeQ tables
+- Simple CRUD operations (INSERT, UPDATE, DELETE)
+- ACID guarantees required
+- Client can construct SQL statements
 - ❌ Complex business logic (use Pattern 2 instead)
 
 **Decision:** **SELECTED as Pattern 1** - Best solution for simple transactional operations when domain tables are in same database
@@ -2299,10 +2299,10 @@ POST /api/v1/transactional/execute-with-callback
 ```
 
 **Pros:**
-- ✅ **PeeGeeQ remains 100% generic** (no domain knowledge)
-- ✅ ACID guarantees (single transaction)
-- ✅ Customer controls business logic via callback
-- ✅ Works for any domain
+- **PeeGeeQ remains 100% generic** (no domain knowledge)
+- ACID guarantees (single transaction)
+- Customer controls business logic via callback
+- Works for any domain
 
 **Cons:**
 - ⚠️ HTTP callback within database transaction (anti-pattern but necessary)
@@ -2328,10 +2328,10 @@ POST /api/v1/saga/execute
 ```
 
 **Pros:**
-- ✅ **PeeGeeQ remains 100% generic** (no domain knowledge)
-- ✅ Works across separate databases
-- ✅ Automatic compensation on failure
-- ✅ Eventual consistency guarantees
+- **PeeGeeQ remains 100% generic** (no domain knowledge)
+- Works across separate databases
+- Automatic compensation on failure
+- Eventual consistency guarantees
 
 **Cons:**
 - ⚠️ Eventual consistency (not ACID)
@@ -2394,10 +2394,10 @@ Content-Type: application/json
 ```
 
 **Pros:**
-- ✅ Single endpoint to maintain
-- ✅ Highly flexible - supports any combination of operations
-- ✅ Extensible - new operation types can be added without new endpoints
-- ✅ Powerful - clients can compose complex transactions
+- Single endpoint to maintain
+- Highly flexible - supports any combination of operations
+- Extensible - new operation types can be added without new endpoints
+- Powerful - clients can compose complex transactions
 
 **Cons:**
 - ❌ **Security Risk:** Clients can specify arbitrary tables and SQL operations
@@ -2449,14 +2449,14 @@ Content-Type: application/json
 ```
 
 **Pros:**
-- ✅ **Type Safe:** Strong typing for each domain entity
-- ✅ **Secure:** No arbitrary table/SQL access
-- ✅ **Clear Semantics:** Endpoint name describes exactly what it does
-- ✅ **Easy Validation:** Domain-specific validation rules
-- ✅ **Better Documentation:** Clear OpenAPI specs per endpoint
-- ✅ **Fine-Grained Authorization:** Permission per domain operation
-- ✅ **Excellent Developer Experience:** Self-documenting, IDE autocomplete
-- ✅ **Maintainable:** Each endpoint has focused responsibility
+- **Type Safe:** Strong typing for each domain entity
+- **Secure:** No arbitrary table/SQL access
+- **Clear Semantics:** Endpoint name describes exactly what it does
+- **Easy Validation:** Domain-specific validation rules
+- **Better Documentation:** Clear OpenAPI specs per endpoint
+- **Fine-Grained Authorization:** Permission per domain operation
+- **Excellent Developer Experience:** Self-documenting, IDE autocomplete
+- **Maintainable:** Each endpoint has focused responsibility
 
 **Cons:**
 - ⚠️ **More Endpoints:** Requires one endpoint per domain entity
@@ -2536,15 +2536,15 @@ Content-Type: application/json
 
 | Aspect | Generic Endpoint | Domain-Specific Endpoints |
 |--------|------------------|---------------------------|
-| Security | ⚠️ High risk | ✅ Secure |
-| Type Safety | ❌ None | ✅ Strong |
-| Validation | ❌ Complex | ✅ Simple |
-| Documentation | ⚠️ Difficult | ✅ Clear |
-| Developer Experience | ⚠️ Poor | ✅ Excellent |
-| Authorization | ❌ Complex | ✅ Fine-grained |
-| Maintainability | ⚠️ Difficult | ✅ Easy |
-| Flexibility | ✅ High | ⚠️ Limited |
-| Number of Endpoints | ✅ One | ⚠️ Multiple |
+| Security | ⚠️ High risk | Secure |
+| Type Safety | ❌ None | Strong |
+| Validation | ❌ Complex | Simple |
+| Documentation | ⚠️ Difficult | Clear |
+| Developer Experience | ⚠️ Poor | Excellent |
+| Authorization | ❌ Complex | Fine-grained |
+| Maintainability | ⚠️ Difficult | Easy |
+| Flexibility | High | ⚠️ Limited |
+| Number of Endpoints | One | ⚠️ Multiple |
 
 **Conclusion:** Domain-specific endpoints provide superior security, developer experience, and maintainability at the acceptable cost of additional endpoints.
 
@@ -2599,14 +2599,14 @@ Client                          Server
 ```
 
 **Pros:**
-- ✅ **Simple Client Code:** Single request, immediate result
-- ✅ **Immediate Confirmation:** Client knows transaction succeeded
-- ✅ **No Polling Required:** No additional requests needed
-- ✅ **Clear Error Handling:** Errors returned immediately in response
-- ✅ **REST Best Practice:** Standard pattern for resource creation (POST → 201)
-- ✅ **Transactional Semantics:** Client knows exact transaction outcome
-- ✅ **No State Management:** Server doesn't track pending transactions
-- ✅ **Easier Testing:** Synchronous tests are simpler
+- **Simple Client Code:** Single request, immediate result
+- **Immediate Confirmation:** Client knows transaction succeeded
+- **No Polling Required:** No additional requests needed
+- **Clear Error Handling:** Errors returned immediately in response
+- **REST Best Practice:** Standard pattern for resource creation (POST → 201)
+- **Transactional Semantics:** Client knows exact transaction outcome
+- **No State Management:** Server doesn't track pending transactions
+- **Easier Testing:** Synchronous tests are simpler
 
 **Cons:**
 - ⚠️ **Client Waits:** HTTP connection held during transaction
@@ -2691,9 +2691,9 @@ Client                          Server
 ```
 
 **Pros:**
-- ✅ **Immediate Response:** Client doesn't wait for transaction
-- ✅ **No Timeout Risk:** Long transactions won't timeout HTTP connection
-- ✅ **Better for Long Operations:** Suitable for complex transactions
+- **Immediate Response:** Client doesn't wait for transaction
+- **No Timeout Risk:** Long transactions won't timeout HTTP connection
+- **Better for Long Operations:** Suitable for complex transactions
 
 **Cons:**
 - ❌ **Complex Client Code:** Must implement polling logic
@@ -2866,7 +2866,7 @@ Order Created → Outbox → Consumers:
   - Notification Service (send email)
   - Analytics Service (update metrics)
 ```
-**Needs Outbox:** ✅ Yes - Immediate downstream processing required
+**Needs Outbox:** Yes - Immediate downstream processing required
 
 **Use Case 2: Historical Data Import**
 ```
@@ -2912,9 +2912,9 @@ Integration tests:
 ```
 
 **Pros:**
-- ✅ **Consistent Behavior:** Every transaction includes outbox
-- ✅ **Simpler API:** No options to configure
-- ✅ **Guaranteed Event Distribution:** Events always reach consumers
+- **Consistent Behavior:** Every transaction includes outbox
+- **Simpler API:** No options to configure
+- **Guaranteed Event Distribution:** Events always reach consumers
 
 **Cons:**
 - ❌ **No Flexibility:** Cannot disable for special cases
@@ -2943,11 +2943,11 @@ Without Outbox: 15-30ms (25% faster)
 ```
 
 **Pros:**
-- ✅ **Flexibility:** Clients choose based on use case
-- ✅ **Performance:** Skip outbox when not needed
-- ✅ **Testing:** Easier test isolation
-- ✅ **Batch Operations:** No consumer spam during imports
-- ✅ **Use Case Specific:** Different needs, different configurations
+- **Flexibility:** Clients choose based on use case
+- **Performance:** Skip outbox when not needed
+- **Testing:** Easier test isolation
+- **Batch Operations:** No consumer spam during imports
+- **Use Case Specific:** Different needs, different configurations
 
 **Cons:**
 - ⚠️ **More Complex API:** Additional option to understand
@@ -3140,7 +3140,7 @@ Requirements:
   - Must track all corrections
   - Historical queries for investigations
 ```
-**Needs Event Store:** ✅ Yes - Regulatory requirement
+**Needs Event Store:** Yes - Regulatory requirement
 
 **Use Case 2: E-Commerce Orders (Standard Operations)**
 ```
@@ -3150,7 +3150,7 @@ Requirements:
   - Analyze order patterns
   - Compliance with consumer protection laws
 ```
-**Needs Event Store:** ✅ Yes - Business and compliance need
+**Needs Event Store:** Yes - Business and compliance need
 
 **Use Case 3: Session Tracking (Ephemeral Data)**
 ```
@@ -3197,10 +3197,10 @@ Requirements:
 ```
 
 **Pros:**
-- ✅ **Complete Audit Trail:** Every transaction recorded
-- ✅ **Regulatory Compliance:** Always compliant
-- ✅ **Simpler API:** No options to configure
-- ✅ **Historical Queries:** Always available
+- **Complete Audit Trail:** Every transaction recorded
+- **Regulatory Compliance:** Always compliant
+- **Simpler API:** No options to configure
+- **Historical Queries:** Always available
 
 **Cons:**
 - ❌ **No Flexibility:** Cannot disable for special cases
@@ -3237,11 +3237,11 @@ Without Event Store: 12-25ms (40% faster)
 ```
 
 **Pros:**
-- ✅ **Flexibility:** Clients choose based on use case
-- ✅ **Performance:** Skip event store when not needed
-- ✅ **Cost Optimization:** Reduce storage for ephemeral data
-- ✅ **Testing:** Faster tests without event store
-- ✅ **Use Case Specific:** Different needs, different configurations
+- **Flexibility:** Clients choose based on use case
+- **Performance:** Skip event store when not needed
+- **Cost Optimization:** Reduce storage for ephemeral data
+- **Testing:** Faster tests without event store
+- **Use Case Specific:** Different needs, different configurations
 
 **Cons:**
 - ⚠️ **More Complex API:** Additional option to understand
@@ -3516,8 +3516,8 @@ Content-Type: application/json
 ```
 
 **Pros:**
-- ✅ **Simpler Implementation:** No idempotency logic needed
-- ✅ **No Storage Overhead:** No need to cache responses
+- **Simpler Implementation:** No idempotency logic needed
+- **No Storage Overhead:** No need to cache responses
 
 **Cons:**
 - ❌ **Duplicate Risk:** Retries create duplicates
@@ -3568,11 +3568,11 @@ if (idempotencyKey != null) {
 ```
 
 **Pros:**
-- ✅ **Standard HTTP Pattern:** `Idempotency-Key` header is industry standard
-- ✅ **Optional:** Clients choose when to use it
-- ✅ **Backward Compatible:** Existing clients continue to work
-- ✅ **Prevents Duplicates:** Retries return cached response
-- ✅ **Safe Retries:** Clients can retry without fear
+- **Standard HTTP Pattern:** `Idempotency-Key` header is industry standard
+- **Optional:** Clients choose when to use it
+- **Backward Compatible:** Existing clients continue to work
+- **Prevents Duplicates:** Retries return cached response
+- **Safe Retries:** Clients can retry without fear
 
 **Cons:**
 - ⚠️ **Storage Overhead:** Must cache responses
@@ -3599,8 +3599,8 @@ Content-Type: application/json
 ```
 
 **Pros:**
-- ✅ **Always Idempotent:** Every request has transaction ID
-- ✅ **No Duplicates:** Guaranteed idempotency
+- **Always Idempotent:** Every request has transaction ID
+- **No Duplicates:** Guaranteed idempotency
 
 **Cons:**
 - ❌ **Breaking Change:** Requires all clients to provide transaction ID
@@ -3890,8 +3890,8 @@ Transaction failed: Constraint violation on order_events table
 ```
 
 **Pros:**
-- ✅ **Simple:** Easy to implement
-- ✅ **Human-Readable:** Clear message
+- **Simple:** Easy to implement
+- **Human-Readable:** Clear message
 
 **Cons:**
 - ❌ **Not Machine-Readable:** Can't parse programmatically
@@ -3934,10 +3934,10 @@ Content-Type: application/problem+json
 - `instance`: URI identifying the specific occurrence
 
 **Pros:**
-- ✅ **Industry Standard:** RFC 7807 is widely adopted
-- ✅ **Structured:** Well-defined format
-- ✅ **Extensible:** Can add custom fields
-- ✅ **Machine-Readable:** Clients can parse programmatically
+- **Industry Standard:** RFC 7807 is widely adopted
+- **Structured:** Well-defined format
+- **Extensible:** Can add custom fields
+- **Machine-Readable:** Clients can parse programmatically
 
 **Cons:**
 - ⚠️ **Generic:** Doesn't capture transaction-specific information
@@ -3985,13 +3985,13 @@ Content-Type: application/json
 ```
 
 **Pros:**
-- ✅ **Transaction-Specific:** Captures rollback status
-- ✅ **Failed Operation:** Identifies which step failed
-- ✅ **Detailed Context:** Includes relevant IDs and data
-- ✅ **Machine-Readable:** Error codes for programmatic handling
-- ✅ **Human-Readable:** Clear messages for debugging
-- ✅ **Compatible:** Matches existing PeeGeeQ error format
-- ✅ **Standard Content-Type:** Uses `application/json`
+- **Transaction-Specific:** Captures rollback status
+- **Failed Operation:** Identifies which step failed
+- **Detailed Context:** Includes relevant IDs and data
+- **Machine-Readable:** Error codes for programmatic handling
+- **Human-Readable:** Clear messages for debugging
+- **Compatible:** Matches existing PeeGeeQ error format
+- **Standard Content-Type:** Uses `application/json`
 
 **Cons:**
 - ⚠️ **Not RFC Standard:** Custom format
@@ -4763,10 +4763,10 @@ Future<Order> save(Order order, SqlConnection connection);
 ### Benefits Analysis
 
 #### 1. ACID Guarantees
-- ✅ All operations succeed together or fail together
-- ✅ No partial updates
-- ✅ Database ensures consistency
-- ✅ Automatic rollback on any failure
+- All operations succeed together or fail together
+- No partial updates
+- Database ensures consistency
+- Automatic rollback on any failure
 
 #### 2. Simplified Client Code
 **Before (Multiple Requests):**
@@ -4811,38 +4811,38 @@ if (!response.ok) {
 ```
 
 #### 3. Data Consistency
-- ✅ Business data and events always in sync
-- ✅ Complete audit trail guaranteed
-- ✅ No orphaned records
-- ✅ Regulatory compliance easier
+- Business data and events always in sync
+- Complete audit trail guaranteed
+- No orphaned records
+- Regulatory compliance easier
 
 #### 4. Performance
-- ✅ Single network round-trip
-- ✅ Single database transaction
-- ✅ Reduced latency (no multiple HTTP calls)
-- ✅ Lower network overhead
+- Single network round-trip
+- Single database transaction
+- Reduced latency (no multiple HTTP calls)
+- Lower network overhead
 
 ### Comparison with Existing Patterns
 
 | Aspect | Current REST API | Proposed Transactional API | Spring Boot Example |
 |--------|------------------|---------------------------|---------------------|
 | **Requests** | Multiple (2-3) | Single | Single (internal) |
-| **ACID** | ❌ No | ✅ Yes | ✅ Yes |
-| **Client Complexity** | ⚠️ High | ✅ Low | ✅ Low (client) |
+| **ACID** | ❌ No | Yes | Yes |
+| **Client Complexity** | ⚠️ High | Low | Low (client) |
 | **Partial Failures** | ⚠️ Possible | ❌ No | ❌ No |
-| **Network Overhead** | ⚠️ High | ✅ Low | ✅ Low |
-| **Data Consistency** | ⚠️ At risk | ✅ Guaranteed | ✅ Guaranteed |
-| **Audit Trail** | ⚠️ Incomplete | ✅ Complete | ✅ Complete |
-| **Implementation** | ✅ Exists | ⏳ Needed | ✅ Exists |
+| **Network Overhead** | ⚠️ High | Low | Low |
+| **Data Consistency** | ⚠️ At risk | Guaranteed | Guaranteed |
+| **Audit Trail** | ⚠️ Incomplete | Complete | Complete |
+| **Implementation** | Exists | ⏳ Needed | Exists |
 
 ### Implementation Analysis
 
 #### Required Components (All Exist)
-- ✅ `ConnectionProvider.withTransaction()` - Transaction management
-- ✅ `EventStore.appendInTransaction()` - Bi-temporal event storage
-- ✅ `OutboxProducer.sendInTransaction()` - Outbox pattern
-- ✅ Vert.x 5.x reactive patterns - Composable Futures
-- ✅ PostgreSQL ACID transactions - Database support
+- `ConnectionProvider.withTransaction()` - Transaction management
+- `EventStore.appendInTransaction()` - Bi-temporal event storage
+- `OutboxProducer.sendInTransaction()` - Outbox pattern
+- Vert.x 5.x reactive patterns - Composable Futures
+- PostgreSQL ACID transactions - Database support
 
 #### New Components Needed
 - ⏳ REST handler for transactional endpoints
@@ -4861,10 +4861,10 @@ if (!response.ok) {
 ### Risk Analysis
 
 #### Low Risk
-- ✅ Pattern proven in Spring Boot examples
-- ✅ All infrastructure exists
-- ✅ PostgreSQL ACID guarantees well-understood
-- ✅ Vert.x 5.x patterns established
+- Pattern proven in Spring Boot examples
+- All infrastructure exists
+- PostgreSQL ACID guarantees well-understood
+- Vert.x 5.x patterns established
 
 #### Medium Risk
 - ⚠️ REST API changes require client updates (mitigated: new endpoints, backward compatible)
@@ -4879,7 +4879,7 @@ if (!response.ok) {
 
 ### Investigation Conclusion
 
-**Status:** ✅ **PROVEN AND READY FOR IMPLEMENTATION**
+**Status:** **PROVEN AND READY FOR IMPLEMENTATION**
 
 **Key Findings:**
 1. Pattern is **already implemented** in Spring Boot examples
@@ -4949,11 +4949,11 @@ All transactional endpoints follow the same pattern:
 
 **Key Architectural Points:**
 
-- ✅ **Adheres to Layered Architecture:** `peegeeq-rest` depends only on `peegeeq-api` and `peegeeq-runtime`
-- ✅ **Uses Existing Interfaces:** No new interfaces required in `peegeeq-api`
-- ✅ **Transaction Participation:** Uses existing `appendInTransaction()` and `sendInTransaction()` methods
-- ✅ **Vert.x 5.x Native:** Uses Vert.x `Future` and `SqlConnection` types
-- ✅ **Backward Compatible:** No changes to existing 49 REST endpoints
+- **Adheres to Layered Architecture:** `peegeeq-rest` depends only on `peegeeq-api` and `peegeeq-runtime`
+- **Uses Existing Interfaces:** No new interfaces required in `peegeeq-api`
+- **Transaction Participation:** Uses existing `appendInTransaction()` and `sendInTransaction()` methods
+- **Vert.x 5.x Native:** Uses Vert.x `Future` and `SqlConnection` types
+- **Backward Compatible:** No changes to existing 49 REST endpoints
 
 **Example Transaction Flow:**
 

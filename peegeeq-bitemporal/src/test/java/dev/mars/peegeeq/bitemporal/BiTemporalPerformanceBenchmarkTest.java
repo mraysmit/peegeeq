@@ -139,7 +139,7 @@ public class BiTemporalPerformanceBenchmarkTest {
         // Give the reactive notification handler time to become active
         awaitAsyncDelay(1000);
 
-        logger.info("✅ Performance benchmark test setup complete");
+        logger.info("Performance benchmark test setup complete");
     }
 
     @AfterEach
@@ -217,7 +217,7 @@ public class BiTemporalPerformanceBenchmarkTest {
         long sequentialDuration = sequentialEndTime - sequentialStartTime;
         double sequentialThroughput = (double) messageCount / (sequentialDuration / 1000.0);
 
-        logger.info("✅ Sequential Approach: {} events in {} ms ({} events/sec)",
+        logger.info("Sequential Approach: {} events in {} ms ({} events/sec)",
                    messageCount, sequentialDuration, String.format("%.1f", sequentialThroughput));
 
         // Benchmark Concurrent approach
@@ -243,7 +243,7 @@ public class BiTemporalPerformanceBenchmarkTest {
         double concurrentThroughput = (double) messageCount / (concurrentDuration / 1000.0);
 
         // Log results
-        logger.info("✅ Concurrent Approach: {} events in {} ms ({} events/sec)",
+        logger.info("Concurrent Approach: {} events in {} ms ({} events/sec)",
                    messageCount, concurrentDuration, String.format("%.1f", concurrentThroughput));
 
         // Calculate improvement
@@ -283,7 +283,7 @@ public class BiTemporalPerformanceBenchmarkTest {
         CompletableFuture.allOf(populationFutures.toArray(new CompletableFuture[0]))
                 .get(60, TimeUnit.SECONDS);
         
-        logger.info("✅ Dataset populated successfully");
+        logger.info("Dataset populated successfully");
 
         // Benchmark different query types
         benchmarkQueryAllEvents();
@@ -303,7 +303,7 @@ public class BiTemporalPerformanceBenchmarkTest {
         long endTime = System.currentTimeMillis();
         long duration = endTime - startTime;
 
-        logger.info("✅ QueryAll: {} events retrieved in {} ms ({} events/sec)",
+        logger.info("QueryAll: {} events retrieved in {} ms ({} events/sec)",
                    allEvents.size(), duration, String.format("%.1f", (double) allEvents.size() / (duration / 1000.0)));
 
         assertTrue(allEvents.size() >= 5000, "Should retrieve all populated events, got: " + allEvents.size());
@@ -324,7 +324,7 @@ public class BiTemporalPerformanceBenchmarkTest {
         long endTime = System.currentTimeMillis();
         long duration = endTime - startTime;
 
-        logger.info("✅ QueryByEventType: {} events retrieved in {} ms ({} events/sec)",
+        logger.info("QueryByEventType: {} events retrieved in {} ms ({} events/sec)",
                    typeEvents.size(), duration, String.format("%.1f", (double) typeEvents.size() / (duration / 1000.0)));
 
         assertTrue(typeEvents.size() == 5000, "Should retrieve exactly 5000 QueryTest events, got: " + typeEvents.size());
@@ -347,7 +347,7 @@ public class BiTemporalPerformanceBenchmarkTest {
         long benchmarkEnd = System.currentTimeMillis();
         long duration = benchmarkEnd - benchmarkStart;
 
-        logger.info("✅ QueryByTimeRange: {} events retrieved in {} ms ({} events/sec)",
+        logger.info("QueryByTimeRange: {} events retrieved in {} ms ({} events/sec)",
                    rangeEvents.size(), duration, String.format("%.1f", (double) rangeEvents.size() / (duration / 1000.0)));
 
         assertTrue(rangeEvents.size() > 0, "Should retrieve events in the time range");
@@ -445,7 +445,7 @@ public class BiTemporalPerformanceBenchmarkTest {
         long finalMemory = runtime.totalMemory() - runtime.freeMemory();
         long totalIncrease = finalMemory - baselineMemory;
 
-        logger.info("✅ Memory test completed: Final memory {} MB (total increase: {} MB)",
+        logger.info("Memory test completed: Final memory {} MB (total increase: {} MB)",
                    finalMemory / (1024 * 1024), totalIncrease / (1024 * 1024));
 
         // Validate reasonable memory usage (reduced expectations for smaller test)
@@ -519,7 +519,7 @@ public class BiTemporalPerformanceBenchmarkTest {
         long duration = endTime - startTime;
         double throughput = (double) receivedNotifications.size() / (duration / 1000.0);
 
-        logger.info("✅ Notification Performance: {}/{} notifications received in {} ms ({} notifications/sec)",
+        logger.info("Notification Performance: {}/{} notifications received in {} ms ({} notifications/sec)",
                    receivedNotifications.size(), notificationCount, duration, String.format("%.1f", throughput));
 
         // Validate notification delivery - adjusted for performance test conditions
@@ -592,7 +592,7 @@ public class BiTemporalPerformanceBenchmarkTest {
         long actualDuration = apiSubmissionDuration;
         double actualThroughput = apiSubmissionThroughput;
 
-        logger.info("✅ High-Throughput Results:");
+        logger.info("High-Throughput Results:");
         logger.info("   📊 Messages: {} in {} ms", expectedMessages, actualDuration);
         logger.info("   📊 Actual Throughput: {} msg/sec", String.format("%.1f", actualThroughput));
         logger.info("   📊 Target Achievement: {}%", String.format("%.1f", (actualThroughput / targetThroughput) * 100));
@@ -670,7 +670,7 @@ public class BiTemporalPerformanceBenchmarkTest {
         if (avgLatencyMs < 100) {
             logger.info("🚀 EXCELLENT: Average latency under 100ms");
         } else if (avgLatencyMs < 250) {
-            logger.info("✅ GOOD: Average latency under 250ms");
+            logger.info("GOOD: Average latency under 250ms");
         } else if (avgLatencyMs < 500) {
             logger.info("👍 ACCEPTABLE: Average latency under 500ms");
         } else {
@@ -702,7 +702,7 @@ public class BiTemporalPerformanceBenchmarkTest {
         long individualDuration = individualEndTime - individualStartTime;
         double individualThroughput = (double) messageCount / (individualDuration / 1000.0);
 
-        logger.info("✅ Individual Operations: {} events in {} ms ({} events/sec)",
+        logger.info("Individual Operations: {} events in {} ms ({} events/sec)",
                    messageCount, individualDuration, String.format("%.1f", individualThroughput));
 
         // Benchmark Batch operations (concurrent)
@@ -726,7 +726,7 @@ public class BiTemporalPerformanceBenchmarkTest {
         long batchDuration = batchEndTime - batchStartTime;
         double batchThroughput = (double) messageCount / (batchDuration / 1000.0);
 
-        logger.info("✅ Batch Operations: {} events in {} ms ({} events/sec)",
+        logger.info("Batch Operations: {} events in {} ms ({} events/sec)",
                    messageCount, batchDuration, String.format("%.1f", batchThroughput));
 
         // Calculate improvement
@@ -743,7 +743,7 @@ public class BiTemporalPerformanceBenchmarkTest {
         if (improvementFactor >= 5.0) {
             logger.info("🚀 EXCELLENT: Batch operations show excellent performance improvement");
         } else if (improvementFactor >= 3.0) {
-            logger.info("✅ GOOD: Batch operations show good performance improvement");
+            logger.info("GOOD: Batch operations show good performance improvement");
         } else if (improvementFactor >= 2.0) {
             logger.info("👍 MODERATE: Batch operations show moderate improvement");
         } else {
@@ -829,7 +829,7 @@ public class BiTemporalPerformanceBenchmarkTest {
         if (memoryPerEvent < 1000) {
             logger.info("🚀 EXCELLENT: Memory usage < 1KB per event");
         } else if (memoryPerEvent < 5000) {
-            logger.info("✅ GOOD: Memory usage < 5KB per event");
+            logger.info("GOOD: Memory usage < 5KB per event");
         } else if (memoryPerEvent < 10000) {
             logger.info("👍 ACCEPTABLE: Memory usage < 10KB per event");
         } else {
@@ -935,7 +935,7 @@ public class BiTemporalPerformanceBenchmarkTest {
         if (throughputPerCore > 500) {
             logger.info("🚀 EXCELLENT: High throughput per processor core");
         } else if (throughputPerCore > 250) {
-            logger.info("✅ GOOD: Good throughput per processor core");
+            logger.info("GOOD: Good throughput per processor core");
         } else if (throughputPerCore > 100) {
             logger.info("👍 ACCEPTABLE: Acceptable throughput per processor core");
         } else {
@@ -945,7 +945,7 @@ public class BiTemporalPerformanceBenchmarkTest {
         if (memoryEfficiency > 100) {
             logger.info("🚀 EXCELLENT: High memory efficiency");
         } else if (memoryEfficiency > 50) {
-            logger.info("✅ GOOD: Good memory efficiency");
+            logger.info("GOOD: Good memory efficiency");
         } else if (memoryEfficiency > 20) {
             logger.info("👍 ACCEPTABLE: Acceptable memory efficiency");
         } else {
@@ -976,7 +976,7 @@ public class BiTemporalPerformanceBenchmarkTest {
             // Deploy verticles and wait for completion
             String deploymentId = PgBiTemporalEventStore.deployDatabaseWorkerVerticles(verticleInstances, "bitemporal_event_log")
                 .toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
-            logger.info("✅ Successfully deployed database worker verticles with deployment ID: {}", deploymentId);
+            logger.info("Successfully deployed database worker verticles with deployment ID: {}", deploymentId);
         } catch (Exception e) {
             logger.error("❌ Failed to deploy database worker verticles: {}", e.getMessage(), e);
             throw e;
@@ -1037,7 +1037,7 @@ public class BiTemporalPerformanceBenchmarkTest {
         long duration = endTime - startTime;
         double actualThroughput = (double) totalEvents / (duration / 1000.0);
 
-        logger.info("✅ High-Throughput Validation Results:");
+        logger.info("High-Throughput Validation Results:");
         logger.info("   📊 Total Events: {}", totalEvents);
         logger.info("   📊 Execution Time: {:.2f} seconds", duration / 1000.0);
         logger.info("   📊 Actual Throughput: {} events/sec", Math.round(actualThroughput));
@@ -1054,7 +1054,7 @@ public class BiTemporalPerformanceBenchmarkTest {
             logger.info("🎉 EXCELLENT: Meets or exceeds original target of {} events/sec with {} verticle instances!",
                        targetThroughput, verticleInstances);
         } else if (actualThroughput >= realisticTarget) {
-            logger.info("✅ SUCCESS: Meets realistic target of {} events/sec with {} verticle instances (Original target: {} events/sec)",
+            logger.info("SUCCESS: Meets realistic target of {} events/sec with {} verticle instances (Original target: {} events/sec)",
                        realisticTarget, verticleInstances, targetThroughput);
         }
 

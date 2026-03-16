@@ -35,7 +35,7 @@ async function killExistingServer() {
           const pid = match[1]
           console.log(`   Found process ${pid} on port ${DEV_SERVER_PORT}, killing...`)
           await execAsync(`taskkill /F /PID ${pid}`)
-          console.log(`   ✅ Killed process ${pid}`)
+          console.log(`   Killed process ${pid}`)
         }
       }
     } else {
@@ -46,12 +46,12 @@ async function killExistingServer() {
       for (const pid of pids) {
         console.log(`   Found process ${pid} on port ${DEV_SERVER_PORT}, killing...`)
         await execAsync(`kill -9 ${pid}`)
-        console.log(`   ✅ Killed process ${pid}`)
+        console.log(`   Killed process ${pid}`)
       }
     }
   } catch (error) {
     // No process found on port - this is fine
-    console.log(`   ✅ No existing dev server found`)
+    console.log(`   No existing dev server found`)
   }
   
   // Wait a bit for port to be released
@@ -100,7 +100,7 @@ async function main() {
     // Run tests (Playwright will start the dev server via webServer config)
     await runTests()
     
-    console.log('\n✅ Tests completed successfully\n')
+    console.log('\nTests completed successfully\n')
     process.exit(0)
   } catch (error) {
     console.error('\n❌ Test run failed:', error.message)

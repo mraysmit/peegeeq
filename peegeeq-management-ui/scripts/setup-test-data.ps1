@@ -10,7 +10,7 @@ Write-Host ""
 Write-Host "1️⃣  Checking backend health..." -ForegroundColor Yellow
 try {
     $health = Invoke-RestMethod -Uri "$API_BASE/health" -Method Get -TimeoutSec 5
-    Write-Host "   ✅ Backend is healthy" -ForegroundColor Green
+    Write-Host "   Backend is healthy" -ForegroundColor Green
 } catch {
     Write-Host "   ❌ Backend is not running on port 8080" -ForegroundColor Red
     Write-Host "   Please start the backend first: cd peegeeq-rest && mvn exec:java" -ForegroundColor Red
@@ -54,7 +54,7 @@ try {
         -Method Post `
         -ContentType "application/json" `
         -Body $testSetup | Out-Null
-    Write-Host "   ✅ Created setup: test-setup with 2 queues" -ForegroundColor Green
+    Write-Host "   Created setup: test-setup with 2 queues" -ForegroundColor Green
 } catch {
     Write-Host "   ⚠️  Setup test-setup may already exist" -ForegroundColor Yellow
 }
@@ -78,7 +78,7 @@ try {
         -Method Post `
         -ContentType "application/json" `
         -Body $demoSetup | Out-Null
-    Write-Host "   ✅ Created setup: demo-setup with 1 queue" -ForegroundColor Green
+    Write-Host "   Created setup: demo-setup with 1 queue" -ForegroundColor Green
 } catch {
     Write-Host "   ⚠️  Setup demo-setup may already exist" -ForegroundColor Yellow
 }
@@ -105,7 +105,7 @@ for ($i = 1; $i -le 5; $i++) {
         Write-Host "   ⚠️  Failed to send message $i to test-queue-1" -ForegroundColor Yellow
     }
 }
-Write-Host "   ✅ Sent 5 messages to test-setup/test-queue-1" -ForegroundColor Green
+Write-Host "   Sent 5 messages to test-setup/test-queue-1" -ForegroundColor Green
 
 # Send messages to Queue 2
 for ($i = 1; $i -le 3; $i++) {
@@ -126,7 +126,7 @@ for ($i = 1; $i -le 3; $i++) {
         Write-Host "   ⚠️  Failed to send message $i to test-queue-2" -ForegroundColor Yellow
     }
 }
-Write-Host "   ✅ Sent 3 messages to test-setup/test-queue-2" -ForegroundColor Green
+Write-Host "   Sent 3 messages to test-setup/test-queue-2" -ForegroundColor Green
 
 # Send messages to Queue 3
 for ($i = 1; $i -le 2; $i++) {
@@ -147,7 +147,7 @@ for ($i = 1; $i -le 2; $i++) {
         Write-Host "   ⚠️  Failed to send message $i to demo-queue" -ForegroundColor Yellow
     }
 }
-Write-Host "   ✅ Sent 2 messages to demo-setup/demo-queue" -ForegroundColor Green
+Write-Host "   Sent 2 messages to demo-setup/demo-queue" -ForegroundColor Green
 
 Write-Host ""
 Write-Host "4️⃣  Verifying test data..." -ForegroundColor Yellow
@@ -164,7 +164,7 @@ try {
 }
 
 Write-Host ""
-Write-Host "✅ Test data setup complete!" -ForegroundColor Green
+Write-Host "Test data setup complete!" -ForegroundColor Green
 Write-Host ""
 Write-Host "📋 Next steps:" -ForegroundColor Cyan
 Write-Host "   1. Verify data in UI: http://localhost:3000" -ForegroundColor White

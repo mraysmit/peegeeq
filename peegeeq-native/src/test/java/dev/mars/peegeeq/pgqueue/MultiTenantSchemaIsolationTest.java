@@ -138,7 +138,7 @@ class MultiTenantSchemaIsolationTest {
         factoryTenantA = providerTenantA.createFactory("native", dbServiceTenantA);
         factoryTenantB = providerTenantB.createFactory("native", dbServiceTenantB);
 
-        logger.info("✅ Multi-tenant setup complete");
+        logger.info("Multi-tenant setup complete");
         System.out.println("========== SETUP COMPLETE ==========");
         System.out.flush();
     }
@@ -164,7 +164,7 @@ class MultiTenantSchemaIsolationTest {
         // Tenant A sends a message
         MessageProducer<String> producerA = factoryTenantA.createProducer("test-queue", String.class);
         producerA.send("tenant-a-message").get(5, TimeUnit.SECONDS);
-        logger.info("✅ Tenant A sent message: tenant-a-message");
+        logger.info("Tenant A sent message: tenant-a-message");
 
         // Give a moment for the message to be persisted
         VertxTestContext tenantBContext = new VertxTestContext();
@@ -205,7 +205,7 @@ class MultiTenantSchemaIsolationTest {
         assertEquals(1, receivedA.size(), "Tenant A should have 1 message");
         assertEquals("tenant-a-message", receivedA.get(0), "Message content should match");
 
-        logger.info("✅ Test 1: Message isolation verified successfully");
+        logger.info("Test 1: Message isolation verified successfully");
     }
 
     /**
@@ -245,7 +245,7 @@ class MultiTenantSchemaIsolationTest {
         assertEquals(5, statsA.getPendingMessages(), "Tenant A should have 5 pending messages");
         assertEquals(3, statsB.getPendingMessages(), "Tenant B should have 3 pending messages");
 
-        logger.info("✅ Test 2: Stats isolation verified successfully");
+        logger.info("Test 2: Stats isolation verified successfully");
     }
 
     /**
@@ -295,7 +295,7 @@ class MultiTenantSchemaIsolationTest {
         assertEquals(1, receivedB.size(), "Tenant B should have 1 message");
         assertEquals("tenant-b-data", receivedB.get(0), "Tenant B should receive its own message");
 
-        logger.info("✅ Test 3: Same queue name isolation verified successfully");
+        logger.info("Test 3: Same queue name isolation verified successfully");
     }
 }
 

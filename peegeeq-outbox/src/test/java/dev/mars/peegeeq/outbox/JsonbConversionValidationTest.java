@@ -138,7 +138,7 @@ class JsonbConversionValidationTest {
                     String extractedValue = rs.getString("extracted_value");
                     assertEquals(testMessage, extractedValue, "Should be able to extract value using JSON operators");
                     
-                    logger.info("✅ Simple string payload correctly stored as JSONB object");
+                    logger.info("Simple string payload correctly stored as JSONB object");
                     logger.info("   Payload type: {}", payloadType);
                     logger.info("   Extracted value: {}", extractedValue);
                 }
@@ -207,7 +207,7 @@ class JsonbConversionValidationTest {
                     assertEquals("299.99", amount, "Should extract amount from payload");
                     assertEquals("test-correlation-123", correlationId, "Should extract correlationId from headers");
                     
-                    logger.info("✅ Complex object payload correctly stored as JSONB object");
+                    logger.info("Complex object payload correctly stored as JSONB object");
                     logger.info("   Payload type: {}, Headers type: {}", payloadType, headersType);
                     logger.info("   Extracted orderId: {}, amount: {}, correlationId: {}", orderId, amount, correlationId);
                 }
@@ -261,7 +261,7 @@ class JsonbConversionValidationTest {
                 processedCount.incrementAndGet();
                 latch.complete(null);
                 
-                logger.info("✅ Consumer successfully read JSONB objects");
+                logger.info("Consumer successfully read JSONB objects");
                 logger.info("   Received order: {}", receivedOrder.getOrderId());
                 logger.info("   Received headers: {}", receivedHeaders.size());
                 

@@ -208,7 +208,7 @@ public class QueueManagementAdvancedE2ETest {
                     assertEquals(expectedMessages, messageCount,
                         "Queue should have all " + expectedMessages + " messages");
 
-                    logger.info("✅ Concurrent publishing test passed - {} messages in queue", messageCount);
+                    logger.info("Concurrent publishing test passed - {} messages in queue", messageCount);
                     testContext.completeNow();
                 });
             })
@@ -258,7 +258,7 @@ public class QueueManagementAdvancedE2ETest {
                     long messageCount = body.getLong("messages", -1L);
                     assertEquals(0L, messageCount, "Queue should still be empty");
 
-                    logger.info("✅ Empty queue operations test passed");
+                    logger.info("Empty queue operations test passed");
                     testContext.completeNow();
                 });
             })
@@ -293,7 +293,7 @@ public class QueueManagementAdvancedE2ETest {
                 testContext.verify(() -> {
                     assertEquals(200, response.statusCode(), "Large message should be published successfully");
 
-                    logger.info("✅ Large message payload test passed - {} bytes", largeContent.length());
+                    logger.info("Large message payload test passed - {} bytes", largeContent.length());
                     testContext.completeNow();
                 });
             })
@@ -323,7 +323,7 @@ public class QueueManagementAdvancedE2ETest {
                 testContext.verify(() -> {
                     assertEquals(200, response.statusCode(), "Message with special characters should be published");
 
-                    logger.info("✅ Special characters test passed");
+                    logger.info("Special characters test passed");
                     testContext.completeNow();
                 });
             })
@@ -351,7 +351,7 @@ public class QueueManagementAdvancedE2ETest {
 
         operationChain
             .onSuccess(v -> {
-                logger.info("✅ Rapid queue operations test passed - 10 pause/resume cycles completed");
+                logger.info("Rapid queue operations test passed - 10 pause/resume cycles completed");
                 testContext.completeNow();
             })
             .onFailure(testContext::failNow);
@@ -370,7 +370,7 @@ public class QueueManagementAdvancedE2ETest {
             .onSuccess(response -> {
                 testContext.verify(() -> {
                     assertTrue(response.statusCode() >= 400, "Should return error for invalid JSON");
-                    logger.info("✅ Invalid message format test passed - returned status {}", response.statusCode());
+                    logger.info("Invalid message format test passed - returned status {}", response.statusCode());
                     testContext.completeNow();
                 });
             })
@@ -424,7 +424,7 @@ public class QueueManagementAdvancedE2ETest {
                     long messageCount = body.getLong("messages", -1L);
                     assertEquals(0L, messageCount, "Queue should be empty after concurrent purges");
 
-                    logger.info("✅ Concurrent queue purge test passed");
+                    logger.info("Concurrent queue purge test passed");
                     testContext.completeNow();
                 });
             })
@@ -469,7 +469,7 @@ public class QueueManagementAdvancedE2ETest {
             .onSuccess(v -> {
                 testContext.verify(() -> {
                     assertEquals(10, publishCount.get(), "All messages should be published");
-                    logger.info("✅ Queue details during operations test passed");
+                    logger.info("Queue details during operations test passed");
                     testContext.completeNow();
                 });
             })

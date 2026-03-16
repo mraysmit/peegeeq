@@ -108,7 +108,7 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
         assertNull(subscription.startFromTimestamp(),
             "start_from_timestamp should be NULL for FROM_BEGINNING");
 
-        logger.info("✅ FROM_BEGINNING → start_from_message_id=1 verified");
+        logger.info("FROM_BEGINNING → start_from_message_id=1 verified");
     }
 
     @Test
@@ -144,7 +144,7 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
             "FROM_NOW should store start_from_message_id >= 1");
         assertNull(subscription.startFromTimestamp());
 
-        logger.info("✅ FROM_NOW → start_from_message_id={} verified",
+        logger.info("FROM_NOW → start_from_message_id={} verified",
             subscription.startFromMessageId());
     }
 
@@ -182,7 +182,7 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
             "FROM_MESSAGE_ID must store exact provided message ID");
         assertNull(subscription.startFromTimestamp());
 
-        logger.info("✅ FROM_MESSAGE_ID(42) → start_from_message_id=42 verified");
+        logger.info("FROM_MESSAGE_ID(42) → start_from_message_id=42 verified");
     }
 
     @Test
@@ -224,7 +224,7 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
         assertTrue(diffMillis < 1000,
             String.format("Timestamp difference should be < 1 second (was %d ms)", diffMillis));
 
-        logger.info("✅ FROM_TIMESTAMP → stored correctly (diff: {} ms)", diffMillis);
+        logger.info("FROM_TIMESTAMP → stored correctly (diff: {} ms)", diffMillis);
     }
 
     @Test
@@ -276,7 +276,7 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
         assertEquals(1L, updatedSubscription.startFromMessageId().longValue(),
             "After update, start_from_message_id should be 1 (FROM_BEGINNING)");
 
-        logger.info("✅ Update verified: {} → 1 (FROM_NOW → FROM_BEGINNING)", initialMessageId);
+        logger.info("Update verified: {} → 1 (FROM_NOW → FROM_BEGINNING)", initialMessageId);
     }
 
     @Test
@@ -308,7 +308,7 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
         assertEquals(0L, subscription.startFromMessageId().longValue(),
             "Should accept and store message ID = 0");
 
-        logger.info("✅ Edge case verified: message ID = 0 handled correctly");
+        logger.info("Edge case verified: message ID = 0 handled correctly");
     }
 
     @Test
@@ -328,7 +328,7 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
 
         assertNull(subscription, "Non-existent subscription should return null");
 
-        logger.info("✅ Non-existent subscription returns null correctly");
+        logger.info("Non-existent subscription returns null correctly");
     }
 
     @Test
@@ -361,7 +361,7 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
             .toCompletionStage().toCompletableFuture().get();
 
         assertEquals(100L, updated.startFromMessageId().longValue());
-        logger.info("✅ Update verified: FROM_BEGINNING(1) → FROM_MESSAGE_ID(100)");
+        logger.info("Update verified: FROM_BEGINNING(1) → FROM_MESSAGE_ID(100)");
     }
 
     @Test
@@ -397,7 +397,7 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
 
         assertEquals(100L, final_sub.startFromMessageId().longValue(),
             "Last update should win");
-        logger.info("✅ Multiple updates: last write (100) wins");
+        logger.info("Multiple updates: last write (100) wins");
     }
 
     @Test
@@ -436,7 +436,7 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
         assertEquals(3600, sub3600.heartbeatIntervalSeconds());
         assertEquals(7200, sub3600.heartbeatTimeoutSeconds());
 
-        logger.info("✅ Heartbeat edge cases: (1s/2s) and (3600s/7200s) verified");
+        logger.info("Heartbeat edge cases: (1s/2s) and (3600s/7200s) verified");
     }
 
     // Helper method

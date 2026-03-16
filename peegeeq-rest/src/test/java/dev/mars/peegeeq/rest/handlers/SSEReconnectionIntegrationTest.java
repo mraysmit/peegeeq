@@ -195,7 +195,7 @@ public class SSEReconnectionIntegrationTest {
                             if (line.startsWith("id: ")) {
                                 String eventId = line.substring(4).trim();
                                 receivedEventIds.add(eventId);
-                                logger.info("✅ Received SSE event with ID: {}", eventId);
+                                logger.info("Received SSE event with ID: {}", eventId);
                                 messageLatch.countDown();
                             }
                         }
@@ -227,7 +227,7 @@ public class SSEReconnectionIntegrationTest {
             assertNotNull(receivedEventIds.get(0), "First event ID should not be null");
             assertNotNull(receivedEventIds.get(1), "Second event ID should not be null");
             assertNotEquals(receivedEventIds.get(0), receivedEventIds.get(1), "Event IDs should be unique");
-            logger.info("✅ All SSE events include unique message IDs");
+            logger.info("All SSE events include unique message IDs");
         });
         
         // Close the SSE connection
@@ -329,7 +329,7 @@ public class SSEReconnectionIntegrationTest {
         // The actual verification is in the server logs showing:
         // "SSE reconnection detected for connection sse-X, Last-Event-ID: test-message-id-123"
         testContext.verify(() -> {
-            logger.info("✅ Last-Event-ID header was successfully parsed and processed");
+            logger.info("Last-Event-ID header was successfully parsed and processed");
         });
 
         // Close connection
@@ -384,7 +384,7 @@ public class SSEReconnectionIntegrationTest {
 
         // Verify the connection was established (logs should NOT show "SSE reconnection detected")
         testContext.verify(() -> {
-            logger.info("✅ Connection without Last-Event-ID established successfully");
+            logger.info("Connection without Last-Event-ID established successfully");
         });
 
         // Close connection

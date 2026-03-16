@@ -197,12 +197,12 @@ mvn test -pl peegeeq-examples -Dtest=PaymentProcessorServiceTest
 ```
 
 Tests include:
-- ✅ Successful payment processing
-- ✅ Bean injection verification
-- ✅ DLQ depth endpoint
-- ✅ DLQ stats endpoint
-- ✅ DLQ metrics endpoint
-- ✅ DLQ messages endpoint
+- Successful payment processing
+- Bean injection verification
+- DLQ depth endpoint
+- DLQ stats endpoint
+- DLQ metrics endpoint
+- DLQ messages endpoint
 
 ## Common Patterns
 

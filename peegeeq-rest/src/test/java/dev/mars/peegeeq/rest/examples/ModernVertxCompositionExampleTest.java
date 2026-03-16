@@ -91,7 +91,7 @@ public class ModernVertxCompositionExampleTest {
             .compose(v -> performSimulatedDatabaseOperations())
             .compose(v -> demonstrateSimulatedServiceInteractions())
             .onSuccess(v -> {
-                logger.info("✅ All composable operations completed successfully");
+                logger.info("All composable operations completed successfully");
                 testContext.completeNow();
             })
             .onFailure(throwable -> {
@@ -115,7 +115,7 @@ public class ModernVertxCompositionExampleTest {
                 return Future.<String>failedFuture("Simulated failure for testing");
             })
             .recover(throwable -> {
-                logger.info("✅ Recovered from failure: {}", throwable.getMessage());
+                logger.info("Recovered from failure: {}", throwable.getMessage());
                 assertEquals("Simulated failure for testing", throwable.getMessage());
                 return Future.succeededFuture("Recovered successfully");
             })
@@ -125,7 +125,7 @@ public class ModernVertxCompositionExampleTest {
                 return Future.succeededFuture("Final result");
             })
             .onSuccess(finalResult -> {
-                logger.info("✅ Error recovery pattern validated successfully: {}", finalResult);
+                logger.info("Error recovery pattern validated successfully: {}", finalResult);
                 assertEquals("Final result", finalResult);
                 testContext.completeNow();
             })
@@ -148,7 +148,7 @@ public class ModernVertxCompositionExampleTest {
             .compose(v -> performSimulatedServiceRegistration())
             .compose(v -> performSimulatedServiceDiscovery())
             .onSuccess(v -> {
-                logger.info("✅ Service interaction patterns validated successfully");
+                logger.info("Service interaction patterns validated successfully");
                 testContext.completeNow();
             })
             .onFailure(throwable -> {
@@ -168,22 +168,22 @@ public class ModernVertxCompositionExampleTest {
                 return Future.succeededFuture("rest-deployment-id");
             })
             .compose(restDeploymentId -> {
-                logger.info("✅ Simulated REST server deployed: {}", restDeploymentId);
+                logger.info("Simulated REST server deployed: {}", restDeploymentId);
                 logger.info("Step 2: Simulating Service Manager deployment...");
                 return Future.succeededFuture("service-manager-id");
             })
             .compose(serviceManagerId -> {
-                logger.info("✅ Simulated Service Manager deployed: {}", serviceManagerId);
+                logger.info("Simulated Service Manager deployed: {}", serviceManagerId);
                 logger.info("Step 3: Performing simulated warmup operations...");
                 return performSimulatedWarmupOperations();
             })
             .compose(v -> {
-                logger.info("✅ Simulated warmup completed");
+                logger.info("Simulated warmup completed");
                 logger.info("Step 4: Simulating service registry registration...");
                 return performSimulatedServiceRegistration();
             })
             .compose(v -> {
-                logger.info("✅ Simulated service registration completed");
+                logger.info("Simulated service registration completed");
                 logger.info("Step 5: Performing simulated health checks...");
                 return performSimulatedHealthChecks();
             })
@@ -218,7 +218,7 @@ public class ModernVertxCompositionExampleTest {
         
         return Future.succeededFuture()
             .compose(v -> {
-                logger.info("✅ Simulated database setup created with config: {}", setupRequest.encodePrettily());
+                logger.info("Simulated database setup created with config: {}", setupRequest.encodePrettily());
                 return Future.<Void>succeededFuture();
             })
             .recover(throwable -> {
@@ -232,15 +232,15 @@ public class ModernVertxCompositionExampleTest {
         
         return Future.succeededFuture()
             .compose(v -> {
-                logger.info("✅ Simulated REST API health check: 200");
+                logger.info("Simulated REST API health check: 200");
                 return Future.succeededFuture();
             })
             .compose(v -> {
-                logger.info("✅ Simulated Service Manager health check: 200");
+                logger.info("Simulated Service Manager health check: 200");
                 return Future.succeededFuture();
             })
             .compose(v -> {
-                logger.info("✅ Simulated service instances retrieved: 3");
+                logger.info("Simulated service instances retrieved: 3");
                 return Future.<Void>succeededFuture();
             })
             .recover(throwable -> {

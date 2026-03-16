@@ -72,7 +72,7 @@ class PeeGeeQTestBaseTest extends PeeGeeQTestBase {
         // Verify performance profile
         assertEquals(PerformanceProfile.STANDARD, getCurrentProfile(), "Profile should be STANDARD");
         
-        logger.info("✅ Basic setup test passed");
+        logger.info("Basic setup test passed");
         
         System.err.println("=== TEST METHOD COMPLETED: testBasicSetup ===");
         System.err.flush();
@@ -103,7 +103,7 @@ class PeeGeeQTestBaseTest extends PeeGeeQTestBase {
             }
         }
         
-        logger.info("✅ Database connectivity test passed");
+        logger.info("Database connectivity test passed");
         
         System.err.println("=== TEST METHOD COMPLETED: testDatabaseConnectivity ===");
         System.err.flush();
@@ -123,7 +123,7 @@ class PeeGeeQTestBaseTest extends PeeGeeQTestBase {
         // Verify metrics were recorded (basic validation)
         assertNotNull(getMeterRegistry(), "MeterRegistry should be available");
         
-        logger.info("✅ Metrics recording test passed");
+        logger.info("Metrics recording test passed");
         
         System.err.println("=== TEST METHOD COMPLETED: testMetricsRecording ===");
         System.err.flush();
@@ -149,7 +149,7 @@ class PeeGeeQTestBaseTest extends PeeGeeQTestBase {
         assertEquals(getPort().toString(), System.getProperty("test.database.port"), "Port property should match container");
         assertEquals(getJdbcUrl(), System.getProperty("test.database.url"), "URL property should match container");
         
-        logger.info("✅ System properties test passed");
+        logger.info("System properties test passed");
         
         System.err.println("=== TEST METHOD COMPLETED: testSystemProperties ===");
         System.err.flush();
@@ -197,7 +197,7 @@ class ParameterizedPerformanceTestBaseTest extends ParameterizedPerformanceTestB
         // Validate performance thresholds
         validatePerformanceThresholds(result, profile);
         
-        logger.info("✅ Performance test passed for profile: {} (duration: {}ms, throughput: {} ops/sec)", 
+        logger.info("Performance test passed for profile: {} (duration: {}ms, throughput: {} ops/sec)", 
                    profile.getDisplayName(), result.getDurationMs(), result.getThroughput());
         
         System.err.println("=== TEST METHOD COMPLETED: testPerformanceAcrossProfiles(" + profile + ") ===");
@@ -219,7 +219,7 @@ class ParameterizedPerformanceTestBaseTest extends ParameterizedPerformanceTestB
         assertEquals(40.0, metrics.get("p95_latency"), "P95 latency should match");
         assertEquals(1.5, metrics.get("error_rate"), "Error rate should match");
         
-        logger.info("✅ Performance metrics creation test passed");
+        logger.info("Performance metrics creation test passed");
         
         System.err.println("=== TEST METHOD COMPLETED: testPerformanceMetricsCreation ===");
         System.err.flush();

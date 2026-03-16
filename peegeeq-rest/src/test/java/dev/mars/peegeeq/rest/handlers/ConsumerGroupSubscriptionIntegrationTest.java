@@ -205,7 +205,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                 assertNotNull(errorResponse.getString("error"));
                 assertTrue(errorResponse.getString("error").contains("not found"));
                 
-                logger.info("✅ Correctly rejected subscription options for non-existent group");
+                logger.info("Correctly rejected subscription options for non-existent group");
                 testContext.completeNow();
             })
             .onFailure(testContext::failNow);
@@ -247,7 +247,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                     assertTrue(events.contains("event: configured"));
                     assertTrue(events.contains("\"startPosition\":\"FROM_NOW\""));
                     
-                    logger.info("✅ SSE gracefully handled non-existent consumer group");
+                    logger.info("SSE gracefully handled non-existent consumer group");
                     testContext.completeNow();
                 });
             })
@@ -281,7 +281,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                     return null;
                 }
                 
-                logger.info("✅ Consumer group created successfully");
+                logger.info("Consumer group created successfully");
                 
                 // Step 2: Set subscription options
                 logger.info("Step 2: Setting subscription options for '{}'", groupName);
@@ -318,7 +318,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                            response.getJsonObject("subscriptionOptions")
                                   .getInteger("heartbeatIntervalSeconds"));
 
-                logger.info("✅ Subscription options set successfully");
+                logger.info("Subscription options set successfully");
 
                 // Step 3: Connect via SSE with consumer group
                 logger.info("Step 3: Connecting via SSE with consumer group '{}'", groupName);
@@ -368,7 +368,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                         assertEquals(groupName, configuredEvent.getString("consumerGroup"),
                                    "Configured event should include consumer group name");
 
-                        logger.info("✅ Complete workflow successful:");
+                        logger.info("Complete workflow successful:");
                         logger.info("   - Consumer group created");
                         logger.info("   - Subscription options configured");
                         logger.info("   - SSE connected with subscription options applied");
@@ -420,7 +420,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                     assertNotNull(options.getInteger("heartbeatIntervalSeconds"));
                 }
 
-                logger.info("✅ Returns default options for non-existent group");
+                logger.info("Returns default options for non-existent group");
                 testContext.completeNow();
             })
             .onFailure(testContext::failNow);
@@ -494,7 +494,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
 
                 assertEquals(204, status, "Should return 204 No Content on successful delete");
 
-                logger.info("✅ Subscription options deleted successfully");
+                logger.info("Subscription options deleted successfully");
                 testContext.completeNow();
             })
             .onFailure(testContext::failNow);
@@ -538,7 +538,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                         assertEquals(60, configuredEvent.getInteger("heartbeatIntervalSeconds"),
                                    "Should use default 60s heartbeat");
                         
-                        logger.info("✅ SSE without consumer group uses defaults correctly");
+                        logger.info("SSE without consumer group uses defaults correctly");
                         testContext.completeNow();
                         
                     } catch (Exception e) {
@@ -618,7 +618,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                 assertEquals(42, options.getInteger("startFromMessageId"),
                            "Retrieved message ID should be 42");
 
-                logger.info("✅ FROM_MESSAGE_ID(42) persisted and retrieved correctly");
+                logger.info("FROM_MESSAGE_ID(42) persisted and retrieved correctly");
                 testContext.completeNow();
             })
             .onFailure(testContext::failNow);
@@ -708,7 +708,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                 assertEquals("FROM_BEGINNING", options.getString("startPosition"),
                            "Start position should be updated to FROM_BEGINNING");
 
-                logger.info("✅ Subscription update FROM_NOW → FROM_BEGINNING verified");
+                logger.info("Subscription update FROM_NOW → FROM_BEGINNING verified");
                 testContext.completeNow();
             })
             .onFailure(testContext::failNow);
@@ -799,7 +799,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
 
                                 // The existing SSE connection continues with original options
                                 // (update doesn't affect existing connections, only new ones)
-                                logger.info("✅ SSE connection stable during subscription update");
+                                logger.info("SSE connection stable during subscription update");
                                 testContext.completeNow();
                             });
                         })
@@ -845,7 +845,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                 assertTrue(response.statusCode() == 400 || response.statusCode() == 500,
                          "Should reject invalid start position");
                 
-                logger.info("✅ Invalid start position rejected correctly");
+                logger.info("Invalid start position rejected correctly");
                 testContext.completeNow();
             })
             .onFailure(testContext::failNow);
@@ -969,13 +969,13 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                                            "SSE MUST use FROM_BEGINNING from subscription");
 
                                 logger.info("");
-                                logger.info("✅ ========================================");
-                                logger.info("✅ SCIENTIFIC ROUND-TRIP TEST PASSED:");
-                                logger.info("✅   Input:  FROM_BEGINNING");
-                                logger.info("✅   POST:   FROM_BEGINNING (confirmed)");
-                                logger.info("✅   GET:    FROM_BEGINNING (persisted)");
-                                logger.info("✅   SSE:    FROM_BEGINNING (applied)");
-                                logger.info("✅ ========================================");
+                                logger.info("========================================");
+                                logger.info("SCIENTIFIC ROUND-TRIP TEST PASSED:");
+                                logger.info("  Input:  FROM_BEGINNING");
+                                logger.info("  POST:   FROM_BEGINNING (confirmed)");
+                                logger.info("  GET:    FROM_BEGINNING (persisted)");
+                                logger.info("  SSE:    FROM_BEGINNING (applied)");
+                                logger.info("========================================");
                                 logger.info("");
 
                                 if (testCompleted.compareAndSet(false, true)) {
@@ -1067,7 +1067,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                 assertTrue(createBody.getBoolean("subscriptionConfigured", false),
                           "subscriptionConfigured should be true when subscription options provided");
 
-                logger.info("✅ Consumer group created with subscription options in single call");
+                logger.info("Consumer group created with subscription options in single call");
 
                 // Step 2: Verify subscription options were persisted by fetching them
                 logger.info("Step 2: Verifying subscription options were persisted");
@@ -1100,7 +1100,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                 assertEquals(300, options.getInteger("heartbeatTimeoutSeconds"),
                            "heartbeatTimeoutSeconds should match what was provided during creation");
 
-                logger.info("✅ Subscription options persisted correctly");
+                logger.info("Subscription options persisted correctly");
 
                 // Step 3: Connect via SSE and verify subscription options are applied
                 logger.info("Step 3: Connecting via SSE to verify subscription options are applied");
@@ -1144,12 +1144,12 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                                    "Configured event should include consumer group name");
 
                         logger.info("");
-                        logger.info("✅ ========================================");
-                        logger.info("✅ SINGLE-STEP PATTERN TEST PASSED:");
-                        logger.info("✅   Created consumer group with subscription options in one call");
-                        logger.info("✅   Subscription options persisted correctly");
-                        logger.info("✅   SSE connection applies subscription options");
-                        logger.info("✅ ========================================");
+                        logger.info("========================================");
+                        logger.info("SINGLE-STEP PATTERN TEST PASSED:");
+                        logger.info("  Created consumer group with subscription options in one call");
+                        logger.info("  Subscription options persisted correctly");
+                        logger.info("  SSE connection applies subscription options");
+                        logger.info("========================================");
                         logger.info("");
 
                         testContext.completeNow();
@@ -1190,7 +1190,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                     JsonObject createBody = createResponse.bodyAsJsonObject();
                     logger.info("Consumer group created with group filter: {}", createBody.encodePrettily());
 
-                    logger.info("✅ Consumer group created with group-level filter");
+                    logger.info("Consumer group created with group-level filter");
                 });
 
                 // Step 2: Add consumer with per-consumer filter (only HIGH priority)
@@ -1217,12 +1217,12 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                     logger.info("Consumer joined with message filter: {}", joinBody.encodePrettily());
 
                     logger.info("");
-                    logger.info("✅ ========================================");
-                    logger.info("✅ MESSAGE FILTERING TEST PASSED:");
-                    logger.info("✅   Created consumer group with group-level filter (region=US)");
-                    logger.info("✅   Added consumer with per-consumer filter (priority=HIGH)");
-                    logger.info("✅   Filters will be applied: group filter first, then consumer filter");
-                    logger.info("✅ ========================================");
+                    logger.info("========================================");
+                    logger.info("MESSAGE FILTERING TEST PASSED:");
+                    logger.info("  Created consumer group with group-level filter (region=US)");
+                    logger.info("  Added consumer with per-consumer filter (priority=HIGH)");
+                    logger.info("  Filters will be applied: group filter first, then consumer filter");
+                    logger.info("========================================");
                     logger.info("");
 
                     testContext.completeNow();

@@ -41,7 +41,7 @@ class ManualHealthCheckTest {
         // Start a simple HTTP server with health endpoint
         startTestServer(vertx, testPort)
             .compose(server -> {
-                logger.info("✅ Test server started on port {}", testPort);
+                logger.info("Test server started on port {}", testPort);
                 
                 // Test the health endpoint with HTTP client
                 WebClient client = WebClient.create(vertx);
@@ -60,14 +60,14 @@ class ManualHealthCheckTest {
                             assertEquals("UP", healthResponse.getString("status"));
                             assertTrue(healthResponse.containsKey("timestamp"));
                             
-                            logger.info("✅ Health endpoint responds correctly");
+                            logger.info("Health endpoint responds correctly");
                             
                             // Close server
                             return server.close();
                         });
             })
             .onComplete(testContext.succeeding(v -> {
-                logger.info("✅ Manual health check test completed successfully");
+                logger.info("Manual health check test completed successfully");
                 testContext.completeNow();
             }));
     }
@@ -79,7 +79,7 @@ class ManualHealthCheckTest {
         // Start a server that returns 500 for health checks
         startUnhealthyTestServer(vertx, testPort)
             .compose(server -> {
-                logger.info("✅ Unhealthy test server started on port {}", testPort);
+                logger.info("Unhealthy test server started on port {}", testPort);
                 
                 // Test the health endpoint with HTTP client
                 WebClient client = WebClient.create(vertx);
@@ -97,14 +97,14 @@ class ManualHealthCheckTest {
                             assertEquals("DOWN", healthResponse.getString("status"));
                             assertTrue(healthResponse.containsKey("error"));
                             
-                            logger.info("✅ Unhealthy endpoint responds correctly");
+                            logger.info("Unhealthy endpoint responds correctly");
                             
                             // Close server
                             return server.close();
                         });
             })
             .onComplete(testContext.succeeding(v -> {
-                logger.info("✅ Manual unhealthy check test completed successfully");
+                logger.info("Manual unhealthy check test completed successfully");
                 testContext.completeNow();
             }));
     }
@@ -127,7 +127,7 @@ class ManualHealthCheckTest {
                 vertx.setTimer(10000, id -> {
                     server.close().onComplete(closeResult -> {
                         if (closeResult.succeeded()) {
-                            logger.info("✅ Test server stopped");
+                            logger.info("Test server stopped");
                         } else {
                             logger.error("❌ Failed to stop test server", closeResult.cause());
                         }
@@ -178,7 +178,7 @@ class ManualHealthCheckTest {
                 .requestHandler(router)
                 .listen(port)
                 .onSuccess(server -> {
-                    logger.info("✅ Started healthy test server on port {}", port);
+                    logger.info("Started healthy test server on port {}", port);
                     promise.complete(server);
                 })
                 .onFailure(throwable -> {
@@ -216,7 +216,7 @@ class ManualHealthCheckTest {
                 .requestHandler(router)
                 .listen(port)
                 .onSuccess(server -> {
-                    logger.info("✅ Started unhealthy test server on port {}", port);
+                    logger.info("Started unhealthy test server on port {}", port);
                     promise.complete(server);
                 })
                 .onFailure(throwable -> {

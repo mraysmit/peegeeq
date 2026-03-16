@@ -117,7 +117,7 @@ class EnhancedErrorHandlingDemoTest {
         // Initialize database schema for enhanced error handling test
         logger.info("🔧 Initializing database schema for enhanced error handling test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
-        logger.info("✅ Database schema initialized successfully using centralized schema initializer (ALL components)");
+        logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
         // Configure system properties for error handling
         System.setProperty("peegeeq.retry.enabled", "true");
@@ -153,7 +153,7 @@ class EnhancedErrorHandlingDemoTest {
         // Initialize executor service
         executorService = Executors.newFixedThreadPool(6);
         
-        logger.info("✅ EnhancedErrorHandlingDemoTest setup complete");
+        logger.info("EnhancedErrorHandlingDemoTest setup complete");
     }
 
     @AfterEach
@@ -324,7 +324,7 @@ class EnhancedErrorHandlingDemoTest {
         assertTrue(dlqMessages.get() >= 0, "DLQ message count should be non-negative");
         assertTrue(successfulRecoveries.get() > 0, "Should have successful recoveries");
         
-        logger.info("✅ Enhanced error handling demonstration complete");
+        logger.info("Enhanced error handling demonstration complete");
     }
 
     private CompletableFuture<Void> processOrderWithErrorHandling(OrderEvent order, ErrorType errorType, Map<String, String> headers) {
@@ -379,7 +379,7 @@ class EnhancedErrorHandlingDemoTest {
                 }
             } else {
                 // Successful processing
-                logger.info("✅ Successfully processed order: {}", order.getOrderId());
+                logger.info("Successfully processed order: {}", order.getOrderId());
                 totalMessagesConsumed.incrementAndGet();
                 return null;
             }

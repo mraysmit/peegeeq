@@ -170,7 +170,7 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
     }
     
     @Test
-    @DisplayName("✅ PeeGeeQ Producer-Consumer Integration")
+    @DisplayName("PeeGeeQ Producer-Consumer Integration")
     void testPeeGeeQProducerConsumerIntegration() throws Exception {
         logger.info("Starting PeeGeeQ producer-consumer integration test...");
         
@@ -191,7 +191,7 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
         
         // Subscribe to messages
         consumer.subscribe(message -> {
-            logger.info("✅ Received PeeGeeQ message: {}", message.getPayload().getOrderId());
+            logger.info("Received PeeGeeQ message: {}", message.getPayload().getOrderId());
             IntegrationTestUtils.logMessage(message, "PRODUCER_CONSUMER_TEST");
             receivedMessages.add(message);
             messageLatch.countDown();
@@ -201,7 +201,7 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
         // Send message via PeeGeeQ
         logger.info("📤 Sending message via PeeGeeQ...");
         producer.send(orderEvent, headers, correlationId).join();
-        logger.info("✅ Message sent successfully");
+        logger.info("Message sent successfully");
         
         // Wait for message to be received
         assertTrue(IntegrationTestUtils.waitForLatch(messageLatch, 10, "PeeGeeQ message reception"),
@@ -224,11 +224,11 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
         assertEquals("working-integration-test", receivedHeaders.get("source"), "Source header should match");
         assertEquals("1.0", receivedHeaders.get("version"), "Version header should match");
         
-        logger.info("✅ PeeGeeQ producer-consumer integration test completed successfully");
+        logger.info("PeeGeeQ producer-consumer integration test completed successfully");
     }
     
     @Test
-    @DisplayName("✅ PeeGeeQ to Bi-temporal Store Integration")
+    @DisplayName("PeeGeeQ to Bi-temporal Store Integration")
     void testPeeGeeQToBiTemporalStoreIntegration() throws Exception {
         logger.info("Starting PeeGeeQ to bi-temporal store integration test...");
         
@@ -357,13 +357,13 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
             IntegrationTestUtils.logBiTemporalEvent(foundEvent, "VERIFICATION_QUERY");
         }
         
-        logger.info("✅ PeeGeeQ to bi-temporal store integration test completed successfully");
+        logger.info("PeeGeeQ to bi-temporal store integration test completed successfully");
         logger.info("📊 Summary: {} PeeGeeQ messages → {} bi-temporal events → {} verified queries", 
                    peeGeeQMessages.size(), persistedEvents.size(), expectedEventCount);
     }
     
     @Test
-    @DisplayName("✅ Event Correlation and Data Consistency")
+    @DisplayName("Event Correlation and Data Consistency")
     void testEventCorrelationAndDataConsistency() throws Exception {
         logger.info("Starting event correlation and data consistency test...");
         
@@ -414,7 +414,7 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
                     assertEquals(testTime, event.getValidTime(), "Valid time should match test time");
 
                     persistedEvents.add(event);
-                    logger.info("✅ Event correlation validated and persisted: {}", event.getEventId());
+                    logger.info("Event correlation validated and persisted: {}", event.getEventId());
                     flowLatch.countDown();
                 });
 
@@ -453,7 +453,7 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
         assertEquals("correlation-test", finalHeaders.get("source"), "Source header should be preserved");
         assertEquals("data-consistency", finalHeaders.get("test-purpose"), "Custom headers should be preserved");
         
-        logger.info("✅ Event correlation and data consistency test completed successfully");
+        logger.info("Event correlation and data consistency test completed successfully");
         logger.info("🎯 Correlation ID '{}' successfully tracked through entire pipeline", correlationId);
     }
 }

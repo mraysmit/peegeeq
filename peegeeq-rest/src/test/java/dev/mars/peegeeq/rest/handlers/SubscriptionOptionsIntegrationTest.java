@@ -87,7 +87,7 @@ public class SubscriptionOptionsIntegrationTest {
                 Assertions.assertEquals(30, options.getInteger("heartbeatIntervalSeconds"));
                 Assertions.assertEquals(180, options.getInteger("heartbeatTimeoutSeconds"));
                 
-                logger.info("✅ Subscription options updated successfully with FROM_NOW");
+                logger.info("Subscription options updated successfully with FROM_NOW");
                 testContext.completeNow();
             })));
         
@@ -119,7 +119,7 @@ public class SubscriptionOptionsIntegrationTest {
                 JsonObject options = body.getJsonObject("subscriptionOptions");
                 Assertions.assertEquals("FROM_BEGINNING", options.getString("startPosition"));
                 
-                logger.info("✅ Subscription options updated successfully with FROM_BEGINNING");
+                logger.info("Subscription options updated successfully with FROM_BEGINNING");
                 testContext.completeNow();
             })));
         
@@ -153,7 +153,7 @@ public class SubscriptionOptionsIntegrationTest {
                 Assertions.assertEquals("FROM_MESSAGE_ID", options.getString("startPosition"));
                 Assertions.assertEquals(12345L, options.getLong("startFromMessageId"));
                 
-                logger.info("✅ Subscription options updated successfully with FROM_MESSAGE_ID");
+                logger.info("Subscription options updated successfully with FROM_MESSAGE_ID");
                 testContext.completeNow();
             })));
         
@@ -189,7 +189,7 @@ public class SubscriptionOptionsIntegrationTest {
                 Assertions.assertEquals("FROM_TIMESTAMP", options.getString("startPosition"));
                 Assertions.assertNotNull(options.getString("startFromTimestamp"));
                 
-                logger.info("✅ Subscription options updated successfully with FROM_TIMESTAMP");
+                logger.info("Subscription options updated successfully with FROM_TIMESTAMP");
                 testContext.completeNow();
             })));
         
@@ -219,7 +219,7 @@ public class SubscriptionOptionsIntegrationTest {
                 Assertions.assertEquals(60, options.getInteger("heartbeatIntervalSeconds")); // Default
                 Assertions.assertEquals(300, options.getInteger("heartbeatTimeoutSeconds")); // Default
                 
-                logger.info("✅ Default subscription options returned correctly");
+                logger.info("Default subscription options returned correctly");
                 testContext.completeNow();
             })));
         
@@ -263,7 +263,7 @@ public class SubscriptionOptionsIntegrationTest {
                 Assertions.assertEquals(45, options.getInteger("heartbeatIntervalSeconds"));
                 Assertions.assertEquals(200, options.getInteger("heartbeatTimeoutSeconds"));
                 
-                logger.info("✅ Retrieved subscription options match updated values");
+                logger.info("Retrieved subscription options match updated values");
                 getContext.completeNow();
             })));
         
@@ -299,7 +299,7 @@ public class SubscriptionOptionsIntegrationTest {
             .onComplete(deleteContext.succeeding(response -> deleteContext.verify(() -> {
                 Assertions.assertEquals(204, response.statusCode());
                 
-                logger.info("✅ Subscription options deleted successfully");
+                logger.info("Subscription options deleted successfully");
                 deleteContext.completeNow();
             })));
         
@@ -322,7 +322,7 @@ public class SubscriptionOptionsIntegrationTest {
             .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 Assertions.assertEquals(404, response.statusCode());
                 
-                logger.info("✅ Correctly returned 404 for non-existent subscription");
+                logger.info("Correctly returned 404 for non-existent subscription");
                 testContext.completeNow();
             })));
         
@@ -350,7 +350,7 @@ public class SubscriptionOptionsIntegrationTest {
                 JsonObject body = response.bodyAsJsonObject();
                 Assertions.assertTrue(body.containsKey("error"));
                 
-                logger.info("✅ Correctly rejected invalid start position");
+                logger.info("Correctly rejected invalid start position");
                 testContext.completeNow();
             })));
         

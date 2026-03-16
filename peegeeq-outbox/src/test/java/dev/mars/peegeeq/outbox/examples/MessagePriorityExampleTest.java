@@ -181,7 +181,7 @@ public class MessagePriorityExampleTest {
         consumer.close();
         producer.close();
         
-        logger.info("✅ Basic priority ordering validated successfully");
+        logger.info("Basic priority ordering validated successfully");
     }
 
     /**
@@ -231,7 +231,7 @@ public class MessagePriorityExampleTest {
         consumer.close();
         producer.close();
         
-        logger.info("✅ Priority levels validated successfully");
+        logger.info("Priority levels validated successfully");
     }
 
     /**
@@ -288,7 +288,7 @@ public class MessagePriorityExampleTest {
         consumer.close();
         producer.close();
         
-        logger.info("✅ Message processing validated successfully");
+        logger.info("Message processing validated successfully");
     }
 
     // Helper methods

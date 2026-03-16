@@ -16,7 +16,7 @@ echo "Stopping E2E test environment..."
 if [ "$(docker ps -a -q -f name="^/${CONTAINER_NAME}$")" ]; then
     echo "Stopping container '$CONTAINER_NAME'..."
     docker stop $CONTAINER_NAME > /dev/null
-    echo "✅ Container stopped"
+    echo "Container stopped"
 else
     echo "Container '$CONTAINER_NAME' not found (already stopped or removed)"
 fi
@@ -24,7 +24,7 @@ fi
 # Remove the config file
 if [ -f "$DB_CONFIG_FILE" ]; then
     rm -f "$DB_CONFIG_FILE"
-    echo "✅ Removed config file: $DB_CONFIG_FILE"
+    echo "Removed config file: $DB_CONFIG_FILE"
 else
     echo "Config file not found (already removed)"
 fi

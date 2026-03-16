@@ -209,7 +209,7 @@ class HardwareProfilingIntegrationTest extends PeeGeeQTestBase {
             logger.info("High resource usage detected during test");
         }
         
-        logger.info("✅ Hardware profiling integration test completed successfully");
+        logger.info("Hardware profiling integration test completed successfully");
     }
     
     /**

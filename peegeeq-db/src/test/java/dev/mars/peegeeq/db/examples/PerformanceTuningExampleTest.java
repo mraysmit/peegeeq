@@ -109,7 +109,7 @@ public class PerformanceTuningExampleTest {
         assertTrue(manager.isStarted(), "Manager should be started");
         assertNotNull(manager.getDatabaseService(), "Database service should be available");
         
-        logger.info("✅ Connection pool optimization validated successfully");
+        logger.info("Connection pool optimization validated successfully");
     }
 
     /**
@@ -132,7 +132,7 @@ public class PerformanceTuningExampleTest {
         assertTrue(metrics.getTotalMessages() >= 0, "Total messages should be non-negative");
         assertTrue(metrics.getThroughput() >= 0, "Throughput should be non-negative");
         
-        logger.info("✅ Throughput optimization validated successfully");
+        logger.info("Throughput optimization validated successfully");
         logger.info("   Total messages: {}, Throughput: {:.2f} msg/sec", 
             metrics.getTotalMessages(), metrics.getThroughput());
     }
@@ -158,7 +158,7 @@ public class PerformanceTuningExampleTest {
         assertTrue(metrics.getMinLatency() >= 0, "Min latency should be non-negative");
         assertTrue(metrics.getMaxLatency() >= 0, "Max latency should be non-negative");
         
-        logger.info("✅ Latency optimization validated successfully");
+        logger.info("Latency optimization validated successfully");
         logger.info("   Avg latency: {:.2f}ms, Min: {}ms, Max: {}ms", 
             metrics.getAverageLatency(), metrics.getMinLatency(), metrics.getMaxLatency());
     }
@@ -182,7 +182,7 @@ public class PerformanceTuningExampleTest {
         assertNotNull(metrics, "Performance metrics should not be null");
         assertTrue(metrics.getTotalMessages() >= 0, "Total messages should be non-negative");
         
-        logger.info("✅ Batch processing optimization validated successfully");
+        logger.info("Batch processing optimization validated successfully");
         logger.info("   Batch processed messages: {}", metrics.getTotalMessages());
     }
 
@@ -205,7 +205,7 @@ public class PerformanceTuningExampleTest {
         assertNotNull(metrics, "Performance metrics should not be null");
         assertTrue(metrics.getActiveThreads() >= 0, "Active threads should be non-negative");
         
-        logger.info("✅ Concurrent processing optimization validated successfully");
+        logger.info("Concurrent processing optimization validated successfully");
         logger.info("   Active threads: {}", metrics.getActiveThreads());
     }
 
@@ -230,7 +230,7 @@ public class PerformanceTuningExampleTest {
         assertTrue(initialMemory >= 0, "Initial memory should be non-negative");
         assertTrue(finalMemory >= 0, "Final memory should be non-negative");
         
-        logger.info("✅ Memory optimization validated successfully");
+        logger.info("Memory optimization validated successfully");
         logger.info("   Memory usage: Initial={}MB, Final={}MB", 
             initialMemory / (1024 * 1024), finalMemory / (1024 * 1024));
     }

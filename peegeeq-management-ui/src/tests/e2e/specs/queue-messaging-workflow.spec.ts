@@ -108,7 +108,7 @@ test.describe('Queue Messaging Workflow', () => {
       // Verify queue appears in table
       await expect(page.locator('.ant-table-tbody').getByText(createdQueueName).first()).toBeVisible({ timeout: 5000 })
 
-      console.log(`✅ Created queue: ${createdQueueName}`)
+      console.log(`Created queue: ${createdQueueName}`)
     })
 
     test('should verify queue exists before sending messages', async ({ page }) => {
@@ -145,7 +145,7 @@ test.describe('Queue Messaging Workflow', () => {
         // Wait for tab to be selected
         await expect(tab).toHaveAttribute('aria-selected', 'true')
 
-        console.log(`✅ Tab "${tabName}" is visible and navigable`)
+        console.log(`Tab "${tabName}" is visible and navigable`)
       }
     })
 
@@ -164,7 +164,7 @@ test.describe('Queue Messaging Workflow', () => {
       await expect(page.locator('text=Queue Information')).toBeVisible()
       await expect(page.locator('text=Performance Metrics')).toBeVisible()
 
-      console.log('✅ Overview tab content is visible')
+      console.log('Overview tab content is visible')
     })
 
     test('should verify Consumers tab content', async ({ page }) => {
@@ -181,7 +181,7 @@ test.describe('Queue Messaging Workflow', () => {
       const contentArea = page.locator('.ant-tabs-tabpane-active')
       await expect(contentArea).toBeVisible()
 
-      console.log('✅ Consumers tab content is visible')
+      console.log('Consumers tab content is visible')
     })
 
     test('should verify Messages tab content and Publish button', async ({ page }) => {
@@ -206,7 +206,7 @@ test.describe('Queue Messaging Workflow', () => {
       const getMessagesButton = page.getByRole('button', { name: /get messages/i })
       await expect(getMessagesButton).toBeVisible({ timeout: 5000 })
 
-      console.log('✅ Messages tab content is visible with Publish and Get Messages buttons')
+      console.log('Messages tab content is visible with Publish and Get Messages buttons')
     })
 
     test('should verify Bindings tab content', async ({ page }) => {
@@ -223,7 +223,7 @@ test.describe('Queue Messaging Workflow', () => {
       const contentArea = page.locator('.ant-tabs-tabpane-active')
       await expect(contentArea).toBeVisible()
 
-      console.log('✅ Bindings tab content is visible')
+      console.log('Bindings tab content is visible')
     })
 
     test('should verify Charts tab content', async ({ page }) => {
@@ -240,7 +240,7 @@ test.describe('Queue Messaging Workflow', () => {
       const contentArea = page.locator('.ant-tabs-tabpane-active')
       await expect(contentArea).toBeVisible()
 
-      console.log('✅ Charts tab content is visible')
+      console.log('Charts tab content is visible')
     })
   })
 
@@ -293,7 +293,7 @@ test.describe('Queue Messaging Workflow', () => {
 
       // Verify success message contains expected text
       const successMessage = await page.locator('.ant-message-success').first().textContent()
-      console.log('✅ Message sent via UI:', successMessage)
+      console.log('Message sent via UI:', successMessage)
 
       expect(successMessage).toContain('published successfully')
     })
@@ -334,10 +334,10 @@ test.describe('Queue Messaging Workflow', () => {
         await expect(page.locator('.ant-message-success').first()).toBeVisible({ timeout: 5000 })
         await expect(page.locator('.ant-modal')).not.toBeVisible({ timeout: 5000 })
         
-        console.log(`✅ Message ${i + 1}/${messageCount} sent via UI`)
+        console.log(`Message ${i + 1}/${messageCount} sent via UI`)
       }
 
-      console.log(`✅ Successfully sent ${messageCount} messages via UI`)
+      console.log(`Successfully sent ${messageCount} messages via UI`)
     })
 
     test('should view messages in queue via UI', async ({ page }) => {
@@ -366,13 +366,13 @@ test.describe('Queue Messaging Workflow', () => {
       const messagesSection = page.locator('text=/Messages|Message/i').first()
       if (await messagesSection.count() > 0) {
         await expect(messagesSection).toBeVisible()
-        console.log('✅ Messages section visible in queue details')
+        console.log('Messages section visible in queue details')
       }
 
       // Verify we can see message statistics
       const statsCard = page.locator('.ant-statistic, .ant-card').first()
       if (await statsCard.count() > 0) {
-        console.log('✅ Queue statistics visible')
+        console.log('Queue statistics visible')
       }
     })
   })
@@ -393,7 +393,7 @@ test.describe('Queue Messaging Workflow', () => {
       const queueRow = page.locator('.ant-table-tbody tr').filter({ hasText: createdQueueName })
       await expect(queueRow).toBeVisible()
 
-      console.log(`✅ Queue ${createdQueueName} is visible in UI with messages`)
+      console.log(`Queue ${createdQueueName} is visible in UI with messages`)
     })
 
     test('should show queue details with message statistics', async ({ page }) => {
@@ -417,7 +417,7 @@ test.describe('Queue Messaging Workflow', () => {
           // Wait for details page to load
           await expect(page.getByRole('tablist')).toBeVisible()
 
-          console.log(`✅ Clicked on queue ${createdQueueName} to view details`)
+          console.log(`Clicked on queue ${createdQueueName} to view details`)
         }
       }
     })
@@ -431,7 +431,7 @@ test.describe('Queue Messaging Workflow', () => {
 
       if (response.ok()) {
         const responseBody = await response.json()
-        console.log('✅ Queue cleanup response:', JSON.stringify(responseBody, null, 2))
+        console.log('Queue cleanup response:', JSON.stringify(responseBody, null, 2))
 
         // Verify enhanced delete message includes queue name
         expect(responseBody.message).toContain(createdQueueName)

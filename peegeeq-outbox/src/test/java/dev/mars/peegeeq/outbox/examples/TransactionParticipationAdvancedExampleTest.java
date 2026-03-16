@@ -62,7 +62,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  * This test demonstrates the second reactive approach: sendInTransaction() operations
  * following the patterns outlined in Section "2. Transaction Participation".
  * 
- * <h2>✅ NO INTENTIONAL FAILURES - This Test Demonstrates Success Patterns</h2>
+ * <h2>NO INTENTIONAL FAILURES - This Test Demonstrates Success Patterns</h2>
  * <p>Unlike error handling tests, this test demonstrates successful transaction participation patterns.
  * All operations should complete successfully, showing proper transactional consistency.</p>
  * 
@@ -86,10 +86,10 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  * <h2>Expected Test Results</h2>
  * <p>All tests should <b>PASS</b> by successfully demonstrating transaction participation:</p>
  * <ul>
- *   <li>✅ Simple transaction participation completes successfully</li>
- *   <li>✅ Transaction participation with metadata works correctly</li>
- *   <li>✅ Multiple operations maintain transactional consistency</li>
- *   <li>✅ Business logic and outbox operations are consistent</li>
+ *   <li>Simple transaction participation completes successfully</li>
+ *   <li>Transaction participation with metadata works correctly</li>
+ *   <li>Multiple operations maintain transactional consistency</li>
+ *   <li>Business logic and outbox operations are consistent</li>
  * </ul>
  * 
  * <h2>Transaction Patterns Demonstrated</h2>
@@ -169,7 +169,7 @@ class TransactionParticipationAdvancedExampleTest {
         // Create test business table
         createTestBusinessTable();
         
-        logger.info("✅ Transaction Participation Advanced Example Test setup completed");
+        logger.info("Transaction Participation Advanced Example Test setup completed");
     }
     
     @AfterEach
@@ -204,7 +204,7 @@ class TransactionParticipationAdvancedExampleTest {
         System.clearProperty("peegeeq.database.password");
         System.clearProperty("peegeeq.database.schema");
         
-        logger.info("✅ Transaction Participation Advanced Example Test cleanup completed");
+        logger.info("Transaction Participation Advanced Example Test cleanup completed");
     }
     
     @Test
@@ -243,7 +243,7 @@ class TransactionParticipationAdvancedExampleTest {
         
         // Wait for completion
         assertDoesNotThrow(() -> transactionFuture.get(15, TimeUnit.SECONDS));
-        logger.info("✅ Simple transaction participation test completed successfully!");
+        logger.info("Simple transaction participation test completed successfully!");
     }
     
     @Test
@@ -295,7 +295,7 @@ class TransactionParticipationAdvancedExampleTest {
         
         // Wait for completion
         assertDoesNotThrow(() -> transactionFuture.get(15, TimeUnit.SECONDS));
-        logger.info("✅ Transaction participation with metadata test completed successfully!");
+        logger.info("Transaction participation with metadata test completed successfully!");
     }
 
     @Test
@@ -343,7 +343,7 @@ class TransactionParticipationAdvancedExampleTest {
 
         // Wait for completion
         assertDoesNotThrow(() -> transactionFuture.get(20, TimeUnit.SECONDS));
-        logger.info("✅ Multiple operations in same transaction test completed successfully!");
+        logger.info("Multiple operations in same transaction test completed successfully!");
     }
 
     @Test
@@ -401,7 +401,7 @@ class TransactionParticipationAdvancedExampleTest {
         // Wait for completion and verify result
         String result = assertDoesNotThrow(() -> businessResult.get(15, TimeUnit.SECONDS));
         assertEquals("Business logic completed with outbox consistency", result);
-        logger.info("✅ Business logic with outbox consistency test completed successfully!");
+        logger.info("Business logic with outbox consistency test completed successfully!");
     }
 
     /**

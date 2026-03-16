@@ -87,7 +87,7 @@ public class RestApiStreamingExampleTest {
         if (client != null) {
             try {
                 client.close();
-                logger.info("✅ WebClient closed");
+                logger.info("WebClient closed");
             } catch (Exception e) {
                 logger.warn("⚠️ Error closing WebClient", e);
             }
@@ -96,7 +96,7 @@ public class RestApiStreamingExampleTest {
         if (httpClient != null) {
             try {
                 httpClient.close();
-                logger.info("✅ HttpClient closed");
+                logger.info("HttpClient closed");
             } catch (Exception e) {
                 logger.warn("⚠️ Error closing HttpClient", e);
             }
@@ -105,7 +105,7 @@ public class RestApiStreamingExampleTest {
         if (wsClient != null) {
             try {
                 wsClient.close();
-                logger.info("✅ WebSocketClient closed");
+                logger.info("WebSocketClient closed");
             } catch (Exception e) {
                 logger.warn("⚠️ Error closing WebSocketClient", e);
             }
@@ -116,7 +116,7 @@ public class RestApiStreamingExampleTest {
                 CountDownLatch vertxCloseLatch = new CountDownLatch(1);
                 vertx.close()
                     .onSuccess(v -> {
-                        logger.info("✅ Vert.x closed successfully");
+                        logger.info("Vert.x closed successfully");
                         vertxCloseLatch.countDown();
                     })
                     .onFailure(throwable -> {
@@ -153,7 +153,7 @@ public class RestApiStreamingExampleTest {
         assertNotNull(result.streamingType, "Streaming type should not be null");
         assertEquals("WebSocket", result.streamingType);
         
-        logger.info("✅ WebSocket streaming validated successfully");
+        logger.info("WebSocket streaming validated successfully");
         logger.info("   Messages received: {}, Connection: {}", 
             result.messagesReceived, result.connectionEstablished ? "OK" : "FAILED");
     }
@@ -175,7 +175,7 @@ public class RestApiStreamingExampleTest {
         assertTrue(result.connectionEstablished, "SSE connection should be established");
         assertEquals("SSE", result.streamingType);
         
-        logger.info("✅ Server-Sent Events validated successfully");
+        logger.info("Server-Sent Events validated successfully");
         logger.info("   SSE messages received: {}, Connection: {}", 
             result.messagesReceived, result.connectionEstablished ? "OK" : "FAILED");
     }
@@ -198,7 +198,7 @@ public class RestApiStreamingExampleTest {
         assertEquals("Filtered", result.streamingType);
         assertNotNull(result.filterCriteria, "Filter criteria should not be null");
         
-        logger.info("✅ Streaming with filtering validated successfully");
+        logger.info("Streaming with filtering validated successfully");
         logger.info("   Filtered messages: {}, Filter: {}", 
             result.messagesReceived, result.filterCriteria);
     }
@@ -220,7 +220,7 @@ public class RestApiStreamingExampleTest {
         assertTrue(result.connectionsClosed >= 0, "Connections closed should be non-negative");
         assertTrue(result.errorHandlingTested, "Error handling should be tested");
         
-        logger.info("✅ Connection management validated successfully");
+        logger.info("Connection management validated successfully");
         logger.info("   Connections created: {}, closed: {}, errors handled: {}", 
             result.connectionsCreated, result.connectionsClosed, result.errorHandlingTested);
     }
@@ -243,7 +243,7 @@ public class RestApiStreamingExampleTest {
         assertNotNull(result.groupId, "Group ID should not be null");
         assertEquals("streaming-processors", result.groupId);
         
-        logger.info("✅ Real-time consumer groups validated successfully");
+        logger.info("Real-time consumer groups validated successfully");
         logger.info("   Group: {}, Consumers: {}, Messages distributed: {}", 
             result.groupId, result.consumerCount, result.messagesDistributed);
     }

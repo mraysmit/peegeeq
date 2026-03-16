@@ -93,7 +93,7 @@ public class NativeQueuePerformanceTestSuite implements PerformanceTestSuite {
                 results.addMetric("max_latency", latencyMetrics.maxLatency);
                 results.addMetric("min_latency", latencyMetrics.minLatency);
                 
-                logger.info("✅ Native queue performance test suite completed successfully");
+                logger.info("Native queue performance test suite completed successfully");
                 
             } catch (Exception e) {
                 logger.error("❌ Native queue performance test suite failed", e);

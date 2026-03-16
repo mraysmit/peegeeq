@@ -179,7 +179,7 @@ class OutboxMetricsSpringBootTest {
         assertTrue(finalProcessed >= initialProcessed + messageCount, 
             "Processed count should increase by at least " + messageCount);
         
-        logger.info("✅ Message count metrics verified successfully");
+        logger.info("Message count metrics verified successfully");
     }
 
     @Test
@@ -235,7 +235,7 @@ class OutboxMetricsSpringBootTest {
         assertTrue(finalErrors > initialErrors, 
             "Error count should increase (was " + initialErrors + ", now " + finalErrors + ")");
         
-        logger.info("✅ Error rate metrics verified successfully");
+        logger.info("Error rate metrics verified successfully");
     }
 
     @Test
@@ -286,7 +286,7 @@ class OutboxMetricsSpringBootTest {
         assertTrue(metrics.getMessagesProcessed() > 0, 
             "Should have processed messages with timing metrics");
         
-        logger.info("✅ Processing time metrics collected successfully");
+        logger.info("Processing time metrics collected successfully");
     }
 }
 

@@ -27,18 +27,18 @@ public class ExampleResourceLoaderDemo {
         try {
             // Test loading message example
             String orderJson = ExampleResourceLoader.loadMessageExample("order-message-request.json");
-            System.out.println("✅ Successfully loaded order message example:");
+            System.out.println("Successfully loaded order message example:");
             System.out.println("   Length: " + orderJson.length() + " characters");
             System.out.println("   Contains 'orderId': " + orderJson.contains("orderId"));
             
             // Test loading config example
             String demoConfig = ExampleResourceLoader.loadConfigExample("demo-setup.json");
-            System.out.println("✅ Successfully loaded demo config example:");
+            System.out.println("Successfully loaded demo config example:");
             System.out.println("   Length: " + demoConfig.length() + " characters");
             
             // Test generic loading
             String paymentJson = ExampleResourceLoader.loadExample("messages/payment-message-request.json");
-            System.out.println("✅ Successfully loaded payment message via generic method:");
+            System.out.println("Successfully loaded payment message via generic method:");
             System.out.println("   Length: " + paymentJson.length() + " characters");
             System.out.println("   Contains 'paymentId': " + paymentJson.contains("paymentId"));
             

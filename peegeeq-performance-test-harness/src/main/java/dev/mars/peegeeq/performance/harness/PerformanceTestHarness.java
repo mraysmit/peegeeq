@@ -84,7 +84,7 @@ public class PerformanceTestHarness {
                         PerformanceTestSuite.Results suiteResults = suite.execute(config).join();
                         aggregatedResults.merge(suiteResults);
                         
-                        logger.info("✅ Completed test suite: {} (Success: {}, Failures: {})", 
+                        logger.info("Completed test suite: {} (Success: {}, Failures: {})", 
                                    suite.getName(), suiteResults.getSuccessfulTests(), suiteResults.getFailedTests());
                         
                     } catch (Exception e) {
@@ -213,7 +213,7 @@ public class PerformanceTestHarness {
             System.gc();
             Thread.sleep(100);
             
-            logger.info("✅ Warmup phase completed");
+            logger.info("Warmup phase completed");
             
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -240,7 +240,7 @@ public class PerformanceTestHarness {
             // Shutdown executor service
             executorService.shutdown();
             
-            logger.info("✅ Performance test harness cleanup completed");
+            logger.info("Performance test harness cleanup completed");
             
         } catch (Exception e) {
             logger.error("❌ Error during cleanup", e);

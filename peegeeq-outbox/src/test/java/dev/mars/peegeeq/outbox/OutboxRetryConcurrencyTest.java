@@ -145,7 +145,7 @@ public class OutboxRetryConcurrencyTest {
         // Create thread pool for concurrent testing
         testExecutor = Executors.newFixedThreadPool(20);
         
-        logger.info("✅ OutboxRetryConcurrencyTest setup completed");
+        logger.info("OutboxRetryConcurrencyTest setup completed");
     }
 
     @AfterEach
@@ -207,7 +207,7 @@ public class OutboxRetryConcurrencyTest {
             }
         }
 
-        logger.info("✅ OutboxRetryConcurrencyTest cleanup completed");
+        logger.info("OutboxRetryConcurrencyTest cleanup completed");
     }
 
     @Test
@@ -267,7 +267,7 @@ public class OutboxRetryConcurrencyTest {
                 if (successfulProcessing.incrementAndGet() == 1) {
                     processingThread.set(threadName);
                     processingCheckpoint.flag();
-                    logger.info("✅ SUCCESS: Consumer {} successfully processed message", consumerIndex);
+                    logger.info("SUCCESS: Consumer {} successfully processed message", consumerIndex);
 
                     // Add delay to allow database completion, then signal completion
                     vertx.setTimer(1000, timerId -> completionCheckpoint.flag());
@@ -292,7 +292,7 @@ public class OutboxRetryConcurrencyTest {
         // Verify message was processed correctly
         verifyMessageProcessedOnce(testMessage);
         
-        logger.info("✅ Concurrent message processing test completed successfully");
+        logger.info("Concurrent message processing test completed successfully");
         logger.info("   Total attempts: {}", totalAttempts.get());
         logger.info("   Successful processing: {}", successfulProcessing.get());
         logger.info("   Processing thread: {}", processingThread.get());
@@ -343,7 +343,7 @@ public class OutboxRetryConcurrencyTest {
         // Verify retry count consistency despite race conditions
         verifyRetryCountConsistency(testMessage, 3); // Should have 3 retries after 4 attempts
         
-        logger.info("✅ Retry race condition test completed successfully");
+        logger.info("Retry race condition test completed successfully");
         logger.info("   Total attempts: {}", attemptCount.get());
     }
 
@@ -361,7 +361,7 @@ public class OutboxRetryConcurrencyTest {
         }).toCompletionStage().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
 
         assertEquals(1, count, "Message should be processed exactly once");
-        logger.info("✅ Verified message processed once: {} completed entries found", count);
+        logger.info("Verified message processed once: {} completed entries found", count);
     }
 
     @Test
@@ -403,7 +403,7 @@ public class OutboxRetryConcurrencyTest {
             CompletableFuture<Void> future = new CompletableFuture<>();
             vertx.setTimer(200, timerId -> {
                 processingCheckpoint.flag();
-                logger.info("✅ SUCCESS: Message {} processed successfully by thread {}",
+                logger.info("SUCCESS: Message {} processed successfully by thread {}",
                     processed, threadName);
                 future.complete(null);
             });
@@ -414,7 +414,7 @@ public class OutboxRetryConcurrencyTest {
         boolean completed = testContext.awaitCompletion(30, TimeUnit.SECONDS);
         assertTrue(completed, "All messages should eventually be processed despite thread exhaustion");
 
-        logger.info("✅ Thread pool exhaustion test completed successfully");
+        logger.info("Thread pool exhaustion test completed successfully");
         logger.info("   Messages processed: {}", processedCount.get());
 
         // Verify all messages were processed
@@ -456,7 +456,7 @@ public class OutboxRetryConcurrencyTest {
             // Simulate processing time during which shutdown might occur
             CompletableFuture<Void> delayFuture = new CompletableFuture<>();
             vertx.setTimer(300, timerId -> {
-                logger.info("✅ SUCCESS: Message {} completed processing by thread {}",
+                logger.info("SUCCESS: Message {} completed processing by thread {}",
                     processed, threadName);
                 delayFuture.complete(null);
             });
@@ -468,7 +468,7 @@ public class OutboxRetryConcurrencyTest {
             logger.info("🛑 SHUTDOWN: Closing consumer during active message processing");
             try {
                 consumer.close();
-                logger.info("✅ SHUTDOWN: Consumer closed successfully");
+                logger.info("SHUTDOWN: Consumer closed successfully");
             } catch (Exception e) {
                 logger.error("❌ SHUTDOWN ERROR: Failed to close consumer", e);
             }
@@ -479,7 +479,7 @@ public class OutboxRetryConcurrencyTest {
         boolean completed = testContext.awaitCompletion(15, TimeUnit.SECONDS);
         assertTrue(completed, "Consumer shutdown should complete");
 
-        logger.info("✅ Thread safety during shutdown test completed successfully");
+        logger.info("Thread safety during shutdown test completed successfully");
         logger.info("   Messages processed: {}", processedCount.get());
         logger.info("   Messages interrupted: {}", interruptedCount.get());
 
@@ -547,7 +547,7 @@ public class OutboxRetryConcurrencyTest {
         dlqWait.get(5, TimeUnit.SECONDS);
         verifyAllMessagesInDeadLetterQueue(testMessages);
 
-        logger.info("✅ High-load concurrent retry processing test completed successfully");
+        logger.info("High-load concurrent retry processing test completed successfully");
         logger.info("   Total attempts: {}", totalAttempts.get());
         logger.info("   Expected attempts: {}", expectedAttempts);
         logger.info("   Messages processed: {}", messageCount);
@@ -574,7 +574,7 @@ public class OutboxRetryConcurrencyTest {
             }
         }
 
-        logger.info("✅ Dead letter queue verification: {}/{} messages found",
+        logger.info("Dead letter queue verification: {}/{} messages found",
             foundCount, expectedMessages.size());
 
         assertTrue(foundCount > 0, "At least some messages should be in dead letter queue");
@@ -593,7 +593,7 @@ public class OutboxRetryConcurrencyTest {
                     int actualRetryCount = row.getInteger("retry_count");
                     String status = row.getString("status");
 
-                    logger.info("✅ Retry count verification: expected={}, actual={}, status={}",
+                    logger.info("Retry count verification: expected={}, actual={}, status={}",
                         expectedRetryCount, actualRetryCount, status);
 
                     assertEquals(expectedRetryCount, actualRetryCount,

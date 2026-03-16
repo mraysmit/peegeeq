@@ -92,7 +92,7 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
 
         assertTrue(allowed, "QUEUE topics should always allow writes");
 
-        logger.info("✅ QUEUE topic write allowed verified");
+        logger.info("QUEUE topic write allowed verified");
     }
 
     /**
@@ -118,7 +118,7 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
 
         assertTrue(allowed, "PUB_SUB topics with blocking disabled should allow writes");
 
-        logger.info("✅ PUB_SUB topic with blocking disabled allows writes verified");
+        logger.info("PUB_SUB topic with blocking disabled allows writes verified");
     }
 
     /**
@@ -150,7 +150,7 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
 
         assertFalse(allowed, "PUB_SUB topics with blocking enabled and zero subscriptions should block writes");
 
-        logger.info("✅ PUB_SUB topic with blocking enabled blocks writes verified");
+        logger.info("PUB_SUB topic with blocking enabled blocks writes verified");
     }
 
     /**
@@ -180,7 +180,7 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
 
         assertTrue(allowed, "PUB_SUB topics with blocking enabled and active subscriptions should allow writes");
 
-        logger.info("✅ PUB_SUB topic with blocking enabled and active subscriptions allows writes verified");
+        logger.info("PUB_SUB topic with blocking enabled and active subscriptions allows writes verified");
     }
 
     /**
@@ -198,7 +198,7 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
 
         assertTrue(allowed, "Unconfigured topics should default to QUEUE semantics and allow writes");
 
-        logger.info("✅ Unconfigured topic allows writes verified");
+        logger.info("Unconfigured topic allows writes verified");
     }
 
     /**
@@ -236,7 +236,7 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
                 "Exception message should mention zero subscriptions");
         }
 
-        logger.info("✅ validateWriteAllowed throws exception when blocked verified");
+        logger.info("validateWriteAllowed throws exception when blocked verified");
     }
 
     /**
@@ -259,7 +259,7 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
         validator.validateWriteAllowed(topic)
             .toCompletionStage().toCompletableFuture().get();
 
-        logger.info("✅ validateWriteAllowed succeeds when allowed verified");
+        logger.info("validateWriteAllowed succeeds when allowed verified");
     }
 }
 

@@ -129,7 +129,7 @@ public class ConsumerModeIntegrationTest {
             testContext.completeNow();
             return CompletableFuture.completedFuture(null);
         });
-        System.out.println("✅ consumer.subscribe() completed");
+        System.out.println("consumer.subscribe() completed");
 
         // Wait for LISTEN setup, then send
         System.out.println("⏳ Waiting for LISTEN setup via timer");
@@ -137,8 +137,8 @@ public class ConsumerModeIntegrationTest {
             System.out.println("🔔 About to send message");
             logger.info("🔔 LISTEN_NOTIFY_ONLY: Sending test message...");
             producer.send("Hello LISTEN_NOTIFY_ONLY!");
-            System.out.println("✅ Message sent successfully");
-            logger.info("✅ LISTEN_NOTIFY_ONLY: Message sent");
+            System.out.println("Message sent successfully");
+            logger.info("LISTEN_NOTIFY_ONLY: Message sent");
         });
 
         // Wait for message
@@ -146,7 +146,7 @@ public class ConsumerModeIntegrationTest {
 
         consumer.close();
         producer.close();
-        logger.info("✅ LISTEN_NOTIFY_ONLY mode test completed");
+        logger.info("LISTEN_NOTIFY_ONLY mode test completed");
     }
 
     @Test
@@ -181,7 +181,7 @@ public class ConsumerModeIntegrationTest {
 
         consumer.close();
         producer.close();
-        logger.info("✅ POLLING_ONLY mode test passed");
+        logger.info("POLLING_ONLY mode test passed");
     }
 
     @Test
@@ -216,7 +216,7 @@ public class ConsumerModeIntegrationTest {
 
         consumer.close();
         producer.close();
-        logger.info("✅ HYBRID mode test passed");
+        logger.info("HYBRID mode test passed");
     }
 
     @Test
@@ -246,7 +246,7 @@ public class ConsumerModeIntegrationTest {
 
         consumer.close();
         producer.close();
-        logger.info("✅ Backward compatibility test passed");
+        logger.info("Backward compatibility test passed");
     }
 }
 

@@ -344,10 +344,10 @@ class MultiEventStoreTransactionTest {
         
         assertTrue(maxTimeDiff < 1000, "All events should have similar transaction times (within 1 second)");
         
-        logger.info("✅ Complete order processing with transaction coordination validated successfully");
-        logger.info("✅ Order: {}, Correlation: {}, Transaction: {}", 
+        logger.info("Complete order processing with transaction coordination validated successfully");
+        logger.info("Order: {}, Correlation: {}, Transaction: {}", 
                    result.getOrderId(), result.getCorrelationId(), result.getTransactionId());
-        logger.info("✅ Events created: {} order, {} inventory, {} payment, {} audit", 
+        logger.info("Events created: {} order, {} inventory, {} payment, {} audit", 
                    orderEvents.size(), inventoryEvents.size(), paymentEvents.size(), auditEvents.size());
     }
     
@@ -438,9 +438,9 @@ class MultiEventStoreTransactionTest {
         
         assertTrue(totalCorrelatedEvents >= 4, "Should have at least 4 correlated events across all stores");
         
-        logger.info("✅ Cross-store event correlation validated successfully");
-        logger.info("✅ Correlation ID: {}, Total correlated events: {}", correlationId, totalCorrelatedEvents);
-        logger.info("✅ Events by store: {} order, {} inventory, {} payment, {} audit", 
+        logger.info("Cross-store event correlation validated successfully");
+        logger.info("Correlation ID: {}, Total correlated events: {}", correlationId, totalCorrelatedEvents);
+        logger.info("Events by store: {} order, {} inventory, {} payment, {} audit", 
                    correlatedOrderEvents.size(), correlatedInventoryEvents.size(), 
                    correlatedPaymentEvents.size(), correlatedAuditEvents.size());
     }

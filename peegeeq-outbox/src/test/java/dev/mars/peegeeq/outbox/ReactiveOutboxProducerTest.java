@@ -140,13 +140,13 @@ public class ReactiveOutboxProducerTest {
         
         // Send message using current JDBC implementation
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
-        logger.info("✅ Message sent via JDBC: {}", testMessage);
+        logger.info("Message sent via JDBC: {}", testMessage);
         
         // Verify message exists in outbox table
         boolean messageExists = verifyOutboxMessageExists(testMessage);
         Assertions.assertTrue(messageExists, "Message should exist in outbox table");
         
-        logger.info("✅ BASELINE TEST PASSED: Current JDBC behavior works correctly");
+        logger.info("BASELINE TEST PASSED: Current JDBC behavior works correctly");
     }
 
     @Test
@@ -164,9 +164,9 @@ public class ReactiveOutboxProducerTest {
                 });
         }).toCompletionStage().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
 
-        logger.info("✅ Reactive database connection successful");
-        logger.info("✅ Outbox table accessible, current message count: {}", count);
-        logger.info("✅ INFRASTRUCTURE TEST PASSED: All components ready for reactive migration");
+        logger.info("Reactive database connection successful");
+        logger.info("Outbox table accessible, current message count: {}", count);
+        logger.info("INFRASTRUCTURE TEST PASSED: All components ready for reactive migration");
     }
 
     @Test
@@ -181,13 +181,13 @@ public class ReactiveOutboxProducerTest {
 
         // Send message using new reactive implementation
         messageProducer.sendReactive(testMessage).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
-        logger.info("✅ Message sent via reactive method: {}", testMessage);
+        logger.info("Message sent via reactive method: {}", testMessage);
 
         // Verify message exists in outbox table
         boolean messageExists = verifyOutboxMessageExists(testMessage);
         Assertions.assertTrue(messageExists, "Reactive message should exist in outbox table");
 
-        logger.info("✅ PHASE 1 STEP 1 PASSED: Reactive OutboxProducer works correctly");
+        logger.info("PHASE 1 STEP 1 PASSED: Reactive OutboxProducer works correctly");
     }
 
     @Test
@@ -204,19 +204,19 @@ public class ReactiveOutboxProducerTest {
         long jdbcStart = System.currentTimeMillis();
         producer.send(jdbcMessage).get(5, TimeUnit.SECONDS);
         long jdbcTime = System.currentTimeMillis() - jdbcStart;
-        logger.info("✅ JDBC message sent in {}ms: {}", jdbcTime, jdbcMessage);
+        logger.info("JDBC message sent in {}ms: {}", jdbcTime, jdbcMessage);
 
         // Send via reactive (new method)
         long reactiveStart = System.currentTimeMillis();
         messageProducer.sendReactive(reactiveMessage).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
         long reactiveTime = System.currentTimeMillis() - reactiveStart;
-        logger.info("✅ Reactive message sent in {}ms: {}", reactiveTime, reactiveMessage);
+        logger.info("Reactive message sent in {}ms: {}", reactiveTime, reactiveMessage);
 
         // Verify both messages exist
         Assertions.assertTrue(verifyOutboxMessageExists(jdbcMessage), "JDBC message should exist");
         Assertions.assertTrue(verifyOutboxMessageExists(reactiveMessage), "Reactive message should exist");
 
-        logger.info("✅ COMPARISON PASSED: Both JDBC and reactive methods work correctly");
+        logger.info("COMPARISON PASSED: Both JDBC and reactive methods work correctly");
         logger.info("Performance comparison - JDBC: {}ms, Reactive: {}ms", jdbcTime, reactiveTime);
     }
 
@@ -235,12 +235,12 @@ public class ReactiveOutboxProducerTest {
             outboxProducer.sendInTransaction("test", (io.vertx.sqlclient.SqlConnection) null).get(1, TimeUnit.SECONDS);
         } catch (Exception e) {
             // Expected to fail with null connection - this validates the method signature exists
-            logger.info("✅ sendInTransaction method exists and validates null connection: {}", e.getMessage());
+            logger.info("sendInTransaction method exists and validates null connection: {}", e.getMessage());
             Assertions.assertTrue(e.getMessage().contains("connection cannot be null") ||
                                 e.getCause() instanceof IllegalArgumentException);
         }
 
-        logger.info("✅ PHASE 1 STEP 2 PASSED: Transactional method signatures are correct");
+        logger.info("PHASE 1 STEP 2 PASSED: Transactional method signatures are correct");
     }
 
     @Test
@@ -254,13 +254,13 @@ public class ReactiveOutboxProducerTest {
 
         // Send message using production-grade transactional method
         outboxProducer.sendWithTransaction(testMessage).get(10, TimeUnit.SECONDS);
-        logger.info("✅ Message sent via production-grade transaction: {}", testMessage);
+        logger.info("Message sent via production-grade transaction: {}", testMessage);
 
         // Verify message exists in outbox table
         boolean messageExists = verifyOutboxMessageExists(testMessage);
         Assertions.assertTrue(messageExists, "Production-grade transactional message should exist in outbox table");
 
-        logger.info("✅ PHASE 1 STEP 3 PASSED: Production-grade transactional methods work correctly");
+        logger.info("PHASE 1 STEP 3 PASSED: Production-grade transactional methods work correctly");
     }
 
     @Test
@@ -278,13 +278,13 @@ public class ReactiveOutboxProducerTest {
             // Try to use TransactionPropagation - this will test if the API is available
             outboxProducer.sendWithTransaction(testMessage, io.vertx.sqlclient.TransactionPropagation.CONTEXT)
                 .get(10, TimeUnit.SECONDS);
-            logger.info("✅ Message sent with TransactionPropagation.CONTEXT: {}", testMessage);
+            logger.info("Message sent with TransactionPropagation.CONTEXT: {}", testMessage);
 
             // Verify message exists in outbox table
             boolean messageExists = verifyOutboxMessageExists(testMessage);
             Assertions.assertTrue(messageExists, "TransactionPropagation message should exist in outbox table");
 
-            logger.info("✅ PHASE 1 STEP 4 PASSED: TransactionPropagation support works correctly");
+            logger.info("PHASE 1 STEP 4 PASSED: TransactionPropagation support works correctly");
 
         } catch (Exception e) {
             // If TransactionPropagation is not available or not working, log the issue
@@ -295,7 +295,7 @@ public class ReactiveOutboxProducerTest {
             boolean fallbackExists = verifyOutboxMessageExists(testMessage + "-fallback");
             Assertions.assertTrue(fallbackExists, "Fallback message should exist");
 
-            logger.info("✅ PHASE 1 STEP 4 PASSED: Basic transactional methods work (TransactionPropagation may not be available)");
+            logger.info("PHASE 1 STEP 4 PASSED: Basic transactional methods work (TransactionPropagation may not be available)");
         }
     }
 

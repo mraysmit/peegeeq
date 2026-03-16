@@ -19,7 +19,7 @@ $script:TestsFailed = 0
 $script:TestResults = @()
 
 # Colors
-function Write-Success { Write-Host "✅ $args" -ForegroundColor Green }
+function Write-Success { Write-Host "$args" -ForegroundColor Green }
 function Write-Failure { Write-Host "❌ $args" -ForegroundColor Red }
 function Write-Info { Write-Host "ℹ️  $args" -ForegroundColor Cyan }
 function Write-Test { Write-Host "🧪 $args" -ForegroundColor Yellow }

@@ -161,7 +161,7 @@ public class OrderConsumerServiceTest {
     static void tearDown() {
         log.info("🧹 Cleaning up Order Consumer Service Test resources");
         // Container cleanup is handled by SharedTestContainers
-        log.info("✅ Order Consumer Service Test cleanup complete");
+        log.info("Order Consumer Service Test cleanup complete");
     }
 
     @Test
@@ -198,7 +198,7 @@ public class OrderConsumerServiceTest {
         assertTrue(consumerService.getMessagesProcessed() > 0, "Consumer should have processed messages");
         
         producer.close();
-        log.info("✅ Basic Message Consumption test passed");
+        log.info("Basic Message Consumption test passed");
     }
     
     @Test
@@ -232,7 +232,7 @@ public class OrderConsumerServiceTest {
         assertTrue(filteredDelta >= 1, "At least one message should be filtered");
         
         producer.close();
-        log.info("✅ Message Filtering test passed");
+        log.info("Message Filtering test passed");
     }
     
     @SuppressWarnings("null")
@@ -248,7 +248,7 @@ public class OrderConsumerServiceTest {
         assertNotNull(response.getBody().get("consumerInstanceId"));
         assertNotNull(response.getBody().get("messagesProcessed"));
         
-        log.info("✅ Consumer Health Endpoint test passed");
+        log.info("Consumer Health Endpoint test passed");
     }
     
     @SuppressWarnings("null")
@@ -266,7 +266,7 @@ public class OrderConsumerServiceTest {
         assertNotNull(response.getBody().get("messagesFailed"));
         assertNotNull(response.getBody().get("totalMessagesReceived"));
         
-        log.info("✅ Consumer Metrics Endpoint test passed");
+        log.info("Consumer Metrics Endpoint test passed");
     }
     
     @SuppressWarnings("null")
@@ -281,7 +281,7 @@ public class OrderConsumerServiceTest {
         assertEquals("RUNNING", response.getBody().get("status"));
         assertNotNull(response.getBody().get("consumerInstanceId"));
         
-        log.info("✅ Consumer Status Endpoint test passed");
+        log.info("Consumer Status Endpoint test passed");
     }
     
     @Test
@@ -292,7 +292,7 @@ public class OrderConsumerServiceTest {
         assertNotNull(queueFactory, "QueueFactory should be injected");
         assertNotNull(databaseService, "DatabaseService should be injected");
         
-        log.info("✅ Consumer Service Bean Injection test passed");
+        log.info("Consumer Service Bean Injection test passed");
     }
 }
 

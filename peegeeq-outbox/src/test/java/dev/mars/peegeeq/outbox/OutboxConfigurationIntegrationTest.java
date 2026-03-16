@@ -149,7 +149,7 @@ public class OutboxConfigurationIntegrationTest {
         vertx.timer(2000).toCompletionStage().toCompletableFuture().join();
         assertEquals(3, attemptCount.get(), "Should not exceed configured max retries");
         
-        logger.info("✅ Outbox configuration integration test completed successfully");
+        logger.info("Outbox configuration integration test completed successfully");
         logger.info("   Expected attempts: 3 (initial + 2 retries)");
         logger.info("   Actual attempts: {}", attemptCount.get());
     }
@@ -202,7 +202,7 @@ public class OutboxConfigurationIntegrationTest {
         logger.info("📤 Sending message: {}", testMessage);
         try {
             producer.send(testMessage).get(5, TimeUnit.SECONDS);
-            logger.info("✅ Message sent successfully");
+            logger.info("Message sent successfully");
         } catch (Exception e) {
             logger.error("❌ Failed to send message", e);
             throw e;
@@ -217,7 +217,7 @@ public class OutboxConfigurationIntegrationTest {
         vertx.timer(2000).toCompletionStage().toCompletableFuture().join();
         assertEquals(4, attemptCount.get(), "Should not exceed default max retries");
 
-        logger.info("✅ Outbox default configuration test completed successfully");
+        logger.info("Outbox default configuration test completed successfully");
         logger.info("   Expected attempts: 4 (initial + 3 retries from default profile)");
         logger.info("   Actual attempts: {}", attemptCount.get());
     }
@@ -233,31 +233,31 @@ public class OutboxConfigurationIntegrationTest {
         System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
         System.setProperty("peegeeq.database.username", postgres.getUsername());
         System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.out.println("✅ Database connection properties set");
+        System.out.println("Database connection properties set");
 
         // Initialize manager and components
         System.out.println("🔧 Creating PeeGeeQManager with basic-test configuration");
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("basic-test"), new SimpleMeterRegistry());
         System.out.println("🚀 Starting PeeGeeQManager");
         manager.start();
-        System.out.println("✅ PeeGeeQManager started successfully");
+        System.out.println("PeeGeeQManager started successfully");
 
         // Create factory and components (following the pattern of working tests)
         System.out.println("🔧 Creating database service and outbox factory");
         DatabaseService databaseService = new PgDatabaseService(manager);
         OutboxFactory outboxFactory = new OutboxFactory(databaseService, manager.getConfiguration());
-        System.out.println("✅ Outbox factory created successfully");
+        System.out.println("Outbox factory created successfully");
 
         // Use unique topic name like other tests
         String testTopic = "test-basic-processing-" + UUID.randomUUID().toString().substring(0, 8);
 
         System.out.println("📤 Creating producer for topic: " + testTopic);
         producer = outboxFactory.createProducer(testTopic, String.class);
-        System.out.println("✅ Producer created successfully");
+        System.out.println("Producer created successfully");
 
         System.out.println("📥 Creating consumer for topic: " + testTopic);
         consumer = outboxFactory.createConsumer(testTopic, String.class);
-        System.out.println("✅ Consumer created successfully");
+        System.out.println("Consumer created successfully");
 
         // Test message and simple processing
         String testMessage = "Basic processing test message";
@@ -268,17 +268,17 @@ public class OutboxConfigurationIntegrationTest {
         // Set up consumer that succeeds
         consumer.subscribe(message -> {
             int count = processedCount.incrementAndGet();
-            System.out.println("✅ Successfully processed message " + count + " (attempt " + count + "): " + message.getPayload());
+            System.out.println("Successfully processed message " + count + " (attempt " + count + "): " + message.getPayload());
             messageProcessed.flag();
             return CompletableFuture.completedFuture(null);
         });
-        System.out.println("✅ Consumer subscribed successfully");
+        System.out.println("Consumer subscribed successfully");
 
         // Send message
         System.out.println("📤 Sending basic test message: " + testMessage);
         try {
             producer.send(testMessage).get(5, TimeUnit.SECONDS);
-            System.out.println("✅ Message sent successfully");
+            System.out.println("Message sent successfully");
         } catch (Exception e) {
             System.out.println("❌ Failed to send message: " + e.getMessage());
             e.printStackTrace();
@@ -291,7 +291,7 @@ public class OutboxConfigurationIntegrationTest {
         System.out.println("⏰ Wait completed. Processed count: " + processedCount.get());
         assertEquals(1, processedCount.get(), "Should process exactly one message");
 
-        logger.info("✅ Basic outbox message processing test completed successfully");
+        logger.info("Basic outbox message processing test completed successfully");
         logger.info("   Messages processed: {}", processedCount.get());
     }
 }

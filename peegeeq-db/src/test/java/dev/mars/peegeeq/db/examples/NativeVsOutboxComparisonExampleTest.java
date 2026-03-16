@@ -55,7 +55,7 @@ public class NativeVsOutboxComparisonExampleTest {
         // Validate that the demonstration completed successfully
         assertTrue(true, "Architectural differences demonstration should complete successfully");
         
-        logger.info("✅ Architectural differences validated successfully");
+        logger.info("Architectural differences validated successfully");
     }
 
     /**
@@ -72,7 +72,7 @@ public class NativeVsOutboxComparisonExampleTest {
         // Validate that the demonstration completed successfully
         assertTrue(true, "Performance characteristics demonstration should complete successfully");
         
-        logger.info("✅ Performance characteristics validated successfully");
+        logger.info("Performance characteristics validated successfully");
     }
 
     /**
@@ -89,7 +89,7 @@ public class NativeVsOutboxComparisonExampleTest {
         // Validate that the demonstration completed successfully
         assertTrue(true, "Reliability features demonstration should complete successfully");
         
-        logger.info("✅ Reliability features validated successfully");
+        logger.info("Reliability features validated successfully");
     }
 
     /**
@@ -108,7 +108,7 @@ public class NativeVsOutboxComparisonExampleTest {
         // Validate that the guidance completed successfully
         assertTrue(true, "Technical guidance demonstration should complete successfully");
         
-        logger.info("✅ Technical guidance validated successfully");
+        logger.info("Technical guidance validated successfully");
     }
 
     // Helper methods that replicate the original example's educational content
@@ -120,7 +120,7 @@ public class NativeVsOutboxComparisonExampleTest {
         logger.info("\n=== ARCHITECTURAL DIFFERENCES ===");
 
         logger.info("\n🚀 Native LISTEN/NOTIFY Architecture:");
-        logger.info("   ✅ Implementation Details:");
+        logger.info("   Implementation Details:");
         logger.info("      - Uses PostgreSQL's built-in LISTEN/NOTIFY mechanism");
         logger.info("      - Establishes dedicated database connections for listening");
         logger.info("      - Messages are delivered immediately when published");
@@ -140,7 +140,7 @@ public class NativeVsOutboxComparisonExampleTest {
         logger.info("      - Chat applications and live feeds");
 
         logger.info("\n📦 Outbox Pattern Architecture:");
-        logger.info("   ✅ Implementation Details:");
+        logger.info("   Implementation Details:");
         logger.info("      - Uses database tables to store messages");
         logger.info("      - Employs polling mechanism to check for new messages");
         logger.info("      - Messages persist until successfully processed");
@@ -212,7 +212,7 @@ public class NativeVsOutboxComparisonExampleTest {
         logger.info("\n=== RELIABILITY FEATURES ===");
 
         logger.info("\n🚀 Native LISTEN/NOTIFY Reliability:");
-        logger.info("   ✅ Strengths:");
+        logger.info("   Strengths:");
         logger.info("      - Immediate delivery to active consumers");
         logger.info("      - No polling overhead or resource waste");
         logger.info("      - Real-time notifications with minimal delay");
@@ -226,7 +226,7 @@ public class NativeVsOutboxComparisonExampleTest {
         logger.info("      - Connection failures can result in message loss");
 
         logger.info("\n📦 Outbox Pattern Reliability:");
-        logger.info("   ✅ Strengths:");
+        logger.info("   Strengths:");
         logger.info("      - Guaranteed at-least-once delivery");
         logger.info("      - Built-in retry mechanisms with exponential backoff");
         logger.info("      - Message persistence until successful acknowledgment");

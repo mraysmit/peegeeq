@@ -151,7 +151,7 @@ public class CriticalTradeConsumerService {
             .withTransaction(CLIENT_ID, connection -> {
                 return storeTrade(connection, event, incidentId)
                     .compose(result -> {
-                        log.info("✅ [CRITICAL] Trade processed: tradeId={}, priority={}, status={}, incidentId={}, processedBy={}",
+                        log.info("[CRITICAL] Trade processed: tradeId={}, priority={}, status={}, incidentId={}, processedBy={}",
                             event.getTradeId(), priority, event.getStatus(), incidentId, consumerInstanceId);
 
                         // Update metrics

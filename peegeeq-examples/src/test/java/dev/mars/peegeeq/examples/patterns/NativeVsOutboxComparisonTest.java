@@ -187,7 +187,7 @@ class NativeVsOutboxComparisonTest {
         // Verify they are different classes
         assertNotEquals(nativeFactory.getClass(), outboxFactory.getClass());
         
-        logger.info("✅ Implementation type identification test passed");
+        logger.info("Implementation type identification test passed");
     }
     
     @Test
@@ -241,7 +241,7 @@ class NativeVsOutboxComparisonTest {
         outboxProducer.close();
         outboxConsumer.close();
         
-        logger.info("✅ Basic functionality comparison test passed");
+        logger.info("Basic functionality comparison test passed");
     }
     
     @Test
@@ -332,7 +332,7 @@ class NativeVsOutboxComparisonTest {
         outboxProducer.close();
         outboxConsumer.close();
         
-        logger.info("✅ Performance characteristics test passed");
+        logger.info("Performance characteristics test passed");
     }
     
     @Test
@@ -417,7 +417,7 @@ class NativeVsOutboxComparisonTest {
         nativeProducer.close();
         outboxProducer.close();
         
-        logger.info("✅ Consumer group comparison test passed");
+        logger.info("Consumer group comparison test passed");
     }
     
     @Test
@@ -447,7 +447,7 @@ class NativeVsOutboxComparisonTest {
         assertTrue(nativeFactory.isHealthy());
         assertTrue(outboxFactory.isHealthy());
         
-        logger.info("✅ Health and resource management test passed");
+        logger.info("Health and resource management test passed");
     }
 }
 

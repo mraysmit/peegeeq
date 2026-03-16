@@ -89,7 +89,7 @@ public class OutboxMessageOrderingSpringBootTest {
         for (MessageConsumer<?> consumer : activeConsumers) {
             try {
                 consumer.close();
-                logger.info("✅ Closed consumer");
+                logger.info("Closed consumer");
             } catch (Exception e) {
                 logger.error("⚠️ Error closing consumer: {}", e.getMessage());
             }
@@ -100,7 +100,7 @@ public class OutboxMessageOrderingSpringBootTest {
         for (MessageProducer<?> producer : activeProducers) {
             try {
                 producer.close();
-                logger.info("✅ Closed producer");
+                logger.info("Closed producer");
             } catch (Exception e) {
                 logger.error("⚠️ Error closing producer: {}", e.getMessage());
             }
@@ -113,7 +113,7 @@ public class OutboxMessageOrderingSpringBootTest {
         vertx.setTimer(2000, id -> delay.complete(null));
         delay.join();
         
-        logger.info("✅ Cleanup complete");
+        logger.info("Cleanup complete");
     }
 
     /**
@@ -175,8 +175,8 @@ public class OutboxMessageOrderingSpringBootTest {
                 "Message at position " + i + " should have sequence " + (i + 1));
         }
         
-        logger.info("✅ FIFO Message Ordering test passed");
-        logger.info("✅ Messages processed in correct FIFO order");
+        logger.info("FIFO Message Ordering test passed");
+        logger.info("Messages processed in correct FIFO order");
     }
 
     /**
@@ -252,8 +252,8 @@ public class OutboxMessageOrderingSpringBootTest {
             }
         }
         
-        logger.info("✅ Message Group Ordering test passed");
-        logger.info("✅ Messages within each group maintained FIFO order");
+        logger.info("Message Group Ordering test passed");
+        logger.info("Messages within each group maintained FIFO order");
     }
 
     /**
@@ -318,8 +318,8 @@ public class OutboxMessageOrderingSpringBootTest {
             assertEquals(5, count, "Each group should have processed 5 messages");
         }
         
-        logger.info("✅ Concurrent Group Processing test passed");
-        logger.info("✅ All groups processed their messages successfully");
+        logger.info("Concurrent Group Processing test passed");
+        logger.info("All groups processed their messages successfully");
     }
 
     /**

@@ -103,7 +103,7 @@ test.describe('Event Store Workflow', () => {
       // Wait for success message
       await expect(page.locator('.ant-message-success').first()).toBeVisible({ timeout: 5000 })
 
-      console.log(`✅ Created event store: ${createdEventStoreName}`)
+      console.log(`Created event store: ${createdEventStoreName}`)
     })
 
     test('should verify event store exists in list', async ({ page }) => {
@@ -142,7 +142,7 @@ test.describe('Event Store Workflow', () => {
         // Wait for tab panel to be active
         await expect(tab).toHaveAttribute('aria-selected', 'true')
 
-        console.log(`✅ Tab "${tabName}" is visible and navigable`)
+        console.log(`Tab "${tabName}" is visible and navigable`)
       }
     })
 
@@ -161,7 +161,7 @@ test.describe('Event Store Workflow', () => {
       await expect(page.locator('.ant-table')).toBeVisible()
       await expect(page.getByRole('button', { name: /create event store/i })).toBeVisible()
 
-      console.log('✅ Event Stores tab content is visible')
+      console.log('Event Stores tab content is visible')
     })
 
     test('should verify Events tab content', async ({ page }) => {
@@ -179,7 +179,7 @@ test.describe('Event Store Workflow', () => {
       const eventsTabContent = page.locator('.ant-tabs-tabpane-active')
       await expect(eventsTabContent).toBeVisible()
 
-      console.log('✅ Events tab content is visible')
+      console.log('Events tab content is visible')
     })
   })
 
@@ -230,7 +230,7 @@ test.describe('Event Store Workflow', () => {
         await expect(successMessageLocator).toBeVisible({ timeout: 10000 })
 
         const successMessage = await successMessageLocator.textContent()
-        console.log(`✅ Event posted via UI: ${successMessage}`)
+        console.log(`Event posted via UI: ${successMessage}`)
 
         expect(successMessage).toContain('posted successfully')
         expect(successMessage).toContain(eventType)
@@ -292,7 +292,7 @@ test.describe('Event Store Workflow', () => {
         registrationDate: new Date().toISOString()
       })
 
-      console.log('✅ Successfully posted 5 different events to event store')
+      console.log('Successfully posted 5 different events to event store')
     })
 
     test('should post event with advanced options - temporal valid time', async ({ page }) => {
@@ -345,7 +345,7 @@ test.describe('Event Store Workflow', () => {
 
       const successMessage = await page.locator('.ant-message-success').first().textContent()
       // eslint-disable-next-line no-console
-      console.log(`✅ Event with valid time posted: ${successMessage}`)
+      console.log(`Event with valid time posted: ${successMessage}`)
       expect(successMessage).toContain('OrderCreatedWithValidTime')
     })
 
@@ -391,7 +391,7 @@ test.describe('Event Store Workflow', () => {
 
       const successMessage = await page.locator('.ant-message-success').first().textContent()
       // eslint-disable-next-line no-console
-      console.log(`✅ Event with event sourcing fields posted: ${successMessage}`)
+      console.log(`Event with event sourcing fields posted: ${successMessage}`)
       expect(successMessage).toContain('OrderWithEventSourcing')
     })
 
@@ -441,7 +441,7 @@ test.describe('Event Store Workflow', () => {
 
       const successMessage = await page.locator('.ant-message-success').first().textContent()
       // eslint-disable-next-line no-console
-      console.log(`✅ Event with metadata posted: ${successMessage}`)
+      console.log(`Event with metadata posted: ${successMessage}`)
       expect(successMessage).toContain('OrderWithMetadata')
     })
 
@@ -510,7 +510,7 @@ test.describe('Event Store Workflow', () => {
 
       const successMessage = await page.locator('.ant-message-success').first().textContent()
       // eslint-disable-next-line no-console
-      console.log(`✅ Complete event with all advanced options posted: ${successMessage}`)
+      console.log(`Complete event with all advanced options posted: ${successMessage}`)
       expect(successMessage).toContain('CompleteEventWithAllOptions')
     })
 
@@ -545,7 +545,7 @@ test.describe('Event Store Workflow', () => {
       await expect(page.locator('text=Temporal (Optional)')).not.toBeVisible()
 
       // eslint-disable-next-line no-console
-      console.log('✅ Advanced options toggle working correctly')
+      console.log('Advanced options toggle working correctly')
     })
 
     test('should display unique aggregates count after loading events', async ({ page }) => {
@@ -597,7 +597,7 @@ test.describe('Event Store Workflow', () => {
       const aggregateCount = parseInt(afterValue || '0', 10)
       expect(aggregateCount).toBeGreaterThanOrEqual(2)
       // eslint-disable-next-line no-console
-      console.log(`✅ Aggregate count correctly shows ${aggregateCount} unique aggregates`)
+      console.log(`Aggregate count correctly shows ${aggregateCount} unique aggregates`)
     })
 
     test('should view events in Events tab', async ({ page }) => {
@@ -620,7 +620,7 @@ test.describe('Event Store Workflow', () => {
         await expect(refreshButton).toBeEnabled()
       }
 
-      console.log('✅ Events tab shows event table')
+      console.log('Events tab shows event table')
     })
 
     test('should load and view posted events in UI', async ({ page }) => {
@@ -669,7 +669,7 @@ test.describe('Event Store Workflow', () => {
       expect(tableRows).toBeGreaterThan(0)
 
       // eslint-disable-next-line no-console
-      console.log(`✅ Events loaded in UI table: ${tableRows} row(s) displayed`)
+      console.log(`Events loaded in UI table: ${tableRows} row(s) displayed`)
 
       // Verify we have multiple events (at least 5 from the post test)
       expect(tableRows).toBeGreaterThanOrEqual(5)
@@ -681,7 +681,7 @@ test.describe('Event Store Workflow', () => {
       expect(footerText).toContain('Total Events:')
 
       // eslint-disable-next-line no-console
-      console.log(`✅ Table footer: ${footerText}`)
+      console.log(`Table footer: ${footerText}`)
     })
 
     test('should verify event details are displayed in table', async ({ page }) => {
@@ -719,7 +719,7 @@ test.describe('Event Store Workflow', () => {
         if (rowCount > 0) {
           await expect(eventRow).toBeVisible()
           // eslint-disable-next-line no-console
-          console.log(`✅ Found ${eventType} event in table`)
+          console.log(`Found ${eventType} event in table`)
         } else {
           // eslint-disable-next-line no-console
           console.log(`⚠️ ${eventType} event not visible in table yet`)
@@ -730,7 +730,7 @@ test.describe('Event Store Workflow', () => {
       const totalRows = await eventTable.locator('tr.ant-table-row').count()
       expect(totalRows).toBeGreaterThanOrEqual(5)
       // eslint-disable-next-line no-console
-      console.log(`✅ Total events in table: ${totalRows}`)
+      console.log(`Total events in table: ${totalRows}`)
     })
 
     test('should verify advanced event details are displayed in table', async ({ page }) => {
@@ -776,7 +776,7 @@ test.describe('Event Store Workflow', () => {
       await expect(completeRow).toBeVisible()
       
       // eslint-disable-next-line no-console
-      console.log('✅ Advanced event types found in table')
+      console.log('Advanced event types found in table')
     })
 
     test('should filter events by event type in UI', async ({ page }) => {
@@ -806,7 +806,7 @@ test.describe('Event Store Workflow', () => {
 
       const initialRowCount = await eventTable.locator('tr.ant-table-row').count()
       // eslint-disable-next-line no-console
-      console.log(`✅ Initial event count: ${initialRowCount}`)
+      console.log(`Initial event count: ${initialRowCount}`)
       expect(initialRowCount).toBeGreaterThanOrEqual(5)
 
       // Test filtering by specific event type - OrderCreated
@@ -822,7 +822,7 @@ test.describe('Event Store Workflow', () => {
 
       const filteredRowCount1 = await eventTable.locator('tr.ant-table-row').count()
       // eslint-disable-next-line no-console
-      console.log(`✅ Filtered event count for 'OrderCreated': ${filteredRowCount1}`)
+      console.log(`Filtered event count for 'OrderCreated': ${filteredRowCount1}`)
       expect(filteredRowCount1).toBeGreaterThan(0)
 
       // Clear and test another filter - Order (should match OrderCreated, OrderShipped, OrderCancelled)
@@ -836,7 +836,7 @@ test.describe('Event Store Workflow', () => {
 
       const filteredRowCount2 = await eventTable.locator('tr.ant-table-row').count()
       // eslint-disable-next-line no-console
-      console.log(`✅ Filtered event count for 'Order': ${filteredRowCount2}`)
+      console.log(`Filtered event count for 'Order': ${filteredRowCount2}`)
       expect(filteredRowCount2).toBeGreaterThan(0)
 
       // Clear and test Customer filter (should match CustomerRegistered)
@@ -850,7 +850,7 @@ test.describe('Event Store Workflow', () => {
 
       const filteredRowCount3 = await eventTable.locator('tr.ant-table-row').count()
       // eslint-disable-next-line no-console
-      console.log(`✅ Filtered event count for 'Customer': ${filteredRowCount3}`)
+      console.log(`Filtered event count for 'Customer': ${filteredRowCount3}`)
       expect(filteredRowCount3).toBeGreaterThan(0)
 
       // Clear filter to show all events again
@@ -864,7 +864,7 @@ test.describe('Event Store Workflow', () => {
       const finalRowCount = await eventTable.locator('tr.ant-table-row').count()
       expect(finalRowCount).toBe(initialRowCount)
       // eslint-disable-next-line no-console
-      console.log(`✅ Event type filter working correctly - restored to ${finalRowCount} events`)
+      console.log(`Event type filter working correctly - restored to ${finalRowCount} events`)
     })
 
     test('should refresh events and see updated count', async ({ page }) => {
@@ -903,7 +903,7 @@ test.describe('Event Store Workflow', () => {
       await expect(tableFooter).toBeVisible()
       const initialFooterText = await tableFooter.textContent()
       // eslint-disable-next-line no-console
-      console.log(`✅ Initial state: ${initialFooterText}`)
+      console.log(`Initial state: ${initialFooterText}`)
 
       // Click the Refresh button next to Load Events button
       const refreshButton = page.getByRole('button', { name: 'Refresh' }).last()
@@ -918,7 +918,7 @@ test.describe('Event Store Workflow', () => {
       const finalFooterText = await tableFooter.textContent()
       expect(finalFooterText).toContain('Total Events:')
       // eslint-disable-next-line no-console
-      console.log(`✅ After refresh: ${finalFooterText}`)
+      console.log(`After refresh: ${finalFooterText}`)
     })
   })
 
@@ -1079,7 +1079,7 @@ test.describe('Event Store Workflow', () => {
 
         if (response.ok()) {
           const responseBody = await response.json()
-          console.log('✅ Event store cleanup response:', JSON.stringify(responseBody, null, 2))
+          console.log('Event store cleanup response:', JSON.stringify(responseBody, null, 2))
         } else {
           console.log('⚠️ Event store cleanup failed or event store already deleted')
         }

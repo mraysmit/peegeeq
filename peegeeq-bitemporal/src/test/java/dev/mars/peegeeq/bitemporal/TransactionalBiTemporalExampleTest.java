@@ -136,7 +136,7 @@ public class TransactionalBiTemporalExampleTest {
         orderEventStore = eventStoreFactory.createEventStore(OrderEvent.class);
         paymentEventStore = eventStoreFactory.createEventStore(PaymentEvent.class);
 
-        logger.info("✅ Transactional Bi-Temporal Example Test setup completed");
+        logger.info("Transactional Bi-Temporal Example Test setup completed");
     }
 
     @AfterEach
@@ -160,7 +160,7 @@ public class TransactionalBiTemporalExampleTest {
 
         restoreTestProperties();
 
-        logger.info("✅ Transactional Bi-Temporal Example Test cleanup completed");
+        logger.info("Transactional Bi-Temporal Example Test cleanup completed");
     }
 
     private void setTestProperty(String key, String value) {
@@ -243,8 +243,8 @@ public class TransactionalBiTemporalExampleTest {
         assertEquals("order-tx-001", orderEvents.get(0).getPayload().getOrderId());
         assertEquals("payment-tx-001", paymentEvents.get(0).getPayload().getPaymentId());
 
-        logger.info("✅ Multi-EventStore transactional consistency test completed successfully!");
-        logger.info("   ✅ Order and payment events stored consistently");
+        logger.info("Multi-EventStore transactional consistency test completed successfully!");
+        logger.info("   Order and payment events stored consistently");
     }
 
     /**
@@ -299,8 +299,8 @@ public class TransactionalBiTemporalExampleTest {
         assertTrue(orderEventsByType.stream().anyMatch(e -> e.getPayload().getStatus().equals("CONFIRMED")));
         assertTrue(orderEventsByType.stream().anyMatch(e -> e.getPayload().getStatus().equals("SHIPPED")));
 
-        logger.info("✅ Complex business workflows test completed successfully!");
-        logger.info("   ✅ Complete order processing workflow: {} order events, {} payment events",
+        logger.info("Complex business workflows test completed successfully!");
+        logger.info("   Complete order processing workflow: {} order events, {} payment events",
                    orderEventsByType.size(), allPaymentEvents.size());
     }
 
@@ -361,8 +361,8 @@ public class TransactionalBiTemporalExampleTest {
         assertEquals(numberOfThreads * eventsPerThread, successCount.get(),
                     "All concurrent operations should succeed");
 
-        logger.info("✅ Concurrent processing with proper isolation test completed successfully!");
-        logger.info("   ✅ Processed {} events across {} threads with {} successes",
+        logger.info("Concurrent processing with proper isolation test completed successfully!");
+        logger.info("   Processed {} events across {} threads with {} successes",
                    concurrentEvents, numberOfThreads, successCount.get());
     }
 
@@ -407,8 +407,8 @@ public class TransactionalBiTemporalExampleTest {
                 e.getPayload().getOrderId().equals(errorOrderId)),
                 "Error order should also be stored in append-only event store");
 
-        logger.info("✅ Error handling and rollback scenarios test completed successfully!");
-        logger.info("   ✅ Demonstrated append-only nature and error tolerance");
+        logger.info("Error handling and rollback scenarios test completed successfully!");
+        logger.info("   Demonstrated append-only nature and error tolerance");
     }
 
     /**
@@ -454,10 +454,10 @@ public class TransactionalBiTemporalExampleTest {
 
         assertEquals(numberOfEvents, perfEvents, "Should have stored all performance test events");
 
-        logger.info("✅ Performance testing with high-throughput scenarios completed successfully!");
-        logger.info("   ✅ Stored {} events in {}ms ({:.2f} events/second)",
+        logger.info("Performance testing with high-throughput scenarios completed successfully!");
+        logger.info("   Stored {} events in {}ms ({:.2f} events/second)",
                    numberOfEvents, duration, eventsPerSecond);
-        logger.info("   ✅ Performance metrics: {} total events in event store", allEvents.size());
+        logger.info("   Performance metrics: {} total events in event store", allEvents.size());
 
         // Performance assertion - should be able to handle at least 10 events per second
         assertTrue(eventsPerSecond >= 10.0,

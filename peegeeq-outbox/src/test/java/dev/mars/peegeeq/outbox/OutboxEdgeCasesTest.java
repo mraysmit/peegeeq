@@ -126,7 +126,7 @@ public class OutboxEdgeCasesTest {
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should have attempted processing and failed with null return");
         assertTrue(attemptCount.get() >= 1, "Should have made at least 1 processing attempt");
         
-        logger.info("✅ Null CompletableFuture return test completed successfully");
+        logger.info("Null CompletableFuture return test completed successfully");
     }
 
     @Test
@@ -158,7 +158,7 @@ public class OutboxEdgeCasesTest {
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times");
         assertEquals(3, attemptCount.get(), "Should have made exactly 3 processing attempts");
         
-        logger.info("✅ Exception during message access test completed successfully");
+        logger.info("Exception during message access test completed successfully");
     }
 
     @Test
@@ -185,7 +185,7 @@ public class OutboxEdgeCasesTest {
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times");
         assertEquals(3, attemptCount.get(), "Should have made exactly 3 processing attempts");
         
-        logger.info("✅ InterruptedException handling test completed successfully");
+        logger.info("InterruptedException handling test completed successfully");
     }
 
     @Test
@@ -211,7 +211,7 @@ public class OutboxEdgeCasesTest {
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should have attempted processing and handled OOM simulation");
         assertTrue(attemptCount.get() >= 1, "Should have made at least 1 processing attempt");
         
-        logger.info("✅ OutOfMemoryError simulation test completed successfully");
+        logger.info("OutOfMemoryError simulation test completed successfully");
     }
 }
 

@@ -93,11 +93,11 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
 
         // Cleanup
         setupService.destroySetup(testSetupId).get(30, TimeUnit.SECONDS);
-        logger.info("✅ Setup service basic database creation test passed");
+        logger.info("Setup service basic database creation test passed");
 
         // Cleanup
         setupService.destroySetup(testSetupId).get(30, TimeUnit.SECONDS);
-        logger.info("✅ Setup service with queue factory registration test passed");
+        logger.info("Setup service with queue factory registration test passed");
     }
 
     @Test
@@ -173,7 +173,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
 
         // Cleanup
         setupService.destroySetup(testSetupId).get(30, TimeUnit.SECONDS);
-        logger.info("✅ Queue factory creation and usage test passed");
+        logger.info("Queue factory creation and usage test passed");
     }
 
     @Test
@@ -227,7 +227,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
 
         // Cleanup
         setupService.destroySetup(testSetupId).get(30, TimeUnit.SECONDS);
-        logger.info("✅ Dynamic queue addition test passed");
+        logger.info("Dynamic queue addition test passed");
     }
 
     @Test
@@ -271,7 +271,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
 
         // Cleanup
         setupService.destroySetup(testSetupId).get(30, TimeUnit.SECONDS);
-        logger.info("✅ Setup with event stores test passed");
+        logger.info("Setup with event stores test passed");
     }
 
     @Test
@@ -314,7 +314,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
             setupService.getSetupStatus(testSetupId).get(10, TimeUnit.SECONDS);
         });
 
-        logger.info("✅ Setup destruction test passed");
+        logger.info("Setup destruction test passed");
     }
 
     private void verifyDatabaseExists(String databaseName) throws Exception {
@@ -436,7 +436,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
                    exception.getCause().getMessage().contains("Schema parameter is required"),
                    "Exception should mention schema parameter requirement");
 
-        logger.info("✅ Null schema validation test passed");
+        logger.info("Null schema validation test passed");
     }
 
     @Test
@@ -476,7 +476,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
                    exception.getCause().getMessage().contains("Schema parameter is required"),
                    "Exception should mention schema parameter requirement");
 
-        logger.info("✅ Blank schema validation test passed");
+        logger.info("Blank schema validation test passed");
     }
 
     @Test
@@ -518,7 +518,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
                    causeMsg.contains("invalid") && causeMsg.contains("schema") && causeMsg.contains("name"),
                    "Exception should mention invalid schema name");
 
-        logger.info("✅ Invalid schema name validation test passed");
+        logger.info("Invalid schema name validation test passed");
     }
 
     @Test
@@ -560,7 +560,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
                    causeMsg.contains("reserved") && causeMsg.contains("schema") && causeMsg.contains("name"),
                    "Exception should mention reserved schema name");
 
-        logger.info("✅ Reserved schema name (pg_) validation test passed");
+        logger.info("Reserved schema name (pg_) validation test passed");
     }
 
     @Test
@@ -602,7 +602,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
                    causeMsg.contains("reserved") && causeMsg.contains("schema") && causeMsg.contains("name"),
                    "Exception should mention reserved schema name");
 
-        logger.info("✅ Reserved schema name (information_schema) validation test passed");
+        logger.info("Reserved schema name (information_schema) validation test passed");
     }
 
     @Test
@@ -640,7 +640,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
         assertEquals(setupId, result.getSetupId(), "Setup ID should match");
         assertEquals(DatabaseSetupStatus.ACTIVE, result.getStatus(), "Setup should be active");
 
-        logger.info("✅ Valid custom schema validation test passed");
+        logger.info("Valid custom schema validation test passed");
 
         // Cleanup
         setupService.destroySetup(setupId).get(30, TimeUnit.SECONDS);

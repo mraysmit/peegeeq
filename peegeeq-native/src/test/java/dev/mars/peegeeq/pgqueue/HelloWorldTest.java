@@ -26,7 +26,7 @@ public class HelloWorldTest {
         assertEquals("Hello, PeeGeeQ!", message);
         assertTrue(message.contains("PeeGeeQ"));
         
-        logger.info("✅ Hello World test completed successfully: {}", message);
+        logger.info("Hello World test completed successfully: {}", message);
     }
     
     @Test
@@ -39,6 +39,6 @@ public class HelloWorldTest {
         double division = 10.0 / 2.0;
         assertEquals(5.0, division, 0.001);
         
-        logger.info("✅ Math test completed: 2+2={}, 10/2={}", result, division);
+        logger.info("Math test completed: 2+2={}, 10/2={}", result, division);
     }
 }

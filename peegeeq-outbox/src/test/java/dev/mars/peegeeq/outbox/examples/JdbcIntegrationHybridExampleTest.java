@@ -109,7 +109,7 @@ public class JdbcIntegrationHybridExampleTest {
         assertTrue(result.jdbcOperationsCompleted >= 0, "JDBC operations completed should be non-negative");
         assertTrue(result.existingCodeUnchanged, "Existing code should remain unchanged");
         
-        logger.info("✅ Existing JDBC method validated successfully");
+        logger.info("Existing JDBC method validated successfully");
         logger.info("   JDBC operations completed: {}, Code unchanged: {}", 
             result.jdbcOperationsCompleted, result.existingCodeUnchanged);
     }
@@ -137,7 +137,7 @@ public class JdbcIntegrationHybridExampleTest {
         assertTrue(result.incompatibilityDemonstrated, "Incompatibility should be demonstrated");
         assertTrue(result.separateTransactionContexts >= 0, "Separate transaction contexts should be non-negative");
         
-        logger.info("✅ Hybrid approach incompatibility demonstrated successfully");
+        logger.info("Hybrid approach incompatibility demonstrated successfully");
         logger.info("   Incompatibility demonstrated: {}, Separate contexts: {}", 
             result.incompatibilityDemonstrated, result.separateTransactionContexts);
     }
@@ -162,7 +162,7 @@ public class JdbcIntegrationHybridExampleTest {
         assertTrue(result.reactiveOperationsCompleted >= 0, "Reactive operations completed should be non-negative");
         assertTrue(result.fullReactiveStack, "Full reactive stack should be enabled");
         
-        logger.info("✅ New reactive method validated successfully");
+        logger.info("New reactive method validated successfully");
         logger.info("   Reactive operations completed: {}, Full reactive stack: {}", 
             result.reactiveOperationsCompleted, result.fullReactiveStack);
     }
@@ -188,7 +188,7 @@ public class JdbcIntegrationHybridExampleTest {
         assertTrue(result.reactivePerformance > 0, "Reactive performance should be positive");
         assertTrue(result.comparisonCompleted, "Comparison should be completed");
         
-        logger.info("✅ Performance comparison validated successfully");
+        logger.info("Performance comparison validated successfully");
         logger.info("   JDBC performance: {} ops/sec, Reactive performance: {} ops/sec, Completed: {}", 
             result.jdbcPerformance, result.reactivePerformance, result.comparisonCompleted);
     }
@@ -214,7 +214,7 @@ public class JdbcIntegrationHybridExampleTest {
         assertTrue(result.bestPracticesApplied >= 0, "Best practices applied should be non-negative");
         assertTrue(result.migrationPlanCompleted, "Migration plan should be completed");
         
-        logger.info("✅ Migration strategies validated successfully");
+        logger.info("Migration strategies validated successfully");
         logger.info("   Strategies evaluated: {}, Best practices applied: {}, Plan completed: {}", 
             result.strategiesEvaluated, result.bestPracticesApplied, result.migrationPlanCompleted);
     }

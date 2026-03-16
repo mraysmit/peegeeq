@@ -20,7 +20,7 @@ if ! command -v docker-compose > /dev/null 2>&1; then
     exit 1
 fi
 
-echo "✅ Docker is running"
+echo "Docker is running"
 
 # Build the test support JAR first
 echo "📦 Building PeeGeeQ test support JAR..."
@@ -28,7 +28,7 @@ cd ..
 mvn clean package -pl peegeeq-test-support -DskipTests
 cd examples
 
-echo "✅ Test support JAR built successfully"
+echo "Test support JAR built successfully"
 
 # Start the monitoring stack
 echo "🐳 Starting monitoring stack..."
@@ -42,14 +42,14 @@ echo "🔍 Checking service health..."
 
 # Check Prometheus
 if curl -s http://localhost:9090/-/healthy > /dev/null; then
-    echo "✅ Prometheus is healthy (http://localhost:9090)"
+    echo "Prometheus is healthy (http://localhost:9090)"
 else
     echo "❌ Prometheus is not responding"
 fi
 
 # Check Grafana
 if curl -s http://localhost:3000/api/health > /dev/null; then
-    echo "✅ Grafana is healthy (http://localhost:3000)"
+    echo "Grafana is healthy (http://localhost:3000)"
     echo "   📊 Login: admin / admin123"
 else
     echo "❌ Grafana is not responding"
@@ -57,7 +57,7 @@ fi
 
 # Check PostgreSQL
 if docker exec peegeeq-postgres-demo pg_isready -U peegeeq > /dev/null; then
-    echo "✅ PostgreSQL is healthy"
+    echo "PostgreSQL is healthy"
 else
     echo "❌ PostgreSQL is not responding"
 fi

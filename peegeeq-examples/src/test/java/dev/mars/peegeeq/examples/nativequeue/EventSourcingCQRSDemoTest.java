@@ -485,7 +485,7 @@ class EventSourcingCQRSDemoTest {
         // Initialize database schema for event sourcing CQRS test
         System.out.println("🔧 Initializing database schema for event sourcing CQRS test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
-        System.out.println("✅ Database schema initialized successfully using centralized schema initializer (ALL components)");
+        System.out.println("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
         // Initialize PeeGeeQ with event sourcing configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
@@ -501,7 +501,7 @@ class EventSourcingCQRSDemoTest {
 
         queueFactory = provider.createFactory("native", databaseService);
 
-        System.out.println("✅ Setup complete - Ready for event sourcing & CQRS pattern testing");
+        System.out.println("Setup complete - Ready for event sourcing & CQRS pattern testing");
     }
 
     @AfterEach
@@ -512,7 +512,7 @@ class EventSourcingCQRSDemoTest {
             try {
                 System.out.println("🔄 Closing PeeGeeQ manager...");
                 manager.closeReactive().toCompletionStage().toCompletableFuture().join();
-                System.out.println("✅ PeeGeeQ manager closed successfully");
+                System.out.println("PeeGeeQ manager closed successfully");
 
                 // CRITICAL: Wait for all resources to be fully released
                 // This prevents connection pool exhaustion between tests
@@ -530,7 +530,7 @@ class EventSourcingCQRSDemoTest {
         System.clearProperty("peegeeq.database.username");
         System.clearProperty("peegeeq.database.password");
 
-        System.out.println("✅ Cleanup complete");
+        System.out.println("Cleanup complete");
     }
 
     /**
@@ -780,7 +780,7 @@ class EventSourcingCQRSDemoTest {
         commandConsumer.close();
         eventConsumer.close();
 
-        System.out.println("✅ Event Sourcing test completed successfully");
+        System.out.println("Event Sourcing test completed successfully");
 
         // 🎯 KEY BENEFITS DEMONSTRATED:
         // 1. Complete audit trail - every state change is recorded as an event
@@ -1006,7 +1006,7 @@ class EventSourcingCQRSDemoTest {
         commandConsumer.close();
         eventConsumer.close();
 
-        System.out.println("✅ CQRS test completed successfully");
+        System.out.println("CQRS test completed successfully");
     }
 
 

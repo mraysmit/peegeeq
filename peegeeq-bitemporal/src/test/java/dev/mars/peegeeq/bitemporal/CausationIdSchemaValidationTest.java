@@ -99,7 +99,7 @@ public class CausationIdSchemaValidationTest {
         Class<Map<String, Object>> mapClass = (Class<Map<String, Object>>) (Class<?>) Map.class;
         eventStore = (PgBiTemporalEventStore<Map<String, Object>>) factory.createEventStore(mapClass);
 
-        logger.info("✅ Setup completed successfully");
+        logger.info("Setup completed successfully");
     }
     
     @AfterEach
@@ -121,7 +121,7 @@ public class CausationIdSchemaValidationTest {
         System.clearProperty("peegeeq.database.username");
         System.clearProperty("peegeeq.database.password");
 
-        logger.info("✅ Cleanup completed successfully");
+        logger.info("Cleanup completed successfully");
     }
     
     @Test
@@ -150,7 +150,7 @@ public class CausationIdSchemaValidationTest {
             assertEquals("character varying", dataType, "Data type should be VARCHAR");
             assertEquals(255, maxLength, "Max length should be 255");
             
-            logger.info("✅ causation_id column exists with correct schema: VARCHAR(255)");
+            logger.info("causation_id column exists with correct schema: VARCHAR(255)");
         }
     }
     
@@ -195,7 +195,7 @@ public class CausationIdSchemaValidationTest {
             String storedCausationId = rs.getString("causation_id");
             assertEquals(causationId, storedCausationId, "Stored causation_id should match");
             
-            logger.info("✅ Trigger executed successfully and causation_id was stored: {}", storedCausationId);
+            logger.info("Trigger executed successfully and causation_id was stored: {}", storedCausationId);
         }
     }
     
@@ -227,7 +227,7 @@ public class CausationIdSchemaValidationTest {
         assertNotNull(event, "Event should be successfully appended");
         assertEquals(causationId, event.getCausationId(), "Causation ID should match");
         
-        logger.info("✅ appendWithTransaction method signature validated with causation_id parameter");
+        logger.info("appendWithTransaction method signature validated with causation_id parameter");
     }
     
     @Test
@@ -272,7 +272,7 @@ public class CausationIdSchemaValidationTest {
                 );
             }
             
-            logger.info("✅ Test schema has all required columns matching production");
+            logger.info("Test schema has all required columns matching production");
         }
     }
 }

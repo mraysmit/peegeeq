@@ -96,7 +96,7 @@ public class TradeProducerService {
                     case NORMAL -> normalSent.incrementAndGet();
                 }
 
-                log.info("✅ Trade event sent: tradeId={}, priority={}, status={}",
+                log.info("Trade event sent: tradeId={}, priority={}, status={}",
                     event.getTradeId(), event.getPriority(), event.getStatus());
             })
             .exceptionally(ex -> {

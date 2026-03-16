@@ -87,7 +87,7 @@ class JsonbConversionValidationTest {
         // Initialize schema
         initializeSchema(postgres);
 
-        logger.info("✅ Test setup complete - Dead Letter Queue Manager ready for JSONB validation");
+        logger.info("Test setup complete - Dead Letter Queue Manager ready for JSONB validation");
     }
 
     @AfterEach
@@ -98,7 +98,7 @@ class JsonbConversionValidationTest {
         if (vertx != null) {
             vertx.close();
         }
-        logger.info("✅ Test cleanup complete");
+        logger.info("Test cleanup complete");
     }
 
     @Test
@@ -123,7 +123,7 @@ class JsonbConversionValidationTest {
             originalCreatedAt, failureReason, retryCount,
             headers, "dlq-correlation-123", "test-group").join();
 
-        logger.info("✅ Message moved to dead letter queue successfully");
+        logger.info("Message moved to dead letter queue successfully");
 
         // Validate JSONB storage using direct database query
         try (Connection conn = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {
@@ -160,7 +160,7 @@ class JsonbConversionValidationTest {
                 String extractedCorrelationId = rs.getString("extracted_correlation_id");
                 assertEquals("dlq-test-correlation-123", extractedCorrelationId, "Should extract correlationId using JSON operators");
 
-                logger.info("✅ Dead Letter Queue JSONB validation successful - payload type: {}, headers type: {}", 
+                logger.info("Dead Letter Queue JSONB validation successful - payload type: {}, headers type: {}", 
                           payloadType, headersType);
             }
         }
@@ -190,7 +190,7 @@ class JsonbConversionValidationTest {
             originalCreatedAt, failureReason, retryCount,
             headers, "order-correlation-456", "order-group").join();
 
-        logger.info("✅ Complex object moved to dead letter queue successfully");
+        logger.info("Complex object moved to dead letter queue successfully");
 
         // Validate JSONB storage using direct database query
         try (Connection conn = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {
@@ -224,7 +224,7 @@ class JsonbConversionValidationTest {
                 assertEquals(testOrder.status, extractedStatus, "Should extract status using JSON operators");
                 assertEquals("high", extractedPriority, "Should extract priority from headers using JSON operators");
 
-                logger.info("✅ Complex Dead Letter Queue JSONB validation successful - orderId: {}, status: {}, priority: {}", 
+                logger.info("Complex Dead Letter Queue JSONB validation successful - orderId: {}, status: {}, priority: {}", 
                           extractedOrderId, extractedStatus, extractedPriority);
             }
         }
@@ -268,7 +268,7 @@ class JsonbConversionValidationTest {
         boolean reprocessed = dlqManager.reprocessDeadLetterMessage(deadLetterMessageId, "Manual reprocessing test").join();
         assertTrue(reprocessed, "Message should be reprocessed successfully");
 
-        logger.info("✅ Dead letter message reprocessing with JSONB data successful");
+        logger.info("Dead letter message reprocessing with JSONB data successful");
     }
 
     private void initializeSchema(PostgreSQLContainer<?> postgres) {
@@ -327,7 +327,7 @@ class JsonbConversionValidationTest {
                 stmt1.execute();
                 stmt2.execute();
                 stmt3.execute();
-                logger.info("✅ Dead letter queue schema initialized successfully");
+                logger.info("Dead letter queue schema initialized successfully");
             }
         } catch (Exception e) {
             throw new RuntimeException("Failed to initialize schema", e);

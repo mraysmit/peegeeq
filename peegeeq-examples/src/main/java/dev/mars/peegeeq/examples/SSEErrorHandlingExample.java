@@ -88,7 +88,7 @@ public class SSEErrorHandlingExample {
             // Demonstrate error handling and reconnection
             demonstrateErrorHandling(vertx, httpClient);
             
-            logger.info("✅ SSE Error Handling Example completed successfully");
+            logger.info("SSE Error Handling Example completed successfully");
             
         } catch (Exception e) {
             logger.error("❌ Error in SSE Error Handling Example", e);
@@ -169,7 +169,7 @@ public class SSEErrorHandlingExample {
                 return req.send();
             })
             .onSuccess(response -> {
-                logger.info("✅ SSE connection established (attempt #{})", attemptNumber);
+                logger.info("SSE connection established (attempt #{})", attemptNumber);
                 logger.info("   Status: {}", response.statusCode());
                 
                 // Handle SSE data stream
@@ -187,7 +187,7 @@ public class SSEErrorHandlingExample {
                     
                     // Complete after receiving 10 messages total
                     if (messagesReceived.get() >= 10) {
-                        logger.info("✅ Received target number of messages, closing connection");
+                        logger.info("Received target number of messages, closing connection");
                         response.request().connection().close();
                         completionLatch.countDown();
                     }

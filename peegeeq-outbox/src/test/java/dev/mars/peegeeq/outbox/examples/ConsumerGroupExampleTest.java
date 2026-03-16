@@ -137,7 +137,7 @@ public class ConsumerGroupExampleTest {
             processedCount.incrementAndGet();
             processedLatch.flag();
 
-            logger.info("✅ Processed order: {} (amount: ${})",
+            logger.info("Processed order: {} (amount: ${})",
                 event.getOrderId(), event.getAmount());
 
             return CompletableFuture.completedFuture(null);
@@ -157,7 +157,7 @@ public class ConsumerGroupExampleTest {
         consumer.close();
         producer.close();
 
-        logger.info("✅ Basic Message Processing validated successfully");
+        logger.info("Basic Message Processing validated successfully");
         logger.info("   Total messages processed: {}", processedCount.get());
     }
 
@@ -184,7 +184,7 @@ public class ConsumerGroupExampleTest {
             processedCount.incrementAndGet();
             processedLatch.flag();
 
-            logger.info("✅ Processed payment for order: {} (priority: {})",
+            logger.info("Processed payment for order: {} (priority: {})",
                 event.getOrderId(), headers.get("priority"));
 
             // Verify headers are present
@@ -209,7 +209,7 @@ public class ConsumerGroupExampleTest {
         consumer.close();
         producer.close();
 
-        logger.info("✅ Message Headers Processing validated successfully");
+        logger.info("Message Headers Processing validated successfully");
         logger.info("   Total messages processed: {}", processedCount.get());
     }
 
@@ -235,7 +235,7 @@ public class ConsumerGroupExampleTest {
             processedCount.incrementAndGet();
             processedLatch.flag();
 
-            logger.info("✅ Deserialized order: {} (customer: {}, amount: ${}, status: {})",
+            logger.info("Deserialized order: {} (customer: {}, amount: ${}, status: {})",
                 event.getOrderId(), event.getCustomerId(), event.getAmount(), event.getStatus());
 
             // Verify all fields are properly deserialized
@@ -260,7 +260,7 @@ public class ConsumerGroupExampleTest {
         consumer.close();
         producer.close();
 
-        logger.info("✅ Message Serialization and Deserialization validated successfully");
+        logger.info("Message Serialization and Deserialization validated successfully");
         logger.info("   Total messages processed: {}", processedCount.get());
     }
 

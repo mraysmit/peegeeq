@@ -165,12 +165,12 @@ public class ConfigurationValidationTest {
         assertEquals(overridePollingInterval, overriddenConfig.getQueueConfig().getPollingInterval(),
             "System property must override polling-interval for environment-specific optimization");
         
-        logger.info("✅ Verified system properties override configuration file values:");
+        logger.info("Verified system properties override configuration file values:");
         logger.info("  MaxRetries: {} -> {} (production reliability tuning)", baseMaxRetries, overrideMaxRetries);
         logger.info("  BatchSize: {} -> {} (performance optimization)", baseBatchSize, overrideBatchSize);
         logger.info("  PollingInterval: {} -> {} (environment tuning)", basePollingInterval, overridePollingInterval);
         
-        logger.info("✅ Configuration override test completed successfully");
+        logger.info("Configuration override test completed successfully");
     }
 
     /**
@@ -199,8 +199,8 @@ public class ConfigurationValidationTest {
         assertEquals("peegeeq_production", System.getProperty("peegeeq.database.name"),
             "Database name must be configurable for environment isolation");
         
-        logger.info("✅ Database connection properties successfully configured for production environment");
-        logger.info("✅ Database connection override test completed successfully");
+        logger.info("Database connection properties successfully configured for production environment");
+        logger.info("Database connection override test completed successfully");
     }
 
     /**
@@ -225,8 +225,8 @@ public class ConfigurationValidationTest {
         assertTrue(defaultProfile.equals("development") || defaultProfile.equals("test"),
             "Default profile must be appropriate for development environment");
         
-        logger.info("✅ Profile-based configuration working correctly");
-        logger.info("✅ Profile configuration test completed successfully");
+        logger.info("Profile-based configuration working correctly");
+        logger.info("Profile configuration test completed successfully");
     }
 
     /**
@@ -260,8 +260,8 @@ public class ConfigurationValidationTest {
                 "Properties must use dots, not underscores, for consistency with Java conventions");
         }
         
-        logger.info("✅ All {} configuration properties follow naming conventions", expectedProperties.length);
-        logger.info("✅ Property naming convention test completed successfully");
+        logger.info("All {} configuration properties follow naming conventions", expectedProperties.length);
+        logger.info("Property naming convention test completed successfully");
     }
 
     /**
@@ -285,7 +285,7 @@ public class ConfigurationValidationTest {
             assertNotNull(provider, "Factory provider must be creatable with configuration");
         }, "Configuration must integrate properly with factory provider creation");
         
-        logger.info("✅ Configuration successfully integrates with factory provider");
-        logger.info("✅ Configuration factory integration test completed successfully");
+        logger.info("Configuration successfully integrates with factory provider");
+        logger.info("Configuration factory integration test completed successfully");
     }
 }

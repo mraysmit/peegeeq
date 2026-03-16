@@ -74,7 +74,7 @@ class RealServiceDiscoveryIntegrationTest {
         logger.info("🚀 Setting up shared Consul container for all tests");
 
         // Wait for Consul to be fully ready
-        logger.info("✅ Consul container ready at {}:{}", consul.getHost(), consul.getFirstMappedPort());
+        logger.info("Consul container ready at {}:{}", consul.getHost(), consul.getFirstMappedPort());
 
         // Create shared Consul client
         ConsulClientOptions options = new ConsulClientOptions()
@@ -92,7 +92,7 @@ class RealServiceDiscoveryIntegrationTest {
         staticDiscoveryVertx = Vertx.vertx();
         staticServiceDiscovery = new ConsulServiceDiscovery(staticDiscoveryVertx, staticConsulClient, staticObjectMapper);
 
-        logger.info("✅ Shared Consul setup completed");
+        logger.info("Shared Consul setup completed");
     }
 
     @AfterAll
@@ -111,7 +111,7 @@ class RealServiceDiscoveryIntegrationTest {
             staticDiscoveryVertx.close();
         }
 
-        logger.info("✅ Shared Consul cleanup completed");
+        logger.info("Shared Consul cleanup completed");
     }
 
     @BeforeEach
@@ -168,7 +168,7 @@ class RealServiceDiscoveryIntegrationTest {
             consulClient.deleteValues(testNamespace)
                     .onComplete(deleteResult -> {
                         if (deleteResult.succeeded()) {
-                            logger.debug("✅ Cleaned up KV namespace: {}", testNamespace);
+                            logger.debug("Cleaned up KV namespace: {}", testNamespace);
                         } else {
                             logger.warn("⚠️ Failed to clean up KV namespace: {}", testNamespace, deleteResult.cause());
                         }
@@ -198,7 +198,7 @@ class RealServiceDiscoveryIntegrationTest {
                 if (instances.isEmpty()) {
                     logger.warn("❌ No instances discovered - health checks may have failed");
                 } else {
-                    logger.info("✅ Discovered instances: {}",
+                    logger.info("Discovered instances: {}",
                             instances.stream().map(PeeGeeQInstance::getInstanceId).toList());
                 }
                 assertFalse(instances.isEmpty(), "Should discover the healthy service");
@@ -213,7 +213,7 @@ class RealServiceDiscoveryIntegrationTest {
                 assertEquals("localhost", foundInstance.getHost());
                 assertEquals(8080, foundInstance.getPort());
                 
-                logger.info("✅ Successfully discovered healthy service: {}", foundInstance.getInstanceId());
+                logger.info("Successfully discovered healthy service: {}", foundInstance.getInstanceId());
                 testContext.completeNow();
             })));
     }
@@ -243,7 +243,7 @@ class RealServiceDiscoveryIntegrationTest {
                 
                 assertFalse(foundUnhealthyService, "Should NOT discover unhealthy services");
                 
-                logger.info("✅ Correctly excluded unhealthy service from discovery");
+                logger.info("Correctly excluded unhealthy service from discovery");
                 testContext.completeNow();
             })));
     }
@@ -283,7 +283,7 @@ class RealServiceDiscoveryIntegrationTest {
                 assertTrue(foundHealthy, "Should discover the healthy service");
                 assertFalse(foundUnhealthy, "Should NOT discover the unhealthy service");
                 
-                logger.info("✅ Correctly discovered only healthy services from mixed set");
+                logger.info("Correctly discovered only healthy services from mixed set");
                 testContext.completeNow();
             })));
     }
@@ -313,14 +313,14 @@ class RealServiceDiscoveryIntegrationTest {
                     return Future.failedFuture("Service not found before failure test");
                 }
 
-                logger.info("✅ Service registered and discoverable before failure test");
+                logger.info("Service registered and discoverable before failure test");
 
                 // Simulate Consul being temporarily unavailable by testing error handling
                 // We can't actually stop the shared container, so we'll test with invalid operations
                 return testConsulErrorHandling();
             })
             .onComplete(testContext.succeeding(v -> {
-                logger.info("✅ Consul failure and recovery test completed");
+                logger.info("Consul failure and recovery test completed");
                 testContext.completeNow();
             }));
     }
@@ -350,7 +350,7 @@ class RealServiceDiscoveryIntegrationTest {
         serviceDiscovery.registerInstance(invalidInstance)
                 .onComplete(result -> {
                     if (result.failed()) {
-                        logger.info("✅ Error handling working - invalid registration rejected: {}",
+                        logger.info("Error handling working - invalid registration rejected: {}",
                                 result.cause().getMessage());
                         promise.complete();
                     } else {
@@ -481,7 +481,7 @@ class RealServiceDiscoveryIntegrationTest {
                                 .anyMatch(instance -> instance.getInstanceId().equals(serviceId));
 
                         if (found) {
-                            logger.info("✅ Service {} is now healthy", serviceId);
+                            logger.info("Service {} is now healthy", serviceId);
                             promise.complete();
                         } else {
                             // Poll again in 2 seconds

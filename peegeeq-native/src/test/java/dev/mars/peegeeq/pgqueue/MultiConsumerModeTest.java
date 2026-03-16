@@ -77,7 +77,7 @@ class MultiConsumerModeTest {
         System.clearProperty("peegeeq.consumer.threads");
 
         initializeManagerAndFactory();
-        logger.info("✅ MultiConsumerModeTest setup completed");
+        logger.info("MultiConsumerModeTest setup completed");
     }
 
     @AfterEach
@@ -97,7 +97,7 @@ class MultiConsumerModeTest {
         System.clearProperty("peegeeq.queue.batch-size");
         System.clearProperty("peegeeq.consumer.threads");
 
-        logger.info("✅ MultiConsumerModeTest cleanup completed");
+        logger.info("MultiConsumerModeTest cleanup completed");
     }
 
     private void initializeManagerAndFactory() throws Exception {
@@ -180,7 +180,7 @@ class MultiConsumerModeTest {
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "All messages should be processed by multiple consumers with same mode");
             assertEquals(totalMessages, totalProcessed.get(), "Should process exactly " + totalMessages + " messages");
 
-            logger.info("✅ Multiple consumers same mode test verified - processed: {} messages",
+            logger.info("Multiple consumers same mode test verified - processed: {} messages",
                 totalProcessed.get());
 
         } finally {
@@ -189,7 +189,7 @@ class MultiConsumerModeTest {
             }
         }
 
-        logger.info("✅ Multiple consumers same mode test completed successfully");
+        logger.info("Multiple consumers same mode test completed successfully");
     }
 
     @Test
@@ -273,7 +273,7 @@ class MultiConsumerModeTest {
             assertEquals(2, pollingProcessed.get(), "POLLING consumer should process 2 messages");
             assertEquals(2, hybridProcessed.get(), "HYBRID consumer should process 2 messages");
 
-            logger.info("✅ Multiple consumers different modes test verified - Listen: {}, Polling: {}, Hybrid: {}",
+            logger.info("Multiple consumers different modes test verified - Listen: {}, Polling: {}, Hybrid: {}",
                 listenNotifyProcessed.get(), pollingProcessed.get(), hybridProcessed.get());
 
         } finally {
@@ -282,7 +282,7 @@ class MultiConsumerModeTest {
             hybridConsumer.close();
         }
 
-        logger.info("✅ Multiple consumers different modes test completed successfully");
+        logger.info("Multiple consumers different modes test completed successfully");
     }
 
     @Test
@@ -346,7 +346,7 @@ class MultiConsumerModeTest {
             assertEquals(messagesPerMode, totalProcessed, "Total processed should equal messages sent (no duplication)");
             assertEquals(0, listenProcessed.get(), "LISTEN_NOTIFY consumer should not process any messages");
 
-            logger.info("✅ Consumer mode isolation test verified - Polling: {}, Hybrid: {}, Total: {}",
+            logger.info("Consumer mode isolation test verified - Polling: {}, Hybrid: {}, Total: {}",
                 pollingProcessed.get(), hybridProcessed.get(), totalProcessed);
 
         } finally {
@@ -354,7 +354,7 @@ class MultiConsumerModeTest {
             hybridConsumer.close();
         }
 
-        logger.info("✅ Consumer mode isolation test completed successfully");
+        logger.info("Consumer mode isolation test completed successfully");
     }
 
     @Test
@@ -419,7 +419,7 @@ class MultiConsumerModeTest {
             assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "All messages should be processed safely across different consumer modes");
             assertEquals(totalMessages, totalProcessed.get(), "Should process exactly " + totalMessages + " messages");
 
-            logger.info("✅ Thread safety across modes test verified - processed: {} messages",
+            logger.info("Thread safety across modes test verified - processed: {} messages",
                 totalProcessed.get());
 
         } finally {
@@ -428,7 +428,7 @@ class MultiConsumerModeTest {
             }
         }
 
-        logger.info("✅ Thread safety across modes test completed successfully");
+        logger.info("Thread safety across modes test completed successfully");
     }
 
     @Test
@@ -504,7 +504,7 @@ class MultiConsumerModeTest {
             slowConsumer.close();
         }
 
-        logger.info("✅ Consumer mode performance isolation test completed successfully");
+        logger.info("Consumer mode performance isolation test completed successfully");
     }
 }
 

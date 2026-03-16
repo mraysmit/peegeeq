@@ -110,25 +110,25 @@ public class PeeGeeQExampleTest {
         
         // Start the manager
         manager.start();
-        logger.info("✅ PeeGeeQ Manager started successfully");
+        logger.info("PeeGeeQ Manager started successfully");
         
         // Test health checks
         PeeGeeQManager.SystemStatus systemStatus = manager.getSystemStatus();
         assertNotNull(systemStatus, "System status should not be null");
         assertNotNull(systemStatus.getHealthStatus(), "Health status should not be null");
-        logger.info("✅ Health status retrieved: {}", systemStatus.getHealthStatus().getStatus());
+        logger.info("Health status retrieved: {}", systemStatus.getHealthStatus().getStatus());
 
         // Test metrics
         assertNotNull(systemStatus.getMetricsSummary(), "Metrics summary should not be null");
-        logger.info("✅ Metrics system operational");
+        logger.info("Metrics system operational");
         
         // Test configuration
         PeeGeeQConfiguration config = manager.getConfiguration();
         assertNotNull(config, "Configuration should not be null");
         assertEquals("test", config.getProfile());
-        logger.info("✅ Configuration validated for profile: {}", config.getProfile());
+        logger.info("Configuration validated for profile: {}", config.getProfile());
         
-        logger.info("✅ Production readiness features validated successfully");
+        logger.info("Production readiness features validated successfully");
     }
 
     /**
@@ -142,18 +142,18 @@ public class PeeGeeQExampleTest {
         // Test profile parsing
         String profile = parseProfile(new String[]{"--profile", "test"});
         assertEquals("test", profile);
-        logger.info("✅ Profile parsing validated: {}", profile);
+        logger.info("Profile parsing validated: {}", profile);
         
         // Test default profile
         String defaultProfile = parseProfile(new String[]{});
         assertEquals("default", defaultProfile);
-        logger.info("✅ Default profile validated: {}", defaultProfile);
+        logger.info("Default profile validated: {}", defaultProfile);
         
         // Test system properties configuration
         validateSystemPropertiesConfiguration();
-        logger.info("✅ System properties configuration validated");
+        logger.info("System properties configuration validated");
         
-        logger.info("✅ Configuration management validated successfully");
+        logger.info("Configuration management validated successfully");
     }
 
     /**
@@ -168,22 +168,22 @@ public class PeeGeeQExampleTest {
 
         // Validate container is running
         assertTrue(postgres.isRunning(), "PostgreSQL container should be running");
-        logger.info("✅ PostgreSQL container is running");
+        logger.info("PostgreSQL container is running");
 
         // Validate container configuration
         assertEquals("peegeeq_test", postgres.getDatabaseName());
         assertEquals("peegeeq_test", postgres.getUsername());
         assertEquals("peegeeq_test", postgres.getPassword());
-        logger.info("✅ Container configuration validated");
+        logger.info("Container configuration validated");
 
         // Validate connection properties
         assertNotNull(postgres.getJdbcUrl());
         assertTrue(postgres.getFirstMappedPort() > 0);
-        logger.info("✅ Container connection properties validated");
+        logger.info("Container connection properties validated");
         logger.info("   Container URL: {}", postgres.getJdbcUrl());
         logger.info("   Host: {}:{}", postgres.getHost(), postgres.getFirstMappedPort());
 
-        logger.info("✅ Container integration validated successfully");
+        logger.info("Container integration validated successfully");
     }
 
     /**
@@ -207,7 +207,7 @@ public class PeeGeeQExampleTest {
         // Demonstrate configuration features
         demonstrateConfigurationFeatures();
         
-        logger.info("✅ Feature demonstrations validated successfully");
+        logger.info("Feature demonstrations validated successfully");
     }
 
     // Helper methods that replicate the original example's functionality
@@ -270,7 +270,7 @@ public class PeeGeeQExampleTest {
         logger.info("Demonstrating health monitoring...");
         PeeGeeQManager.SystemStatus systemStatus = manager.getSystemStatus();
         assertNotNull(systemStatus.getHealthStatus());
-        logger.info("✅ Health monitoring demonstrated: {}", systemStatus.getHealthStatus().getStatus());
+        logger.info("Health monitoring demonstrated: {}", systemStatus.getHealthStatus().getStatus());
     }
     
     /**
@@ -280,7 +280,7 @@ public class PeeGeeQExampleTest {
         logger.info("Demonstrating metrics collection...");
         PeeGeeQManager.SystemStatus systemStatus = manager.getSystemStatus();
         assertNotNull(systemStatus.getMetricsSummary());
-        logger.info("✅ Metrics collection demonstrated");
+        logger.info("Metrics collection demonstrated");
     }
     
     /**
@@ -290,7 +290,7 @@ public class PeeGeeQExampleTest {
         logger.info("Demonstrating configuration features...");
         PeeGeeQConfiguration config = manager.getConfiguration();
         assertNotNull(config);
-        logger.info("✅ Configuration features demonstrated for profile: {}", config.getProfile());
+        logger.info("Configuration features demonstrated for profile: {}", config.getProfile());
     }
 }
 

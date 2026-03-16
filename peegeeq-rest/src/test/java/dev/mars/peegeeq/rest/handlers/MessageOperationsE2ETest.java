@@ -158,7 +158,7 @@ public class MessageOperationsE2ETest {
                     assertTrue(body.containsKey("messageId") || body.containsKey("correlationId"), 
                         "Response should contain message identifier");
                     
-                    logger.info("✅ Simple message published successfully");
+                    logger.info("Simple message published successfully");
                     testContext.completeNow();
                 });
             })
@@ -186,7 +186,7 @@ public class MessageOperationsE2ETest {
             .onSuccess(response -> {
                 testContext.verify(() -> {
                     assertEquals(200, response.statusCode(), "Should return 200 OK");
-                    logger.info("✅ Priority message published successfully");
+                    logger.info("Priority message published successfully");
                     testContext.completeNow();
                 });
             })
@@ -214,7 +214,7 @@ public class MessageOperationsE2ETest {
             .onSuccess(response -> {
                 testContext.verify(() -> {
                     assertEquals(200, response.statusCode(), "Should return 200 OK");
-                    logger.info("✅ Delayed message published successfully");
+                    logger.info("Delayed message published successfully");
                     testContext.completeNow();
                 });
             })
@@ -247,7 +247,7 @@ public class MessageOperationsE2ETest {
             .onSuccess(response -> {
                 testContext.verify(() -> {
                     assertEquals(200, response.statusCode(), "Should return 200 OK");
-                    logger.info("✅ Message with headers published successfully");
+                    logger.info("Message with headers published successfully");
                     testContext.completeNow();
                 });
             })
@@ -275,7 +275,7 @@ public class MessageOperationsE2ETest {
             .onSuccess(response -> {
                 testContext.verify(() -> {
                     assertEquals(200, response.statusCode(), "Should return 200 OK");
-                    logger.info("✅ Message with group published successfully");
+                    logger.info("Message with group published successfully");
                     testContext.completeNow();
                 });
             })
@@ -311,7 +311,7 @@ public class MessageOperationsE2ETest {
 
         publishChain
             .onSuccess(v -> {
-                logger.info("✅ Batch messages published successfully");
+                logger.info("Batch messages published successfully");
                 testContext.completeNow();
             })
             .onFailure(testContext::failNow);
@@ -334,7 +334,7 @@ public class MessageOperationsE2ETest {
                     // We published: 1 simple + 1 priority + 1 delayed + 1 headers + 1 group + 10 batch = 15 messages
                     assertTrue(messageCount >= 15, "Should have at least 15 messages, found: " + messageCount);
 
-                    logger.info("✅ Queue has {} messages", messageCount);
+                    logger.info("Queue has {} messages", messageCount);
                     testContext.completeNow();
                 });
             })

@@ -194,7 +194,7 @@ public class OrderConsumerService {
                         order.getProcessedBy()
                     ))
                     .compose(result -> {
-                        log.info("✅ Order processed successfully: orderId={}, status={}, processedBy={}", 
+                        log.info("Order processed successfully: orderId={}, status={}, processedBy={}", 
                             event.getOrderId(), event.getStatus(), consumerInstanceId);
                         
                         messagesProcessed.incrementAndGet();

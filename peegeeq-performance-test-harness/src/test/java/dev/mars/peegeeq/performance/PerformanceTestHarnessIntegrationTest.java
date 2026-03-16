@@ -96,7 +96,7 @@ class PerformanceTestHarnessIntegrationTest {
         // Validate metrics collection
         assertFalse(results.getMetrics().isEmpty(), "Should have collected metrics");
         
-        logger.info("✅ Performance test harness integration test completed successfully");
+        logger.info("Performance test harness integration test completed successfully");
         logger.info("📊 Test Summary: {} total, {} successful, {} failed", 
                    results.getTotalTests(), results.getSuccessfulTests(), results.getFailedTests());
     }
@@ -126,7 +126,7 @@ class PerformanceTestHarnessIntegrationTest {
         // Other module results should be null for specific suite execution
         assertNull(results.getOutboxResults(), "Outbox results should be null for bi-temporal only test");
         
-        logger.info("✅ Specific test suite execution completed successfully");
+        logger.info("Specific test suite execution completed successfully");
     }
     
     @Test
@@ -147,7 +147,7 @@ class PerformanceTestHarnessIntegrationTest {
             assertEquals(Duration.ofSeconds(20), config.getTestDuration());
             assertEquals(8, config.getConcurrentThreads());
             
-            logger.info("✅ Configuration loading from system properties successful");
+            logger.info("Configuration loading from system properties successful");
             
         } finally {
             // Clean up system properties
@@ -173,7 +173,7 @@ class PerformanceTestHarnessIntegrationTest {
         assertTrue(availableSuites.contains("Native Queue"), "Should include native queue suite");
         assertTrue(availableSuites.contains("Database Core"), "Should include database suite");
         
-        logger.info("✅ Available test suites: {}", availableSuites);
+        logger.info("Available test suites: {}", availableSuites);
     }
     
     private void validateBitemporalResults(PerformanceTestSuite.BitemporalResults results) {

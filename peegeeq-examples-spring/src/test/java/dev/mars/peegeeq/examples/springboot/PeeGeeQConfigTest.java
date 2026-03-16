@@ -117,8 +117,8 @@ class PeeGeeQConfigTest {
         assertNotNull(peeGeeQManager, "PeeGeeQ Manager should be injected");
         assertTrue(peeGeeQManager.isStarted(), "PeeGeeQ Manager should be started");
         
-        logger.info("✅ PeeGeeQ Manager bean created and started successfully");
-        logger.info("✅ PeeGeeQ Manager test passed");
+        logger.info("PeeGeeQ Manager bean created and started successfully");
+        logger.info("PeeGeeQ Manager test passed");
     }
     
     /**
@@ -130,8 +130,8 @@ class PeeGeeQConfigTest {
         
         assertNotNull(outboxFactory, "Outbox Factory should be injected");
         
-        logger.info("✅ Outbox Factory bean created successfully");
-        logger.info("✅ Outbox Factory test passed");
+        logger.info("Outbox Factory bean created successfully");
+        logger.info("Outbox Factory test passed");
     }
     
     /**
@@ -143,8 +143,8 @@ class PeeGeeQConfigTest {
         
         assertNotNull(orderEventProducer, "Order Event Producer should be injected");
         
-        logger.info("✅ Order Event Producer bean created successfully");
-        logger.info("✅ Order Event Producer test passed");
+        logger.info("Order Event Producer bean created successfully");
+        logger.info("Order Event Producer test passed");
     }
     
     /**
@@ -156,8 +156,8 @@ class PeeGeeQConfigTest {
         
         assertNotNull(paymentEventProducer, "Payment Event Producer should be injected");
         
-        logger.info("✅ Payment Event Producer bean created successfully");
-        logger.info("✅ Payment Event Producer test passed");
+        logger.info("Payment Event Producer bean created successfully");
+        logger.info("Payment Event Producer test passed");
     }
     
     /**
@@ -179,8 +179,8 @@ class PeeGeeQConfigTest {
         assertEquals(postgres.getUsername(), peeGeeQProperties.getDatabase().getUsername());
         assertEquals(postgres.getPassword(), peeGeeQProperties.getDatabase().getPassword());
         
-        logger.info("✅ PeeGeeQ Properties bound correctly");
-        logger.info("✅ Properties binding test passed");
+        logger.info("PeeGeeQ Properties bound correctly");
+        logger.info("Properties binding test passed");
     }
     
     /**
@@ -198,8 +198,8 @@ class PeeGeeQConfigTest {
         assertEquals(postgres.getPassword(), System.getProperty("peegeeq.database.password"));
         assertEquals("public", System.getProperty("peegeeq.database.schema"));
         
-        logger.info("✅ System properties configured correctly");
-        logger.info("✅ System properties test passed");
+        logger.info("System properties configured correctly");
+        logger.info("System properties test passed");
     }
     
     /**
@@ -219,8 +219,8 @@ class PeeGeeQConfigTest {
         // Verify that the manager is running
         assertTrue(peeGeeQManager.isStarted());
         
-        logger.info("✅ All beans properly integrated and working together");
-        logger.info("✅ Beans integration test passed");
+        logger.info("All beans properly integrated and working together");
+        logger.info("Beans integration test passed");
     }
     
     /**
@@ -232,7 +232,7 @@ class PeeGeeQConfigTest {
         
         assertEquals("test", peeGeeQProperties.getProfile());
         
-        logger.info("✅ Configuration profile set correctly: {}", peeGeeQProperties.getProfile());
-        logger.info("✅ Configuration profile test passed");
+        logger.info("Configuration profile set correctly: {}", peeGeeQProperties.getProfile());
+        logger.info("Configuration profile test passed");
     }
 }

@@ -155,7 +155,7 @@ public class QueueManagementE2ETest {
                     assertTrue(body.containsKey("messages"), "Should have messages count");
                     assertTrue(body.containsKey("consumers"), "Should have consumers count");
 
-                    logger.info("✅ Queue details retrieved successfully");
+                    logger.info("Queue details retrieved successfully");
                     testContext.completeNow();
                 });
             })
@@ -202,7 +202,7 @@ public class QueueManagementE2ETest {
 
         publishFuture
             .onSuccess(v -> {
-                logger.info("✅ All 5 messages published successfully");
+                logger.info("All 5 messages published successfully");
                 testContext.completeNow();
             })
             .onFailure(testContext::failNow);
@@ -228,7 +228,7 @@ public class QueueManagementE2ETest {
                         long messageCount = body.getLong("messages", 0L);
                         assertTrue(messageCount > 0, "Should have at least one message, found: " + messageCount);
 
-                        logger.info("✅ Verified queue has {} messages", messageCount);
+                        logger.info("Verified queue has {} messages", messageCount);
                         testContext.completeNow();
                     });
                 })
@@ -255,7 +255,7 @@ public class QueueManagementE2ETest {
                     assertEquals(setupId, body.getString("setupId"));
                     assertTrue(body.containsKey("pausedSubscriptions"), "Should have pausedSubscriptions count");
 
-                    logger.info("✅ Queue paused successfully - {} subscriptions paused",
+                    logger.info("Queue paused successfully - {} subscriptions paused",
                         body.getInteger("pausedSubscriptions"));
                     testContext.completeNow();
                 });
@@ -282,7 +282,7 @@ public class QueueManagementE2ETest {
                     assertEquals(setupId, body.getString("setupId"));
                     assertTrue(body.containsKey("resumedSubscriptions"), "Should have resumedSubscriptions count");
 
-                    logger.info("✅ Queue resumed successfully - {} subscriptions resumed",
+                    logger.info("Queue resumed successfully - {} subscriptions resumed",
                         body.getInteger("resumedSubscriptions"));
                     testContext.completeNow();
                 });
@@ -310,7 +310,7 @@ public class QueueManagementE2ETest {
                     assertTrue(body.containsKey("purgedCount"), "Should have purgedCount");
 
                     int purgedCount = body.getInteger("purgedCount");
-                    logger.info("✅ Queue purged successfully - {} messages removed", purgedCount);
+                    logger.info("Queue purged successfully - {} messages removed", purgedCount);
                     testContext.completeNow();
                 });
             })
@@ -335,7 +335,7 @@ public class QueueManagementE2ETest {
                     long messageCount = body.getLong("messages", -1L);
                     assertEquals(0L, messageCount, "Queue should be empty after purge");
 
-                    logger.info("✅ Verified queue is empty after purge");
+                    logger.info("Verified queue is empty after purge");
                     testContext.completeNow();
                 });
             })
@@ -361,7 +361,7 @@ public class QueueManagementE2ETest {
                     assertEquals(setupId, body.getString("setupId"));
                     assertTrue(body.containsKey("deletedMessages"), "Should have deletedMessages count");
 
-                    logger.info("✅ Queue deleted successfully - {} messages removed",
+                    logger.info("Queue deleted successfully - {} messages removed",
                         body.getInteger("deletedMessages"));
                     testContext.completeNow();
                 });
@@ -380,7 +380,7 @@ public class QueueManagementE2ETest {
             .onSuccess(response -> {
                 testContext.verify(() -> {
                     assertEquals(404, response.statusCode(), "Should return 404 Not Found");
-                    logger.info("✅ Verified queue no longer exists");
+                    logger.info("Verified queue no longer exists");
                     testContext.completeNow();
                 });
             })
@@ -398,7 +398,7 @@ public class QueueManagementE2ETest {
             .onSuccess(response -> {
                 testContext.verify(() -> {
                     assertEquals(404, response.statusCode(), "Should return 404 for invalid setup");
-                    logger.info("✅ Correctly handled invalid setup ID");
+                    logger.info("Correctly handled invalid setup ID");
                     testContext.completeNow();
                 });
             })
@@ -416,7 +416,7 @@ public class QueueManagementE2ETest {
             .onSuccess(response -> {
                 testContext.verify(() -> {
                     assertEquals(404, response.statusCode(), "Should return 404 for invalid queue");
-                    logger.info("✅ Correctly handled invalid queue name");
+                    logger.info("Correctly handled invalid queue name");
                     testContext.completeNow();
                 });
             })

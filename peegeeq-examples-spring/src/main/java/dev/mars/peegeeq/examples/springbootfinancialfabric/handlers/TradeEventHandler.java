@@ -141,7 +141,7 @@ public class TradeEventHandler {
         
         TradeEvent trade = event.getPayload();
         
-        log.info("✅ Trade Confirmed: {} - Matched with counterparty {}",
+        log.info("Trade Confirmed: {} - Matched with counterparty {}",
                 trade.getTradeId(),
                 trade.getCounterparty());
         

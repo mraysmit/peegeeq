@@ -120,7 +120,7 @@ class PeeGeeQExampleTest {
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
         manager.start();
         
-        logger.info("✅ PeeGeeQ Example Test setup completed");
+        logger.info("PeeGeeQ Example Test setup completed");
     }
 
     @AfterEach
@@ -134,7 +134,7 @@ class PeeGeeQExampleTest {
         // Clear system properties
         clearSystemProperties();
         
-        logger.info("✅ PeeGeeQ Example Test cleanup completed");
+        logger.info("PeeGeeQ Example Test cleanup completed");
     }
 
     @Test
@@ -148,7 +148,7 @@ class PeeGeeQExampleTest {
         assertNotNull(config, "Configuration should not be null");
         assertEquals("development", config.getProfile(), "Profile should be development");
         
-        logger.info("✅ Configuration test completed successfully!");
+        logger.info("Configuration test completed successfully!");
     }
 
     @Test
@@ -169,7 +169,7 @@ class PeeGeeQExampleTest {
                     assertNotNull(health, "Health status should not be null");
                     assertTrue(health.getHealthyCount() > 0, "Should have healthy components");
 
-                    logger.info("✅ Health checks test completed successfully!");
+                    logger.info("Health checks test completed successfully!");
                 });
                 testContext.completeNow();
             }
@@ -188,7 +188,7 @@ class PeeGeeQExampleTest {
         PeeGeeQMetrics metrics = manager.getMetrics();
         assertNotNull(metrics, "Metrics should not be null");
         
-        logger.info("✅ Metrics test completed successfully!");
+        logger.info("Metrics test completed successfully!");
     }
 
     @Test
@@ -201,7 +201,7 @@ class PeeGeeQExampleTest {
         var circuitBreakerManager = manager.getCircuitBreakerManager();
         assertNotNull(circuitBreakerManager, "Circuit breaker manager should not be null");
         
-        logger.info("✅ Circuit breaker test completed successfully!");
+        logger.info("Circuit breaker test completed successfully!");
     }
 
     @Test
@@ -256,7 +256,7 @@ class PeeGeeQExampleTest {
         System.setProperty("peegeeq.circuit-breaker.enabled", "false"); // Disabled for testing
         System.setProperty("peegeeq.dead-letter.enabled", "true");
 
-        logger.info("  ✅ System properties configured for container database");
+        logger.info("  System properties configured for container database");
     }
 
     /**
@@ -437,7 +437,7 @@ class PeeGeeQExampleTest {
                     assertNotNull(backpressureManager, "Backpressure manager should not be null");
                 });
                 testContext.completeNow();
-                logger.info("✅ Backpressure test completed successfully!");
+                logger.info("Backpressure test completed successfully!");
             });
 
         } catch (Exception e) {
@@ -498,7 +498,7 @@ class PeeGeeQExampleTest {
                 assertNotNull(dlqManager, "Dead letter queue manager should not be null");
             });
             testContext.completeNow();
-            logger.info("✅ Dead letter queue test completed successfully!");
+            logger.info("Dead letter queue test completed successfully!");
         });
     }
 
@@ -545,7 +545,7 @@ class PeeGeeQExampleTest {
                     assertTrue(true, "System monitoring demonstration completed");
                 });
                 testContext.completeNow();
-                logger.info("✅ System monitoring test completed successfully!");
+                logger.info("System monitoring test completed successfully!");
             }
         });
     }

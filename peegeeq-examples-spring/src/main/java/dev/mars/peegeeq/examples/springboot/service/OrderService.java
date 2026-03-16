@@ -137,7 +137,7 @@ public class OrderService {
                     )
                 ).map(v -> id);
             })
-            .onSuccess(id -> log.info("✅ Order {} created successfully with all events", id))
+            .onSuccess(id -> log.info("Order {} created successfully with all events", id))
             .onFailure(error -> log.error("❌ Order creation failed, transaction will rollback: {}", error.getMessage()));
 
         }).toCompletionStage().toCompletableFuture();
@@ -211,7 +211,7 @@ public class OrderService {
                 return orderItemRepository.saveAll(orderId, request.getItems(), connection)
                     .map(v -> orderId);
             })
-            .onSuccess(id -> log.info("✅ Order {} created successfully with business validation", id))
+            .onSuccess(id -> log.info("Order {} created successfully with business validation", id))
             .onFailure(error -> {
                 String errorMessage = error.getMessage();
                 if (errorMessage != null && errorMessage.contains("🧪 INTENTIONAL TEST FAILURE:")) {
@@ -257,7 +257,7 @@ public class OrderService {
                 return orderItemRepository.saveAll(orderId, request.getItems(), connection)
                     .map(v -> orderId);
             })
-            .onSuccess(id -> log.info("✅ Order {} created successfully with database constraints", id))
+            .onSuccess(id -> log.info("Order {} created successfully with database constraints", id))
             .onFailure(error -> {
                 String errorMessage = error.getMessage();
                 if (errorMessage != null && errorMessage.contains("🧪 INTENTIONAL TEST FAILURE:")) {
@@ -301,7 +301,7 @@ public class OrderService {
                 orderEventProducer.sendInTransaction(new InventoryReservedEvent(orderId, request.getItems()), connection)
             ))
             .map(v -> orderId)
-            .onSuccess(id -> log.info("✅ TRANSACTION SUCCESS: Order {} and all events committed together", id))
+            .onSuccess(id -> log.info("TRANSACTION SUCCESS: Order {} and all events committed together", id))
             .onFailure(error -> log.error("❌ TRANSACTION ROLLBACK: All operations rolled back due to failure: {}", error.getMessage()));
 
         }).toCompletionStage().toCompletableFuture();

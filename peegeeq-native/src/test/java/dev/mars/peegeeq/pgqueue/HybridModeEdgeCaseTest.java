@@ -148,7 +148,7 @@ class HybridModeEdgeCaseTest {
 
         consumer.close();
         producer.close();
-        logger.info("✅ HYBRID mode prioritizes LISTEN/NOTIFY correctly");
+        logger.info("HYBRID mode prioritizes LISTEN/NOTIFY correctly");
     }
 
     @Test
@@ -184,7 +184,7 @@ class HybridModeEdgeCaseTest {
 
         consumer.close();
         producer.close();
-        logger.info("✅ HYBRID mode polling fallback works correctly");
+        logger.info("HYBRID mode polling fallback works correctly");
     }
 
     @Test
@@ -231,7 +231,7 @@ class HybridModeEdgeCaseTest {
 
         consumer.close();
         producer.close();
-        logger.info("✅ HYBRID mode handles both mechanisms correctly");
+        logger.info("HYBRID mode handles both mechanisms correctly");
     }
 
     @Test
@@ -272,7 +272,7 @@ class HybridModeEdgeCaseTest {
         consumer.close();
         producer.close();
 
-        logger.info("✅ HYBRID mode resource cleanup completed successfully");
+        logger.info("HYBRID mode resource cleanup completed successfully");
     }
 
     @Test
@@ -309,7 +309,7 @@ class HybridModeEdgeCaseTest {
 
         consumer.close();
         producer.close();
-        logger.info("✅ HYBRID mode maintains message ordering consistency");
+        logger.info("HYBRID mode maintains message ordering consistency");
     }
 
     @Test
@@ -349,7 +349,7 @@ class HybridModeEdgeCaseTest {
 
         consumer.close();
         producer.close();
-        logger.info("✅ HYBRID mode handles moderate load efficiently");
+        logger.info("HYBRID mode handles moderate load efficiently");
     }
 }
 

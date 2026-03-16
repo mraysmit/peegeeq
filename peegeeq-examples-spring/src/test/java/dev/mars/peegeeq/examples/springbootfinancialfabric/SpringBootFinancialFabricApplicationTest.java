@@ -127,7 +127,7 @@ public class SpringBootFinancialFabricApplicationTest {
     @AfterAll
     static void tearDown() {
         log.info("🧹 Cleaning up Financial Fabric Test resources");
-        log.info("✅ Financial Fabric Test cleanup complete");
+        log.info("Financial Fabric Test cleanup complete");
     }
     
     @Test
@@ -142,7 +142,7 @@ public class SpringBootFinancialFabricApplicationTest {
         assertNotNull(cloudEventBuilder, "CloudEvent builder should be created");
         assertNotNull(properties, "Properties should be loaded");
         
-        log.info("✅ Application Context Loads test passed");
+        log.info("Application Context Loads test passed");
     }
     
     @Test
@@ -163,7 +163,7 @@ public class SpringBootFinancialFabricApplicationTest {
         assertEquals("position_events", properties.getEventStores().getPosition().getTableName());
         assertEquals("regulatory_events", properties.getEventStores().getRegulatory().getTableName());
         
-        log.info("✅ Event Store Configuration test passed");
+        log.info("Event Store Configuration test passed");
     }
     
     @Test
@@ -174,7 +174,7 @@ public class SpringBootFinancialFabricApplicationTest {
         assertEquals("1.0", properties.getCloudevents().getSpecVersion());
         assertEquals("application/json", properties.getCloudevents().getDataContentType());
         
-        log.info("✅ CloudEvents Configuration test passed");
+        log.info("CloudEvents Configuration test passed");
     }
     
     @Test
@@ -185,7 +185,7 @@ public class SpringBootFinancialFabricApplicationTest {
         assertEquals("*.*.*.failed", properties.getRouting().getFailurePattern());
         assertEquals("regulatory.*.*", properties.getRouting().getRegulatoryPattern());
         
-        log.info("✅ Routing Configuration test passed");
+        log.info("Routing Configuration test passed");
     }
 }
 

@@ -111,7 +111,7 @@ public class BatchOperationsWithPropagationExampleTest {
         assertTrue(result.processedItems >= 0, "Processed items should be non-negative");
         assertTrue(result.sharedTransactionContext, "Shared transaction context should be enabled");
         
-        logger.info("✅ Simple batch processing validated successfully");
+        logger.info("Simple batch processing validated successfully");
         logger.info("   Batch size: {}, Processed items: {}, Shared context: {}", 
             result.batchSize, result.processedItems, result.sharedTransactionContext);
     }
@@ -137,7 +137,7 @@ public class BatchOperationsWithPropagationExampleTest {
         assertTrue(result.validationsPassed >= 0, "Validations passed should be non-negative");
         assertTrue(result.multiStageSuccessful, "Multi-stage should be successful");
         
-        logger.info("✅ Multi-stage batch operations validated successfully");
+        logger.info("Multi-stage batch operations validated successfully");
         logger.info("   Stages: {}, Validations passed: {}, Successful: {}", 
             result.stages, result.validationsPassed, result.multiStageSuccessful);
     }
@@ -163,7 +163,7 @@ public class BatchOperationsWithPropagationExampleTest {
         assertTrue(result.propagationStrategies >= 0, "Propagation strategies should be non-negative");
         assertTrue(result.nestedOperationsSuccessful, "Nested operations should be successful");
         
-        logger.info("✅ Nested batch operations validated successfully");
+        logger.info("Nested batch operations validated successfully");
         logger.info("   Nested levels: {}, Propagation strategies: {}, Successful: {}", 
             result.nestedLevels, result.propagationStrategies, result.nestedOperationsSuccessful);
     }
@@ -189,7 +189,7 @@ public class BatchOperationsWithPropagationExampleTest {
         assertTrue(result.chunks >= 0, "Chunks should be non-negative");
         assertTrue(result.chunkingSuccessful, "Chunking should be successful");
         
-        logger.info("✅ Large batch processing validated successfully");
+        logger.info("Large batch processing validated successfully");
         logger.info("   Total items: {}, Chunks: {}, Successful: {}", 
             result.totalItems, result.chunks, result.chunkingSuccessful);
     }
@@ -215,7 +215,7 @@ public class BatchOperationsWithPropagationExampleTest {
         assertTrue(result.partialCompletions >= 0, "Partial completions should be non-negative");
         assertTrue(result.errorHandlingSuccessful, "Error handling should be successful");
         
-        logger.info("✅ Batch error handling validated successfully");
+        logger.info("Batch error handling validated successfully");
         logger.info("   Errors handled: {}, Partial completions: {}, Successful: {}", 
             result.errorsHandled, result.partialCompletions, result.errorHandlingSuccessful);
     }
@@ -241,7 +241,7 @@ public class BatchOperationsWithPropagationExampleTest {
         assertTrue(result.throughputImprovement > 0, "Throughput improvement should be positive");
         assertTrue(result.optimizationSuccessful, "Optimization should be successful");
         
-        logger.info("✅ Performance optimization validated successfully");
+        logger.info("Performance optimization validated successfully");
         logger.info("   Optimization techniques: {}, Throughput improvement: {}%, Successful: {}", 
             result.optimizationTechniques, result.throughputImprovement, result.optimizationSuccessful);
     }

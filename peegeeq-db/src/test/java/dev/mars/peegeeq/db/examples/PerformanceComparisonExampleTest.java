@@ -110,7 +110,7 @@ public class PerformanceComparisonExampleTest {
         assertEquals("Multi-Threaded", multiThreaded.configName);
         assertEquals(2, multiThreaded.threads);
         
-        logger.info("✅ Configuration testing validated successfully");
+        logger.info("Configuration testing validated successfully");
     }
 
     /**
@@ -129,7 +129,7 @@ public class PerformanceComparisonExampleTest {
         assertTrue(result.throughput >= 0, "Throughput should be non-negative");
         assertTrue(result.processedCount >= 0, "Processed count should be non-negative");
         
-        logger.info("✅ Performance measurement validated successfully");
+        logger.info("Performance measurement validated successfully");
         logger.info("   Total time: {}ms, Throughput: {:.2f} msg/sec", result.totalTimeMs, result.throughput);
     }
 
@@ -153,7 +153,7 @@ public class PerformanceComparisonExampleTest {
         // Display comparison
         displayPerformanceComparison(results.toArray(new PerformanceResult[0]));
         
-        logger.info("✅ Comparison analysis validated successfully");
+        logger.info("Comparison analysis validated successfully");
     }
 
     /**
@@ -172,7 +172,7 @@ public class PerformanceComparisonExampleTest {
         assertEquals("10", System.getProperty("peegeeq.queue.batch-size"));
         assertEquals("PT0.2S", System.getProperty("peegeeq.queue.polling-interval"));
         
-        logger.info("✅ System property management validated successfully");
+        logger.info("System property management validated successfully");
     }
 
     // Helper methods that replicate the original example's functionality

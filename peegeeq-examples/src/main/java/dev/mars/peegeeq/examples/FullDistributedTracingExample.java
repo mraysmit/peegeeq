@@ -98,7 +98,7 @@ public class FullDistributedTracingExample {
                     .putHeader("correlationId", correlationId)
                     .sendJsonObject(message.getPayload())
                     .onSuccess(response -> {
-                        logger.info("✅ External service responded: {}", response.bodyAsString());
+                        logger.info("External service responded: {}", response.bodyAsString());
                         logger.info("🎯 Order processing complete!");
                         future.complete(null);
                     })
@@ -170,7 +170,7 @@ public class FullDistributedTracingExample {
 
             producer.send(order, headers, correlationId)
                     .thenAccept(v -> {
-                        logger.info("✅ Message sent to queue successfully");
+                        logger.info("Message sent to queue successfully");
 
                         // Return response with trace context
                         ctx.response()

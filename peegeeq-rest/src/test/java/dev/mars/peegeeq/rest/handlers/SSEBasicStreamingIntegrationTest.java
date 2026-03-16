@@ -244,7 +244,7 @@ class SSEBasicStreamingIntegrationTest {
                     assertEquals("text/event-stream", response.getHeader("Content-Type"));
                     assertEquals("no-cache", response.getHeader("Cache-Control"));
                     assertEquals("keep-alive", response.getHeader("Connection"));
-                    logger.info("✅ SSE connection established with correct headers");
+                    logger.info("SSE connection established with correct headers");
                 });
 
                 // Read SSE events
@@ -284,8 +284,8 @@ class SSEBasicStreamingIntegrationTest {
             assertNotNull(connectionEvent.get(), "Should receive connection event");
             assertNotNull(configuredEvent.get(), "Should receive configured event");
 
-            logger.info("✅ Connection event received: {}", connectionEvent.get());
-            logger.info("✅ Configured event received: {}", configuredEvent.get());
+            logger.info("Connection event received: {}", connectionEvent.get());
+            logger.info("Configured event received: {}", configuredEvent.get());
         });
 
         // Close the SSE connection
@@ -329,7 +329,7 @@ class SSEBasicStreamingIntegrationTest {
                     // Look for data events (not connection/configured events)
                     if (data.contains("\"type\":\"data\"") && data.contains("\"messageType\":\"TestMessage\"")) {
                         int count = messagesReceived.incrementAndGet();
-                        logger.info("✅ Received message {} via SSE", count);
+                        logger.info("Received message {} via SSE", count);
                         messageLatch.countDown();
                     }
                 });
@@ -350,7 +350,7 @@ class SSEBasicStreamingIntegrationTest {
 
         testContext.verify(() -> {
             assertEquals(3, messagesReceived.get(), "Should receive exactly 3 messages");
-            logger.info("✅ All messages received successfully via SSE");
+            logger.info("All messages received successfully via SSE");
         });
 
         // Close the SSE connection
@@ -395,7 +395,7 @@ class SSEBasicStreamingIntegrationTest {
                     if (data.contains("\"type\":\"data\"")) {
                         if (data.contains("\"messageType\":\"FilteredMessage\"")) {
                             int count = messagesReceived.incrementAndGet();
-                            logger.info("✅ Received filtered message {} via SSE", count);
+                            logger.info("Received filtered message {} via SSE", count);
                             messageLatch.countDown();
                         } else if (data.contains("\"messageType\":\"TestMessage\"")) {
                             testContext.failNow(new AssertionError("Should not receive TestMessage with filter"));
@@ -422,7 +422,7 @@ class SSEBasicStreamingIntegrationTest {
 
         testContext.verify(() -> {
             assertEquals(2, messagesReceived.get(), "Should receive exactly 2 FilteredMessage messages");
-            logger.info("✅ Message type filtering working correctly");
+            logger.info("Message type filtering working correctly");
         });
 
         // Close the SSE connection
@@ -466,7 +466,7 @@ class SSEBasicStreamingIntegrationTest {
                     if (data.contains("\"type\":\"data\"")) {
                         if (data.contains("\"region\":\"US-WEST\"")) {
                             int count = messagesReceived.incrementAndGet();
-                            logger.info("✅ Received message with matching header {} via SSE", count);
+                            logger.info("Received message with matching header {} via SSE", count);
                             messageLatch.countDown();
                         } else if (data.contains("\"region\":\"US-EAST\"")) {
                             testContext.failNow(new AssertionError("Should not receive US-EAST message with filter"));
@@ -491,7 +491,7 @@ class SSEBasicStreamingIntegrationTest {
 
         testContext.verify(() -> {
             assertEquals(1, messagesReceived.get(), "Should receive exactly 1 message with region=US-WEST");
-            logger.info("✅ Header filtering working correctly");
+            logger.info("Header filtering working correctly");
         });
 
         // Close the SSE connection
@@ -526,11 +526,11 @@ class SSEBasicStreamingIntegrationTest {
                 // Close connection after receiving initial events
                 vertx.setTimer(2000, id -> {
                     response.request().connection().close();
-                    logger.info("✅ SSE connection closed");
+                    logger.info("SSE connection closed");
 
                     // Verify cleanup happened (connection should be removed from active connections)
                     vertx.setTimer(1000, id2 -> {
-                        logger.info("✅ Connection cleanup test completed");
+                        logger.info("Connection cleanup test completed");
                         testContext.completeNow();
                     });
                 });

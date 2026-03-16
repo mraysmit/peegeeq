@@ -160,8 +160,8 @@ class OrderServiceTest {
         assertNotNull(orderId, "Order ID should not be null");
         assertFalse(orderId.isEmpty(), "Order ID should not be empty");
         
-        logger.info("✅ Order created successfully with ID: {}", orderId);
-        logger.info("✅ Successful order creation test passed");
+        logger.info("Order created successfully with ID: {}", orderId);
+        logger.info("Successful order creation test passed");
     }
     
     /**
@@ -191,8 +191,8 @@ class OrderServiceTest {
                   exception.getCause().getMessage().contains("Order amount exceeds maximum limit"),
                   "Exception should mention amount limit");
         
-        logger.info("✅ Business validation rollback triggered correctly");
-        logger.info("✅ Business validation rollback test passed");
+        logger.info("Business validation rollback triggered correctly");
+        logger.info("Business validation rollback test passed");
     }
     
     /**
@@ -223,8 +223,8 @@ class OrderServiceTest {
                   exception.getCause().getMessage().contains("Invalid customer ID"),
                   "Exception should mention invalid customer");
         
-        logger.info("✅ Invalid customer rollback triggered correctly");
-        logger.info("✅ Invalid customer rollback test passed");
+        logger.info("Invalid customer rollback triggered correctly");
+        logger.info("Invalid customer rollback test passed");
     }
     
     /**
@@ -255,8 +255,8 @@ class OrderServiceTest {
                   exception.getCause().getMessage().contains("Database constraint violation"),
                   "Exception should mention database constraint violation");
         
-        logger.info("✅ Database constraints rollback triggered correctly");
-        logger.info("✅ Database constraints rollback test passed");
+        logger.info("Database constraints rollback triggered correctly");
+        logger.info("Database constraints rollback test passed");
     }
     
     /**
@@ -274,8 +274,8 @@ class OrderServiceTest {
         assertNotNull(orderId, "Order ID should not be null");
         assertFalse(orderId.isEmpty(), "Order ID should not be empty");
         
-        logger.info("✅ Order with multiple events created successfully with ID: {}", orderId);
-        logger.info("✅ Multiple events creation test passed");
+        logger.info("Order with multiple events created successfully with ID: {}", orderId);
+        logger.info("Multiple events creation test passed");
     }
     
     /**
@@ -287,8 +287,8 @@ class OrderServiceTest {
         
         assertNotNull(orderEventProducer, "OutboxProducer should be injected");
         
-        logger.info("✅ OutboxProducer bean injected successfully");
-        logger.info("✅ Bean injection test passed");
+        logger.info("OutboxProducer bean injected successfully");
+        logger.info("Bean injection test passed");
     }
     
     /**
@@ -300,8 +300,8 @@ class OrderServiceTest {
         
         assertNotNull(orderService, "OrderService should be injected");
         
-        logger.info("✅ OrderService bean injected successfully");
-        logger.info("✅ Service injection test passed");
+        logger.info("OrderService bean injected successfully");
+        logger.info("Service injection test passed");
     }
     
     /**

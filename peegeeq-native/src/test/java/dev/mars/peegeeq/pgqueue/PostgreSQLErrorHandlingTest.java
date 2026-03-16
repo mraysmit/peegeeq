@@ -200,7 +200,7 @@ class PostgreSQLErrorHandlingTest {
         consumer2.close();
         producer.close();
 
-        logger.info("✅ Serialization failure recovery test completed - processed {} messages, {} failures",
+        logger.info("Serialization failure recovery test completed - processed {} messages, {} failures",
             processedCount.get(), failureCount.get());
     }
 
@@ -249,7 +249,7 @@ class PostgreSQLErrorHandlingTest {
                 "Should have either processed some messages or detected deadlock scenarios");
         }
 
-        logger.info("✅ Deadlock detection and recovery test completed - processed {} messages, detected {} potential deadlocks",
+        logger.info("Deadlock detection and recovery test completed - processed {} messages, detected {} potential deadlocks",
             processedCount.get(), deadlockCount.get());
     }
 
@@ -380,7 +380,7 @@ class PostgreSQLErrorHandlingTest {
         vertx.setTimer(2000, id -> recoveryWait.complete(null));
         recoveryWait.join();
 
-        logger.info("✅ Connection timeout handling test completed - processed {} messages, {} timeouts detected",
+        logger.info("Connection timeout handling test completed - processed {} messages, {} timeouts detected",
             processedCount.get(), timeoutCount.get());
 
         // Clean up
@@ -483,7 +483,7 @@ class PostgreSQLErrorHandlingTest {
                 "Should have attempted processing even if not completed");
         }
 
-        logger.info("✅ Transaction rollback and retry test completed - processed {} messages, {} rollbacks, {} retries",
+        logger.info("Transaction rollback and retry test completed - processed {} messages, {} rollbacks, {} retries",
             processedCount.get(), rollbackCount.get(), retryCount.get());
     }
 
@@ -577,7 +577,7 @@ class PostgreSQLErrorHandlingTest {
         assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS),
             "Should complete error code handling test");
 
-        logger.info("✅ PostgreSQL error code handling test completed - processed {} messages, {} error codes detected",
+        logger.info("PostgreSQL error code handling test completed - processed {} messages, {} error codes detected",
             processedCount.get(), errorCodeCount.get());
 
         // Clean up

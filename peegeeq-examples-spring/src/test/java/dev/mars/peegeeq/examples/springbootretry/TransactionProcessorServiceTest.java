@@ -142,7 +142,7 @@ public class TransactionProcessorServiceTest {
     static void tearDown() {
         log.info("🧹 Cleaning up Transaction Processor Service Test resources");
         // Container cleanup is handled by SharedTestContainers
-        log.info("✅ Transaction Processor Service Test cleanup complete");
+        log.info("Transaction Processor Service Test cleanup complete");
     }
 
     @Test
@@ -177,7 +177,7 @@ public class TransactionProcessorServiceTest {
         assertTrue(transactionExists, "Transaction should be stored in database");
         assertTrue(processorService.getTransactionsProcessed() > 0, "Transactions processed count should increase");
         
-        log.info("✅ Successful Transaction Processing test passed");
+        log.info("Successful Transaction Processing test passed");
     }
     
     @Test
@@ -188,7 +188,7 @@ public class TransactionProcessorServiceTest {
         assertNotNull(circuitBreaker, "CircuitBreakerService should be injected");
         assertNotNull(producer, "MessageProducer should be injected");
         
-        log.info("✅ Transaction Processor Service Bean Injection test passed");
+        log.info("Transaction Processor Service Bean Injection test passed");
     }
     
     @SuppressWarnings("null")
@@ -205,7 +205,7 @@ public class TransactionProcessorServiceTest {
         assertTrue(response.getBody().containsKey("transactionsRetried"));
         assertTrue(response.getBody().containsKey("permanentFailures"));
         
-        log.info("✅ Retry Metrics Endpoint test passed");
+        log.info("Retry Metrics Endpoint test passed");
     }
     
     @SuppressWarnings("null")
@@ -222,7 +222,7 @@ public class TransactionProcessorServiceTest {
         assertTrue(response.getBody().containsKey("successCount"));
         assertTrue(response.getBody().containsKey("allowingRequests"));
         
-        log.info("✅ Circuit Breaker Endpoint test passed");
+        log.info("Circuit Breaker Endpoint test passed");
     }
     
     @SuppressWarnings("null")
@@ -236,7 +236,7 @@ public class TransactionProcessorServiceTest {
         assertNotNull(response.getBody());
         assertTrue((Boolean) response.getBody().get("success"));
         
-        log.info("✅ Circuit Breaker Reset Endpoint test passed");
+        log.info("Circuit Breaker Reset Endpoint test passed");
     }
     
     @SuppressWarnings("null")
@@ -251,7 +251,7 @@ public class TransactionProcessorServiceTest {
         assertEquals("UP", response.getBody().get("status"));
         assertTrue(response.getBody().containsKey("circuitBreakerState"));
         
-        log.info("✅ Retry Health Endpoint test passed");
+        log.info("Retry Health Endpoint test passed");
     }
 }
 

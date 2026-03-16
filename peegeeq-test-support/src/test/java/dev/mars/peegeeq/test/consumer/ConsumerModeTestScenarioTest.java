@@ -68,7 +68,7 @@ class ConsumerModeTestScenarioTest {
         assertEquals(100, scenario.getMessageCount());
         assertEquals(10, scenario.getBatchSize());
         
-        logger.info("✅ Basic scenario creation test passed: {}", scenario);
+        logger.info("Basic scenario creation test passed: {}", scenario);
         
         System.err.println("=== TEST METHOD COMPLETED: testBasicScenarioCreation ===");
         System.err.flush();
@@ -100,7 +100,7 @@ class ConsumerModeTestScenarioTest {
         assertEquals(25, scenario.getBatchSize());
         assertEquals("High-throughput test scenario", scenario.getDescription());
         
-        logger.info("✅ Custom scenario creation test passed: {}", scenario);
+        logger.info("Custom scenario creation test passed: {}", scenario);
         
         System.err.println("=== TEST METHOD COMPLETED: testCustomScenarioCreation ===");
         System.err.flush();
@@ -120,7 +120,7 @@ class ConsumerModeTestScenarioTest {
         assertEquals(PerformanceProfile.BASIC, scenario.getPerformanceProfile());
         assertEquals(TestConsumerMode.POLLING_ONLY, scenario.getConsumerMode());
         
-        logger.info("✅ Basic factory method test passed: {}", scenario);
+        logger.info("Basic factory method test passed: {}", scenario);
         
         System.err.println("=== TEST METHOD COMPLETED: testBasicFactoryMethod ===");
         System.err.flush();
@@ -141,7 +141,7 @@ class ConsumerModeTestScenarioTest {
                 .build();
         }, "Should throw NullPointerException for null performance profile");
         
-        logger.info("✅ Null performance profile validation test passed");
+        logger.info("Null performance profile validation test passed");
         
         System.err.println("=== TEST METHOD COMPLETED: testValidationNullPerformanceProfile ===");
         System.err.flush();
@@ -162,7 +162,7 @@ class ConsumerModeTestScenarioTest {
                 .build();
         }, "Should throw NullPointerException for null consumer mode");
         
-        logger.info("✅ Null consumer mode validation test passed");
+        logger.info("Null consumer mode validation test passed");
         
         System.err.println("=== TEST METHOD COMPLETED: testValidationNullConsumerMode ===");
         System.err.flush();
@@ -184,7 +184,7 @@ class ConsumerModeTestScenarioTest {
                 .build();
         }, "Should throw IllegalArgumentException for zero polling interval with POLLING_ONLY mode");
         
-        logger.info("✅ Zero polling interval validation test passed");
+        logger.info("Zero polling interval validation test passed");
         
         System.err.println("=== TEST METHOD COMPLETED: testValidationZeroPollingInterval ===");
         System.err.flush();
@@ -219,7 +219,7 @@ class ConsumerModeTestScenarioTest {
                 .build();
         }, "Should throw IllegalArgumentException for negative batch size");
         
-        logger.info("✅ Negative values validation test passed");
+        logger.info("Negative values validation test passed");
         
         System.err.println("=== TEST METHOD COMPLETED: testValidationNegativeValues ===");
         System.err.flush();
@@ -255,7 +255,7 @@ class ConsumerModeTestScenarioTest {
         assertTrue(autoDescription.contains("Basic Testing"));
         assertTrue(autoDescription.contains("POLLING_ONLY"));
         
-        logger.info("✅ Scenario name and description test passed");
+        logger.info("Scenario name and description test passed");
         logger.info("Scenario name: {}", scenarioName);
         logger.info("Custom description: {}", description);
         logger.info("Auto description: {}", autoDescription);
@@ -294,7 +294,7 @@ class ConsumerModeTestScenarioTest {
         assertEquals(scenario1.hashCode(), scenario2.hashCode(), "Identical scenarios should have same hash code");
         assertNotEquals(scenario1, scenario3, "Different scenarios should not be equal");
         
-        logger.info("✅ Equals and hashCode test passed");
+        logger.info("Equals and hashCode test passed");
         
         System.err.println("=== TEST METHOD COMPLETED: testEqualsAndHashCode ===");
         System.err.flush();

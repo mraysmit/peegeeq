@@ -170,7 +170,7 @@ class PeeGeeQConfigurationConsumerModeTest {
         consumer.close();
         producer.close();
 
-        logger.info("✅ PeeGeeQConfiguration batch size integration test completed successfully");
+        logger.info("PeeGeeQConfiguration batch size integration test completed successfully");
     }
 
     @Test
@@ -220,7 +220,7 @@ class PeeGeeQConfigurationConsumerModeTest {
         consumer.close();
         producer.close();
 
-        logger.info("✅ PeeGeeQConfiguration polling interval integration test completed successfully");
+        logger.info("PeeGeeQConfiguration polling interval integration test completed successfully");
     }
 
     @Test
@@ -269,7 +269,7 @@ class PeeGeeQConfigurationConsumerModeTest {
         consumer.close();
         producer.close();
 
-        logger.info("✅ PeeGeeQConfiguration visibility timeout integration test completed successfully");
+        logger.info("PeeGeeQConfiguration visibility timeout integration test completed successfully");
     }
 
     @Test
@@ -322,7 +322,7 @@ class PeeGeeQConfigurationConsumerModeTest {
         consumer.close();
         producer.close();
 
-        logger.info("✅ PeeGeeQConfiguration consumer threads integration test completed successfully");
+        logger.info("PeeGeeQConfiguration consumer threads integration test completed successfully");
     }
 
     @Test
@@ -386,7 +386,7 @@ class PeeGeeQConfigurationConsumerModeTest {
         consumer.close();
         producer.close();
 
-        logger.info("✅ PeeGeeQConfiguration multiple properties integration test completed successfully");
+        logger.info("PeeGeeQConfiguration multiple properties integration test completed successfully");
     }
 
     @Test
@@ -449,7 +449,7 @@ class PeeGeeQConfigurationConsumerModeTest {
         consumer.close();
         producer.close();
 
-        logger.info("✅ PeeGeeQConfiguration default values integration test completed successfully");
+        logger.info("PeeGeeQConfiguration default values integration test completed successfully");
     }
 }
 

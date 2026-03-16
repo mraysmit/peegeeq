@@ -80,7 +80,7 @@ class SystemOverviewSmokeTest extends SmokeTestBase {
                         JsonObject queue = queues.getJsonObject(i);
                         validateQueueStructure(queue, "Queue at index " + i);
                     }
-                    logger.info("✅ All queue objects have valid structure matching frontend contract");
+                    logger.info("All queue objects have valid structure matching frontend contract");
                 }
 
                 testContext.completeNow();

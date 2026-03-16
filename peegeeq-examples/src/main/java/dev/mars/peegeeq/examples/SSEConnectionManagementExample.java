@@ -117,7 +117,7 @@ public class SSEConnectionManagementExample {
             // Demonstrate connection management
             demonstrateConnectionManagement(vertx, httpClient);
             
-            logger.info("✅ SSE Connection Management Example completed successfully");
+            logger.info("SSE Connection Management Example completed successfully");
             
         } catch (Exception e) {
             logger.error("❌ Error in SSE Connection Management Example", e);
@@ -157,7 +157,7 @@ public class SSEConnectionManagementExample {
                 metrics.lastActivityTime.set(System.currentTimeMillis());
                 metrics.state.set(ConnectionState.ACTIVE);
                 
-                logger.info("✅ SSE connection established");
+                logger.info("SSE connection established");
                 logger.info("   Status: {}", response.statusCode());
                 logger.info("   State: {}", metrics.state.get());
                 

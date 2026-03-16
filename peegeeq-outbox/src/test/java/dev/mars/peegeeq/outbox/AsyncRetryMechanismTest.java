@@ -52,7 +52,7 @@ public class AsyncRetryMechanismTest {
                 throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: ASYNC RETRY TEST - Transient network timeout (THIS IS EXPECTED)");
             }
 
-            logger.info("✅ ASYNC RETRY: Success on attempt {} for message {} (test recovery working)", attempt, message.getId());
+            logger.info("ASYNC RETRY: Success on attempt {} for message {} (test recovery working)", attempt, message.getId());
             return true;
         };
         
@@ -109,7 +109,7 @@ public class AsyncRetryMechanismTest {
         assertTrue(metrics.getSuccessRate() > 0, "Success rate should be positive");
         
         retryManager.shutdown();
-        logger.info("✅ ASYNC RETRY TRANSIENT ERROR TEST PASSED");
+        logger.info("ASYNC RETRY TRANSIENT ERROR TEST PASSED");
     }
     
     @Test
@@ -171,7 +171,7 @@ public class AsyncRetryMechanismTest {
             "Reason should contain the error message");
         
         retryManager.shutdown();
-        logger.info("✅ ASYNC RETRY PERMANENT ERROR TEST PASSED");
+        logger.info("ASYNC RETRY PERMANENT ERROR TEST PASSED");
     }
     
     @Test
@@ -245,7 +245,7 @@ public class AsyncRetryMechanismTest {
         assertEquals(1, metrics.getFailedRetries(), "Metrics should show 1 failed retry sequence");
         
         retryManager.shutdown();
-        logger.info("✅ ASYNC RETRY DEAD LETTER QUEUE TEST PASSED");
+        logger.info("ASYNC RETRY DEAD LETTER QUEUE TEST PASSED");
     }
     
     @Test
@@ -326,7 +326,7 @@ public class AsyncRetryMechanismTest {
             "Circuit breaker should be open");
         
         retryManager.shutdown();
-        logger.info("✅ ASYNC RETRY CIRCUIT BREAKER TEST PASSED");
+        logger.info("ASYNC RETRY CIRCUIT BREAKER TEST PASSED");
     }
     
     // Test message class

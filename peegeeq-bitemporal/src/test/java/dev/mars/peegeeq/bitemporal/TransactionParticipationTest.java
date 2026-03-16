@@ -48,14 +48,14 @@ public class TransactionParticipationTest {
         try {
             // Create a mock event store instance (this will fail during construction due to no DB)
             // But we can test that the method signatures exist by checking compilation
-            logger.info("✅ PHASE 1 STEP 1 PASSED: appendInTransaction method signatures exist");
+            logger.info("PHASE 1 STEP 1 PASSED: appendInTransaction method signatures exist");
             
             // Test parameter validation by calling with null connection
             // This should fail with IllegalArgumentException before trying to connect to DB
             try {
                 // We can't actually instantiate PgBiTemporalEventStore without a database
                 // But the compilation success proves the method signatures are correct
-                logger.info("✅ PHASE 1 STEP 2 PASSED: Method signatures compile successfully");
+                logger.info("PHASE 1 STEP 2 PASSED: Method signatures compile successfully");
                 
             } catch (Exception e) {
                 logger.info("Expected exception during parameter validation test: {}", e.getMessage());
@@ -65,7 +65,7 @@ public class TransactionParticipationTest {
             logger.info("Expected exception during mock creation: {}", e.getMessage());
         }
         
-        logger.info("✅ PHASE 1 PARAMETER VALIDATION TEST PASSED: All method signatures exist and compile");
+        logger.info("PHASE 1 PARAMETER VALIDATION TEST PASSED: All method signatures exist and compile");
     }
     
     @Test
@@ -86,6 +86,6 @@ public class TransactionParticipationTest {
         assertTrue(nearFuture.isBefore(Instant.now().plusSeconds(86400 * 365)), 
                   "Near future time should be within 1 year limit");
         
-        logger.info("✅ PARAMETER VALIDATION LOGIC TEST PASSED: All validation rules are correctly implemented");
+        logger.info("PARAMETER VALIDATION LOGIC TEST PASSED: All validation rules are correctly implemented");
     }
 }

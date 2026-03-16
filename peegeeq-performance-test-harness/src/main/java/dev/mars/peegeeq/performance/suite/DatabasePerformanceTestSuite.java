@@ -101,7 +101,7 @@ public class DatabasePerformanceTestSuite implements PerformanceTestSuite {
                 results.addMetric("metrics_collection_throughput", metricsCollectionThroughput);
                 results.addMetric("average_latency", averageLatency);
                 
-                logger.info("✅ Database performance test suite completed successfully");
+                logger.info("Database performance test suite completed successfully");
                 
             } catch (Exception e) {
                 logger.error("❌ Database performance test suite failed", e);

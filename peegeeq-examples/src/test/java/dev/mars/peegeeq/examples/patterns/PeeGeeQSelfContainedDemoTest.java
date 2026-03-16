@@ -129,6 +129,6 @@ public class PeeGeeQSelfContainedDemoTest {
         logger.info("Executing self-contained demo functionality");
 
         // Simulate basic PeeGeeQ functionality
-        logger.info("✅ Self-contained demo completed successfully");
+        logger.info("Self-contained demo completed successfully");
     }
 }

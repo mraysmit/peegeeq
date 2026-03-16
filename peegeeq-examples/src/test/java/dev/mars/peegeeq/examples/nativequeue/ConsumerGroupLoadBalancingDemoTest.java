@@ -158,7 +158,7 @@ class ConsumerGroupLoadBalancingDemoTest {
         // Initialize database schema for consumer group load balancing test
         System.out.println("🔧 Initializing database schema for consumer group load balancing test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
-        System.out.println("✅ Database schema initialized successfully using centralized schema initializer (ALL components)");
+        System.out.println("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
         // Initialize PeeGeeQ with load balancing configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
@@ -174,7 +174,7 @@ class ConsumerGroupLoadBalancingDemoTest {
 
         queueFactory = provider.createFactory("native", databaseService);
 
-        System.out.println("✅ Setup complete - Ready for load balancing pattern testing");
+        System.out.println("Setup complete - Ready for load balancing pattern testing");
     }
 
     @AfterEach
@@ -194,7 +194,7 @@ class ConsumerGroupLoadBalancingDemoTest {
         System.clearProperty("peegeeq.database.username");
         System.clearProperty("peegeeq.database.password");
         
-        System.out.println("✅ Cleanup complete");
+        System.out.println("Cleanup complete");
     }
 
     /**
@@ -311,7 +311,7 @@ class ConsumerGroupLoadBalancingDemoTest {
         roundRobinGroup.stop();
         roundRobinGroup.close();
 
-        System.out.println("✅ Round Robin Load Balancing test completed successfully");
+        System.out.println("Round Robin Load Balancing test completed successfully");
         System.out.println("📊 Total work items processed: " + totalProcessed);
     }
 
@@ -407,7 +407,7 @@ class ConsumerGroupLoadBalancingDemoTest {
         // Cleanup consumers
         consumers.forEach(MessageConsumer::close);
 
-        System.out.println("✅ Weighted Load Balancing test completed successfully");
+        System.out.println("Weighted Load Balancing test completed successfully");
         System.out.println("📊 Total work items processed: " + totalProcessed);
     }
 
@@ -553,7 +553,7 @@ class ConsumerGroupLoadBalancingDemoTest {
         stickyGroup.stop();
         stickyGroup.close();
 
-        System.out.println("✅ Sticky Session Load Balancing test completed successfully");
+        System.out.println("Sticky Session Load Balancing test completed successfully");
         System.out.println("📊 Total work items processed: " + totalProcessed);
     }
 
@@ -667,7 +667,7 @@ class ConsumerGroupLoadBalancingDemoTest {
         // Cleanup consumers
         consumers.forEach(MessageConsumer::close);
 
-        System.out.println("✅ Dynamic Load Balancing test completed successfully");
+        System.out.println("Dynamic Load Balancing test completed successfully");
         System.out.println("📊 Total work items processed: " + totalProcessed);
     }
 }

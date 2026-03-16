@@ -84,10 +84,10 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  * <h2>Expected Test Results</h2>
  * <p>All tests should <b>PASS</b> by correctly handling the intentional failures:</p>
  * <ul>
- *   <li>✅ Quick failure scenarios complete after 2 retries</li>
- *   <li>✅ Extensive retry scenarios complete after 8 retries</li>
- *   <li>✅ Eventually successful scenarios succeed after configured failures</li>
- *   <li>✅ All retry configurations work as expected</li>
+ *   <li>Quick failure scenarios complete after 2 retries</li>
+ *   <li>Extensive retry scenarios complete after 8 retries</li>
+ *   <li>Eventually successful scenarios succeed after configured failures</li>
+ *   <li>All retry configurations work as expected</li>
  * </ul>
  * 
  * <h2>Error Log Messages</h2>
@@ -147,7 +147,7 @@ class RetryAndFailureHandlingExampleTest {
 
         queueFactory = provider.createFactory("outbox", databaseService);
         
-        logger.info("✅ Retry and Failure Handling Example Test setup completed");
+        logger.info("Retry and Failure Handling Example Test setup completed");
     }
     
     @AfterEach
@@ -174,7 +174,7 @@ class RetryAndFailureHandlingExampleTest {
         System.clearProperty("peegeeq.consumer.threads");
         System.clearProperty("peegeeq.queue.batch-size");
         
-        logger.info("✅ Retry and Failure Handling Example Test cleanup completed");
+        logger.info("Retry and Failure Handling Example Test cleanup completed");
     }
     
     @Test
@@ -190,7 +190,7 @@ class RetryAndFailureHandlingExampleTest {
         boolean result = runFailureScenario("quick-failure", new AlwaysFailingProcessor(), 2);
         
         assertTrue(result, "Quick failure scenario should complete within timeout");
-        logger.info("✅ Quick failure configuration test completed successfully!");
+        logger.info("Quick failure configuration test completed successfully!");
     }
     
     @Test
@@ -206,7 +206,7 @@ class RetryAndFailureHandlingExampleTest {
         boolean result = runFailureScenario("extensive-retries", new AlwaysFailingProcessor(), 8);
         
         assertTrue(result, "Extensive retries scenario should complete within timeout");
-        logger.info("✅ Extensive retries configuration test completed successfully!");
+        logger.info("Extensive retries configuration test completed successfully!");
     }
     
     @Test
@@ -222,7 +222,7 @@ class RetryAndFailureHandlingExampleTest {
         boolean result = runFailureScenario("successful-retry", new EventuallySuccessfulProcessor(3), 5);
         
         assertTrue(result, "Successful retry scenario should complete within timeout");
-        logger.info("✅ Successful retry configuration test completed successfully!");
+        logger.info("Successful retry configuration test completed successfully!");
     }
 
     /**
@@ -293,10 +293,10 @@ class RetryAndFailureHandlingExampleTest {
             if (completed) {
                 if (processor instanceof EventuallySuccessfulProcessor &&
                     ((EventuallySuccessfulProcessor) processor).hasSucceeded()) {
-                    logger.info("✅ EXPECTED SUCCESS: Message eventually processed successfully after {} attempts",
+                    logger.info("EXPECTED SUCCESS: Message eventually processed successfully after {} attempts",
                         ((EventuallySuccessfulProcessor) processor).getAttemptCount());
                 } else {
-                    logger.info("✅ EXPECTED FAILURE: Message failed after maximum retries and moved to dead letter queue");
+                    logger.info("EXPECTED FAILURE: Message failed after maximum retries and moved to dead letter queue");
                 }
             } else {
                 logger.warn("⚠️ Scenario timed out - this may indicate a configuration issue");
@@ -353,7 +353,7 @@ class RetryAndFailureHandlingExampleTest {
                 logger.info("   📋 This failure demonstrates eventual success after configured failures");
                 throw new RuntimeException("Simulated processing failure (attempt " + attempt + ")");
             } else {
-                logger.info("✅ EXPECTED SUCCESS: Attempt {} - Successfully processed message: {}",
+                logger.info("EXPECTED SUCCESS: Attempt {} - Successfully processed message: {}",
                     attempt, message.getPayload().id);
                 succeeded = true;
                 return CompletableFuture.completedFuture(null);

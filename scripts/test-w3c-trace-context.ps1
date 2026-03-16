@@ -26,7 +26,7 @@ function Run-Test {
     try {
         Invoke-Expression $TestCommand | Out-Null
         if ($LASTEXITCODE -eq 0) {
-            Write-Host "✅ PASSED: $TestName" -ForegroundColor Green
+            Write-Host "PASSED: $TestName" -ForegroundColor Green
             $script:PassedTests++
         } else {
             Write-Host "❌ FAILED: $TestName" -ForegroundColor Red
@@ -151,7 +151,7 @@ if ($script:TotalTests -gt 0) {
 
 # Exit with appropriate code
 if ($script:FailedTests -eq 0) {
-    Write-Host "✅ All tests passed!" -ForegroundColor Green
+    Write-Host "All tests passed!" -ForegroundColor Green
     Write-Host ""
     Write-Host "Priority 1: W3C Trace Context Propagation is READY FOR PRODUCTION" -ForegroundColor Green
     exit 0

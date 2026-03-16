@@ -111,7 +111,7 @@ public class SystemPropertiesConfigurationExampleTest {
         
         runScenario("high-throughput", "Optimized for maximum throughput with large batches");
         
-        logger.info("✅ High-throughput configuration validated successfully");
+        logger.info("High-throughput configuration validated successfully");
     }
 
     /**
@@ -130,7 +130,7 @@ public class SystemPropertiesConfigurationExampleTest {
         
         runScenario("low-latency", "Optimized for minimal latency with frequent polling");
         
-        logger.info("✅ Low-latency configuration validated successfully");
+        logger.info("Low-latency configuration validated successfully");
     }
 
     /**
@@ -149,7 +149,7 @@ public class SystemPropertiesConfigurationExampleTest {
         
         runScenario("reliable", "Optimized for reliability with extensive retry logic");
         
-        logger.info("✅ Reliable configuration validated successfully");
+        logger.info("Reliable configuration validated successfully");
     }
 
     /**
@@ -168,7 +168,7 @@ public class SystemPropertiesConfigurationExampleTest {
         
         runScenario("custom", "Custom configuration for specific business requirements");
         
-        logger.info("✅ Custom configuration validated successfully");
+        logger.info("Custom configuration validated successfully");
     }
 
     /**
@@ -201,7 +201,7 @@ public class SystemPropertiesConfigurationExampleTest {
             }
         }
         
-        logger.info("✅ System properties validation completed successfully");
+        logger.info("System properties validation completed successfully");
     }
 
     /**

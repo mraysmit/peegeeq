@@ -98,7 +98,7 @@ class BackpressureManagerTest {
         assertEquals(1, metrics.getFailedOperations());
         assertEquals(0.0, metrics.getCurrentSuccessRate());
 
-        System.out.println("✅ **SUCCESS** ✅ Backpressure manager correctly handled the intentional failure");
+        System.out.println("**SUCCESS** Backpressure manager correctly handled the intentional failure");
         System.out.println("🧪 ===== INTENTIONAL FAILURE TEST COMPLETED ===== 🧪");
     }
 
@@ -216,7 +216,7 @@ class BackpressureManagerTest {
         assertTrue(metrics.getCurrentSuccessRate() < 1.0);
         assertTrue(metrics.getAdaptiveLimit() <= metrics.getMaxConcurrentOperations());
 
-        System.out.println("✅ **SUCCESS** ✅ Adaptive rate limiting correctly responded to intentional failures");
+        System.out.println("**SUCCESS** Adaptive rate limiting correctly responded to intentional failures");
         System.out.println("🧪 ===== INTENTIONAL FAILURE TEST COMPLETED ===== 🧪");
     }
 

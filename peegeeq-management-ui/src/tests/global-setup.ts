@@ -20,7 +20,7 @@ async function globalSetup() {
       process.exit(1)
     }
     
-    console.log('✅ Backend is running and healthy\n')
+    console.log('Backend is running and healthy\n')
   } catch (error) {
     console.error('\n❌ Cannot connect to PeeGeeQ backend at http://localhost:8080')
     console.error('   Error:', error instanceof Error ? error.message : String(error))

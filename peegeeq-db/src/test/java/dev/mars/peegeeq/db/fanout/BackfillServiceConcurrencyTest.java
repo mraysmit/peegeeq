@@ -171,7 +171,7 @@ public class BackfillServiceConcurrencyTest extends BaseIntegrationTest {
             assertEquals("COMPLETED", progress.status());
             assertEquals(expectedCount, progress.processedMessages());
 
-            logger.info("✅ Concurrent same-subscription test passed: race condition prevented by FOR UPDATE");
+            logger.info("Concurrent same-subscription test passed: race condition prevented by FOR UPDATE");
 
         } finally {
             executor.shutdownNow();
@@ -233,7 +233,7 @@ public class BackfillServiceConcurrencyTest extends BaseIntegrationTest {
                     "Backfill " + i + " should process all messages");
         }
 
-        logger.info("✅ Concurrent different-subscriptions test passed");
+        logger.info("Concurrent different-subscriptions test passed");
     }
 
     /**
@@ -291,7 +291,7 @@ public class BackfillServiceConcurrencyTest extends BaseIntegrationTest {
                 .toCompletionStage().toCompletableFuture().get();
         assertEquals(messageCount, trackingRows, "Should have tracking rows for all messages");
 
-        logger.info("✅ Heavy load test passed: {} messages backfilled at {} msgs/sec",
+        logger.info("Heavy load test passed: {} messages backfilled at {} msgs/sec",
         messageCount, String.format("%.1f", throughput));
     }
 
@@ -335,7 +335,7 @@ public class BackfillServiceConcurrencyTest extends BaseIntegrationTest {
         assertEquals("COMPLETED", progress.status());
         assertEquals(2000L, progress.processedMessages());
 
-        logger.info("✅ Row-level locking test passed: no duplicate processing detected");
+        logger.info("Row-level locking test passed: no duplicate processing detected");
     }
 
     /**
@@ -397,7 +397,7 @@ public class BackfillServiceConcurrencyTest extends BaseIntegrationTest {
                 .toCompletionStage().toCompletableFuture().get();
         assertEquals(5000L, trackingRows, "Should have no duplicate tracking rows after resume");
 
-        logger.info("✅ Resumability test passed");
+        logger.info("Resumability test passed");
     }
 
     // ========================================================================

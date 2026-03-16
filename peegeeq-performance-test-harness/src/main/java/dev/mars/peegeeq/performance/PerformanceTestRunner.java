@@ -135,7 +135,7 @@ public class PerformanceTestRunner {
         System.out.println();
         
         System.out.printf("📊 Total Tests Executed: %d%n", results.getTotalTests());
-        System.out.printf("✅ Successful Tests: %d%n", results.getSuccessfulTests());
+        System.out.printf("Successful Tests: %d%n", results.getSuccessfulTests());
         System.out.printf("❌ Failed Tests: %d%n", results.getFailedTests());
         System.out.printf("⏱️  Total Duration: %s%n", formatDuration(totalDuration));
         System.out.println();

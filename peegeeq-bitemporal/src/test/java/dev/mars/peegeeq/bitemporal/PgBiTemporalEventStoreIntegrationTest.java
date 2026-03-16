@@ -267,7 +267,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         assertEquals(aggregateId, notification.getAggregateId(), "Aggregate ID should match");
         assertEquals(payload, notification.getPayload(), "Payload should match");
 
-        logger.info("✅ ReactiveNotificationHandler integration test completed successfully");
+        logger.info("ReactiveNotificationHandler integration test completed successfully");
     }
 
     @Test
@@ -313,7 +313,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         assertNotNull(event4);
         assertEquals("agg-789", event4.getAggregateId());
 
-        logger.info("✅ appendWithTransaction overloads test completed successfully");
+        logger.info("appendWithTransaction overloads test completed successfully");
     }
 
     @Test
@@ -335,7 +335,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         assertNotNull(event);
         assertEquals("test.reactive", event.getEventType());
 
-        logger.info("✅ appendReactive test completed successfully");
+        logger.info("appendReactive test completed successfully");
     }
 
     @Test
@@ -374,7 +374,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         // Test unsubscribe
         eventStore.unsubscribe();
 
-        logger.info("✅ subscribeReactive and unsubscribe test completed successfully");
+        logger.info("subscribeReactive and unsubscribe test completed successfully");
     }
 
     /**
@@ -462,7 +462,7 @@ class PgBiTemporalEventStoreIntegrationTest {
 
         eventStore.unsubscribe();
 
-        logger.info("✅ Dot/underscore channel collision isolation test completed successfully");
+        logger.info("Dot/underscore channel collision isolation test completed successfully");
     }
 
     @Test
@@ -491,7 +491,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         assertNotNull(result);
         assertEquals(event.getEventId(), result.getEventId());
 
-        logger.info("✅ getAsOfTransactionTime test completed successfully");
+        logger.info("getAsOfTransactionTime test completed successfully");
     }
 
     @Test
@@ -521,7 +521,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         // Test clearCachedPools (static method)
         PgBiTemporalEventStore.clearCachedPools();
 
-        logger.info("✅ clearCachedPools and clearInstancePools test completed successfully");
+        logger.info("clearCachedPools and clearInstancePools test completed successfully");
     }
 
     @Test
@@ -545,7 +545,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         // Test closeSharedVertx (static method)
         PgBiTemporalEventStore.closeSharedVertx();
 
-        logger.info("✅ closeSharedVertx test completed successfully");
+        logger.info("closeSharedVertx test completed successfully");
     }
 
     // ==================================================================================
@@ -601,7 +601,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         assertEquals("order.created", receivedEventTypes.get(0), "Should receive order.created");
 
         eventStore.unsubscribe();
-        logger.info("✅ Test 1 completed");
+        logger.info("Test 1 completed");
     }
 
     /**
@@ -646,7 +646,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         assertTrue(receivedEventTypes.contains("payment.received"));
 
         eventStore.unsubscribe();
-        logger.info("✅ Test 2 completed");
+        logger.info("Test 2 completed");
     }
 
     /**
@@ -705,7 +705,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         assertEquals("payment.received", paymentReceivedEvents.get(0));
 
         eventStore.unsubscribe();
-        logger.info("✅ Test 3 completed");
+        logger.info("Test 3 completed");
     }
 
     /**
@@ -749,7 +749,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         assertEquals(expectedEventId, receivedEventIds.get(0));
 
         eventStore.unsubscribe();
-        logger.info("✅ Test 5 completed");
+        logger.info("Test 5 completed");
     }
 
     // ==================================================================================
@@ -801,7 +801,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         assertFalse(receivedEventTypes.contains("payment.received"));
 
         eventStore.unsubscribe();
-        logger.info("✅ Test 6 completed");
+        logger.info("Test 6 completed");
     }
 
     /**
@@ -849,7 +849,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         assertFalse(receivedEventTypes.contains("order.shipped"));
 
         eventStore.unsubscribe();
-        logger.info("✅ Test 7 completed");
+        logger.info("Test 7 completed");
     }
 
     /**
@@ -897,7 +897,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         assertFalse(receivedEventTypes.contains("order.created"));
 
         eventStore.unsubscribe();
-        logger.info("✅ Test 8 completed");
+        logger.info("Test 8 completed");
     }
 
     /**
@@ -944,7 +944,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         assertEquals("order.created", receivedEventTypes.get(0));
 
         eventStore.unsubscribe();
-        logger.info("✅ Test 9 completed");
+        logger.info("Test 9 completed");
     }
 
     /**
@@ -992,7 +992,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         assertFalse(receivedEventTypes.contains("order.created"));
 
         eventStore.unsubscribe();
-        logger.info("✅ Test 10 completed");
+        logger.info("Test 10 completed");
     }
 
     @AfterEach

@@ -108,7 +108,7 @@ public class FanoutProducerIntegrationTest extends BaseIntegrationTest {
         assertEquals(1, requiredGroups,
             "QUEUE topics should have required_consumer_groups = 1 for backward compatibility");
 
-        logger.info("✅ QUEUE topic backward compatibility verified");
+        logger.info("QUEUE topic backward compatibility verified");
     }
 
     /**
@@ -140,7 +140,7 @@ public class FanoutProducerIntegrationTest extends BaseIntegrationTest {
         assertEquals(0, requiredGroups,
             "PUB_SUB topics with zero subscriptions should have required_consumer_groups = 0");
 
-        logger.info("✅ PUB_SUB topic with zero subscriptions verified");
+        logger.info("PUB_SUB topic with zero subscriptions verified");
     }
 
     /**
@@ -177,7 +177,7 @@ public class FanoutProducerIntegrationTest extends BaseIntegrationTest {
         assertEquals(1, requiredGroups,
             "PUB_SUB topics with one subscription should have required_consumer_groups = 1");
 
-        logger.info("✅ PUB_SUB topic with one subscription verified");
+        logger.info("PUB_SUB topic with one subscription verified");
     }
 
     /**
@@ -217,7 +217,7 @@ public class FanoutProducerIntegrationTest extends BaseIntegrationTest {
         assertEquals(3, requiredGroups,
             "PUB_SUB topics with three subscriptions should have required_consumer_groups = 3");
 
-        logger.info("✅ PUB_SUB topic with multiple subscriptions verified");
+        logger.info("PUB_SUB topic with multiple subscriptions verified");
     }
 
     /**
@@ -258,7 +258,7 @@ public class FanoutProducerIntegrationTest extends BaseIntegrationTest {
         assertEquals(1, requiredGroupsAfter,
             "required_consumer_groups should be immutable after message insertion (snapshot semantics)");
 
-        logger.info("✅ Snapshot semantics (immutability) verified");
+        logger.info("Snapshot semantics (immutability) verified");
     }
 
     /**
@@ -282,7 +282,7 @@ public class FanoutProducerIntegrationTest extends BaseIntegrationTest {
         assertEquals(1, requiredGroups,
             "Unconfigured topics should default to QUEUE semantics (required_consumer_groups = 1)");
 
-        logger.info("✅ Unconfigured topic defaults to QUEUE verified");
+        logger.info("Unconfigured topic defaults to QUEUE verified");
     }
 
     // Helper methods

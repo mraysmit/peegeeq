@@ -94,7 +94,7 @@ public class OutboxPerformanceTestSuite implements PerformanceTestSuite {
                 results.addMetric("concurrent_throughput", concurrentThroughput);
                 results.addMetric("transactional_throughput", transactionalThroughput);
                 
-                logger.info("✅ Outbox performance test suite completed successfully");
+                logger.info("Outbox performance test suite completed successfully");
                 
             } catch (Exception e) {
                 logger.error("❌ Outbox performance test suite failed", e);

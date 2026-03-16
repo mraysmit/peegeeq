@@ -132,7 +132,7 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
         assertTrue(incrementedCount > 0,
                 "At least some messages should have required_consumer_groups incremented to 2");
 
-        logger.info("✅ Small batch backfill verified: {} messages processed", result.processedMessages());
+        logger.info("Small batch backfill verified: {} messages processed", result.processedMessages());
     }
 
     /**
@@ -171,7 +171,7 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
         assertEquals(messageCount, result.processedMessages(),
                 "Should process all messages across multiple batches");
 
-        logger.info("✅ Multi-batch backfill verified: {} messages in batches of 10", result.processedMessages());
+        logger.info("Multi-batch backfill verified: {} messages in batches of 10", result.processedMessages());
     }
 
     /**
@@ -209,7 +209,7 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
         assertEquals(10, result.processedMessages(),
                 "Should stop after processing maxMessages (10)");
 
-        logger.info("✅ Max-limited backfill verified: processed {} of 20", result.processedMessages());
+        logger.info("Max-limited backfill verified: processed {} of 20", result.processedMessages());
     }
 
     /**
@@ -247,7 +247,7 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
         assertEquals(BackfillResult.Status.ALREADY_COMPLETED, result.status(),
                 "Second backfill should return ALREADY_COMPLETED");
 
-        logger.info("✅ Idempotent backfill verified");
+        logger.info("Idempotent backfill verified");
     }
 
     /**
@@ -275,7 +275,7 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
         assertEquals(BackfillResult.Status.COMPLETED, result.status());
         assertEquals(0, result.processedMessages(), "Should process 0 messages");
 
-        logger.info("✅ Empty backfill verified");
+        logger.info("Empty backfill verified");
     }
 
     /**
@@ -329,7 +329,7 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
         assertEquals("CANCELLED", progress.status(),
                 "Backfill should be cancelled");
 
-        logger.info("✅ Backfill cancellation verified");
+        logger.info("Backfill cancellation verified");
     }
 
     /**
@@ -364,7 +364,7 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                     "Error should mention ACTIVE requirement");
         }
 
-        logger.info("✅ Backfill validation for non-ACTIVE subscription verified");
+        logger.info("Backfill validation for non-ACTIVE subscription verified");
     }
 
     /**
@@ -381,7 +381,7 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                     "Error should mention subscription not found");
         }
 
-        logger.info("✅ Backfill validation for missing subscription verified");
+        logger.info("Backfill validation for missing subscription verified");
     }
 
     /**
@@ -428,7 +428,7 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
         assertNotNull(after.completedAt());
         assertEquals(100.0, after.percentComplete(), 0.1);
 
-        logger.info("✅ Backfill progress tracking verified");
+        logger.info("Backfill progress tracking verified");
     }
 
     /**
@@ -485,7 +485,7 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
         assertTrue(allRetainedResult.processedMessages() > pendingOnlyResult.processedMessages(),
                 "ALL_RETAINED should process more messages than PENDING_ONLY on mixed-status data");
 
-        logger.info("✅ Backfill scope verified: PENDING_ONLY={}, ALL_RETAINED={}",
+        logger.info("Backfill scope verified: PENDING_ONLY={}, ALL_RETAINED={}",
                 pendingOnlyResult.processedMessages(), allRetainedResult.processedMessages());
     }
 
