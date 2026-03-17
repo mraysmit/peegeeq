@@ -287,5 +287,75 @@ public class DatabaseTemplateManagerCoreTest extends BaseIntegrationTest {
             }
         }
     }
-}
 
+    // ========================================
+    // C1/H5 remediation: SQL injection prevention tests
+    // ========================================
+
+    @Test
+    void testCreateDatabaseRejectsInjectionInDatabaseName() {
+        assertThrows(IllegalArgumentException.class, () ->
+            databaseTemplateManager.createDatabaseFromTemplate(
+                postgres.getHost(), postgres.getFirstMappedPort(),
+                postgres.getUsername(), postgres.getPassword(),
+                "test; DROP TABLE users;--", "template0", "UTF8", new HashMap<>()
+            )
+        );
+    }
+
+    @Test
+    void testCreateDatabaseRejectsInjectionInTemplateName() {
+        assertThrows(IllegalArgumentException.class, () ->
+            databaseTemplateManager.createDatabaseFromTemplate(
+                postgres.getHost(), postgres.getFirstMappedPort(),
+                postgres.getUsername(), postgres.getPassword(),
+                "valid_db", "template0; DROP DATABASE postgres", "UTF8", new HashMap<>()
+            )
+        );
+    }
+
+    @Test
+    void testCreateDatabaseRejectsInvalidEncoding() {
+        assertThrows(IllegalArgumentException.class, () ->
+            databaseTemplateManager.createDatabaseFromTemplate(
+                postgres.getHost(), postgres.getFirstMappedPort(),
+                postgres.getUsername(), postgres.getPassword(),
+                "valid_db", "template0", "UTF8'; DROP TABLE x;--", new HashMap<>()
+            )
+        );
+    }
+
+    @Test
+    void testDropDatabaseRejectsInjection() {
+        assertThrows(IllegalArgumentException.class, () ->
+            reactivePool.withConnection(connection ->
+                databaseTemplateManager.dropDatabase(connection, "db; DROP TABLE users;--")
+            ).toCompletionStage().toCompletableFuture().get()
+        );
+    }
+
+    @Test
+    void testCreateDatabaseAcceptsValidEncoding() throws Exception {
+        String testDbName = "test_db_encoding_" + System.currentTimeMillis();
+        try {
+            // UTF8 is in the whitelist
+            databaseTemplateManager.createDatabaseFromTemplate(
+                postgres.getHost(), postgres.getFirstMappedPort(),
+                postgres.getUsername(), postgres.getPassword(),
+                testDbName, "template0", "UTF8", new HashMap<>()
+            ).toCompletionStage().toCompletableFuture().get();
+
+            Boolean exists = reactivePool.withConnection(connection ->
+                databaseTemplateManager.databaseExists(connection, testDbName)
+            ).toCompletionStage().toCompletableFuture().get();
+            assertTrue(exists);
+        } finally {
+            try {
+                databaseTemplateManager.dropDatabaseFromAdmin(
+                    postgres.getHost(), postgres.getFirstMappedPort(),
+                    postgres.getUsername(), postgres.getPassword(), testDbName
+                ).toCompletionStage().toCompletableFuture().get();
+            } catch (Exception e) { /* cleanup */ }
+        }
+    }
+}

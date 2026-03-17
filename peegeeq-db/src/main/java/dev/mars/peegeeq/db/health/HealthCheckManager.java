@@ -274,6 +274,11 @@ public class HealthCheckManager implements HealthService {
         healthCheckExecutor = null;
         if (executorToStop != null) {
             executorToStop.shutdownNow();
+            try {
+                executorToStop.awaitTermination(5, java.util.concurrent.TimeUnit.SECONDS);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+            }
         }
         inFlightChecks.clear();
         return Future.succeededFuture();

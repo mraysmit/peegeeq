@@ -125,19 +125,15 @@ public class PgClientFactory implements AutoCloseable {
     public PgClient createClient(String clientId, PgConnectionConfig connectionConfig, PgPoolConfig poolConfig) {
         validate(clientId, connectionConfig, poolConfig);
 
-        // Guard against inconsistent re-creation with different configs
-        PgConnectionConfig existingConn = connectionConfigs.get(clientId);
-        if (existingConn != null && !existingConn.equals(connectionConfig)) {
+        // Atomically store configs, rejecting inconsistent re-creation
+        PgConnectionConfig existingConn = connectionConfigs.computeIfAbsent(clientId, k -> connectionConfig);
+        if (!existingConn.equals(connectionConfig)) {
             throw new IllegalStateException("Attempted to recreate client with different connection config: " + clientId);
         }
-        PgPoolConfig existingPool = poolConfigs.get(clientId);
-        if (existingPool != null && !existingPool.equals(poolConfig)) {
+        PgPoolConfig existingPool = poolConfigs.computeIfAbsent(clientId, k -> poolConfig);
+        if (!existingPool.equals(poolConfig)) {
             throw new IllegalStateException("Attempted to recreate client with different pool config: " + clientId);
         }
-
-        // Keep configs for observability/rehydration; treat them as immutable
-        connectionConfigs.putIfAbsent(clientId, connectionConfig);
-        poolConfigs.putIfAbsent(clientId, poolConfig);
 
         // Build or return cached client atomically
         return clients.computeIfAbsent(clientId, id -> {

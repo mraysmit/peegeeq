@@ -563,11 +563,18 @@ public class PeeGeeQConfiguration {
     }
 
     public String getProfile() { return profile; }
+    private static final Set<String> SENSITIVE_KEYS = Set.of(
+            "peegeeq.database.password",
+            "peegeeq.database.username",
+            "peegeeq.database.host",
+            "peegeeq.database.port"
+    );
+
     public Properties getProperties() {
         Properties copy = new Properties();
         properties.forEach((k, v) -> {
             String key = k.toString();
-            copy.setProperty(key, key.equals("peegeeq.database.password") ? "****" : v.toString());
+            copy.setProperty(key, SENSITIVE_KEYS.contains(key) ? "****" : v.toString());
         });
         return copy;
     }
