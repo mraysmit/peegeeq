@@ -1,10 +1,17 @@
 /*
- * Copyright (c) 2025 Cityline Ltd
- * All rights reserved.
+ * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
  *
- * This software is the confidential and proprietary information of Cityline Ltd.
- * You shall not disclose such confidential information and shall use it only in
- * accordance with the terms of the license agreement you entered into with Cityline Ltd.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package dev.mars.peegeeq.bitemporal;
@@ -47,7 +54,7 @@ public class VertxPoolAdapter {
      * @param peeGeeQManager The PeeGeeQ manager to extract configuration from
      */
     public VertxPoolAdapter(PeeGeeQManager peeGeeQManager) {
-        this.vertx = getOrCreateSharedVertx();
+        this.vertx = PgBiTemporalEventStore.getOrCreateSharedVertx();
         this.peeGeeQManager = peeGeeQManager;
         logger.debug("Created VertxPoolAdapter for bi-temporal event store");
     }
@@ -93,17 +100,19 @@ public class VertxPoolAdapter {
                         logger.info("Created Vert.x Pool from PeeGeeQManager configuration");
                         return pool;
                     } else {
-                        logger.warn("Configuration not found in PeeGeeQManager, using default values");
+                        logger.warn("Configuration not found in PeeGeeQManager, cannot create pool");
                     }
                 } else {
-                    logger.warn("PgClientFactory not found in PeeGeeQManager, using default values");
+                    logger.warn("PgClientFactory not found in PeeGeeQManager, cannot create pool");
                 }
 
-                // Fallback to default values if configuration is not found
-                pool = createPoolWithDefaults();
-                logger.info("Created Vert.x Pool with default configuration");
-                return pool;
+                // No fallback — explicit configuration is required
+                throw new IllegalStateException(
+                        "Cannot create Vert.x Pool: PeeGeeQManager configuration is missing or incomplete. "
+                        + "Provide a valid PgClientFactory with connection and pool configuration.");
 
+            } catch (IllegalStateException e) {
+                throw e;
             } catch (Exception e) {
                 logger.error("Failed to create Vert.x Pool: {}", e.getMessage(), e);
                 throw new RuntimeException("Failed to create Vert.x Pool", e);
@@ -132,30 +141,6 @@ public class VertxPoolAdapter {
         
         PoolOptions poolOptions = new PoolOptions()
             .setMaxSize(poolConfig.getMaxSize());
-
-        return PgBuilder.pool()
-            .with(poolOptions)
-            .connectingTo(connectOptions)
-            .using(vertx)
-            .build();
-    }
-
-    /**
-     * Creates a Vert.x Pool with default configuration values.
-     * This is used as a fallback when PeeGeeQManager configuration is not available.
-     *
-     * @return A Vert.x Pool with default configuration
-     */
-    private Pool createPoolWithDefaults() {
-        PgConnectOptions connectOptions = new PgConnectOptions()
-            .setHost("localhost")  // Default fallback
-            .setPort(5432)
-            .setDatabase("peegeeq")
-            .setUser("peegeeq")
-            .setPassword("peegeeq");
-
-        PoolOptions poolOptions = new PoolOptions()
-            .setMaxSize(10); // Default pool size
 
         return PgBuilder.pool()
             .with(poolOptions)
@@ -210,45 +195,11 @@ public class VertxPoolAdapter {
         }
     }
 
-    // Shared Vertx instance management - following peegeeq-outbox pattern
-    private static volatile Vertx sharedVertx;
-
     /**
-     * Gets or creates a shared Vertx instance for proper context management.
-     * This ensures that TransactionPropagation.CONTEXT works correctly by providing
-     * a consistent Vertx context across all bi-temporal event store instances.
-     *
-     * @return The shared Vertx instance
-     */
-    private static Vertx getOrCreateSharedVertx() {
-        if (sharedVertx == null) {
-            synchronized (VertxPoolAdapter.class) {
-                if (sharedVertx == null) {
-                    sharedVertx = Vertx.vertx();
-                    logger.info("Created shared Vertx instance for bi-temporal event store context management");
-                }
-            }
-        }
-        return sharedVertx;
-    }
-
-    /**
-     * Closes the shared Vertx instance. This should only be called during application shutdown.
-     * Note: This is a static method that affects all VertxPoolAdapter instances.
+     * Closes the shared Vertx instance. Delegates to PgBiTemporalEventStore.
+     * This should only be called during application shutdown.
      */
     public static void closeSharedVertx() {
-        if (sharedVertx != null) {
-            synchronized (VertxPoolAdapter.class) {
-                if (sharedVertx != null) {
-                    Vertx vertxToClose = sharedVertx;
-                    sharedVertx = null;
-                    vertxToClose.close()
-                            .onSuccess(v -> logger.info("Closed shared Vertx instance for bi-temporal event store"))
-                            .onFailure(error -> logger.warn(
-                                    "Error closing shared Vertx instance for bi-temporal event store: {}",
-                                    error.getMessage()));
-                }
-            }
-        }
+        PgBiTemporalEventStore.closeSharedVertx();
     }
 }

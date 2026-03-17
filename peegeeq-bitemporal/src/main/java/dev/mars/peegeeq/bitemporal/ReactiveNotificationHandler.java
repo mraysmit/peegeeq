@@ -1,10 +1,17 @@
 /*
- * Copyright (c) 2025 Cityline Ltd
- * All rights reserved.
+ * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
  *
- * This software is the confidential and proprietary information of Cityline Ltd.
- * You shall not disclose such confidential information and shall use it only in
- * accordance with the terms of the license agreement you entered into with Cityline Ltd.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 package dev.mars.peegeeq.bitemporal;
@@ -32,6 +39,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
 import java.util.regex.Pattern;
 
@@ -74,7 +82,7 @@ public class ReactiveNotificationHandler<T> {
     private volatile boolean active = false;
     private volatile boolean shutdown = false;
     private volatile Future<Void> startInProgress;
-    private volatile int reconnectAttempts = 0;
+    private final AtomicInteger reconnectAttempts = new AtomicInteger(0);
     private static final int MAX_RECONNECT_ATTEMPTS = 5;
     private static final long BASE_RECONNECT_DELAY = 1000; // 1 second
 
@@ -273,7 +281,7 @@ public class ReactiveNotificationHandler<T> {
             md5Hash = hexString.toString().substring(0, 8);
         } catch (java.security.NoSuchAlgorithmException e) {
             // Fallback to hashCode if MD5 not available (shouldn't happen)
-            md5Hash = Integer.toHexString(Math.abs(baseChannel.hashCode())).substring(0, 8);
+            md5Hash = String.format("%08x", baseChannel.hashCode() & 0xFFFFFFFFL).substring(0, 8);
         }
 
         String hashSuffix = "_" + md5Hash;
@@ -363,33 +371,35 @@ public class ReactiveNotificationHandler<T> {
                         this.listenConnection = null;
                         this.active = false;
 
-                        // Only attempt reconnection if not shutting down and within retry limits
-                        if (!shutdown && reconnectAttempts < MAX_RECONNECT_ATTEMPTS) {
-                            reconnectAttempts++;
-                            long delay = BASE_RECONNECT_DELAY * (1L << Math.min(reconnectAttempts - 1, 5)); // Exponential
+                        // Only attempt reconnection if not shutting down and within retry limits.
+                        // Note: get-then-increment is not strictly atomic, but this handler runs
+                        // on the Vert.x event loop (single-threaded context) so TOCTOU is safe.
+                        if (!shutdown && reconnectAttempts.get() < MAX_RECONNECT_ATTEMPTS) {
+                            int attempt = reconnectAttempts.incrementAndGet();
+                            long delay = BASE_RECONNECT_DELAY * (1L << Math.min(attempt - 1, 5)); // Exponential
                                                                                                             // backoff,
                                                                                                             // max 32
                                                                                                             // seconds
 
                             logger.info("Attempting to reconnect reactive notification handler (attempt {}/{})",
-                                    reconnectAttempts, MAX_RECONNECT_ATTEMPTS);
+                                    attempt, MAX_RECONNECT_ATTEMPTS);
 
                             vertx.setTimer(delay, timerId -> {
                                 if (!shutdown && !active) {
                                     start().onSuccess(result -> {
                                         // Reset retry counter on successful reconnection
-                                        reconnectAttempts = 0;
+                                        reconnectAttempts.set(0);
                                         logger.info("Successfully reconnected reactive notification handler");
                                     }).onFailure(error -> {
                                         logger.error(
                                                 "Failed to reconnect reactive notification handler (attempt {}/{}): {}",
-                                                reconnectAttempts, MAX_RECONNECT_ATTEMPTS, error.getMessage());
+                                                reconnectAttempts.get(), MAX_RECONNECT_ATTEMPTS, error.getMessage());
 
                                         // If we've exhausted all retry attempts, log final failure
-                                        if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+                                        if (reconnectAttempts.get() >= MAX_RECONNECT_ATTEMPTS) {
                                             logger.error(
                                                     "Exhausted all reconnection attempts ({}/{}). Reactive notifications will not be available until manual restart.",
-                                                    reconnectAttempts, MAX_RECONNECT_ATTEMPTS);
+                                                    reconnectAttempts.get(), MAX_RECONNECT_ATTEMPTS);
                                         }
                                     });
                                 }
@@ -399,14 +409,14 @@ public class ReactiveNotificationHandler<T> {
                         } else {
                             logger.warn(
                                     "Exhausted all reconnection attempts ({}/{}). Reactive notifications will not be available.",
-                                    reconnectAttempts, MAX_RECONNECT_ATTEMPTS);
+                                    reconnectAttempts.get(), MAX_RECONNECT_ATTEMPTS);
                         }
                     });
 
                     replayListenChannelsForExistingSubscriptions()
                             .onSuccess(v -> {
                                 // Reset reconnect attempts on successful connection
-                                this.reconnectAttempts = 0;
+                                this.reconnectAttempts.set(0);
                                 promise.complete();
                             })
                             .onFailure(error -> {
