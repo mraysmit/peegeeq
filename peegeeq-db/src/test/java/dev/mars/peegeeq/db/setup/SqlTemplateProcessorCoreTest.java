@@ -139,5 +139,57 @@ public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
             ).toCompletionStage().toCompletableFuture().get();
         });
     }
+
+    // ========================================
+    // H1 remediation: Template parameter injection prevention
+    // ========================================
+
+    @Test
+    void testApplyTemplateRejectsParameterWithSingleQuote() {
+        Map<String, String> parameters = new HashMap<>();
+        parameters.put("TABLE_NAME", "test'; DROP TABLE users;--");
+
+        assertThrows(IllegalArgumentException.class, () ->
+            reactivePool.withConnection(connection ->
+                sqlTemplateProcessor.applyTemplateReactive(connection, "test-simple-table.sql", parameters)
+            ).toCompletionStage().toCompletableFuture().get()
+        );
+    }
+
+    @Test
+    void testApplyTemplateRejectsParameterWithSemicolon() {
+        Map<String, String> parameters = new HashMap<>();
+        parameters.put("TABLE_NAME", "test; DROP TABLE users");
+
+        assertThrows(IllegalArgumentException.class, () ->
+            reactivePool.withConnection(connection ->
+                sqlTemplateProcessor.applyTemplateReactive(connection, "test-simple-table.sql", parameters)
+            ).toCompletionStage().toCompletableFuture().get()
+        );
+    }
+
+    @Test
+    void testApplyTemplateRejectsParameterWithSqlComment() {
+        Map<String, String> parameters = new HashMap<>();
+        parameters.put("TABLE_NAME", "test--drop");
+
+        assertThrows(IllegalArgumentException.class, () ->
+            reactivePool.withConnection(connection ->
+                sqlTemplateProcessor.applyTemplateReactive(connection, "test-simple-table.sql", parameters)
+            ).toCompletionStage().toCompletableFuture().get()
+        );
+    }
+
+    @Test
+    void testApplyTemplateRejectsParameterWithBlockComment() {
+        Map<String, String> parameters = new HashMap<>();
+        parameters.put("TABLE_NAME", "test/*injection*/");
+
+        assertThrows(IllegalArgumentException.class, () ->
+            reactivePool.withConnection(connection ->
+                sqlTemplateProcessor.applyTemplateReactive(connection, "test-simple-table.sql", parameters)
+            ).toCompletionStage().toCompletableFuture().get()
+        );
+    }
 }
 

@@ -12,12 +12,25 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Map;
+import java.util.Set;
 
 import dev.mars.peegeeq.api.info.PeeGeeQInfoCodes;
+import dev.mars.peegeeq.db.util.PostgreSqlIdentifierValidator;
 
 public class DatabaseTemplateManager {
 
     private static final Logger logger = LoggerFactory.getLogger(DatabaseTemplateManager.class);
+
+    private static final Set<String> ALLOWED_ENCODINGS = Set.of(
+        "UTF8", "SQL_ASCII", "LATIN1", "LATIN2", "LATIN3", "LATIN4", "LATIN5",
+        "LATIN6", "LATIN7", "LATIN8", "LATIN9", "LATIN10",
+        "WIN1250", "WIN1251", "WIN1252", "WIN1253", "WIN1254",
+        "WIN1255", "WIN1256", "WIN1257", "WIN1258",
+        "EUC_JP", "EUC_CN", "EUC_KR", "EUC_TW",
+        "SJIS", "BIG5", "GBK", "GB18030",
+        "JOHAB", "KOI8R", "KOI8U", "ISO_8859_5", "ISO_8859_6",
+        "ISO_8859_7", "ISO_8859_8", "MULE_INTERNAL"
+    );
 
     private final Vertx vertx;
 
@@ -30,6 +43,15 @@ public class DatabaseTemplateManager {
                                                    String templateName,
                                                    String encoding,
                                                    Map<String, String> options) {
+
+        // Validate identifiers to prevent SQL injection (C1 remediation)
+        validateDatabaseIdentifier(newDatabaseName, "database");
+        if (templateName != null) {
+            validateDatabaseIdentifier(templateName, "template");
+        }
+        if (encoding != null) {
+            validateEncoding(encoding);
+        }
 
         logger.info("DatabaseTemplateManager.createDatabaseFromTemplate called for database: {}", newDatabaseName);
 
@@ -92,6 +114,9 @@ public class DatabaseTemplateManager {
     }
 
     public Future<Void> dropDatabase(SqlConnection connection, String databaseName) {
+        // Validate identifier to prevent SQL injection (H5 remediation)
+        validateDatabaseIdentifier(databaseName, "database");
+
         logger.info("Dropping database: {}", databaseName);
 
         // Terminate active connections to the database first
@@ -112,8 +137,8 @@ public class DatabaseTemplateManager {
                     vertx.setTimer(100, id -> promise.complete());
                 })
                 .compose(v -> {
-                    // Drop the database
-                    String dropSql = "DROP DATABASE IF EXISTS " + databaseName;
+                    // Drop the database — identifier already validated above
+                    String dropSql = "DROP DATABASE IF EXISTS \"" + databaseName + "\"";
                     return connection.query(dropSql).execute();
                 });
             })
@@ -155,11 +180,12 @@ public class DatabaseTemplateManager {
 
     private String buildCreateDatabaseSql(String dbName, String template,
                                         String encoding, Map<String, String> options) {
+        // Identifiers and encoding already validated in createDatabaseFromTemplate()
         StringBuilder sql = new StringBuilder();
-        sql.append("CREATE DATABASE ").append(dbName);
+        sql.append("CREATE DATABASE \"").append(dbName).append("\"");
 
         if (template != null) {
-            sql.append(" TEMPLATE ").append(template);
+            sql.append(" TEMPLATE \"").append(template).append("\"");
         }
 
         if (encoding != null) {
@@ -167,5 +193,16 @@ public class DatabaseTemplateManager {
         }
 
         return sql.toString();
+    }
+
+    private static void validateDatabaseIdentifier(String identifier, String identifierType) {
+        PostgreSqlIdentifierValidator.validate(identifier, identifierType);
+    }
+
+    private static void validateEncoding(String encoding) {
+        if (!ALLOWED_ENCODINGS.contains(encoding.toUpperCase())) {
+            throw new IllegalArgumentException(
+                "Unsupported encoding: '" + encoding + "'. Allowed encodings: " + ALLOWED_ENCODINGS);
+        }
     }
 }

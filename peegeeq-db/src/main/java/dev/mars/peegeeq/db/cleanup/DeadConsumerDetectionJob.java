@@ -68,6 +68,9 @@ public class DeadConsumerDetectionJob {
     /** Default detection interval: 60 seconds */
     public static final long DEFAULT_DETECTION_INTERVAL_MS = 60_000L;
 
+    /** Number of consecutive failures before escalating log severity */
+    private static final long CONSECUTIVE_FAILURE_THRESHOLD = 3;
+
     private final Vertx vertx;
     private final DeadConsumerDetector detector;
     private final DeadConsumerGroupCleanup cleanup;
@@ -313,7 +316,7 @@ public class DeadConsumerDetectionJob {
                     detectionInProgress.set(false);
 
                     try (var scope = TraceContextUtil.mdcScope(trace)) {
-                        if (failures >= 3) {
+                        if (failures >= CONSECUTIVE_FAILURE_THRESHOLD) {
                             logger.error("Detection run #{} FAILED ({} consecutive failures, {}ms): {}",
                                     runNumber, failures, elapsed, error.getMessage(), error);
                         } else {

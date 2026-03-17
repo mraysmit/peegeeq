@@ -189,7 +189,7 @@ public final class PostgreSqlIdentifierValidator {
             md5Hash = hexString.toString().substring(0, 8);
         } catch (NoSuchAlgorithmException e) {
             // Fallback to hashCode if MD5 not available (shouldn't happen)
-            md5Hash = Integer.toHexString(Math.abs(identifier.hashCode())).substring(0, 8);
+            md5Hash = Integer.toHexString(identifier.hashCode() & 0x7FFFFFFF).substring(0, 8);
             logger.warn("MD5 algorithm not available, using hashCode fallback for identifier: {}", identifier);
         }
         

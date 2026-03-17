@@ -23,6 +23,7 @@ import org.slf4j.LoggerFactory;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.concurrent.Semaphore;
+import java.util.concurrent.ThreadLocalRandom;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -53,12 +54,19 @@ public class BackpressureManager {
     private final AtomicLong failedOperations = new AtomicLong(0);
     private volatile double currentSuccessRate = 1.0;
     private volatile int adaptiveLimit;
+    private final Object decayLock = new Object(); // H2: guard for atomic counter decay
+    private final boolean debugFailures; // M2: configurable failure log level
     
     public BackpressureManager(int maxConcurrentOperations, Duration timeout) {
+        this(maxConcurrentOperations, timeout, false);
+    }
+
+    public BackpressureManager(int maxConcurrentOperations, Duration timeout, boolean debugFailures) {
         this.maxConcurrentOperations = maxConcurrentOperations;
         this.timeout = timeout;
         this.permits = new Semaphore(maxConcurrentOperations, true);
         this.adaptiveLimit = maxConcurrentOperations;
+        this.debugFailures = debugFailures;
         
         logger.info("Backpressure manager initialized with max concurrent operations: {}, timeout: {}", 
             maxConcurrentOperations, timeout);
@@ -104,9 +112,9 @@ public class BackpressureManager {
                 failedOperations.incrementAndGet();
                 updateSuccessRate();
 
-                // Check if this is a test context to provide appropriate logging
-                if (isTestContext()) {
-                    logger.debug("Operation '{}' failed during testing: {}", operationName, e.getMessage());
+                // M2: Use constructor-configured log level instead of stack-trace walking
+                if (debugFailures) {
+                    logger.debug("Operation '{}' failed: {}", operationName, e.getMessage());
                 } else {
                     logger.warn("Operation '{}' failed: {}", operationName, e.getMessage());
                 }
@@ -139,7 +147,8 @@ public class BackpressureManager {
         
         // If success rate is low and load is high, start rejecting requests
         if (currentSuccessRate < 0.5 && currentLoad > 0.8) {
-            return Math.random() < (1.0 - currentSuccessRate) * currentLoad;
+            // H3: Use ThreadLocalRandom instead of Math.random() for thread safety and testability
+            return ThreadLocalRandom.current().nextDouble() < (1.0 - currentSuccessRate) * currentLoad;
         }
         
         return false;
@@ -156,10 +165,16 @@ public class BackpressureManager {
             // Adapt the effective limit based on success rate
             adaptiveLimit = (int) (maxConcurrentOperations * Math.max(0.1, currentSuccessRate));
             
-            // Reset counters periodically to adapt to changing conditions
+            // H2: Atomic counter decay under lock to prevent transient inconsistency
             if (total > 1000) {
-                successfulOperations.set(successful / 2);
-                failedOperations.set(failed / 2);
+                synchronized (decayLock) {
+                    long s = successfulOperations.get();
+                    long f = failedOperations.get();
+                    if (s + f > 1000) {
+                        successfulOperations.set(s / 2);
+                        failedOperations.set(f / 2);
+                    }
+                }
             }
         }
     }
@@ -198,24 +213,6 @@ public class BackpressureManager {
         logger.info("Backpressure metrics reset");
     }
     
-    /**
-     * Checks if we're running in a test context to adjust logging levels.
-     */
-    private boolean isTestContext() {
-        // Check for common test frameworks in the stack trace
-        StackTraceElement[] stackTrace = Thread.currentThread().getStackTrace();
-        for (StackTraceElement element : stackTrace) {
-            String className = element.getClassName();
-            if (className.contains("junit") ||
-                className.contains("Test") ||
-                className.contains("org.junit") ||
-                className.contains("BackpressureManagerTest")) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     /**
      * Adjusts the maximum concurrent operations limit.
      */

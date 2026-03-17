@@ -145,8 +145,23 @@ public class SqlTemplateProcessor {
     private String processTemplate(String template, Map<String, String> parameters) {
         String result = template;
         for (Map.Entry<String, String> entry : parameters.entrySet()) {
+            validateParameterValue(entry.getKey(), entry.getValue());
             result = result.replace("{" + entry.getKey() + "}", entry.getValue());
         }
         return result;
+    }
+
+    /**
+     * Defensive validation for template parameter values that appear in SQL identifier positions.
+     * Rejects values containing SQL injection markers. (H1 remediation)
+     */
+    private void validateParameterValue(String key, String value) {
+        if (value == null) {
+            return;
+        }
+        if (value.contains("'") || value.contains(";") || value.contains("--") || value.contains("/*")) {
+            throw new IllegalArgumentException(
+                "Template parameter '" + key + "' contains disallowed SQL characters: " + value);
+        }
     }
 }

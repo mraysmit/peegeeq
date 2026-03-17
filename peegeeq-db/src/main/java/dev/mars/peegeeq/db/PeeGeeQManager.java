@@ -53,6 +53,7 @@ import io.vertx.core.json.JsonObject;
 import io.vertx.sqlclient.Pool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -143,10 +144,10 @@ public class PeeGeeQManager implements AutoCloseable {
     private PeeGeeQManager(PeeGeeQConfiguration configuration, MeterRegistry meterRegistry, Vertx vertx, boolean meterRegistryOwnedByManager) {
         // Initialize system-level trace context for main thread logs (startup sequence)
         if (TraceContextUtil.captureTraceContext() == null) {
-            // Generate a persistent system startup trace ID
+            // Set MDC keys directly — no scope to leak (C2 remediation)
             TraceCtx startupTrace = TraceContextUtil.parseOrCreate(null);
-            TraceContextUtil.mdcScope(startupTrace);
-            // Note: We intentionally don't close this scope so it persists for the main thread
+            MDC.put(TraceContextUtil.MDC_TRACE_ID, startupTrace.traceId());
+            MDC.put(TraceContextUtil.MDC_SPAN_ID, startupTrace.spanId());
         }
 
         this.configuration = configuration;
@@ -453,19 +454,8 @@ public class PeeGeeQManager implements AutoCloseable {
                 return chain;
             })
             .compose(v -> {
-                // 3. Cancel all background tasks (safety check)
-                if (metricsTimerId != 0) {
-                    vertx.cancelTimer(metricsTimerId);
-                    metricsTimerId = 0;
-                }
-                if (dlqTimerId != 0) {
-                    vertx.cancelTimer(dlqTimerId);
-                    dlqTimerId = 0;
-                }
-                if (recoveryTimerId != 0) {
-                    vertx.cancelTimer(recoveryTimerId);
-                    recoveryTimerId = 0;
-                }
+                // 3. Timer cancellation already handled by stopReactive()->stopBackgroundTasks()
+                //    No duplicate cancellation needed here (H4 remediation)
 
                 // 4. Close worker executor (finish pending tasks)
                 return workerExecutor.close()

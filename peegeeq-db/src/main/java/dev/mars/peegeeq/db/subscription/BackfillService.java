@@ -411,6 +411,15 @@ public class BackfillService {
         );
     }
 
+    /**
+     * Counts messages available for backfill starting from a given message ID.
+     *
+     * <p><strong>Note (M1 remediation):</strong> This count runs in its own connection, outside the
+     * advisory lock transaction from {@code acquireBackfillLock}. The actual message count may
+     * change between the lock release and this count. The value is used for progress reporting
+     * only ({@code backfill_total_messages}) and does not affect correctness — individual batch
+     * processing is idempotent and processes whatever messages exist at execution time.</p>
+     */
     private Future<Long> countMessagesToBackfill(String topic, long fromMessageId, long maxMessages, BackfillScope messageScope) {
         if (fromMessageId < 0) {
             return Future.failedFuture(new IllegalArgumentException("fromMessageId cannot be negative"));

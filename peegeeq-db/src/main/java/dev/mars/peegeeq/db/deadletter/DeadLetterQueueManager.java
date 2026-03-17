@@ -383,10 +383,10 @@ public class DeadLetterQueueManager implements DeadLetterService {
                         headers = objectMapper.readValue(headersJson, new TypeReference<Map<String, String>>() {});
                     }
                 } catch (Exception jsonException) {
-                    // If JSON deserialization fails, log the error and continue with null headers
-                    logger.warn("Failed to deserialize headers JSON '{}': {}. Using null headers.",
-                        headersObj, jsonException.getMessage());
-                    headers = null;
+                    // If JSON deserialization fails, store raw JSON as single-entry fallback map
+                    logger.warn("Failed to deserialize headers for dead letter message: {}",
+                        jsonException.getMessage());
+                    headers = Map.of("_raw_headers", headersObj.toString());
                 }
             }
 
