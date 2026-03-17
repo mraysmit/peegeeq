@@ -388,12 +388,12 @@ class AppendBatchIntegrationTest {
             );
 
         // Then
-        assertEquals(eventType, batchData.eventType);
-        assertEquals(payload, batchData.payload);
-        assertEquals(validTime, batchData.validTime);
-        assertEquals(headers, batchData.headers);
-        assertEquals(correlationId, batchData.correlationId);
-        assertEquals(aggregateId, batchData.aggregateId);
+        assertEquals(eventType, batchData.eventType());
+        assertEquals(payload, batchData.payload());
+        assertEquals(validTime, batchData.validTime());
+        assertEquals(headers, batchData.headers());
+        assertEquals(correlationId, batchData.correlationId());
+        assertEquals(aggregateId, batchData.aggregateId());
     }
 
     @Test
@@ -411,9 +411,9 @@ class AppendBatchIntegrationTest {
             );
 
         // Then
-        assertNull(batchData.headers);
-        assertNull(batchData.correlationId);
-        assertNull(batchData.aggregateId);
+        assertNull(batchData.headers());
+        assertNull(batchData.correlationId());
+        assertNull(batchData.aggregateId());
     }
 }
 
