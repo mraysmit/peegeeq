@@ -392,7 +392,7 @@ public class PeeGeeQManager implements AutoCloseable {
      * Gets system status information reactively.
      */
     public Future<SystemStatus> getSystemStatusReactive() {
-        return Future.fromCompletionStage(deadLetterQueueManager.getStatistics())
+        return deadLetterQueueManager.getStatistics()
             .map(deadLetterStatsInfo -> {
                 dev.mars.peegeeq.db.deadletter.DeadLetterQueueStats deadLetterStats =
                     new dev.mars.peegeeq.db.deadletter.DeadLetterQueueStats(

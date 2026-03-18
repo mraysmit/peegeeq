@@ -18,6 +18,7 @@ package dev.mars.peegeeq.api.messaging;
 
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import io.vertx.core.Future;
 
 /**
  * Interface for browsing messages in a queue without consuming them.
@@ -37,18 +38,43 @@ public interface QueueBrowser<T> extends AutoCloseable {
      * 
      * @param limit Maximum number of messages to return
      * @param offset Number of messages to skip from the beginning
-     * @return A CompletableFuture containing the list of messages
+     * @return A Future containing the list of messages
      */
-    CompletableFuture<List<Message<T>>> browse(int limit, int offset);
+    Future<List<Message<T>>> browse(int limit, int offset);
     
     /**
      * Browse messages in the queue without consuming them, starting from the beginning.
      * 
      * @param limit Maximum number of messages to return
+     * @return A Future containing the list of messages
+     */
+    default Future<List<Message<T>>> browse(int limit) {
+        return browse(limit, 0);
+    }
+
+    // ========================================
+    // CompletableFuture Bridge Methods
+    // ========================================
+
+    /**
+     * CompletableFuture bridge for browse(int limit, int offset).
+     *
+     * @param limit Maximum number of messages to return
+     * @param offset Number of messages to skip from the beginning
      * @return A CompletableFuture containing the list of messages
      */
-    default CompletableFuture<List<Message<T>>> browse(int limit) {
-        return browse(limit, 0);
+    default CompletableFuture<List<Message<T>>> browseAsync(int limit, int offset) {
+        return browse(limit, offset).toCompletionStage().toCompletableFuture();
+    }
+
+    /**
+     * CompletableFuture bridge for browse(int limit).
+     *
+     * @param limit Maximum number of messages to return
+     * @return A CompletableFuture containing the list of messages
+     */
+    default CompletableFuture<List<Message<T>>> browseAsync(int limit) {
+        return browse(limit).toCompletionStage().toCompletableFuture();
     }
     
     /**

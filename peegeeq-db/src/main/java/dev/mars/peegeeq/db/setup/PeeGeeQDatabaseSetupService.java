@@ -170,7 +170,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
     }
 
     @Override
-    public CompletableFuture<DatabaseSetupResult> createCompleteSetup(DatabaseSetupRequest request) {
+    public Future<DatabaseSetupResult> createCompleteSetup(DatabaseSetupRequest request) {
         // Capture context for tracing restoration in later steps
         Context currentCtx = Vertx.currentContext();
         final TraceCtx capturedTrace = (currentCtx != null) ? (TraceCtx) currentCtx.get(TraceContextUtil.CONTEXT_TRACE_KEY) : null;
@@ -179,7 +179,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
         String schema = request.getDatabaseConfig().getSchema();
         if (schema == null || schema.isBlank()) {
             logger.error("Schema parameter is required and cannot be null or blank");
-            return CompletableFuture.failedFuture(
+            return Future.failedFuture(
                 new IllegalArgumentException("Schema parameter is required and cannot be null or blank"));
         }
 
@@ -189,7 +189,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
             logger.info("Schema validation passed: {}", schema);
         } catch (IllegalArgumentException e) {
             logger.error("Schema validation failed: {}", e.getMessage());
-            return CompletableFuture.failedFuture(e);
+            return Future.failedFuture(e);
         }
 
         // Offload the entire setup sequence involving blocking DB creation to a worker thread
@@ -203,34 +203,33 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
                 logger.error("STEP 1 FAILED for setupId={}", request.getSetupId(), e);
                 throw new RuntimeException(e);
             }
-        }).toCompletionStage().toCompletableFuture()
-                .exceptionally(ex -> {
+        })
+                .recover(ex -> {
                     logger.error("EXCEPTION in supplyAsync for setupId={}", request.getSetupId(), ex);
-                    throw new RuntimeException("Database creation failed", ex);
+                    return Future.failedFuture(new RuntimeException("Database creation failed", ex));
                 })
-                .thenCompose(req -> {
+                .compose(req -> {
                     // 2. Apply schema migrations asynchronously
                     return applySchemaTemplatesAsync(req);
                 })
-                .thenCompose(req -> {
+                .compose(req -> {
                     // 3. Create PeeGeeQ configuration and manager (use setupId as profile)
                     PeeGeeQConfiguration config = createConfiguration(req.getDatabaseConfig(), req.getSetupId());
                     PeeGeeQManager manager = new PeeGeeQManager(config);
                     // Start reactively - DO NOT block with .get()
-                    return manager.startReactive().toCompletionStage().thenApply(v -> {
+                    return manager.startReactive().map(v -> {
                         // Store manager for later steps
                         activeManagers.put(req.getSetupId(), manager);
                         return new Object[] { req, manager };
                     });
                 })
-                .thenCompose(arr -> {
+                .compose(arr -> {
                     DatabaseSetupRequest req = (DatabaseSetupRequest) arr[0];
-                    PeeGeeQManager manager = (PeeGeeQManager) arr[1];
                     // Validate that all required tables exist in the schema
                     return validateDatabaseInfrastructure(req.getDatabaseConfig(), capturedTrace)
-                            .thenApply(v -> arr);
+                            .map(v -> arr);
                 })
-                .thenApply(arr -> {
+                .map(arr -> {
                     // Restore MDC for this block so factory creation logs have traceId
                     try (var ignored = (capturedTrace != null) ? TraceContextUtil.mdcScope(capturedTrace) : null) {
                         logger.info("STEP 4: Create queues and event stores");
@@ -262,43 +261,29 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
                         return result;
                     }
                 })
-                .handle((result, ex) -> {
-                    if (ex != null) {
-                        // Unwrap CompletionException
-                        Throwable cause = ex instanceof CompletionException ? ex.getCause() : ex;
-
-                        if (isDatabaseCreationConflict(cause)) {
-                            logger.debug(
-                                    "EXPECTED: Database creation conflict for setup: {} (concurrent test scenario)",
-                                    request.getSetupId());
-                            CompletableFuture<DatabaseSetupResult> failed = new CompletableFuture<>();
-                            failed.completeExceptionally(new DatabaseCreationConflictException(
-                                    "Database creation conflict: " + request.getSetupId()));
-                            return failed;
-                        }
-
-                        logger.error("Failed to create database setup: {} - {}", request.getSetupId(), cause.getMessage());
-
-                        // Clean up any partially created resources asynchronously
-                        return destroySetup(request.getSetupId())
-                                .thenCompose(ignore -> {
-                                    return dropTestDatabase(request.getDatabaseConfig());
-                                })
-                                .handle((cleanupRes, cleanupEx) -> {
-                                    if (cleanupEx != null) {
-                                        logger.error("Failed to clean up after setup failure: {}", request.getSetupId(),
-                                                cleanupEx);
-                                    }
-                                    CompletableFuture<DatabaseSetupResult> failed = new CompletableFuture<>();
-                                    failed.completeExceptionally(new RuntimeException(
-                                            "Failed to create database setup: " + request.getSetupId(), cause));
-                                    return failed;
-                                })
-                                .thenCompose(f -> f);
+                .recover(ex -> {
+                    if (isDatabaseCreationConflict(ex)) {
+                        logger.debug(
+                                "EXPECTED: Database creation conflict for setup: {} (concurrent test scenario)",
+                                request.getSetupId());
+                        return Future.failedFuture(new DatabaseCreationConflictException(
+                                "Database creation conflict: " + request.getSetupId()));
                     }
-                    return CompletableFuture.completedFuture(result);
-                })
-                .thenCompose(f -> f);
+
+                    logger.error("Failed to create database setup: {} - {}", request.getSetupId(), ex.getMessage());
+
+                    // Clean up any partially created resources asynchronously
+                    return destroySetup(request.getSetupId())
+                            .compose(ignore -> dropTestDatabase(request.getDatabaseConfig()))
+                            .recover(cleanupEx -> {
+                                logger.error("Failed to clean up after setup failure: {}", request.getSetupId(),
+                                        cleanupEx);
+                                return Future.succeededFuture();
+                            })
+                            .compose(v -> Future.failedFuture(
+                                    new RuntimeException(
+                                            "Failed to create database setup: " + request.getSetupId(), ex)));
+                });
     }
 
     private void createDatabaseFromTemplate(DatabaseConfig dbConfig) throws Exception {
@@ -346,11 +331,11 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
 
     /**
      * Apply schema templates asynchronously without blocking.
-     * Returns CompletableFuture for proper async chaining.
+     * Returns Future for proper async chaining.
      *
      * NOTE: Schema validation is performed in createCompleteSetup() before this method is called.
      */
-    private CompletableFuture<DatabaseSetupRequest> applySchemaTemplatesAsync(DatabaseSetupRequest request) {
+    private Future<DatabaseSetupRequest> applySchemaTemplatesAsync(DatabaseSetupRequest request) {
         // Use environment variables for admin connection if available, otherwise use request values
         String adminHost = getEnvOrDefault("PEEGEEQ_DATABASE_HOST", request.getDatabaseConfig().getHost());
         int adminPort = getEnvOrDefault("PEEGEEQ_DATABASE_PORT", String.valueOf(request.getDatabaseConfig().getPort()), request.getDatabaseConfig().getPort());
@@ -496,18 +481,15 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
                     .onSuccess(v -> logger.debug("All schema templates applied successfully"))
                     .onFailure(err -> logger.error("Schema template application failed: {}", err.getMessage()));
         })
-                .toCompletionStage()
-                .toCompletableFuture()
-                .whenComplete((result, error) -> {
-                    // Always close the pool after async operations complete (or fail)
+                .onComplete(ar -> {
                     tempPool.close();
-                    if (error != null) {
-                        logger.error("applySchemaTemplatesAsync failed", error);
+                    if (ar.failed()) {
+                        logger.error("applySchemaTemplatesAsync failed", ar.cause());
                     } else {
                         logger.debug("applySchemaTemplatesAsync completed");
                     }
                 })
-                .thenApply(v -> request); // Return the request for chaining
+                .map(v -> request);
     }
 
     private Future<Void> verifyTemplatesExist(SqlConnection connection, String schema) {
@@ -552,7 +534,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
 
 
     @Override
-    public CompletableFuture<Void> destroySetup(String setupId) {
+    public Future<Void> destroySetup(String setupId) {
         try {
             DatabaseSetupResult setup = activeSetups.remove(setupId);
             DatabaseConfig dbConfig = setupDatabaseConfigs.remove(setupId);
@@ -560,11 +542,11 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
 
             if (setup == null && manager == null && dbConfig == null) {
                 logger.info("Setup {} not found or already destroyed", setupId);
-                return CompletableFuture.completedFuture(null); // Don't throw error for non-existent setup
+                return Future.succeededFuture();
             }
 
-            final CompletableFuture<Void> closeResourcesFuture = (setup != null)
-                    ? CompletableFuture.runAsync(() -> {
+            Future<Void> closeResourcesFuture = (setup != null)
+                    ? vertx.<Void>executeBlocking(() -> {
                         if (setup.getQueueFactories() != null) {
                             setup.getQueueFactories().values().forEach(factory -> {
                                 try {
@@ -584,46 +566,40 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
                                 }
                             });
                         }
+                        return null;
                     })
-                    : CompletableFuture.completedFuture(null);
+                    : Future.succeededFuture();
 
-            CompletableFuture<Void> shutdownFuture = CompletableFuture.completedFuture(null);
+            Future<Void> shutdownFuture;
 
             // Close setup-owned resources before shutting down the manager so resource
             // cleanup can still use its Vert.x and database lifecycle safely.
             if (manager != null) {
-                shutdownFuture = closeResourcesFuture.thenCompose(v -> {
+                shutdownFuture = closeResourcesFuture.compose(v -> {
                     logger.info("Closing PeeGeeQManager for setup: {}", setupId);
                     return manager.closeReactive()
-                            .toCompletionStage()
-                            .toCompletableFuture()
-                            .whenComplete((ignored, error) -> {
-                                if (error != null) {
-                                    logger.error("Failed to close PeeGeeQManager for setup: {}", setupId, error);
-                                } else {
-                                    logger.info("PeeGeeQManager closed successfully for setup: {}", setupId);
-                                }
-                            })
-                            .exceptionally(error -> null);
+                            .onSuccess(ignored -> logger.info("PeeGeeQManager closed successfully for setup: {}", setupId))
+                            .onFailure(error -> logger.error("Failed to close PeeGeeQManager for setup: {}", setupId, error))
+                            .recover(error -> Future.succeededFuture());
                 });
             } else {
                 shutdownFuture = closeResourcesFuture;
             }
 
             return shutdownFuture
-                    .thenCompose(v -> {
+                    .compose(v -> {
                         // Drop the database if it's a test setup
                         if (dbConfig != null && setupId.contains("test")) {
-                            return dropTestDatabase(dbConfig).thenApply(ignored -> null);
+                            return dropTestDatabase(dbConfig);
                         }
-                        return CompletableFuture.completedFuture(null);
+                        return Future.succeededFuture();
                     });
         } catch (Exception e) {
-            return CompletableFuture.failedFuture(new RuntimeException("Failed to destroy setup: " + setupId, e));
+            return Future.failedFuture(new RuntimeException("Failed to destroy setup: " + setupId, e));
         }
     }
 
-    private CompletableFuture<Void> dropTestDatabase(DatabaseConfig dbConfig) {
+    private Future<Void> dropTestDatabase(DatabaseConfig dbConfig) {
         try {
             // Use environment variables for admin connection if available, otherwise use request values
             String adminHost = getEnvOrDefault("PEEGEEQ_DATABASE_HOST", dbConfig.getHost());
@@ -642,42 +618,40 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
                         if (error.getMessage().contains("is being accessed by other users")) {
                             logger.warn("Database {} is still being accessed by other users, will retry cleanup later",
                                     dbConfig.getDatabaseName());
-                            // In a production system, you might want to schedule a retry
                         } else {
                             logger.warn("Failed to drop test database: {} - {}", dbConfig.getDatabaseName(),
                                     error.getMessage());
                         }
                     })
-                    .map((Void) null)
-                    .toCompletionStage().toCompletableFuture();
+                    .mapEmpty();
         } catch (Exception e) {
             logger.warn("Failed to drop test database: {}", dbConfig.getDatabaseName(), e);
-            return CompletableFuture.failedFuture(e);
+            return Future.failedFuture(e);
         }
     }
 
     @Override
-    public CompletableFuture<DatabaseSetupStatus> getSetupStatus(String setupId) {
+    public Future<DatabaseSetupStatus> getSetupStatus(String setupId) {
         DatabaseSetupResult setup = activeSetups.get(setupId);
         if (setup == null) {
             logger.debug("Setup not found: {} (expected for test scenarios)", setupId);
-            return CompletableFuture.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
+            return Future.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
         }
-        return CompletableFuture.completedFuture(setup.getStatus());
+        return Future.succeededFuture(setup.getStatus());
     }
 
     @Override
-    public CompletableFuture<DatabaseSetupResult> getSetupResult(String setupId) {
+    public Future<DatabaseSetupResult> getSetupResult(String setupId) {
         DatabaseSetupResult setup = activeSetups.get(setupId);
         if (setup == null) {
             logger.debug("Setup not found: {} (expected for test scenarios)", setupId);
-            return CompletableFuture.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
+            return Future.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
         }
-        return CompletableFuture.completedFuture(setup);
+        return Future.succeededFuture(setup);
     }
 
     @Override
-    public CompletableFuture<Void> addQueue(String setupId, QueueConfig queueConfig) {
+    public Future<Void> addQueue(String setupId, QueueConfig queueConfig) {
         // Validate queue name using PostgreSqlIdentifierValidator
         String queueName = queueConfig.getQueueName();
         try {
@@ -685,7 +659,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
             logger.debug("Queue name validation passed: {}", queueName);
         } catch (IllegalArgumentException e) {
             logger.error("Queue name validation failed: {}", e.getMessage());
-            return CompletableFuture.failedFuture(e);
+            return Future.failedFuture(e);
         }
 
         DatabaseSetupResult setup = activeSetups.get(setupId);
@@ -694,7 +668,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
 
         if (setup == null || dbConfig == null || manager == null) {
             logger.debug("Setup not found: {} (expected for test scenarios)", setupId);
-            return CompletableFuture.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
+            return Future.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
         }
 
         // Create queue table using reactive SQL template with stored database config
@@ -718,8 +692,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
             return templateProcessor.applyTemplateReactive(connection, "queue", params);
         })
                 .onComplete(ar -> tempPool.close())
-                .toCompletionStage().toCompletableFuture()
-                .thenApply(result -> {
+                .<Void>map(result -> {
                     // After table is created, create and register the QueueFactory
                     logger.info("Creating queue factory for queue: {} in setup: {}",
                                queueConfig.getQueueName(), setupId);
@@ -749,7 +722,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
     }
 
     @Override
-    public CompletableFuture<Void> addEventStore(String setupId, EventStoreConfig eventStoreConfig) {
+    public Future<Void> addEventStore(String setupId, EventStoreConfig eventStoreConfig) {
         // Validate event store table name using PostgreSqlIdentifierValidator
         String tableName = eventStoreConfig.getTableName();
         try {
@@ -757,7 +730,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
             logger.debug("Event store table name validation passed: {}", tableName);
         } catch (IllegalArgumentException e) {
             logger.error("Event store table name validation failed: {}", e.getMessage());
-            return CompletableFuture.failedFuture(e);
+            return Future.failedFuture(e);
         }
 
         DatabaseSetupResult setup = activeSetups.get(setupId);
@@ -766,7 +739,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
 
         if (setup == null || dbConfig == null || manager == null) {
             logger.debug("Setup not found: {} (expected for test scenarios)", setupId);
-            return CompletableFuture.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
+            return Future.failedFuture(new SetupNotFoundException("Setup not found: " + setupId));
         }
 
         // Create event store table using reactive SQL template with stored database
@@ -792,8 +765,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
             return templateProcessor.applyTemplateReactive(connection, "eventstore", params);
         })
                 .onComplete(ar -> tempPool.close())
-                .toCompletionStage().toCompletableFuture()
-                .thenApply(result -> {
+                .<Void>map(result -> {
                     // After table is created, create and register the EventStore
                     logger.info("Creating event store for: {} in setup: {}",
                             eventStoreConfig.getEventStoreName(), setupId);
@@ -814,12 +786,11 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
                             }
                         }
                     }
-                    return (Void) null;
+                    return null;
                 })
-                .exceptionally(error -> {
-                    throw new RuntimeException("Failed to add event store '" + eventStoreConfig.getEventStoreName()
-                            + "' to setup '" + setupId + "'", error);
-                });
+                .recover(error -> Future.failedFuture(
+                    new RuntimeException("Failed to add event store '" + eventStoreConfig.getEventStoreName()
+                            + "' to setup '" + setupId + "'", error)));
     }
 
     private PeeGeeQConfiguration createConfiguration(DatabaseConfig dbConfig, String setupId) {
@@ -1003,8 +974,8 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
     }
 
     @Override
-    public CompletableFuture<Set<String>> getAllActiveSetupIds() {
-        return CompletableFuture.completedFuture(activeSetups.keySet());
+    public Future<Set<String>> getAllActiveSetupIds() {
+        return Future.succeededFuture(activeSetups.keySet());
     }
 
     // ========== ServiceProvider implementation ==========
@@ -1044,9 +1015,9 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
      * This method connects directly to the database and checks for required tables.
      *
      * @param dbConfig The database configuration
-     * @return CompletableFuture that completes when validation is done
+     * @return Future that completes when validation is done
      */
-    private CompletableFuture<Void> validateDatabaseInfrastructure(DatabaseConfig dbConfig, TraceCtx traceCtx) {
+    private Future<Void> validateDatabaseInfrastructure(DatabaseConfig dbConfig, TraceCtx traceCtx) {
         try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
             logger.info("Validating database infrastructure for database={}, schema={}",
                     dbConfig.getDatabaseName(), dbConfig.getSchema());
@@ -1071,9 +1042,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
                 .using(vertx)
                 .build();
 
-        CompletableFuture<Void> validationFuture = new CompletableFuture<>();
-
-        validationPool.withConnection(conn -> {
+        return validationPool.withConnection(conn -> {
             // Ensure trace context is propagated to the validation connection block
             try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
                 // Check what tables exist in the schema
@@ -1127,16 +1096,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
                         });
             }
         })
-        .onComplete(ar -> {
-            validationPool.close();
-            if (ar.succeeded()) {
-                validationFuture.complete(null);
-            } else {
-                validationFuture.completeExceptionally(ar.cause());
-            }
-        });
-
-        return validationFuture;
+        .onComplete(ar -> validationPool.close());
     }
 
     @Override
@@ -1157,33 +1117,29 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
      * 2. Close setup worker executor
      * 3. Close Vertx only if this service created it
      */
-    public CompletableFuture<Void> closeAsync() {
+    public Future<Void> closeAsync() {
         if (!closed.compareAndSet(false, true)) {
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         }
 
         Set<String> setupIds = new HashSet<>(activeSetups.keySet());
-        List<CompletableFuture<Void>> destroyFutures = setupIds.stream()
+        List<Future<Void>> destroyFutures = setupIds.stream()
                 .map(setupId -> destroySetup(setupId)
-                        .exceptionally(error -> {
+                        .recover(error -> {
                             logger.warn("Failed to destroy setup '{}' during service close: {}", setupId,
                                     error.getMessage());
-                            return null;
+                            return Future.succeededFuture();
                         }))
                 .toList();
 
-        CompletableFuture<Void> destroyAll = CompletableFuture
-                .allOf(destroyFutures.toArray(new CompletableFuture[0]));
-
-        return destroyAll.thenCompose(v ->
-                setupWorkerExecutor.close()
-                        .toCompletionStage()
-                        .toCompletableFuture())
-                .thenCompose(v -> {
+        return Future.all(destroyFutures)
+                .mapEmpty()
+                .compose(v -> setupWorkerExecutor.close())
+                .compose(v -> {
                     if (ownsVertx) {
-                        return vertx.close().toCompletionStage().toCompletableFuture();
+                        return vertx.close();
                     }
-                    return CompletableFuture.completedFuture(null);
+                    return Future.succeededFuture();
                 });
     }
 
@@ -1195,7 +1151,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
         }
 
         try {
-            closeAsync().get(30, TimeUnit.SECONDS);
+            closeAsync().toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
         } catch (Exception e) {
             throw new RuntimeException("Failed to close PeeGeeQDatabaseSetupService", e);
         }

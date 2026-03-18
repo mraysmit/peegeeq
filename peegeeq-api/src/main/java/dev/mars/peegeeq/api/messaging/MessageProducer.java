@@ -42,18 +42,18 @@ public interface MessageProducer<T> extends AutoCloseable {
      * Sends a message with the given payload.
      * 
      * @param payload The message payload
-     * @return A CompletableFuture that completes when the message is sent
+     * @return A Future that completes when the message is sent
      */
-    CompletableFuture<Void> send(T payload);
+    Future<Void> send(T payload);
     
     /**
      * Sends a message with the given payload and headers.
      * 
      * @param payload The message payload
      * @param headers The message headers
-     * @return A CompletableFuture that completes when the message is sent
+     * @return A Future that completes when the message is sent
      */
-    CompletableFuture<Void> send(T payload, Map<String, String> headers);
+    Future<Void> send(T payload, Map<String, String> headers);
     
     /**
      * Sends a message with the given payload, headers, and correlation ID.
@@ -61,9 +61,9 @@ public interface MessageProducer<T> extends AutoCloseable {
      * @param payload The message payload
      * @param headers The message headers
      * @param correlationId The correlation ID for message tracking
-     * @return A CompletableFuture that completes when the message is sent
+     * @return A Future that completes when the message is sent
      */
-    CompletableFuture<Void> send(T payload, Map<String, String> headers, String correlationId);
+    Future<Void> send(T payload, Map<String, String> headers, String correlationId);
     
     /**
      * Sends a message with the given payload, headers, correlation ID, and message group.
@@ -72,62 +72,58 @@ public interface MessageProducer<T> extends AutoCloseable {
      * @param headers The message headers
      * @param correlationId The correlation ID for message tracking
      * @param messageGroup The message group for ordering
-     * @return A CompletableFuture that completes when the message is sent
+     * @return A Future that completes when the message is sent
      */
-    CompletableFuture<Void> send(T payload, Map<String, String> headers, String correlationId, String messageGroup);
+    Future<Void> send(T payload, Map<String, String> headers, String correlationId, String messageGroup);
 
     // ========================================
-    // Reactive Convenience Methods (Vert.x 5.x)
+    // CompletableFuture Bridge Methods
     // ========================================
 
     /**
-     * Reactive version of send(T payload) using Vert.x Future.
-     * This is a convenience method that converts the CompletableFuture result to a Vert.x Future.
+     * CompletableFuture bridge for send(T payload).
      *
      * @param payload The message payload
-     * @return A Vert.x Future that completes when the message is sent
+     * @return A CompletableFuture that completes when the message is sent
      */
-    default Future<Void> sendReactive(T payload) {
-        return Future.fromCompletionStage(send(payload));
+    default CompletableFuture<Void> sendAsync(T payload) {
+        return send(payload).toCompletionStage().toCompletableFuture();
     }
 
     /**
-     * Reactive version of send(T payload, Map<String, String> headers) using Vert.x Future.
-     * This is a convenience method that converts the CompletableFuture result to a Vert.x Future.
+     * CompletableFuture bridge for send(T payload, Map headers).
      *
      * @param payload The message payload
      * @param headers The message headers
-     * @return A Vert.x Future that completes when the message is sent
+     * @return A CompletableFuture that completes when the message is sent
      */
-    default Future<Void> sendReactive(T payload, Map<String, String> headers) {
-        return Future.fromCompletionStage(send(payload, headers));
+    default CompletableFuture<Void> sendAsync(T payload, Map<String, String> headers) {
+        return send(payload, headers).toCompletionStage().toCompletableFuture();
     }
 
     /**
-     * Reactive version of send(T payload, Map<String, String> headers, String correlationId) using Vert.x Future.
-     * This is a convenience method that converts the CompletableFuture result to a Vert.x Future.
+     * CompletableFuture bridge for send(T payload, Map headers, String correlationId).
      *
      * @param payload The message payload
      * @param headers The message headers
      * @param correlationId The correlation ID for message tracking
-     * @return A Vert.x Future that completes when the message is sent
+     * @return A CompletableFuture that completes when the message is sent
      */
-    default Future<Void> sendReactive(T payload, Map<String, String> headers, String correlationId) {
-        return Future.fromCompletionStage(send(payload, headers, correlationId));
+    default CompletableFuture<Void> sendAsync(T payload, Map<String, String> headers, String correlationId) {
+        return send(payload, headers, correlationId).toCompletionStage().toCompletableFuture();
     }
 
     /**
-     * Reactive version of send(T payload, Map<String, String> headers, String correlationId, String messageGroup) using Vert.x Future.
-     * This is a convenience method that converts the CompletableFuture result to a Vert.x Future.
+     * CompletableFuture bridge for send(T payload, Map headers, String correlationId, String messageGroup).
      *
      * @param payload The message payload
      * @param headers The message headers
      * @param correlationId The correlation ID for message tracking
      * @param messageGroup The message group for ordering
-     * @return A Vert.x Future that completes when the message is sent
+     * @return A CompletableFuture that completes when the message is sent
      */
-    default Future<Void> sendReactive(T payload, Map<String, String> headers, String correlationId, String messageGroup) {
-        return Future.fromCompletionStage(send(payload, headers, correlationId, messageGroup));
+    default CompletableFuture<Void> sendAsync(T payload, Map<String, String> headers, String correlationId, String messageGroup) {
+        return send(payload, headers, correlationId, messageGroup).toCompletionStage().toCompletableFuture();
     }
 
     /**

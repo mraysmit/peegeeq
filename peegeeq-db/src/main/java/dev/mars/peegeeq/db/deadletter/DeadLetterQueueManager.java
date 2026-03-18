@@ -479,51 +479,44 @@ public class DeadLetterQueueManager implements DeadLetterService {
     }
 
     @Override
-    public CompletableFuture<List<DeadLetterMessageInfo>> getDeadLetterMessages(String topic, int limit, int offset) {
+    public io.vertx.core.Future<List<DeadLetterMessageInfo>> getDeadLetterMessages(String topic, int limit, int offset) {
         validatePagination(limit, offset);
         return fetchDeadLetterMessagesByTopic(topic, limit, offset)
-            .map(list -> list.stream().map(this::toDeadLetterMessageInfo).toList())
-            .toCompletionStage().toCompletableFuture();
+            .map(list -> list.stream().map(this::toDeadLetterMessageInfo).toList());
     }
 
     @Override
-    public CompletableFuture<List<DeadLetterMessageInfo>> getAllDeadLetterMessages(int limit, int offset) {
+    public io.vertx.core.Future<List<DeadLetterMessageInfo>> getAllDeadLetterMessages(int limit, int offset) {
         validatePagination(limit, offset);
         return fetchAllDeadLetterMessages(limit, offset)
-            .map(list -> list.stream().map(this::toDeadLetterMessageInfo).toList())
-            .toCompletionStage().toCompletableFuture();
+            .map(list -> list.stream().map(this::toDeadLetterMessageInfo).toList());
     }
 
     @Override
-    public CompletableFuture<Optional<DeadLetterMessageInfo>> getDeadLetterMessage(long id) {
+    public io.vertx.core.Future<Optional<DeadLetterMessageInfo>> getDeadLetterMessage(long id) {
         return fetchDeadLetterMessage(id)
-            .map(opt -> opt.map(this::toDeadLetterMessageInfo))
-            .toCompletionStage().toCompletableFuture();
+            .map(opt -> opt.map(this::toDeadLetterMessageInfo));
     }
 
     @Override
-    public CompletableFuture<Boolean> reprocessDeadLetterMessage(long id, String reason) {
-        return reprocessDeadLetterMessageRecord(id, reason)
-            .toCompletionStage().toCompletableFuture();
+    public io.vertx.core.Future<Boolean> reprocessDeadLetterMessage(long id, String reason) {
+        return reprocessDeadLetterMessageRecord(id, reason);
     }
 
     @Override
-    public CompletableFuture<Boolean> deleteDeadLetterMessage(long id, String reason) {
-        return removeDeadLetterMessage(id, reason)
-            .toCompletionStage().toCompletableFuture();
+    public io.vertx.core.Future<Boolean> deleteDeadLetterMessage(long id, String reason) {
+        return removeDeadLetterMessage(id, reason);
     }
 
     @Override
-    public CompletableFuture<DeadLetterStatsInfo> getStatistics() {
+    public io.vertx.core.Future<DeadLetterStatsInfo> getStatistics() {
         return fetchStatistics()
-            .map(this::toDeadLetterStatsInfo)
-            .toCompletionStage().toCompletableFuture();
+            .map(this::toDeadLetterStatsInfo);
     }
 
     @Override
-    public CompletableFuture<Integer> cleanupOldMessages(int retentionDays) {
-        return purgeOldDeadLetterMessages(retentionDays)
-            .toCompletionStage().toCompletableFuture();
+    public io.vertx.core.Future<Integer> cleanupOldMessages(int retentionDays) {
+        return purgeOldDeadLetterMessages(retentionDays);
     }
 
     private void validateMoveToDeadLetterArgs(String originalTable, String topic, Instant originalCreatedAt,

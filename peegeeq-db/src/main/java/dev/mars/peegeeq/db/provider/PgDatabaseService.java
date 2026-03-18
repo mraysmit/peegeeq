@@ -28,8 +28,6 @@ import io.vertx.sqlclient.Pool;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.concurrent.CompletableFuture;
-
 /**
  * PostgreSQL implementation of DatabaseService.
  *
@@ -69,57 +67,45 @@ public class PgDatabaseService implements dev.mars.peegeeq.api.database.Database
     }
 
     @Override
-    public CompletableFuture<Void> initialize() {
+    public io.vertx.core.Future<Void> initialize() {
         try {
             logger.info("Initializing database service");
             logger.debug("DB-DEBUG: Database service initialization started");
             // The PeeGeeQManager handles initialization in its constructor
             logger.info("Database service initialized successfully");
             logger.debug("DB-DEBUG: Database service initialization completed");
-            return CompletableFuture.completedFuture(null);
+            return io.vertx.core.Future.succeededFuture();
         } catch (Exception e) {
             logger.error("Failed to initialize database service", e);
             logger.debug("DB-DEBUG: Database service initialization failed: {}", e.getMessage());
-            return CompletableFuture.failedFuture(new RuntimeException("Database service initialization failed", e));
+            return io.vertx.core.Future.failedFuture(new RuntimeException("Database service initialization failed", e));
         }
     }
 
     @Override
-    public CompletableFuture<Void> start() {
+    public io.vertx.core.Future<Void> start() {
         logger.info("Starting database service");
         logger.debug("DB-DEBUG: Database service start initiated");
-        // Delegate to reactive start to be safe on event-loop threads
         return manager.startReactive()
-            .toCompletionStage()
-            .toCompletableFuture()
-            .thenRun(() -> {
+            .onSuccess(v -> {
                 logger.info("Database service started successfully");
                 logger.debug("DB-DEBUG: Database service start completed");
             })
-            .exceptionally(e -> {
+            .onFailure(e -> {
                 logger.error("Failed to start database service", e);
                 logger.debug("DB-DEBUG: Database service start failed: {}", e.getMessage());
-                throw new RuntimeException("Database service start failed", e);
             });
     }
 
-    // Reactive override to avoid blocking when used from Vert.x code paths
-    public io.vertx.core.Future<Void> startReactive() {
-        return manager.startReactive();
-    }
-
     @Override
-    public CompletableFuture<Void> stop() {
+    public io.vertx.core.Future<Void> stop() {
         logger.info("Stopping database service");
         return manager.stopReactive()
-            .toCompletionStage()
-            .toCompletableFuture()
-            .thenRun(() -> {
+            .onSuccess(v -> {
                 logger.info("Database service stopped successfully");
             })
-            .exceptionally(e -> {
+            .onFailure(e -> {
                 logger.error("Failed to stop database service", e);
-                throw new RuntimeException("Database service stop failed", e);
             });
     }
 
@@ -154,19 +140,19 @@ public class PgDatabaseService implements dev.mars.peegeeq.api.database.Database
     }
 
     @Override
-    public CompletableFuture<Void> runMigrations() {
+    public io.vertx.core.Future<Void> runMigrations() {
         logger.warn("runMigrations() called but migrations have been removed - schema must be initialized in tests");
-        return CompletableFuture.completedFuture(null);
+        return io.vertx.core.Future.succeededFuture();
     }
 
     @Override
-    public CompletableFuture<Boolean> performHealthCheck() {
+    public io.vertx.core.Future<Boolean> performHealthCheck() {
         try {
             boolean healthy = manager.getHealthCheckManager().isHealthy();
-            return CompletableFuture.completedFuture(healthy);
+            return io.vertx.core.Future.succeededFuture(healthy);
         } catch (Exception e) {
             logger.warn("Health check failed", e);
-            return CompletableFuture.completedFuture(false);
+            return io.vertx.core.Future.succeededFuture(false);
         }
     }
 
