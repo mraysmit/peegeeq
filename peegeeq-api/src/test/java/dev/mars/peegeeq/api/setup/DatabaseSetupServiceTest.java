@@ -17,63 +17,63 @@ import static org.junit.jupiter.api.Assertions.*;
 class DatabaseSetupServiceTest {
 
     @Test
-    void testDefaultReactiveMethods() throws ExecutionException, InterruptedException {
+    void testDefaultAsyncBridgeMethods() throws ExecutionException, InterruptedException {
         DatabaseSetupService service = new DatabaseSetupService() {
-            @Override public CompletableFuture<DatabaseSetupResult> createCompleteSetup(DatabaseSetupRequest request) { return CompletableFuture.completedFuture(null); }
-            @Override public CompletableFuture<Void> destroySetup(String setupId) { return CompletableFuture.completedFuture(null); }
-            @Override public CompletableFuture<DatabaseSetupStatus> getSetupStatus(String setupId) { return CompletableFuture.completedFuture(DatabaseSetupStatus.ACTIVE); }
-            @Override public CompletableFuture<DatabaseSetupResult> getSetupResult(String setupId) { return CompletableFuture.completedFuture(null); }
-            @Override public CompletableFuture<Void> addQueue(String setupId, QueueConfig queueConfig) { return CompletableFuture.completedFuture(null); }
-            @Override public CompletableFuture<Void> addEventStore(String setupId, EventStoreConfig eventStoreConfig) { return CompletableFuture.completedFuture(null); }
-            @Override public CompletableFuture<Set<String>> getAllActiveSetupIds() { return CompletableFuture.completedFuture(Collections.emptySet()); }
+            @Override public Future<DatabaseSetupResult> createCompleteSetup(DatabaseSetupRequest request) { return Future.succeededFuture(null); }
+            @Override public Future<Void> destroySetup(String setupId) { return Future.succeededFuture(); }
+            @Override public Future<DatabaseSetupStatus> getSetupStatus(String setupId) { return Future.succeededFuture(DatabaseSetupStatus.ACTIVE); }
+            @Override public Future<DatabaseSetupResult> getSetupResult(String setupId) { return Future.succeededFuture(null); }
+            @Override public Future<Void> addQueue(String setupId, QueueConfig queueConfig) { return Future.succeededFuture(); }
+            @Override public Future<Void> addEventStore(String setupId, EventStoreConfig eventStoreConfig) { return Future.succeededFuture(); }
+            @Override public Future<Set<String>> getAllActiveSetupIds() { return Future.succeededFuture(Collections.emptySet()); }
             @Override public dev.mars.peegeeq.api.subscription.SubscriptionService getSubscriptionServiceForSetup(String setupId) { return null; }
             @Override public dev.mars.peegeeq.api.deadletter.DeadLetterService getDeadLetterServiceForSetup(String setupId) { return null; }
             @Override public dev.mars.peegeeq.api.health.HealthService getHealthServiceForSetup(String setupId) { return null; }
             @Override public dev.mars.peegeeq.api.QueueFactoryProvider getQueueFactoryProviderForSetup(String setupId) { return null; }
         };
 
-        // Test createCompleteSetupReactive
-        Future<DatabaseSetupResult> createFuture = service.createCompleteSetupReactive(null);
+        // Test primary Future-returning methods
+        Future<DatabaseSetupResult> createFuture = service.createCompleteSetup(null);
         assertNotNull(createFuture);
-        createFuture.toCompletionStage().toCompletableFuture().get();
         assertTrue(createFuture.succeeded());
 
-        // Test destroySetupReactive
-        Future<Void> destroyFuture = service.destroySetupReactive("id");
+        Future<Void> destroyFuture = service.destroySetup("id");
         assertNotNull(destroyFuture);
-        destroyFuture.toCompletionStage().toCompletableFuture().get();
         assertTrue(destroyFuture.succeeded());
 
-        // Test getSetupStatusReactive
-        Future<DatabaseSetupStatus> statusFuture = service.getSetupStatusReactive("id");
+        Future<DatabaseSetupStatus> statusFuture = service.getSetupStatus("id");
         assertNotNull(statusFuture);
-        assertEquals(DatabaseSetupStatus.ACTIVE, statusFuture.toCompletionStage().toCompletableFuture().get());
-        assertTrue(statusFuture.succeeded());
+        assertEquals(DatabaseSetupStatus.ACTIVE, statusFuture.result());
 
-        // Test getSetupResultReactive
-        Future<DatabaseSetupResult> resultFuture = service.getSetupResultReactive("id");
+        Future<DatabaseSetupResult> resultFuture = service.getSetupResult("id");
         assertNotNull(resultFuture);
-        resultFuture.toCompletionStage().toCompletableFuture().get();
         assertTrue(resultFuture.succeeded());
 
-        // Test addQueueReactive
-        Future<Void> queueFuture = service.addQueueReactive("id", null);
+        Future<Void> queueFuture = service.addQueue("id", null);
         assertNotNull(queueFuture);
-        queueFuture.toCompletionStage().toCompletableFuture().get();
         assertTrue(queueFuture.succeeded());
 
-        // Test addEventStoreReactive
-        Future<Void> eventStoreFuture = service.addEventStoreReactive("id", null);
+        Future<Void> eventStoreFuture = service.addEventStore("id", null);
         assertNotNull(eventStoreFuture);
-        eventStoreFuture.toCompletionStage().toCompletableFuture().get();
         assertTrue(eventStoreFuture.succeeded());
 
-        // Test getAllActiveSetupIdsReactive
-        Future<Set<String>> idsFuture = service.getAllActiveSetupIdsReactive();
+        Future<Set<String>> idsFuture = service.getAllActiveSetupIds();
         assertNotNull(idsFuture);
-        Set<String> ids = idsFuture.toCompletionStage().toCompletableFuture().get();
+        Set<String> ids = idsFuture.result();
         assertNotNull(ids);
         assertTrue(ids.isEmpty());
-        assertTrue(idsFuture.succeeded());
+
+        // Test default *Async() bridge methods return CompletableFuture
+        CompletableFuture<Void> destroyAsync = service.destroySetupAsync("id");
+        assertNotNull(destroyAsync);
+        destroyAsync.get();
+
+        CompletableFuture<DatabaseSetupStatus> statusAsync = service.getSetupStatusAsync("id");
+        assertNotNull(statusAsync);
+        assertEquals(DatabaseSetupStatus.ACTIVE, statusAsync.get());
+
+        CompletableFuture<Set<String>> idsAsync = service.getAllActiveSetupIdsAsync();
+        assertNotNull(idsAsync);
+        assertTrue(idsAsync.get().isEmpty());
     }
 }

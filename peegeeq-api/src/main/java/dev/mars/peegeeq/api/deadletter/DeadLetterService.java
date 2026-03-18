@@ -19,6 +19,7 @@ package dev.mars.peegeeq.api.deadletter;
 import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import io.vertx.core.Future;
 
 /**
  * Service interface for dead letter queue operations.
@@ -35,63 +36,95 @@ import java.util.concurrent.CompletableFuture;
 public interface DeadLetterService {
     
     /**
-     * Retrieves dead letter messages by topic asynchronously.
+     * Retrieves dead letter messages by topic.
      * 
      * @param topic The topic to filter by
      * @param limit Maximum number of messages to return
      * @param offset Number of messages to skip
-     * @return CompletableFuture containing the list of dead letter messages
+     * @return Future containing the list of dead letter messages
      */
-    CompletableFuture<List<DeadLetterMessageInfo>> getDeadLetterMessages(String topic, int limit, int offset);
+    Future<List<DeadLetterMessageInfo>> getDeadLetterMessages(String topic, int limit, int offset);
     
     /**
-     * Retrieves all dead letter messages asynchronously.
+     * Retrieves all dead letter messages.
      * 
      * @param limit Maximum number of messages to return
      * @param offset Number of messages to skip
-     * @return CompletableFuture containing the list of dead letter messages
+     * @return Future containing the list of dead letter messages
      */
-    CompletableFuture<List<DeadLetterMessageInfo>> getAllDeadLetterMessages(int limit, int offset);
+    Future<List<DeadLetterMessageInfo>> getAllDeadLetterMessages(int limit, int offset);
     
     /**
-     * Gets a specific dead letter message by ID asynchronously.
+     * Gets a specific dead letter message by ID.
      * 
      * @param id The message ID
-     * @return CompletableFuture containing the optional message
+     * @return Future containing the optional message
      */
-    CompletableFuture<Optional<DeadLetterMessageInfo>> getDeadLetterMessage(long id);
+    Future<Optional<DeadLetterMessageInfo>> getDeadLetterMessage(long id);
     
     /**
-     * Reprocesses a dead letter message asynchronously.
+     * Reprocesses a dead letter message.
      * 
      * @param id The message ID
      * @param reason The reason for reprocessing
-     * @return CompletableFuture containing the result
+     * @return Future containing the result
      */
-    CompletableFuture<Boolean> reprocessDeadLetterMessage(long id, String reason);
+    Future<Boolean> reprocessDeadLetterMessage(long id, String reason);
     
     /**
-     * Deletes a dead letter message asynchronously.
+     * Deletes a dead letter message.
      * 
      * @param id The message ID
      * @param reason The reason for deletion
-     * @return CompletableFuture containing the result
+     * @return Future containing the result
      */
-    CompletableFuture<Boolean> deleteDeadLetterMessage(long id, String reason);
+    Future<Boolean> deleteDeadLetterMessage(long id, String reason);
     
     /**
-     * Gets dead letter queue statistics asynchronously.
+     * Gets dead letter queue statistics.
      * 
-     * @return CompletableFuture containing the statistics
+     * @return Future containing the statistics
      */
-    CompletableFuture<DeadLetterStatsInfo> getStatistics();
+    Future<DeadLetterStatsInfo> getStatistics();
     
     /**
-     * Cleans up old dead letter messages asynchronously.
+     * Cleans up old dead letter messages.
      * 
      * @param retentionDays Number of days to retain messages
-     * @return CompletableFuture containing the number of messages deleted
+     * @return Future containing the number of messages deleted
      */
-    CompletableFuture<Integer> cleanupOldMessages(int retentionDays);
+    Future<Integer> cleanupOldMessages(int retentionDays);
+
+    // ========================================
+    // CompletableFuture Bridge Methods
+    // ========================================
+
+    default CompletableFuture<List<DeadLetterMessageInfo>> getDeadLetterMessagesAsync(String topic, int limit, int offset) {
+        return getDeadLetterMessages(topic, limit, offset).toCompletionStage().toCompletableFuture();
+    }
+
+    default CompletableFuture<List<DeadLetterMessageInfo>> getAllDeadLetterMessagesAsync(int limit, int offset) {
+        return getAllDeadLetterMessages(limit, offset).toCompletionStage().toCompletableFuture();
+    }
+
+    default CompletableFuture<Optional<DeadLetterMessageInfo>> getDeadLetterMessageAsync(long id) {
+        return getDeadLetterMessage(id).toCompletionStage().toCompletableFuture();
+    }
+
+    default CompletableFuture<Boolean> reprocessDeadLetterMessageAsync(long id, String reason) {
+        return reprocessDeadLetterMessage(id, reason).toCompletionStage().toCompletableFuture();
+    }
+
+    default CompletableFuture<Boolean> deleteDeadLetterMessageAsync(long id, String reason) {
+        return deleteDeadLetterMessage(id, reason).toCompletionStage().toCompletableFuture();
+    }
+
+    default CompletableFuture<DeadLetterStatsInfo> getStatisticsAsync() {
+        return getStatistics().toCompletionStage().toCompletableFuture();
+    }
+
+    default CompletableFuture<Integer> cleanupOldMessagesAsync(int retentionDays) {
+        return cleanupOldMessages(retentionDays).toCompletionStage().toCompletableFuture();
+    }
 }
 

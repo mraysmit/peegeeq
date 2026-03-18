@@ -24,7 +24,7 @@ class PeeGeeQDatabaseSetupServiceLifecycleTest {
                 .toCompletableFuture()
                 .get(5, TimeUnit.SECONDS);
 
-        service.closeAsync().get(10, TimeUnit.SECONDS);
+        service.closeAsync().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
 
         RuntimeException thrown = assertThrows(RuntimeException.class, () ->
             worker.executeBlocking(() -> "after-close", false)
@@ -45,7 +45,7 @@ class PeeGeeQDatabaseSetupServiceLifecycleTest {
         try {
             PeeGeeQDatabaseSetupService service = createServiceInsideVertxContext(externalVertx);
 
-            service.closeAsync().get(10, TimeUnit.SECONDS);
+            service.closeAsync().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
 
             CompletableFuture<Void> stillUsable = new CompletableFuture<>();
             externalVertx.runOnContext(v -> stillUsable.complete(null));
@@ -77,7 +77,7 @@ class PeeGeeQDatabaseSetupServiceLifecycleTest {
             assertTrue(thrown.getMessage().contains("closeAsync()"));
 
             // Close service properly from non-event-loop thread.
-            service.closeAsync().get(10, TimeUnit.SECONDS);
+            service.closeAsync().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
         } finally {
             externalVertx.close().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
         }

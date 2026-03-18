@@ -39,46 +39,49 @@ import java.util.function.Consumer;
  * @version 1.0
  */
 public interface DatabaseSetupService extends ServiceProvider {
-    CompletableFuture<DatabaseSetupResult> createCompleteSetup(DatabaseSetupRequest request);
-    CompletableFuture<Void> destroySetup(String setupId);
-    CompletableFuture<DatabaseSetupStatus> getSetupStatus(String setupId);
-    CompletableFuture<DatabaseSetupResult> getSetupResult(String setupId);
-    CompletableFuture<Void> addQueue(String setupId, QueueConfig queueConfig);
-    CompletableFuture<Void> addEventStore(String setupId, EventStoreConfig eventStoreConfig);
+    Future<DatabaseSetupResult> createCompleteSetup(DatabaseSetupRequest request);
+    Future<Void> destroySetup(String setupId);
+    Future<DatabaseSetupStatus> getSetupStatus(String setupId);
+    Future<DatabaseSetupResult> getSetupResult(String setupId);
+    Future<Void> addQueue(String setupId, QueueConfig queueConfig);
+    Future<Void> addEventStore(String setupId, EventStoreConfig eventStoreConfig);
 
     /**
      * Gets all active setup IDs.
-     * @return A CompletableFuture that completes with a set of active setup IDs
+     * @return A Future that completes with a set of active setup IDs
      */
-    CompletableFuture<Set<String>> getAllActiveSetupIds();
+    Future<Set<String>> getAllActiveSetupIds();
 
-    // Reactive convenience methods for Vert.x consumers
-    default Future<DatabaseSetupResult> createCompleteSetupReactive(DatabaseSetupRequest request) {
-        return Future.fromCompletionStage(createCompleteSetup(request));
+    // ========================================
+    // CompletableFuture Bridge Methods
+    // ========================================
+
+    default CompletableFuture<DatabaseSetupResult> createCompleteSetupAsync(DatabaseSetupRequest request) {
+        return createCompleteSetup(request).toCompletionStage().toCompletableFuture();
     }
 
-    default Future<Void> destroySetupReactive(String setupId) {
-        return Future.fromCompletionStage(destroySetup(setupId));
+    default CompletableFuture<Void> destroySetupAsync(String setupId) {
+        return destroySetup(setupId).toCompletionStage().toCompletableFuture();
     }
 
-    default Future<DatabaseSetupStatus> getSetupStatusReactive(String setupId) {
-        return Future.fromCompletionStage(getSetupStatus(setupId));
+    default CompletableFuture<DatabaseSetupStatus> getSetupStatusAsync(String setupId) {
+        return getSetupStatus(setupId).toCompletionStage().toCompletableFuture();
     }
 
-    default Future<DatabaseSetupResult> getSetupResultReactive(String setupId) {
-        return Future.fromCompletionStage(getSetupResult(setupId));
+    default CompletableFuture<DatabaseSetupResult> getSetupResultAsync(String setupId) {
+        return getSetupResult(setupId).toCompletionStage().toCompletableFuture();
     }
 
-    default Future<Void> addQueueReactive(String setupId, QueueConfig queueConfig) {
-        return Future.fromCompletionStage(addQueue(setupId, queueConfig));
+    default CompletableFuture<Void> addQueueAsync(String setupId, QueueConfig queueConfig) {
+        return addQueue(setupId, queueConfig).toCompletionStage().toCompletableFuture();
     }
 
-    default Future<Void> addEventStoreReactive(String setupId, EventStoreConfig eventStoreConfig) {
-        return Future.fromCompletionStage(addEventStore(setupId, eventStoreConfig));
+    default CompletableFuture<Void> addEventStoreAsync(String setupId, EventStoreConfig eventStoreConfig) {
+        return addEventStore(setupId, eventStoreConfig).toCompletionStage().toCompletableFuture();
     }
 
-    default Future<Set<String>> getAllActiveSetupIdsReactive() {
-        return Future.fromCompletionStage(getAllActiveSetupIds());
+    default CompletableFuture<Set<String>> getAllActiveSetupIdsAsync() {
+        return getAllActiveSetupIds().toCompletionStage().toCompletableFuture();
     }
 
     /**

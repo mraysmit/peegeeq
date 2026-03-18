@@ -13,53 +13,57 @@ import static org.junit.jupiter.api.Assertions.*;
 class DatabaseServiceTest {
 
     @Test
-    void testDefaultReactiveMethods() throws ExecutionException, InterruptedException {
+    void testPrimaryFutureAndAsyncBridgeMethods() throws ExecutionException, InterruptedException {
         // Create a mock or anonymous implementation
         DatabaseService service = new DatabaseService() {
-            @Override public CompletableFuture<Void> initialize() { return CompletableFuture.completedFuture(null); }
-            @Override public CompletableFuture<Void> start() { return CompletableFuture.completedFuture(null); }
-            @Override public CompletableFuture<Void> stop() { return CompletableFuture.completedFuture(null); }
+            @Override public Future<Void> initialize() { return Future.succeededFuture(); }
+            @Override public Future<Void> start() { return Future.succeededFuture(); }
+            @Override public Future<Void> stop() { return Future.succeededFuture(); }
             @Override public boolean isRunning() { return false; }
             @Override public boolean isHealthy() { return false; }
             @Override public ConnectionProvider getConnectionProvider() { return null; }
             @Override public MetricsProvider getMetricsProvider() { return NoOpMetricsProvider.INSTANCE; }
             @Override public dev.mars.peegeeq.api.subscription.SubscriptionService getSubscriptionService() { return null; }
-            @Override public CompletableFuture<Void> runMigrations() { return CompletableFuture.completedFuture(null); }
-            @Override public CompletableFuture<Boolean> performHealthCheck() { return CompletableFuture.completedFuture(true); }
+            @Override public Future<Void> runMigrations() { return Future.succeededFuture(); }
+            @Override public Future<Boolean> performHealthCheck() { return Future.succeededFuture(true); }
             @Override public void close() throws Exception {}
             @Override public io.vertx.core.Vertx getVertx() { return null; }
             @Override public io.vertx.sqlclient.Pool getPool() { return null; }
             @Override public io.vertx.pgclient.PgConnectOptions getConnectOptions() { return null; }
         };
 
-        // Test initializeReactive
-        Future<Void> initFuture = service.initializeReactive();
+        // Test primary Future-returning methods
+        Future<Void> initFuture = service.initialize();
         assertNotNull(initFuture);
-        initFuture.toCompletionStage().toCompletableFuture().get();
         assertTrue(initFuture.succeeded());
 
-        // Test startReactive
-        Future<Void> startFuture = service.startReactive();
+        Future<Void> startFuture = service.start();
         assertNotNull(startFuture);
-        startFuture.toCompletionStage().toCompletableFuture().get();
         assertTrue(startFuture.succeeded());
 
-        // Test stopReactive
-        Future<Void> stopFuture = service.stopReactive();
+        Future<Void> stopFuture = service.stop();
         assertNotNull(stopFuture);
-        stopFuture.toCompletionStage().toCompletableFuture().get();
         assertTrue(stopFuture.succeeded());
 
-        // Test runMigrationsReactive
-        Future<Void> migrationFuture = service.runMigrationsReactive();
+        Future<Void> migrationFuture = service.runMigrations();
         assertNotNull(migrationFuture);
-        migrationFuture.toCompletionStage().toCompletableFuture().get();
         assertTrue(migrationFuture.succeeded());
 
-        // Test performHealthCheckReactive
-        Future<Boolean> healthFuture = service.performHealthCheckReactive();
+        Future<Boolean> healthFuture = service.performHealthCheck();
         assertNotNull(healthFuture);
-        assertTrue(healthFuture.toCompletionStage().toCompletableFuture().get());
-        assertTrue(healthFuture.succeeded());
+        assertTrue(healthFuture.result());
+
+        // Test default *Async() bridge methods return CompletableFuture
+        CompletableFuture<Void> initAsync = service.initializeAsync();
+        assertNotNull(initAsync);
+        initAsync.get();
+
+        CompletableFuture<Void> startAsync = service.startAsync();
+        assertNotNull(startAsync);
+        startAsync.get();
+
+        CompletableFuture<Boolean> healthAsync = service.performHealthCheckAsync();
+        assertNotNull(healthAsync);
+        assertTrue(healthAsync.get());
     }
 }

@@ -41,56 +41,54 @@ public interface DatabaseService extends AutoCloseable, VertxProvider, PoolProvi
 
     /**
      * Initializes the database service.
-     * External API uses CompletableFuture for non-Vert.x consumers.
-     *
-     * @return A CompletableFuture that completes when initialization is done
-     */
-    CompletableFuture<Void> initialize();
-
-    /**
-     * Starts the database service.
-     * External API uses CompletableFuture for non-Vert.x consumers.
-     *
-     * @return A CompletableFuture that completes when the service is started
-     */
-    CompletableFuture<Void> start();
-
-    /**
-     * Stops the database service.
-     * External API uses CompletableFuture for non-Vert.x consumers.
-     *
-     * @return A CompletableFuture that completes when the service is stopped
-     */
-    CompletableFuture<Void> stop();
-
-    /**
-     * Reactive convenience method for initialize().
-     * For Vert.x consumers who prefer Future-based APIs.
      *
      * @return A Future that completes when initialization is done
      */
-    default Future<Void> initializeReactive() {
-        return Future.fromCompletionStage(initialize());
-    }
+    Future<Void> initialize();
 
     /**
-     * Reactive convenience method for start().
-     * For Vert.x consumers who prefer Future-based APIs.
+     * Starts the database service.
      *
      * @return A Future that completes when the service is started
      */
-    default Future<Void> startReactive() {
-        return Future.fromCompletionStage(start());
-    }
+    Future<Void> start();
 
     /**
-     * Reactive convenience method for stop().
-     * For Vert.x consumers who prefer Future-based APIs.
+     * Stops the database service.
      *
      * @return A Future that completes when the service is stopped
      */
-    default Future<Void> stopReactive() {
-        return Future.fromCompletionStage(stop());
+    Future<Void> stop();
+
+    // ========================================
+    // CompletableFuture Bridge Methods
+    // ========================================
+
+    /**
+     * CompletableFuture bridge for initialize().
+     *
+     * @return A CompletableFuture that completes when initialization is done
+     */
+    default CompletableFuture<Void> initializeAsync() {
+        return initialize().toCompletionStage().toCompletableFuture();
+    }
+
+    /**
+     * CompletableFuture bridge for start().
+     *
+     * @return A CompletableFuture that completes when the service is started
+     */
+    default CompletableFuture<Void> startAsync() {
+        return start().toCompletionStage().toCompletableFuture();
+    }
+
+    /**
+     * CompletableFuture bridge for stop().
+     *
+     * @return A CompletableFuture that completes when the service is stopped
+     */
+    default CompletableFuture<Void> stopAsync() {
+        return stop().toCompletionStage().toCompletableFuture();
     }
     
     /**
@@ -131,38 +129,34 @@ public interface DatabaseService extends AutoCloseable, VertxProvider, PoolProvi
 
     /**
      * Runs database migrations if needed.
-     * External API uses CompletableFuture for non-Vert.x consumers.
-     *
-     * @return A CompletableFuture that completes when migrations are done
-     */
-    CompletableFuture<Void> runMigrations();
-
-    /**
-     * Performs a health check on the database.
-     * External API uses CompletableFuture for non-Vert.x consumers.
-     *
-     * @return A CompletableFuture that completes with the health status
-     */
-    CompletableFuture<Boolean> performHealthCheck();
-
-    /**
-     * Reactive convenience method for runMigrations().
-     * For Vert.x consumers who prefer Future-based APIs.
      *
      * @return A Future that completes when migrations are done
      */
-    default Future<Void> runMigrationsReactive() {
-        return Future.fromCompletionStage(runMigrations());
-    }
+    Future<Void> runMigrations();
 
     /**
-     * Reactive convenience method for performHealthCheck().
-     * For Vert.x consumers who prefer Future-based APIs.
+     * Performs a health check on the database.
      *
      * @return A Future that completes with the health status
      */
-    default Future<Boolean> performHealthCheckReactive() {
-        return Future.fromCompletionStage(performHealthCheck());
+    Future<Boolean> performHealthCheck();
+
+    /**
+     * CompletableFuture bridge for runMigrations().
+     *
+     * @return A CompletableFuture that completes when migrations are done
+     */
+    default CompletableFuture<Void> runMigrationsAsync() {
+        return runMigrations().toCompletionStage().toCompletableFuture();
+    }
+
+    /**
+     * CompletableFuture bridge for performHealthCheck().
+     *
+     * @return A CompletableFuture that completes with the health status
+     */
+    default CompletableFuture<Boolean> performHealthCheckAsync() {
+        return performHealthCheck().toCompletionStage().toCompletableFuture();
     }
     
     /**
