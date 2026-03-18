@@ -1,0 +1,549 @@
+[INFO] Scanning for projects...
+[INFO] 
+[INFO] ----------------------< dev.mars:peegeeq-outbox >-----------------------
+[INFO] Building PeeGeeQ Vert.x Outbox 1.0-SNAPSHOT
+[INFO]   from pom.xml
+[INFO] --------------------------------[ jar ]---------------------------------
+[INFO] 
+[INFO] --- toolchains:3.1.0:toolchain (default) @ peegeeq-outbox ---
+[INFO] Required toolchain: jdk [ version='21' ]
+[INFO] Found matching toolchain for type jdk: JDK[C:\Users\markr\.jdks\openjdk-21]
+[INFO] 
+[INFO] --- enforcer:3.4.1:enforce (enforce-maven-version) @ peegeeq-outbox ---
+[INFO] Rule 0: org.apache.maven.enforcer.rules.version.RequireMavenVersion passed
+[INFO] 
+[INFO] --- jacoco:0.8.12:prepare-agent (default) @ peegeeq-outbox ---
+[INFO] argLine set to -javaagent:C:\\Users\\markr\\.m2\\repository\\org\\jacoco\\org.jacoco.agent\\0.8.12\\org.jacoco.agent-0.8.12-runtime.jar=destfile=C:\\Users\\markr\\dev\\java\\corejava\\peegeeq\\peegeeq-outbox\\target\\jacoco.exec
+[INFO] 
+[INFO] --- resources:3.3.1:resources (default-resources) @ peegeeq-outbox ---
+[INFO] Copying 1 resource from src\main\resources to target\classes
+[INFO] 
+[INFO] --- compiler:3.11.0:compile (default-compile) @ peegeeq-outbox ---
+[INFO] Toolchain in maven-compiler-plugin: JDK[C:\Users\markr\.jdks\openjdk-21]
+[INFO] Nothing to compile - all classes are up to date
+[INFO] 
+[INFO] --- resources:3.3.1:testResources (default-testResources) @ peegeeq-outbox ---
+[INFO] Copying 3 resources from src\test\resources to target\test-classes
+[INFO] 
+[INFO] --- compiler:3.11.0:testCompile (default-testCompile) @ peegeeq-outbox ---
+[INFO] Toolchain in maven-compiler-plugin: JDK[C:\Users\markr\.jdks\openjdk-21]
+[INFO] Nothing to compile - all classes are up to date
+[INFO] 
+[INFO] --- surefire:3.2.5:test (default-test) @ peegeeq-outbox ---
+[INFO] Toolchain in maven-surefire-plugin: JDK[C:\Users\markr\.jdks\openjdk-21]
+[INFO] Using auto detected provider org.apache.maven.surefire.junitplatform.JUnitPlatformProvider
+[INFO] 
+[INFO] -------------------------------------------------------
+[INFO]  T E S T S
+[INFO] -------------------------------------------------------
+16:53:27,270 |-INFO in ch.qos.logback.classic.LoggerContext[default] - This is logback-classic version 1.5.18
+16:53:27,272 |-INFO in ch.qos.logback.classic.util.ContextInitializer@46d8f407 - No custom configurators were discovered as a service.
+16:53:27,272 |-INFO in ch.qos.logback.classic.util.ContextInitializer@46d8f407 - Trying to configure with ch.qos.logback.classic.joran.SerializedModelConfigurator
+16:53:27,275 |-INFO in ch.qos.logback.classic.util.ContextInitializer@46d8f407 - Constructed configurator of type class ch.qos.logback.classic.joran.SerializedModelConfigurator
+16:53:27,276 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Could NOT find resource [logback-test.scmo]
+16:53:27,276 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Could NOT find resource [logback.scmo]
+16:53:27,286 |-INFO in ch.qos.logback.classic.util.ContextInitializer@46d8f407 - ch.qos.logback.classic.joran.SerializedModelConfigurator.configure() call lasted 1 milliseconds. ExecutionStatus=INVOKE_NEXT_IF_ANY
+16:53:27,286 |-INFO in ch.qos.logback.classic.util.ContextInitializer@46d8f407 - Trying to configure with ch.qos.logback.classic.util.DefaultJoranConfigurator
+16:53:27,288 |-INFO in ch.qos.logback.classic.util.ContextInitializer@46d8f407 - Constructed configurator of type class ch.qos.logback.classic.util.DefaultJoranConfigurator
+16:53:27,293 |-INFO in ch.qos.logback.classic.LoggerContext[default] - Found resource [logback-test.xml] at [file:/C:/Users/markr/dev/java/corejava/peegeeq/peegeeq-outbox/target/test-classes/logback-test.xml]
+16:53:27,420 |-WARN in ch.qos.logback.core.joran.action.ConversionRuleAction - [converterClass] attribute is deprecated and replaced by [class]. See element [conversionRule] near line 4
+16:53:27,421 |-WARN in ch.qos.logback.core.joran.action.ConversionRuleAction - [converterClass] attribute is deprecated and replaced by [class]. See element [conversionRule] near line 6
+16:53:27,530 |-INFO in ch.qos.logback.core.model.processor.ConversionRuleModelHandler - registering conversion word vxTrace with class [dev.mars.peegeeq.api.logging.VertxTraceIdConverter]
+16:53:27,531 |-INFO in ch.qos.logback.core.model.processor.ConversionRuleModelHandler - registering conversion word vxSpan with class [dev.mars.peegeeq.api.logging.VertxSpanIdConverter]
+16:53:27,548 |-INFO in ch.qos.logback.core.model.processor.AppenderModelHandler - Processing appender named [CONSOLE]
+16:53:27,548 |-INFO in ch.qos.logback.core.model.processor.AppenderModelHandler - About to instantiate appender of type [ch.qos.logback.core.ConsoleAppender]
+16:53:27,571 |-INFO in ch.qos.logback.core.model.processor.ImplicitModelHandler - Assuming default type [ch.qos.logback.classic.encoder.PatternLayoutEncoder] for [encoder] property
+16:53:27,712 |-INFO in ch.qos.logback.core.ConsoleAppender[CONSOLE] - BEWARE: Writing to the console can be very slow. Avoid logging to the 
+16:53:27,712 |-INFO in ch.qos.logback.core.ConsoleAppender[CONSOLE] - console in production environments, especially in high volume systems.
+16:53:27,712 |-INFO in ch.qos.logback.core.ConsoleAppender[CONSOLE] - See also https://logback.qos.ch/codes.html#slowConsole
+16:53:27,712 |-INFO in ch.qos.logback.core.model.processor.AppenderModelHandler - Processing appender named [FILE]
+16:53:27,712 |-INFO in ch.qos.logback.core.model.processor.AppenderModelHandler - About to instantiate appender of type [ch.qos.logback.core.FileAppender]
+16:53:27,719 |-INFO in ch.qos.logback.core.model.processor.ImplicitModelHandler - Assuming default type [ch.qos.logback.classic.encoder.PatternLayoutEncoder] for [encoder] property
+16:53:27,720 |-INFO in ch.qos.logback.core.FileAppender[FILE] - File property is set to [target/test-logs.log]
+16:53:27,724 |-INFO in ch.qos.logback.classic.model.processor.RootLoggerModelHandler - Setting level of ROOT logger to INFO
+16:53:27,724 |-INFO in ch.qos.logback.core.model.processor.AppenderRefModelHandler - Attaching appender named [CONSOLE] to Logger[ROOT]
+16:53:27,725 |-INFO in ch.qos.logback.core.model.processor.AppenderRefModelHandler - Attaching appender named [FILE] to Logger[ROOT]
+16:53:27,727 |-INFO in ch.qos.logback.classic.model.processor.LoggerModelHandler - Setting level of logger [dev.mars.peegeeq.outbox] to INFO
+16:53:27,727 |-INFO in ch.qos.logback.classic.model.processor.LoggerModelHandler - Setting level of logger [dev.mars.peegeeq.outbox.OutboxConsumer] to INFO
+16:53:27,727 |-INFO in ch.qos.logback.classic.model.processor.LoggerModelHandler - Setting additivity of logger [dev.mars.peegeeq.outbox.OutboxConsumer] to false
+16:53:27,728 |-INFO in ch.qos.logback.core.model.processor.AppenderRefModelHandler - Attaching appender named [CONSOLE] to Logger[dev.mars.peegeeq.outbox.OutboxConsumer]
+16:53:27,728 |-INFO in ch.qos.logback.core.model.processor.AppenderRefModelHandler - Attaching appender named [FILE] to Logger[dev.mars.peegeeq.outbox.OutboxConsumer]
+16:53:27,728 |-INFO in ch.qos.logback.classic.model.processor.LoggerModelHandler - Setting level of logger [dev.mars.peegeeq.outbox.OutboxConsumerGroupMember] to ERROR
+16:53:27,728 |-INFO in ch.qos.logback.classic.model.processor.LoggerModelHandler - Setting additivity of logger [dev.mars.peegeeq.outbox.OutboxConsumerGroupMember] to false
+16:53:27,728 |-INFO in ch.qos.logback.core.model.processor.AppenderRefModelHandler - Attaching appender named [CONSOLE] to Logger[dev.mars.peegeeq.outbox.OutboxConsumerGroupMember]
+16:53:27,728 |-INFO in ch.qos.logback.classic.model.processor.LoggerModelHandler - Setting level of logger [org.testcontainers] to WARN
+16:53:27,728 |-INFO in ch.qos.logback.classic.model.processor.LoggerModelHandler - Setting level of logger [com.github.dockerjava] to WARN
+16:53:27,728 |-INFO in ch.qos.logback.classic.model.processor.LoggerModelHandler - Setting level of logger [tc] to WARN
+16:53:27,728 |-INFO in ch.qos.logback.classic.model.processor.LoggerModelHandler - Setting level of logger [org.flywaydb.core.internal.sqlscript.DefaultSqlScriptExecutor] to ERROR
+16:53:27,728 |-INFO in ch.qos.logback.classic.model.processor.LoggerModelHandler - Setting level of logger [io.vertx] to WARN
+16:53:27,728 |-INFO in ch.qos.logback.classic.model.processor.LoggerModelHandler - Setting level of logger [com.zaxxer.hikari] to WARN
+16:53:27,728 |-INFO in ch.qos.logback.core.model.processor.DefaultProcessor@3c0036b - End of configuration.
+16:53:27,731 |-INFO in ch.qos.logback.classic.joran.JoranConfigurator@17814b1c - Registering current configuration as safe fallback point
+16:53:27,731 |-INFO in ch.qos.logback.classic.util.ContextInitializer@46d8f407 - ch.qos.logback.classic.util.DefaultJoranConfigurator.configure() call lasted 443 milliseconds. ExecutionStatus=DO_NOT_INVOKE_NEXT_IF_ANY
+
+[INFO] Running dev.mars.peegeeq.outbox.OutboxSchemaQuotingTest
+16:53:33.126 [main] INFO  org.flywaydb.core.FlywayExecutor - [trace=- span=-] Database: jdbc:postgresql://localhost:60727/testdb?loggerLevel=OFF (PostgreSQL 15.13)
+16:53:33.210 [main] INFO  o.f.c.i.s.JdbcTableSchemaHistory - [trace=- span=-] Schema history table "simple_tenant"."flyway_schema_history" does not exist yet
+16:53:33.294 [main] INFO  d.m.p.t.s.PeeGeeQTestSchemaInitializer - [trace=- span=-] Flyway migrate context: database='testdb', schema='simple_tenant', pendingMigrations=4
+16:53:33.296 [main] INFO  d.m.p.t.s.PeeGeeQTestSchemaInitializer - [trace=- span=-]   Pending migration: version='001', description='Create Base Tables', script='V001__Create_Base_Tables.sql'
+16:53:33.297 [main] INFO  d.m.p.t.s.PeeGeeQTestSchemaInitializer - [trace=- span=-]   Pending migration: version='010', description='Create Consumer Group Fanout Tables', script='V010__Create_Consumer_Group_Fanout_Tables.sql'
+16:53:33.297 [main] INFO  d.m.p.t.s.PeeGeeQTestSchemaInitializer - [trace=- span=-]   Pending migration: version='011', description='Post Fanout Consolidation', script='V011__Post_Fanout_Consolidation.sql'
+16:53:33.297 [main] INFO  d.m.p.t.s.PeeGeeQTestSchemaInitializer - [trace=- span=-]   Pending migration: version='012', description='Create Bitemporal Durable Subscriptions', script='V012__Create_Bitemporal_Durable_Subscriptions.sql'
+16:53:33.357 [main] INFO  o.f.c.internal.database.base.Schema - [trace=- span=-] Creating schema "simple_tenant" ...
+16:53:33.370 [main] INFO  o.f.c.i.s.JdbcTableSchemaHistory - [trace=- span=-] Creating Schema History table "simple_tenant"."flyway_schema_history" ...
+16:53:33.476 [main] INFO  o.f.core.internal.command.DbMigrate - [trace=- span=-] Current version of schema "simple_tenant": null
+16:53:33.485 [main] INFO  o.f.core.internal.command.DbMigrate - [trace=- span=-] Migrating schema "simple_tenant" to version "001 - Create Base Tables" [non-transactional]
+16:53:33.768 [main] INFO  o.f.core.internal.command.DbMigrate - [trace=- span=-] Migrating schema "simple_tenant" to version "010 - Create Consumer Group Fanout Tables"
+16:53:33.907 [main] INFO  o.f.core.internal.command.DbMigrate - [trace=- span=-] Migrating schema "simple_tenant" to version "011 - Post Fanout Consolidation"
+16:53:33.964 [main] INFO  o.f.core.internal.command.DbMigrate - [trace=- span=-] Migrating schema "simple_tenant" to version "012 - Create Bitemporal Durable Subscriptions"
+16:53:34.008 [main] INFO  o.f.core.internal.command.DbMigrate - [trace=- span=-] Successfully applied 4 migrations to schema "simple_tenant", now at version v012 (execution time 00:00.427s)
+16:53:34.046 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - [trace=- span=-] Configuration validation passed
+16:53:34.047 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - [trace=- span=-] Loaded PeeGeeQ configuration for profile: simple-test with explicit database config
+16:53:34.136 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Initializing PeeGeeQ Manager with profile: simple-test
+16:53:34.157 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Created new Vert.x instance (manager ownership)
+16:53:34.165 [main] INFO  d.m.p.d.c.PgConnectionManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@183ab40f: Initialized with Vert.x 5.x reactive support (notice handling: enabled)
+16:53:34.167 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] DB-DEBUG: Creating client with host=localhost, port=60727, db=testdb, user=testuser
+16:53:34.205 [main] INFO  d.m.p.d.c.PgConnectionManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@183ab40f: Service 'peegeeq-main' configured with search_path=simple_tenant, host=localhost, db=testdb
+16:53:34.205 [main] INFO  d.m.p.d.c.PgConnectionManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@183ab40f: Service 'peegeeq-main' created reactive pool (maxSize=32, shared=true)
+16:53:34.211 [main] INFO  d.m.p.db.client.PgClientFactory - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Initialized reactive PG pool for client 'peegeeq-main'
+16:53:34.226 [main] INFO  d.m.p.d.r.CircuitBreakerManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Circuit breaker manager initialized with config: dev.mars.peegeeq.db.config.PeeGeeQConfiguration$CircuitBreakerConfig@564375d7
+16:53:34.229 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Registered health check: database
+16:53:34.230 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Registered health check: outbox-queue
+16:53:34.231 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Registered health check: native-queue
+16:53:34.232 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Registered health check: dead-letter-queue
+16:53:34.232 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Queue health checks enabled (outbox, native-queue, dead-letter-queue)
+16:53:34.232 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Registered health check: memory
+16:53:34.233 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Registered health check: disk-space
+16:53:34.234 [main] INFO  d.m.p.d.r.BackpressureManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Backpressure manager initialized with max concurrent operations: 50, timeout: PT30S
+16:53:34.238 [main] INFO  d.m.p.d.r.StuckMessageRecoveryManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] StuckMessageRecoveryManager initialized (reactive) - enabled: true, timeout: PT5M
+16:53:34.251 [main] INFO  d.m.p.db.metrics.PeeGeeQMetrics - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PeeGeeQ metrics registered for instance: peegeeq-default
+16:53:34.253 [main] INFO  d.m.p.d.p.PgConnectionProvider - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@183ab40f: Initialized PgConnectionProvider@42930a42
+16:53:34.254 [main] INFO  d.m.p.db.provider.PgMetricsProvider - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Initialized PgMetricsProvider with instance ID: peegeeq-default
+16:53:34.254 [main] INFO  d.m.p.db.provider.PgDatabaseService - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@183ab40f: Initialized PgDatabaseService@318856a5
+16:53:34.255 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgQueueFactoryProvider initialized - factories should be registered by their respective modules
+16:53:34.255 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgQueueFactoryProvider initialized - factories will be registered by their respective modules
+16:53:34.255 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PeeGeeQ Manager initialized successfully
+16:53:34.255 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Starting PeeGeeQ Manager with reactive lifecycle events...
+16:53:34.279 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Validating database connectivity...
+16:53:34.692 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=- span=-] Database connectivity validated successfully
+16:53:34.693 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=7e3fdecf36bf2ae337d2cb0f25650e8b span=ef471ee8db6315cf] Starting all PeeGeeQ components...
+16:53:34.699 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=80f0eb86ac8e5119cb8290c5ab5bcecd span=4a5c7b16db3f6a95] Started metrics collection every PT1M
+16:53:34.703 [vert.x-eventloop-thread-0] INFO  d.m.p.d.cleanup.DeadConsumerDetector - [trace=80f0eb86ac8e5119cb8290c5ab5bcecd span=7420bc00f3405207] DeadConsumerDetector initialized for service: peegeeq-main
+16:53:34.705 [vert.x-eventloop-thread-0] INFO  d.m.p.d.c.DeadConsumerGroupCleanup - [trace=80f0eb86ac8e5119cb8290c5ab5bcecd span=7420bc00f3405207] DeadConsumerGroupCleanup initialized for service: peegeeq-main
+16:53:34.709 [vert.x-eventloop-thread-0] INFO  d.m.p.d.c.DeadConsumerDetectionJob - [trace=80f0eb86ac8e5119cb8290c5ab5bcecd span=7420bc00f3405207] DeadConsumerDetectionJob created: interval=60000ms (60s), cleanup=enabled
+16:53:34.710 [vert.x-eventloop-thread-0] INFO  d.m.p.d.c.DeadConsumerDetectionJob - [trace=944b7f7fba41e87ce5109fa10d261225 span=9e16209d3b8382b1] Starting DeadConsumerDetectionJob: interval=60000ms, timer will fire every 60s
+16:53:34.717 [vert.x-eventloop-thread-0] INFO  d.m.p.d.c.DeadConsumerDetectionJob - [trace=944b7f7fba41e87ce5109fa10d261225 span=9e16209d3b8382b1] DeadConsumerDetectionJob started: timerId=6
+16:53:34.717 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=80f0eb86ac8e5119cb8290c5ab5bcecd span=7420bc00f3405207] Started dead consumer detection job: interval=60000ms
+16:53:34.724 [vert.x-eventloop-thread-0] INFO  d.m.p.db.health.HealthCheckManager - [trace=80f0eb86ac8e5119cb8290c5ab5bcecd span=6494973b1c31652c] Database connection pool validated successfully
+16:53:34.730 [vert.x-eventloop-thread-0] INFO  d.m.p.db.health.HealthCheckManager - [trace=80f0eb86ac8e5119cb8290c5ab5bcecd span=6494973b1c31652c] Health check manager started with initial delay: PT0.1S, interval: PT30S
+16:53:34.730 [vert.x-eventloop-thread-0] INFO  d.m.p.db.health.HealthCheckManager - [trace=80f0eb86ac8e5119cb8290c5ab5bcecd span=6494973b1c31652c] Health check manager started reactively with initial delay 100ms, interval: PT30S
+16:53:34.730 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=80f0eb86ac8e5119cb8290c5ab5bcecd span=6494973b1c31652c] All PeeGeeQ components started successfully
+16:53:34.730 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=80f0eb86ac8e5119cb8290c5ab5bcecd span=fad5deddf208e396] PeeGeeQ Manager started successfully
+16:53:34.733 [main] INFO  d.m.p.d.p.PgConnectionProvider - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@183ab40f: Initialized PgConnectionProvider@7f6a0ab
+16:53:34.733 [main] INFO  d.m.p.db.provider.PgMetricsProvider - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Initialized PgMetricsProvider with instance ID: peegeeq-default
+16:53:34.733 [main] INFO  d.m.p.db.provider.PgDatabaseService - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@183ab40f: Initialized PgDatabaseService@1c322b6a
+16:53:34.733 [main] INFO  d.mars.peegeeq.outbox.OutboxFactory - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Initialized OutboxFactory with configuration: enabled (clientId: default)
+16:53:34.735 [main] INFO  d.mars.peegeeq.outbox.OutboxFactory - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Creating outbox producer for topic: test-topic
+16:53:34.746 [main] INFO  d.mars.peegeeq.outbox.OutboxProducer - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Created outbox producer for topic: test-topic (using DatabaseService, clientId: default)
+16:53:34.774 [peegeeq-health-check-worker-1] INFO  d.m.p.d.r.CircuitBreakerManager - [trace=- span=-] Created circuit breaker: database
+16:53:34.813 [vert.x-eventloop-thread-0] INFO  d.m.p.d.c.DeadConsumerDetectionJob - [trace=80f0eb86ac8e5119cb8290c5ab5bcecd span=6b21c0be3e0d4c60] Detection run #1: all healthy (95ms). 0 active, 0 paused subscriptions across 0 topic(s)
+16:53:34.821 [main] INFO  d.mars.peegeeq.outbox.OutboxProducer - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Closed outbox producer for topic: test-topic
+16:53:34.826 [main] INFO  d.mars.peegeeq.outbox.OutboxFactory - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Closing OutboxFactory
+16:53:34.826 [main] INFO  d.mars.peegeeq.outbox.OutboxFactory - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Closing 1 tracked resources
+16:53:34.826 [main] INFO  d.mars.peegeeq.outbox.OutboxFactory - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] OutboxFactory closed successfully
+16:53:34.826 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PeeGeeQManager.closeReactive() called - starting shutdown sequence
+16:53:34.826 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Stopping PeeGeeQ Manager...
+16:53:34.826 [main] INFO  d.m.p.d.c.DeadConsumerDetectionJob - [trace=944b7f7fba41e87ce5109fa10d261225 span=9e16209d3b8382b1] Stopping DeadConsumerDetectionJob: timerId=6, totalRuns=1, totalDeadDetected=0, totalFailures=0, totalMessagesDecremented=0, totalOrphanRowsRemoved=0, totalMessagesAutoCompleted=0, avgRunTimeMs=103
+16:53:34.828 [main] INFO  d.m.p.d.c.DeadConsumerDetectionJob - [trace=944b7f7fba41e87ce5109fa10d261225 span=9e16209d3b8382b1] DeadConsumerDetectionJob stopped
+16:53:34.828 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Stopping health check manager reactively...
+16:53:34.828 [peegeeq-health-check-worker-4] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: outbox-queue - Reactive outbox queue health check failed: null
+16:53:34.828 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PeeGeeQ Manager stopped successfully
+16:53:34.828 [peegeeq-health-check-worker-4] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: native-queue - Skipped ù health check manager stopped
+16:53:34.830 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Running 1 registered close hooks
+16:53:34.836 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Closing client factory
+16:53:34.836 [main] INFO  d.m.p.d.c.PgConnectionManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@183ab40f: Closing all 1 pool(s) asynchronously
+16:53:34.865 [vert.x-eventloop-thread-0] INFO  d.m.p.d.c.PgConnectionManager - [trace=- span=-] PgConnectionManager@183ab40f: Closed successfully (1 pool(s))
+16:53:34.865 [vert.x-eventloop-thread-0] INFO  d.m.p.db.client.PgClientFactory - [trace=- span=-] PgClientFactory closed
+16:53:34.865 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=- span=-] Client factory closed successfully
+16:53:34.865 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=- span=-] PeeGeeQManager.closeReactive() cleanup completed
+16:53:34.865 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=- span=-] Closing Vert.x instance (manager-owned)
+16:53:34.892 [vert.x-eventloop-thread-25] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=- span=-] Vert.x instance closed successfully
+16:53:34.972 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Configuration validation passed
+16:53:34.972 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Loaded PeeGeeQ configuration for profile: select-test with explicit database config
+16:53:34.973 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Initializing PeeGeeQ Manager with profile: select-test
+16:53:34.999 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Created new Vert.x instance (manager ownership)
+16:53:34.999 [main] INFO  d.m.p.d.c.PgConnectionManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@5c7df5f1: Initialized with Vert.x 5.x reactive support (notice handling: enabled)
+16:53:34.999 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] DB-DEBUG: Creating client with host=localhost, port=60727, db=testdb, user=testuser
+16:53:35.000 [main] INFO  d.m.p.d.c.PgConnectionManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@5c7df5f1: Service 'peegeeq-main' configured with search_path=select, host=localhost, db=testdb
+16:53:35.000 [main] INFO  d.m.p.d.c.PgConnectionManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@5c7df5f1: Service 'peegeeq-main' created reactive pool (maxSize=32, shared=true)
+16:53:35.000 [main] INFO  d.m.p.db.client.PgClientFactory - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Initialized reactive PG pool for client 'peegeeq-main'
+16:53:35.000 [main] INFO  d.m.p.d.r.CircuitBreakerManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Circuit breaker manager initialized with config: dev.mars.peegeeq.db.config.PeeGeeQConfiguration$CircuitBreakerConfig@4febb6e6
+16:53:35.000 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Registered health check: database
+16:53:35.000 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Registered health check: outbox-queue
+16:53:35.000 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Registered health check: native-queue
+16:53:35.000 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Registered health check: dead-letter-queue
+16:53:35.000 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Queue health checks enabled (outbox, native-queue, dead-letter-queue)
+16:53:35.001 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Registered health check: memory
+16:53:35.001 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Registered health check: disk-space
+16:53:35.001 [main] INFO  d.m.p.d.r.BackpressureManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Backpressure manager initialized with max concurrent operations: 50, timeout: PT30S
+16:53:35.001 [main] INFO  d.m.p.d.r.StuckMessageRecoveryManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] StuckMessageRecoveryManager initialized (reactive) - enabled: true, timeout: PT5M
+16:53:35.001 [main] INFO  d.m.p.db.metrics.PeeGeeQMetrics - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PeeGeeQ metrics registered for instance: peegeeq-default
+16:53:35.001 [main] INFO  d.m.p.d.p.PgConnectionProvider - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@5c7df5f1: Initialized PgConnectionProvider@3a9a1adf
+16:53:35.001 [main] INFO  d.m.p.db.provider.PgMetricsProvider - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Initialized PgMetricsProvider with instance ID: peegeeq-default
+16:53:35.001 [main] INFO  d.m.p.db.provider.PgDatabaseService - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@5c7df5f1: Initialized PgDatabaseService@28d4c7ec
+16:53:35.001 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgQueueFactoryProvider initialized - factories should be registered by their respective modules
+16:53:35.001 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgQueueFactoryProvider initialized - factories will be registered by their respective modules
+16:53:35.001 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PeeGeeQ Manager initialized successfully
+16:53:35.001 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Starting PeeGeeQ Manager with reactive lifecycle events...
+16:53:35.002 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Validating database connectivity...
+16:53:35.019 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=- span=-] Database connectivity validated successfully
+16:53:35.020 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=4411db3b35eae601c96a57a150927f99 span=5d31863948ce2c27] Starting all PeeGeeQ components...
+16:53:35.020 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=8d7e03fa36c013ae8048603522b7b511 span=b37d22ebfb554463] Started metrics collection every PT1M
+16:53:35.020 [vert.x-eventloop-thread-0] INFO  d.m.p.d.cleanup.DeadConsumerDetector - [trace=8d7e03fa36c013ae8048603522b7b511 span=261d79f3dcad1143] DeadConsumerDetector initialized for service: peegeeq-main
+16:53:35.021 [vert.x-eventloop-thread-0] INFO  d.m.p.d.c.DeadConsumerGroupCleanup - [trace=8d7e03fa36c013ae8048603522b7b511 span=261d79f3dcad1143] DeadConsumerGroupCleanup initialized for service: peegeeq-main
+16:53:35.021 [vert.x-eventloop-thread-0] INFO  d.m.p.d.c.DeadConsumerDetectionJob - [trace=8d7e03fa36c013ae8048603522b7b511 span=261d79f3dcad1143] DeadConsumerDetectionJob created: interval=60000ms (60s), cleanup=enabled
+16:53:35.021 [vert.x-eventloop-thread-0] INFO  d.m.p.d.c.DeadConsumerDetectionJob - [trace=f430e0af16b26564a86c648ac0291daf span=8d70e44e379c2e6a] Starting DeadConsumerDetectionJob: interval=60000ms, timer will fire every 60s
+16:53:35.021 [vert.x-eventloop-thread-0] INFO  d.m.p.d.c.DeadConsumerDetectionJob - [trace=f430e0af16b26564a86c648ac0291daf span=8d70e44e379c2e6a] DeadConsumerDetectionJob started: timerId=6
+16:53:35.021 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=8d7e03fa36c013ae8048603522b7b511 span=261d79f3dcad1143] Started dead consumer detection job: interval=60000ms
+16:53:35.023 [vert.x-eventloop-thread-0] INFO  d.m.p.db.health.HealthCheckManager - [trace=8d7e03fa36c013ae8048603522b7b511 span=edbe413d9cc289cb] Database connection pool validated successfully
+16:53:35.024 [vert.x-eventloop-thread-0] INFO  d.m.p.db.health.HealthCheckManager - [trace=8d7e03fa36c013ae8048603522b7b511 span=edbe413d9cc289cb] Health check manager started with initial delay: PT0.1S, interval: PT30S
+16:53:35.024 [vert.x-eventloop-thread-0] INFO  d.m.p.db.health.HealthCheckManager - [trace=8d7e03fa36c013ae8048603522b7b511 span=edbe413d9cc289cb] Health check manager started reactively with initial delay 100ms, interval: PT30S
+16:53:35.024 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=8d7e03fa36c013ae8048603522b7b511 span=edbe413d9cc289cb] All PeeGeeQ components started successfully
+16:53:35.025 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=8d7e03fa36c013ae8048603522b7b511 span=bfb5d911c65b6a9b] PeeGeeQ Manager started successfully
+16:53:35.025 [main] INFO  d.m.p.d.p.PgConnectionProvider - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@5c7df5f1: Initialized PgConnectionProvider@2b7b2967
+16:53:35.025 [main] INFO  d.m.p.db.provider.PgMetricsProvider - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Initialized PgMetricsProvider with instance ID: peegeeq-default
+16:53:35.025 [main] INFO  d.m.p.db.provider.PgDatabaseService - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@5c7df5f1: Initialized PgDatabaseService@5baa759a
+16:53:35.025 [main] INFO  d.mars.peegeeq.outbox.OutboxFactory - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Initialized OutboxFactory with configuration: enabled (clientId: default)
+16:53:35.026 [main] INFO  d.mars.peegeeq.outbox.OutboxFactory - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Creating outbox producer for topic: test-topic
+16:53:35.026 [main] INFO  d.mars.peegeeq.outbox.OutboxProducer - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Created outbox producer for topic: test-topic (using DatabaseService, clientId: default)
+16:53:35.026 [peegeeq-health-check-worker-1] INFO  d.m.p.d.r.CircuitBreakerManager - [trace=- span=-] Created circuit breaker: database
+16:53:35.041 [vert.x-eventloop-thread-0] ERROR d.m.p.d.c.DeadConsumerDetectionJob - [trace=247b47f4bb385ec2558722a9b1ec16ba span=2501c766947386df] Detection run #1 failed (20ms): ERROR: relation "outbox_topic_subscriptions" does not exist (42P01)
+io.vertx.pgclient.PgException: ERROR: relation "outbox_topic_subscriptions" does not exist (42P01)
+16:53:35.043 [main] INFO  d.mars.peegeeq.outbox.OutboxFactory - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Closing OutboxFactory
+16:53:35.043 [main] INFO  d.mars.peegeeq.outbox.OutboxFactory - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Closing 1 tracked resources
+16:53:35.043 [main] INFO  d.mars.peegeeq.outbox.OutboxProducer - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Closed outbox producer for topic: test-topic
+16:53:35.043 [main] INFO  d.mars.peegeeq.outbox.OutboxFactory - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] OutboxFactory closed successfully
+16:53:35.043 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PeeGeeQManager.closeReactive() called - starting shutdown sequence
+16:53:35.043 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Stopping PeeGeeQ Manager...
+16:53:35.043 [main] INFO  d.m.p.d.c.DeadConsumerDetectionJob - [trace=f430e0af16b26564a86c648ac0291daf span=8d70e44e379c2e6a] Stopping DeadConsumerDetectionJob: timerId=6, totalRuns=1, totalDeadDetected=0, totalFailures=1, totalMessagesDecremented=0, totalOrphanRowsRemoved=0, totalMessagesAutoCompleted=0, avgRunTimeMs=20
+16:53:35.043 [main] INFO  d.m.p.d.c.DeadConsumerDetectionJob - [trace=f430e0af16b26564a86c648ac0291daf span=8d70e44e379c2e6a] DeadConsumerDetectionJob stopped
+16:53:35.043 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Stopping health check manager reactively...
+16:53:35.043 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PeeGeeQ Manager stopped successfully
+16:53:35.045 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Running 1 registered close hooks
+16:53:35.045 [peegeeq-health-check-worker-1] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: database - Reactive database health check failed: null
+16:53:35.045 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=- span=-] Closing client factory
+16:53:35.045 [peegeeq-health-check-worker-1] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: dead-letter-queue - Skipped ù health check manager stopped
+16:53:35.045 [vert.x-eventloop-thread-0] INFO  d.m.p.d.c.PgConnectionManager - [trace=- span=-] PgConnectionManager@5c7df5f1: Closing all 1 pool(s) asynchronously
+16:53:35.045 [peegeeq-health-check-worker-1] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: memory - Skipped ù health check manager stopped
+16:53:35.045 [peegeeq-health-check-worker-1] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: outbox-queue - Skipped ù health check manager stopped
+16:53:35.045 [peegeeq-health-check-worker-1] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: native-queue - Skipped ù health check manager stopped
+16:53:35.051 [vert.x-eventloop-thread-0] INFO  d.m.p.d.c.PgConnectionManager - [trace=- span=-] PgConnectionManager@5c7df5f1: Closed successfully (1 pool(s))
+16:53:35.051 [vert.x-eventloop-thread-0] INFO  d.m.p.db.client.PgClientFactory - [trace=- span=-] PgClientFactory closed
+16:53:35.051 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=- span=-] Client factory closed successfully
+16:53:35.051 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=- span=-] PeeGeeQManager.closeReactive() cleanup completed
+16:53:35.051 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=- span=-] Closing Vert.x instance (manager-owned)
+16:53:35.059 [vert.x-eventloop-thread-25] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=- span=-] Vert.x instance closed successfully
+16:53:35.146 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Configuration validation passed
+16:53:35.146 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Loaded PeeGeeQ configuration for profile: order-count with explicit database config
+16:53:35.147 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Initializing PeeGeeQ Manager with profile: order-count
+16:53:35.180 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Created new Vert.x instance (manager ownership)
+16:53:35.181 [main] INFO  d.m.p.d.c.PgConnectionManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@6a7b523b: Initialized with Vert.x 5.x reactive support (notice handling: enabled)
+16:53:35.181 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] DB-DEBUG: Creating client with host=localhost, port=60727, db=testdb, user=testuser
+16:53:35.182 [main] INFO  d.m.p.d.c.PgConnectionManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@6a7b523b: Service 'peegeeq-main' configured with search_path=order, host=localhost, db=testdb
+16:53:35.182 [main] INFO  d.m.p.d.c.PgConnectionManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@6a7b523b: Service 'peegeeq-main' created reactive pool (maxSize=32, shared=true)
+16:53:35.182 [main] INFO  d.m.p.db.client.PgClientFactory - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Initialized reactive PG pool for client 'peegeeq-main'
+16:53:35.182 [main] INFO  d.m.p.d.r.CircuitBreakerManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Circuit breaker manager initialized with config: dev.mars.peegeeq.db.config.PeeGeeQConfiguration$CircuitBreakerConfig@5596f2bb
+16:53:35.182 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Registered health check: database
+16:53:35.183 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Registered health check: outbox-queue
+16:53:35.183 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Registered health check: native-queue
+16:53:35.183 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Registered health check: dead-letter-queue
+16:53:35.183 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Queue health checks enabled (outbox, native-queue, dead-letter-queue)
+16:53:35.183 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Registered health check: memory
+16:53:35.183 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Registered health check: disk-space
+16:53:35.183 [main] INFO  d.m.p.d.r.BackpressureManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Backpressure manager initialized with max concurrent operations: 50, timeout: PT30S
+16:53:35.183 [main] INFO  d.m.p.d.r.StuckMessageRecoveryManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] StuckMessageRecoveryManager initialized (reactive) - enabled: true, timeout: PT5M
+16:53:35.184 [main] INFO  d.m.p.db.metrics.PeeGeeQMetrics - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PeeGeeQ metrics registered for instance: peegeeq-default
+16:53:35.184 [main] INFO  d.m.p.d.p.PgConnectionProvider - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@6a7b523b: Initialized PgConnectionProvider@31b273b2
+16:53:35.184 [main] INFO  d.m.p.db.provider.PgMetricsProvider - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Initialized PgMetricsProvider with instance ID: peegeeq-default
+16:53:35.184 [main] INFO  d.m.p.db.provider.PgDatabaseService - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@6a7b523b: Initialized PgDatabaseService@53534c15
+16:53:35.185 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgQueueFactoryProvider initialized - factories should be registered by their respective modules
+16:53:35.185 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgQueueFactoryProvider initialized - factories will be registered by their respective modules
+16:53:35.185 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PeeGeeQ Manager initialized successfully
+16:53:35.185 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Starting PeeGeeQ Manager with reactive lifecycle events...
+16:53:35.185 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Validating database connectivity...
+16:53:35.206 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=- span=-] Database connectivity validated successfully
+16:53:35.207 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=cefb4e3f0e39f90d5d92d3ee4645d9d0 span=565f0ce794fe1dec] Starting all PeeGeeQ components...
+16:53:35.207 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=f06c71b450afd88a414276849432fed3 span=3411d0a25da02854] Started metrics collection every PT1M
+16:53:35.208 [vert.x-eventloop-thread-0] INFO  d.m.p.d.cleanup.DeadConsumerDetector - [trace=f06c71b450afd88a414276849432fed3 span=7e7a2bba014bb9f3] DeadConsumerDetector initialized for service: peegeeq-main
+16:53:35.208 [vert.x-eventloop-thread-0] INFO  d.m.p.d.c.DeadConsumerGroupCleanup - [trace=f06c71b450afd88a414276849432fed3 span=7e7a2bba014bb9f3] DeadConsumerGroupCleanup initialized for service: peegeeq-main
+16:53:35.208 [vert.x-eventloop-thread-0] INFO  d.m.p.d.c.DeadConsumerDetectionJob - [trace=f06c71b450afd88a414276849432fed3 span=7e7a2bba014bb9f3] DeadConsumerDetectionJob created: interval=60000ms (60s), cleanup=enabled
+16:53:35.209 [vert.x-eventloop-thread-0] INFO  d.m.p.d.c.DeadConsumerDetectionJob - [trace=fdb46bff141b1b8f913a11d06a6c8576 span=a6a077d1973747ef] Starting DeadConsumerDetectionJob: interval=60000ms, timer will fire every 60s
+16:53:35.209 [vert.x-eventloop-thread-0] INFO  d.m.p.d.c.DeadConsumerDetectionJob - [trace=fdb46bff141b1b8f913a11d06a6c8576 span=a6a077d1973747ef] DeadConsumerDetectionJob started: timerId=6
+16:53:35.210 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=f06c71b450afd88a414276849432fed3 span=7e7a2bba014bb9f3] Started dead consumer detection job: interval=60000ms
+16:53:35.213 [vert.x-eventloop-thread-0] INFO  d.m.p.db.health.HealthCheckManager - [trace=f06c71b450afd88a414276849432fed3 span=1c9fd0ae2da81801] Database connection pool validated successfully
+16:53:35.213 [vert.x-eventloop-thread-0] INFO  d.m.p.db.health.HealthCheckManager - [trace=f06c71b450afd88a414276849432fed3 span=1c9fd0ae2da81801] Health check manager started with initial delay: PT0.1S, interval: PT30S
+16:53:35.213 [vert.x-eventloop-thread-0] INFO  d.m.p.db.health.HealthCheckManager - [trace=f06c71b450afd88a414276849432fed3 span=1c9fd0ae2da81801] Health check manager started reactively with initial delay 100ms, interval: PT30S
+16:53:35.214 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=f06c71b450afd88a414276849432fed3 span=1c9fd0ae2da81801] All PeeGeeQ components started successfully
+16:53:35.214 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=f06c71b450afd88a414276849432fed3 span=2531a349ccab20d2] PeeGeeQ Manager started successfully
+16:53:35.214 [main] INFO  d.m.p.d.p.PgConnectionProvider - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@6a7b523b: Initialized PgConnectionProvider@308034aa
+16:53:35.214 [main] INFO  d.m.p.db.provider.PgMetricsProvider - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Initialized PgMetricsProvider with instance ID: peegeeq-default
+16:53:35.214 [main] INFO  d.m.p.db.provider.PgDatabaseService - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@6a7b523b: Initialized PgDatabaseService@6dc6608c
+16:53:35.215 [main] INFO  d.mars.peegeeq.outbox.OutboxFactory - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Initialized OutboxFactory with configuration: enabled (clientId: default)
+16:53:35.215 [main] INFO  d.mars.peegeeq.outbox.OutboxFactory - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Creating outbox producer for topic: test-topic
+16:53:35.215 [main] INFO  d.mars.peegeeq.outbox.OutboxProducer - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Created outbox producer for topic: test-topic (using DatabaseService, clientId: default)
+16:53:35.216 [peegeeq-health-check-worker-1] INFO  d.m.p.d.r.CircuitBreakerManager - [trace=- span=-] Created circuit breaker: database
+16:53:35.225 [vert.x-eventloop-thread-0] ERROR d.m.p.d.c.DeadConsumerDetectionJob - [trace=8c7f16c2db04d8173e1eb47c8ceb3048 span=900f670592c33a3f] Detection run #1 failed (16ms): ERROR: relation "outbox_topic_subscriptions" does not exist (42P01)
+io.vertx.pgclient.PgException: ERROR: relation "outbox_topic_subscriptions" does not exist (42P01)
+16:53:35.226 [main] INFO  d.mars.peegeeq.outbox.OutboxFactory - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Closing OutboxFactory
+16:53:35.227 [main] INFO  d.mars.peegeeq.outbox.OutboxFactory - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Closing 1 tracked resources
+16:53:35.227 [main] INFO  d.mars.peegeeq.outbox.OutboxProducer - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Closed outbox producer for topic: test-topic
+16:53:35.227 [main] INFO  d.mars.peegeeq.outbox.OutboxFactory - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] OutboxFactory closed successfully
+16:53:35.227 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PeeGeeQManager.closeReactive() called - starting shutdown sequence
+16:53:35.227 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Stopping PeeGeeQ Manager...
+16:53:35.227 [main] INFO  d.m.p.d.c.DeadConsumerDetectionJob - [trace=fdb46bff141b1b8f913a11d06a6c8576 span=a6a077d1973747ef] Stopping DeadConsumerDetectionJob: timerId=6, totalRuns=1, totalDeadDetected=0, totalFailures=1, totalMessagesDecremented=0, totalOrphanRowsRemoved=0, totalMessagesAutoCompleted=0, avgRunTimeMs=16
+16:53:35.227 [main] INFO  d.m.p.d.c.DeadConsumerDetectionJob - [trace=fdb46bff141b1b8f913a11d06a6c8576 span=a6a077d1973747ef] DeadConsumerDetectionJob stopped
+16:53:35.227 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Stopping health check manager reactively...
+16:53:35.227 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PeeGeeQ Manager stopped successfully
+16:53:35.227 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Running 1 registered close hooks
+16:53:35.227 [peegeeq-health-check-worker-1] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: database - Reactive database health check failed: null
+16:53:35.227 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=- span=-] Closing client factory
+16:53:35.227 [peegeeq-health-check-worker-1] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: dead-letter-queue - Skipped ù health check manager stopped
+16:53:35.228 [vert.x-eventloop-thread-0] INFO  d.m.p.d.c.PgConnectionManager - [trace=- span=-] PgConnectionManager@6a7b523b: Closing all 1 pool(s) asynchronously
+16:53:35.228 [peegeeq-health-check-worker-1] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: memory - Skipped ù health check manager stopped
+16:53:35.228 [peegeeq-health-check-worker-1] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: outbox-queue - Skipped ù health check manager stopped
+16:53:35.228 [peegeeq-health-check-worker-1] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: native-queue - Skipped ù health check manager stopped
+16:53:35.234 [vert.x-eventloop-thread-0] INFO  d.m.p.d.c.PgConnectionManager - [trace=- span=-] PgConnectionManager@6a7b523b: Closed successfully (1 pool(s))
+16:53:35.234 [vert.x-eventloop-thread-0] INFO  d.m.p.db.client.PgClientFactory - [trace=- span=-] PgClientFactory closed
+16:53:35.234 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=- span=-] Client factory closed successfully
+16:53:35.234 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=- span=-] PeeGeeQManager.closeReactive() cleanup completed
+16:53:35.234 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=- span=-] Closing Vert.x instance (manager-owned)
+16:53:35.241 [vert.x-eventloop-thread-25] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=- span=-] Vert.x instance closed successfully
+16:53:35.297 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Configuration validation passed
+16:53:35.298 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Loaded PeeGeeQ configuration for profile: order-purge with explicit database config
+16:53:35.298 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Initializing PeeGeeQ Manager with profile: order-purge
+16:53:35.320 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Created new Vert.x instance (manager ownership)
+16:53:35.320 [main] INFO  d.m.p.d.c.PgConnectionManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@5c24a636: Initialized with Vert.x 5.x reactive support (notice handling: enabled)
+16:53:35.320 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] DB-DEBUG: Creating client with host=localhost, port=60727, db=testdb, user=testuser
+16:53:35.320 [main] INFO  d.m.p.d.c.PgConnectionManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@5c24a636: Service 'peegeeq-main' configured with search_path=order, host=localhost, db=testdb
+16:53:35.321 [main] INFO  d.m.p.d.c.PgConnectionManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@5c24a636: Service 'peegeeq-main' created reactive pool (maxSize=32, shared=true)
+16:53:35.321 [main] INFO  d.m.p.db.client.PgClientFactory - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Initialized reactive PG pool for client 'peegeeq-main'
+16:53:35.321 [main] INFO  d.m.p.d.r.CircuitBreakerManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Circuit breaker manager initialized with config: dev.mars.peegeeq.db.config.PeeGeeQConfiguration$CircuitBreakerConfig@5e5af20c
+16:53:35.321 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Registered health check: database
+16:53:35.321 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Registered health check: outbox-queue
+16:53:35.321 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Registered health check: native-queue
+16:53:35.321 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Registered health check: dead-letter-queue
+16:53:35.321 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Queue health checks enabled (outbox, native-queue, dead-letter-queue)
+16:53:35.321 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Registered health check: memory
+16:53:35.321 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Registered health check: disk-space
+16:53:35.321 [main] INFO  d.m.p.d.r.BackpressureManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Backpressure manager initialized with max concurrent operations: 50, timeout: PT30S
+16:53:35.321 [main] INFO  d.m.p.d.r.StuckMessageRecoveryManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] StuckMessageRecoveryManager initialized (reactive) - enabled: true, timeout: PT5M
+16:53:35.322 [main] INFO  d.m.p.db.metrics.PeeGeeQMetrics - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PeeGeeQ metrics registered for instance: peegeeq-default
+16:53:35.322 [main] INFO  d.m.p.d.p.PgConnectionProvider - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@5c24a636: Initialized PgConnectionProvider@e83d546
+16:53:35.322 [main] INFO  d.m.p.db.provider.PgMetricsProvider - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Initialized PgMetricsProvider with instance ID: peegeeq-default
+16:53:35.322 [main] INFO  d.m.p.db.provider.PgDatabaseService - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@5c24a636: Initialized PgDatabaseService@7408c08
+16:53:35.322 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgQueueFactoryProvider initialized - factories should be registered by their respective modules
+16:53:35.322 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgQueueFactoryProvider initialized - factories will be registered by their respective modules
+16:53:35.322 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PeeGeeQ Manager initialized successfully
+16:53:35.322 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Starting PeeGeeQ Manager with reactive lifecycle events...
+16:53:35.322 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Validating database connectivity...
+16:53:35.340 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=- span=-] Database connectivity validated successfully
+16:53:35.341 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=d4bddb1205e96750c16db90e0303397b span=f4c85679f2f24d6d] Starting all PeeGeeQ components...
+16:53:35.341 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0cd43c8d6dce16189ad89dd4a7cc3b96 span=51b77bac77b50497] Started metrics collection every PT1M
+16:53:35.342 [vert.x-eventloop-thread-0] INFO  d.m.p.d.cleanup.DeadConsumerDetector - [trace=0cd43c8d6dce16189ad89dd4a7cc3b96 span=35f735c9cb75e479] DeadConsumerDetector initialized for service: peegeeq-main
+16:53:35.342 [vert.x-eventloop-thread-0] INFO  d.m.p.d.c.DeadConsumerGroupCleanup - [trace=0cd43c8d6dce16189ad89dd4a7cc3b96 span=35f735c9cb75e479] DeadConsumerGroupCleanup initialized for service: peegeeq-main
+16:53:35.342 [vert.x-eventloop-thread-0] INFO  d.m.p.d.c.DeadConsumerDetectionJob - [trace=0cd43c8d6dce16189ad89dd4a7cc3b96 span=35f735c9cb75e479] DeadConsumerDetectionJob created: interval=60000ms (60s), cleanup=enabled
+16:53:35.342 [vert.x-eventloop-thread-0] INFO  d.m.p.d.c.DeadConsumerDetectionJob - [trace=51bc719a30034aa0b3b0c3efa5d9e79a span=1b1b13fa5abd202f] Starting DeadConsumerDetectionJob: interval=60000ms, timer will fire every 60s
+16:53:35.343 [vert.x-eventloop-thread-0] INFO  d.m.p.d.c.DeadConsumerDetectionJob - [trace=51bc719a30034aa0b3b0c3efa5d9e79a span=1b1b13fa5abd202f] DeadConsumerDetectionJob started: timerId=6
+16:53:35.343 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0cd43c8d6dce16189ad89dd4a7cc3b96 span=35f735c9cb75e479] Started dead consumer detection job: interval=60000ms
+16:53:35.346 [vert.x-eventloop-thread-0] INFO  d.m.p.db.health.HealthCheckManager - [trace=0cd43c8d6dce16189ad89dd4a7cc3b96 span=a9d318d7db796d4a] Database connection pool validated successfully
+16:53:35.347 [vert.x-eventloop-thread-0] INFO  d.m.p.db.health.HealthCheckManager - [trace=0cd43c8d6dce16189ad89dd4a7cc3b96 span=a9d318d7db796d4a] Health check manager started with initial delay: PT0.1S, interval: PT30S
+16:53:35.347 [vert.x-eventloop-thread-0] INFO  d.m.p.db.health.HealthCheckManager - [trace=0cd43c8d6dce16189ad89dd4a7cc3b96 span=a9d318d7db796d4a] Health check manager started reactively with initial delay 100ms, interval: PT30S
+16:53:35.347 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0cd43c8d6dce16189ad89dd4a7cc3b96 span=a9d318d7db796d4a] All PeeGeeQ components started successfully
+16:53:35.347 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0cd43c8d6dce16189ad89dd4a7cc3b96 span=751b5e3bcccbac6b] PeeGeeQ Manager started successfully
+16:53:35.347 [main] INFO  d.m.p.d.p.PgConnectionProvider - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@5c24a636: Initialized PgConnectionProvider@767f03c5
+16:53:35.347 [main] INFO  d.m.p.db.provider.PgMetricsProvider - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Initialized PgMetricsProvider with instance ID: peegeeq-default
+16:53:35.347 [main] INFO  d.m.p.db.provider.PgDatabaseService - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@5c24a636: Initialized PgDatabaseService@58d8e971
+16:53:35.348 [main] INFO  d.mars.peegeeq.outbox.OutboxFactory - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Initialized OutboxFactory with configuration: enabled (clientId: default)
+16:53:35.348 [main] INFO  d.mars.peegeeq.outbox.OutboxFactory - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Creating outbox producer for topic: test-topic
+16:53:35.348 [main] INFO  d.mars.peegeeq.outbox.OutboxProducer - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Created outbox producer for topic: test-topic (using DatabaseService, clientId: default)
+16:53:35.348 [peegeeq-health-check-worker-1] INFO  d.m.p.d.r.CircuitBreakerManager - [trace=- span=-] Created circuit breaker: database
+16:53:35.355 [main] INFO  d.mars.peegeeq.outbox.OutboxFactory - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Purging outbox queue messages for topic: test-topic
+16:53:35.359 [main] INFO  d.mars.peegeeq.outbox.OutboxFactory - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Closing OutboxFactory
+16:53:35.359 [vert.x-eventloop-thread-0] ERROR d.m.p.d.c.DeadConsumerDetectionJob - [trace=6147bc711096641dd4059200ff23ec2c span=c9d7a075b7a1955a] Detection run #1 failed (17ms): ERROR: relation "outbox_topic_subscriptions" does not exist (42P01)
+io.vertx.pgclient.PgException: ERROR: relation "outbox_topic_subscriptions" does not exist (42P01)
+16:53:35.359 [main] INFO  d.mars.peegeeq.outbox.OutboxFactory - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Closing 1 tracked resources
+16:53:35.359 [main] INFO  d.mars.peegeeq.outbox.OutboxProducer - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Closed outbox producer for topic: test-topic
+16:53:35.360 [main] INFO  d.mars.peegeeq.outbox.OutboxFactory - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] OutboxFactory closed successfully
+16:53:35.360 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PeeGeeQManager.closeReactive() called - starting shutdown sequence
+16:53:35.360 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Stopping PeeGeeQ Manager...
+16:53:35.360 [main] INFO  d.m.p.d.c.DeadConsumerDetectionJob - [trace=51bc719a30034aa0b3b0c3efa5d9e79a span=1b1b13fa5abd202f] Stopping DeadConsumerDetectionJob: timerId=6, totalRuns=1, totalDeadDetected=0, totalFailures=1, totalMessagesDecremented=0, totalOrphanRowsRemoved=0, totalMessagesAutoCompleted=0, avgRunTimeMs=17
+16:53:35.360 [main] INFO  d.m.p.d.c.DeadConsumerDetectionJob - [trace=51bc719a30034aa0b3b0c3efa5d9e79a span=1b1b13fa5abd202f] DeadConsumerDetectionJob stopped
+16:53:35.360 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Stopping health check manager reactively...
+16:53:35.361 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PeeGeeQ Manager stopped successfully
+16:53:35.361 [peegeeq-health-check-worker-1] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: database - Reactive database health check failed: null
+16:53:35.361 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Running 1 registered close hooks
+16:53:35.361 [peegeeq-health-check-worker-1] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: dead-letter-queue - Skipped ù health check manager stopped
+16:53:35.361 [peegeeq-health-check-worker-1] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: memory - Skipped ù health check manager stopped
+16:53:35.361 [peegeeq-health-check-worker-1] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: outbox-queue - Skipped ù health check manager stopped
+16:53:35.361 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=- span=-] Closing client factory
+16:53:35.361 [peegeeq-health-check-worker-1] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: native-queue - Skipped ù health check manager stopped
+16:53:35.361 [vert.x-eventloop-thread-0] INFO  d.m.p.d.c.PgConnectionManager - [trace=- span=-] PgConnectionManager@5c24a636: Closing all 1 pool(s) asynchronously
+16:53:35.368 [vert.x-eventloop-thread-0] INFO  d.m.p.d.c.PgConnectionManager - [trace=- span=-] PgConnectionManager@5c24a636: Closed successfully (1 pool(s))
+16:53:35.368 [vert.x-eventloop-thread-0] INFO  d.m.p.db.client.PgClientFactory - [trace=- span=-] PgClientFactory closed
+16:53:35.368 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=- span=-] Client factory closed successfully
+16:53:35.368 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=- span=-] PeeGeeQManager.closeReactive() cleanup completed
+16:53:35.368 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=- span=-] Closing Vert.x instance (manager-owned)
+16:53:35.378 [vert.x-eventloop-thread-25] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=- span=-] Vert.x instance closed successfully
+16:53:35.434 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Configuration validation passed
+16:53:35.434 [main] INFO  d.m.p.db.config.PeeGeeQConfiguration - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Loaded PeeGeeQ configuration for profile: order-stats with explicit database config
+16:53:35.435 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Initializing PeeGeeQ Manager with profile: order-stats
+16:53:35.455 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Created new Vert.x instance (manager ownership)
+16:53:35.455 [main] INFO  d.m.p.d.c.PgConnectionManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@52294ab7: Initialized with Vert.x 5.x reactive support (notice handling: enabled)
+16:53:35.455 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] DB-DEBUG: Creating client with host=localhost, port=60727, db=testdb, user=testuser
+16:53:35.455 [main] INFO  d.m.p.d.c.PgConnectionManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@52294ab7: Service 'peegeeq-main' configured with search_path=order, host=localhost, db=testdb
+16:53:35.455 [main] INFO  d.m.p.d.c.PgConnectionManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@52294ab7: Service 'peegeeq-main' created reactive pool (maxSize=32, shared=true)
+16:53:35.456 [main] INFO  d.m.p.db.client.PgClientFactory - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Initialized reactive PG pool for client 'peegeeq-main'
+16:53:35.456 [main] INFO  d.m.p.d.r.CircuitBreakerManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Circuit breaker manager initialized with config: dev.mars.peegeeq.db.config.PeeGeeQConfiguration$CircuitBreakerConfig@39e08d73
+16:53:35.456 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Registered health check: database
+16:53:35.456 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Registered health check: outbox-queue
+16:53:35.456 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Registered health check: native-queue
+16:53:35.456 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Registered health check: dead-letter-queue
+16:53:35.456 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Queue health checks enabled (outbox, native-queue, dead-letter-queue)
+16:53:35.456 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Registered health check: memory
+16:53:35.456 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Registered health check: disk-space
+16:53:35.456 [main] INFO  d.m.p.d.r.BackpressureManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Backpressure manager initialized with max concurrent operations: 50, timeout: PT30S
+16:53:35.456 [main] INFO  d.m.p.d.r.StuckMessageRecoveryManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] StuckMessageRecoveryManager initialized (reactive) - enabled: true, timeout: PT5M
+16:53:35.457 [main] INFO  d.m.p.db.metrics.PeeGeeQMetrics - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PeeGeeQ metrics registered for instance: peegeeq-default
+16:53:35.457 [main] INFO  d.m.p.d.p.PgConnectionProvider - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@52294ab7: Initialized PgConnectionProvider@5839306e
+16:53:35.457 [main] INFO  d.m.p.db.provider.PgMetricsProvider - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Initialized PgMetricsProvider with instance ID: peegeeq-default
+16:53:35.457 [main] INFO  d.m.p.db.provider.PgDatabaseService - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@52294ab7: Initialized PgDatabaseService@650fb50f
+16:53:35.457 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgQueueFactoryProvider initialized - factories should be registered by their respective modules
+16:53:35.457 [main] INFO  d.m.p.d.p.PgQueueFactoryProvider - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgQueueFactoryProvider initialized - factories will be registered by their respective modules
+16:53:35.457 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PeeGeeQ Manager initialized successfully
+16:53:35.457 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Starting PeeGeeQ Manager with reactive lifecycle events...
+16:53:35.457 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Validating database connectivity...
+16:53:35.473 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=- span=-] Database connectivity validated successfully
+16:53:35.473 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=b7382ebc763fcd209016a7503297f383 span=7fdfd82d9a56b8d3] Starting all PeeGeeQ components...
+16:53:35.474 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=9feec68e4852789c748d87a3e908aaa6 span=e4c4c00b41484b6f] Started metrics collection every PT1M
+16:53:35.474 [vert.x-eventloop-thread-0] INFO  d.m.p.d.cleanup.DeadConsumerDetector - [trace=9feec68e4852789c748d87a3e908aaa6 span=82c3e29e95dc1f2c] DeadConsumerDetector initialized for service: peegeeq-main
+16:53:35.475 [vert.x-eventloop-thread-0] INFO  d.m.p.d.c.DeadConsumerGroupCleanup - [trace=9feec68e4852789c748d87a3e908aaa6 span=82c3e29e95dc1f2c] DeadConsumerGroupCleanup initialized for service: peegeeq-main
+16:53:35.475 [vert.x-eventloop-thread-0] INFO  d.m.p.d.c.DeadConsumerDetectionJob - [trace=9feec68e4852789c748d87a3e908aaa6 span=82c3e29e95dc1f2c] DeadConsumerDetectionJob created: interval=60000ms (60s), cleanup=enabled
+16:53:35.475 [vert.x-eventloop-thread-0] INFO  d.m.p.d.c.DeadConsumerDetectionJob - [trace=4e1c4e7707edd2b542cf523fa3c7fe46 span=5ef785dc05a02fd7] Starting DeadConsumerDetectionJob: interval=60000ms, timer will fire every 60s
+16:53:35.475 [vert.x-eventloop-thread-0] INFO  d.m.p.d.c.DeadConsumerDetectionJob - [trace=4e1c4e7707edd2b542cf523fa3c7fe46 span=5ef785dc05a02fd7] DeadConsumerDetectionJob started: timerId=6
+16:53:35.475 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=9feec68e4852789c748d87a3e908aaa6 span=82c3e29e95dc1f2c] Started dead consumer detection job: interval=60000ms
+16:53:35.477 [vert.x-eventloop-thread-0] INFO  d.m.p.db.health.HealthCheckManager - [trace=9feec68e4852789c748d87a3e908aaa6 span=20c2114323e08c5b] Database connection pool validated successfully
+16:53:35.478 [vert.x-eventloop-thread-0] INFO  d.m.p.db.health.HealthCheckManager - [trace=9feec68e4852789c748d87a3e908aaa6 span=20c2114323e08c5b] Health check manager started with initial delay: PT0.1S, interval: PT30S
+16:53:35.478 [vert.x-eventloop-thread-0] INFO  d.m.p.db.health.HealthCheckManager - [trace=9feec68e4852789c748d87a3e908aaa6 span=20c2114323e08c5b] Health check manager started reactively with initial delay 100ms, interval: PT30S
+16:53:35.478 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=9feec68e4852789c748d87a3e908aaa6 span=20c2114323e08c5b] All PeeGeeQ components started successfully
+16:53:35.478 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=9feec68e4852789c748d87a3e908aaa6 span=8ba5c7651d599b1f] PeeGeeQ Manager started successfully
+16:53:35.478 [main] INFO  d.m.p.d.p.PgConnectionProvider - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@52294ab7: Initialized PgConnectionProvider@748321c5
+16:53:35.478 [main] INFO  d.m.p.db.provider.PgMetricsProvider - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Initialized PgMetricsProvider with instance ID: peegeeq-default
+16:53:35.478 [main] INFO  d.m.p.db.provider.PgDatabaseService - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PgConnectionManager@52294ab7: Initialized PgDatabaseService@e0eecbe
+16:53:35.479 [main] INFO  d.mars.peegeeq.outbox.OutboxFactory - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Initialized OutboxFactory with configuration: enabled (clientId: default)
+16:53:35.479 [main] INFO  d.mars.peegeeq.outbox.OutboxFactory - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Creating outbox producer for topic: test-topic
+16:53:35.479 [main] INFO  d.mars.peegeeq.outbox.OutboxProducer - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Created outbox producer for topic: test-topic (using DatabaseService, clientId: default)
+16:53:35.480 [peegeeq-health-check-worker-1] INFO  d.m.p.d.r.CircuitBreakerManager - [trace=- span=-] Created circuit breaker: database
+16:53:35.487 [vert.x-eventloop-thread-0] WARN  d.mars.peegeeq.outbox.OutboxFactory - [trace=- span=-] Failed to get async stats for topic test-topic: ERROR: syntax error at or near "order" (42601)
+16:53:35.488 [vert.x-eventloop-thread-0] ERROR d.m.p.d.c.DeadConsumerDetectionJob - [trace=f46cdaa8dc995b1b018c6e7acf2dc5db span=05e46c454eb4090f] Detection run #1 failed (13ms): ERROR: relation "outbox_topic_subscriptions" does not exist (42P01)
+io.vertx.pgclient.PgException: ERROR: relation "outbox_topic_subscriptions" does not exist (42P01)
+16:53:35.490 [main] INFO  d.mars.peegeeq.outbox.OutboxFactory - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Closing OutboxFactory
+16:53:35.490 [main] INFO  d.mars.peegeeq.outbox.OutboxFactory - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Closing 1 tracked resources
+16:53:35.490 [main] INFO  d.mars.peegeeq.outbox.OutboxProducer - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Closed outbox producer for topic: test-topic
+16:53:35.490 [main] INFO  d.mars.peegeeq.outbox.OutboxFactory - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] OutboxFactory closed successfully
+16:53:35.490 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PeeGeeQManager.closeReactive() called - starting shutdown sequence
+16:53:35.490 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Stopping PeeGeeQ Manager...
+16:53:35.490 [main] INFO  d.m.p.d.c.DeadConsumerDetectionJob - [trace=4e1c4e7707edd2b542cf523fa3c7fe46 span=5ef785dc05a02fd7] Stopping DeadConsumerDetectionJob: timerId=6, totalRuns=1, totalDeadDetected=0, totalFailures=1, totalMessagesDecremented=0, totalOrphanRowsRemoved=0, totalMessagesAutoCompleted=0, avgRunTimeMs=13
+16:53:35.490 [main] INFO  d.m.p.d.c.DeadConsumerDetectionJob - [trace=4e1c4e7707edd2b542cf523fa3c7fe46 span=5ef785dc05a02fd7] DeadConsumerDetectionJob stopped
+16:53:35.490 [main] INFO  d.m.p.db.health.HealthCheckManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Stopping health check manager reactively...
+16:53:35.490 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] PeeGeeQ Manager stopped successfully
+16:53:35.490 [main] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=0883f904c23334e430b7972f8c697172 span=6cc175f9b8c1b6ba] Running 1 registered close hooks
+16:53:35.490 [peegeeq-health-check-worker-1] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: database - Reactive database health check failed: null
+16:53:35.491 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=- span=-] Closing client factory
+16:53:35.491 [peegeeq-health-check-worker-1] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: dead-letter-queue - Skipped ù health check manager stopped
+16:53:35.491 [vert.x-eventloop-thread-0] INFO  d.m.p.d.c.PgConnectionManager - [trace=- span=-] PgConnectionManager@52294ab7: Closing all 1 pool(s) asynchronously
+16:53:35.491 [peegeeq-health-check-worker-1] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: memory - Skipped ù health check manager stopped
+16:53:35.491 [peegeeq-health-check-worker-1] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: outbox-queue - Skipped ù health check manager stopped
+16:53:35.491 [peegeeq-health-check-worker-1] WARN  d.m.p.db.health.HealthCheckManager - [trace=- span=-] Health check failed: native-queue - Skipped ù health check manager stopped
+16:53:35.496 [vert.x-eventloop-thread-0] INFO  d.m.p.d.c.PgConnectionManager - [trace=- span=-] PgConnectionManager@52294ab7: Closed successfully (1 pool(s))
+16:53:35.496 [vert.x-eventloop-thread-0] INFO  d.m.p.db.client.PgClientFactory - [trace=- span=-] PgClientFactory closed
+16:53:35.496 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=- span=-] Client factory closed successfully
+16:53:35.496 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=- span=-] PeeGeeQManager.closeReactive() cleanup completed
+16:53:35.496 [vert.x-eventloop-thread-0] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=- span=-] Closing Vert.x instance (manager-owned)
+16:53:35.501 [vert.x-eventloop-thread-25] INFO  dev.mars.peegeeq.db.PeeGeeQManager - [trace=- span=-] Vert.x instance closed successfully
+[ERROR] Tests run: 5, Failures: 1, Errors: 3, Skipped: 0, Time elapsed: 8.039 s <<< FAILURE! -- in dev.mars.peegeeq.outbox.OutboxSchemaQuotingTest
+[ERROR] dev.mars.peegeeq.outbox.OutboxSchemaQuotingTest.simpleSchemaNameShouldWork(Vertx, VertxTestContext) -- Time elapsed: 2.613 s
+[ERROR] dev.mars.peegeeq.outbox.OutboxSchemaQuotingTest.reservedWordSelectShouldWork(Vertx, VertxTestContext) -- Time elapsed: 0.148 s <<< ERROR!
+java.util.concurrent.ExecutionException: io.vertx.pgclient.PgException: ERROR: syntax error at or near "select" (42601)
+	at java.base/java.util.concurrent.CompletableFuture.reportGet(CompletableFuture.java:396)
+	at java.base/java.util.concurrent.CompletableFuture.get(CompletableFuture.java:2096)
+	at dev.mars.peegeeq.outbox.OutboxSchemaQuotingTest.reservedWordSelectShouldWork(OutboxSchemaQuotingTest.java:295)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at io.vertx.junit5.VertxExtension.interceptTestMethod(VertxExtension.java:142)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+Caused by: io.vertx.pgclient.PgException: ERROR: syntax error at or near "select" (42601)
+
+[ERROR] dev.mars.peegeeq.outbox.OutboxSchemaQuotingTest.reservedWordOrderShouldWorkForCount(Vertx, VertxTestContext) -- Time elapsed: 0.178 s <<< ERROR!
+java.util.concurrent.ExecutionException: io.vertx.pgclient.PgException: ERROR: syntax error at or near "order" (42601)
+	at java.base/java.util.concurrent.CompletableFuture.reportGet(CompletableFuture.java:396)
+	at java.base/java.util.concurrent.CompletableFuture.get(CompletableFuture.java:2096)
+	at dev.mars.peegeeq.outbox.OutboxSchemaQuotingTest.reservedWordOrderShouldWorkForCount(OutboxSchemaQuotingTest.java:234)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at io.vertx.junit5.VertxExtension.interceptTestMethod(VertxExtension.java:142)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+Caused by: io.vertx.pgclient.PgException: ERROR: syntax error at or near "order" (42601)
+
+[ERROR] dev.mars.peegeeq.outbox.OutboxSchemaQuotingTest.reservedWordOrderShouldWorkForPurge(Vertx, VertxTestContext) -- Time elapsed: 0.135 s <<< ERROR!
+java.util.concurrent.ExecutionException: io.vertx.pgclient.PgException: ERROR: syntax error at or near "order" (42601)
+	at java.base/java.util.concurrent.CompletableFuture.reportGet(CompletableFuture.java:396)
+	at java.base/java.util.concurrent.CompletableFuture.get(CompletableFuture.java:2096)
+	at dev.mars.peegeeq.outbox.OutboxSchemaQuotingTest.reservedWordOrderShouldWorkForPurge(OutboxSchemaQuotingTest.java:265)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at io.vertx.junit5.VertxExtension.interceptTestMethod(VertxExtension.java:142)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+Caused by: io.vertx.pgclient.PgException: ERROR: syntax error at or near "order" (42601)
+
+[ERROR] dev.mars.peegeeq.outbox.OutboxSchemaQuotingTest.reservedWordOrderShouldWorkForStats(Vertx, VertxTestContext) -- Time elapsed: 0.121 s <<< FAILURE!
+org.opentest4j.AssertionFailedError: getStatsAsync with reserved-word schema 'order' should return 1 pending message. Got 0 because unquoted 'FROM order.outbox' is a SQL syntax error and .recover() silently swallowed it. ==> expected: <1> but was: <0>
+	at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+	at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+	at org.junit.jupiter.api.AssertEquals.failNotEqual(AssertEquals.java:197)
+	at org.junit.jupiter.api.AssertEquals.assertEquals(AssertEquals.java:166)
+	at org.junit.jupiter.api.Assertions.assertEquals(Assertions.java:664)
+	at dev.mars.peegeeq.outbox.OutboxSchemaQuotingTest.reservedWordOrderShouldWorkForStats(OutboxSchemaQuotingTest.java:205)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at io.vertx.junit5.VertxExtension.interceptTestMethod(VertxExtension.java:142)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1596)
+
+[INFO] 
+[INFO] Results:
+[INFO] 
+[ERROR] Failures: 
+[ERROR]   OutboxSchemaQuotingTest.reservedWordOrderShouldWorkForStats:205 getStatsAsync with reserved-word schema 'order' should return 1 pending message. Got 0 because unquoted 'FROM order.outbox' is a SQL syntax error and .recover() silently swallowed it. ==> expected: <1> but was: <0>
+[ERROR] Errors: 
+[ERROR]   OutboxSchemaQuotingTest.reservedWordOrderShouldWorkForCount:234 ╗ Execution io.vertx.pgclient.PgException: ERROR: syntax error at or near "order" (42601)
+[ERROR]   OutboxSchemaQuotingTest.reservedWordOrderShouldWorkForPurge:265 ╗ Execution io.vertx.pgclient.PgException: ERROR: syntax error at or near "order" (42601)
+[ERROR]   OutboxSchemaQuotingTest.reservedWordSelectShouldWork:295 ╗ Execution io.vertx.pgclient.PgException: ERROR: syntax error at or near "select" (42601)
+[INFO] 
+[ERROR] Tests run: 5, Failures: 1, Errors: 3, Skipped: 0
+[INFO] 
+[INFO] ------------------------------------------------------------------------
+[INFO] BUILD FAILURE
+[INFO] ------------------------------------------------------------------------
+[INFO] Total time:  12.707 s
+[INFO] Finished at: 2026-03-18T16:53:36+08:00
+[INFO] ------------------------------------------------------------------------
+[ERROR] Failed to execute goal org.apache.maven.plugins:maven-surefire-plugin:3.2.5:test (default-test) on project peegeeq-outbox: There are test failures.
+[ERROR] 
+[ERROR] Please refer to C:\Users\markr\dev\java\corejava\peegeeq\peegeeq-outbox\target\surefire-reports for the individual test results.
+[ERROR] Please refer to dump files (if any exist) [date].dump, [date]-jvmRun[N].dump and [date].dumpstream.
+[ERROR] -> [Help 1]
+[ERROR] 
+[ERROR] To see the full stack trace of the errors, re-run Maven with the -e switch.
+[ERROR] Re-run Maven using the -X switch to enable full debug logging.
+[ERROR] 
+[ERROR] For more information about the errors and possible solutions, please read the following articles:
+[ERROR] [Help 1] http://cwiki.apache.org/confluence/display/MAVEN/MojoFailureException

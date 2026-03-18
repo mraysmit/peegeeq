@@ -260,7 +260,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
 
         MetricsProvider metrics = getMetrics();
         ConsumerGroup<T> consumerGroup = new OutboxConsumerGroup<>(groupName, topic, payloadType,
-                databaseService, objectMapper, metrics, configuration);
+                databaseService, objectMapper, metrics, configuration, clientId);
 
         // Track the consumer group for cleanup
         createdResources.add(consumerGroup);
@@ -349,7 +349,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
                         MAX(created_at) as last_message
                     FROM %s.outbox
                     WHERE topic = $1
-                    """.formatted(configuration != null ? configuration.getDatabaseConfig().getSchema() : "peegeeq");
+                    """.formatted(quoteIdentifier(configuration != null ? configuration.getDatabaseConfig().getSchema() : "peegeeq"));
 
             io.vertx.sqlclient.Pool pool = getPool();
             if (pool == null) {
@@ -416,7 +416,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
                     MAX(created_at) as last_message
                 FROM %s.outbox
                 WHERE topic = $1
-                """.formatted(configuration != null ? configuration.getDatabaseConfig().getSchema() : "peegeeq");
+                """.formatted(quoteIdentifier(configuration != null ? configuration.getDatabaseConfig().getSchema() : "peegeeq"));
 
         return getPoolAsync()
                 .compose(pool -> {
@@ -473,7 +473,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
         }
 
         String sql = "SELECT COUNT(*) AS total FROM %s.outbox WHERE topic = $1"
-                .formatted(configuration != null ? configuration.getDatabaseConfig().getSchema() : "peegeeq");
+                .formatted(quoteIdentifier(configuration != null ? configuration.getDatabaseConfig().getSchema() : "peegeeq"));
 
         return getPoolAsync()
                 .compose(pool -> {
@@ -496,7 +496,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
         logger.info("Purging outbox queue messages for topic: {}", topic);
 
         String sql = "DELETE FROM %s.outbox WHERE topic = $1"
-                .formatted(configuration != null ? configuration.getDatabaseConfig().getSchema() : "peegeeq");
+                .formatted(quoteIdentifier(configuration != null ? configuration.getDatabaseConfig().getSchema() : "peegeeq"));
 
         return getPoolAsync()
                 .compose(pool -> {
@@ -613,5 +613,14 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
         mapper.registerModule(new JavaTimeModule());
         mapper.registerModule(JsonFormat.getCloudEventJacksonModule());
         return mapper;
+    }
+
+    /**
+     * Quotes a SQL identifier (e.g. schema name) using double-quote escaping
+     * per the SQL standard. This prevents SQL injection and ensures reserved words
+     * like "order" or "select" are treated as identifiers, not keywords.
+     */
+    static String quoteIdentifier(String identifier) {
+        return "\"" + identifier.replace("\"", "\"\"") + "\"";
     }
 }

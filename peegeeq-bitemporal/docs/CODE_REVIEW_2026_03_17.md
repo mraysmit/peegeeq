@@ -208,7 +208,7 @@ All 16 findings have been remediated and verified. 109 tests pass with 0 failure
 
 | ID | Finding | Status | Notes |
 |----|---------|--------|-------|
-| C1 | Unquoted table names in SQL | **DONE** | Added `quotedTableName` field; all 15 SQL interpolation points updated. Inner class `DatabaseWorkerVerticle` also quotes its own `tableName`. |
+| C1 | Unquoted table names in SQL | **DONE** | Added `quotedTableName` field; all 15 SQL interpolation points updated, including SQL generated in `DatabaseWorkerVerticle` via the enclosing store's quoted identifier. |
 | C2 | `pg_total_relation_size` string literal injection | **DONE** | Changed to `pg_total_relation_size($1::regclass)` with `tableName` as bind parameter. |
 | H1 | Dual `sharedVertx` singletons | **DONE** | Removed duplicate `sharedVertx` from `VertxPoolAdapter`; delegates to `PgBiTemporalEventStore.getOrCreateSharedVertx()`. |
 | H2 | Sync `close()` with async operations | **DONE** | Added `closeFuture()` composing stop → pool close → client close sequentially. `close()` delegates with 5s timeout. |
@@ -221,7 +221,7 @@ All 16 findings have been remediated and verified. 109 tests pass with 0 failure
 | ID | Finding | Status | Notes |
 |----|---------|--------|-------|
 | M1 | Aggressive default pool size | **DONE** | Default lowered from 100 to 20 with guidance to override via PeeGeeQManager config. |
-| M2 | `eventBusInstanceRegistry` leak | **DONE** | Moved `put()` to after full construction; added try-catch cleanup if `ReactiveNotificationHandler` construction fails. |
+| M2 | `eventBusInstanceRegistry` leak | **DONE** | Moved `put()` to after full construction so constructor failures cannot leave stale registry entries. |
 | M3 | `SELECT *` in `queryReactive` | **DONE** | Replaced with explicit 14-column list matching `mapRowToEvent()`. |
 | M4 | Non-thread-safe `reconnectAttempts` | **DONE** | Replaced with `AtomicInteger`; uses `incrementAndGet()` and `set()` for atomic operations. |
 

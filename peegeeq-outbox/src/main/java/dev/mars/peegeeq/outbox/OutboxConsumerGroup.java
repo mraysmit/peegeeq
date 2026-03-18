@@ -61,6 +61,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     private final ObjectMapper objectMapper;
     private final MetricsProvider metrics;
     private final PeeGeeQConfiguration configuration;
+    private final String clientId;
     private final Instant createdAt;
 
     private final Map<String, OutboxConsumerGroupMember<T>> members = new ConcurrentHashMap<>();
@@ -76,34 +77,47 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     public OutboxConsumerGroup(String groupName, String topic, Class<T> payloadType,
                               PgClientFactory clientFactory, ObjectMapper objectMapper, MetricsProvider metrics,
                               PeeGeeQConfiguration configuration) {
-        this.groupName = groupName;
-        this.topic = topic;
-        this.payloadType = payloadType;
-        this.clientFactory = clientFactory;
-        this.databaseService = null;
-        this.objectMapper = objectMapper;
-        this.metrics = metrics != null ? metrics : NoOpMetricsProvider.INSTANCE;
-        this.configuration = configuration;
-        this.createdAt = Instant.now();
+        this(groupName, topic, payloadType, clientFactory, null, objectMapper, metrics, configuration, null);
+    }
 
-        logger.info("Created outbox consumer group '{}' for topic '{}' (legacy PgClientFactory)", groupName, topic);
+    public OutboxConsumerGroup(String groupName, String topic, Class<T> payloadType,
+                              PgClientFactory clientFactory, ObjectMapper objectMapper, MetricsProvider metrics,
+                              PeeGeeQConfiguration configuration, String clientId) {
+        this(groupName, topic, payloadType, clientFactory, null, objectMapper, metrics, configuration, clientId);
     }
 
     public OutboxConsumerGroup(String groupName, String topic, Class<T> payloadType,
                               dev.mars.peegeeq.api.database.DatabaseService databaseService,
                               ObjectMapper objectMapper, MetricsProvider metrics,
                               PeeGeeQConfiguration configuration) {
+        this(groupName, topic, payloadType, null, databaseService, objectMapper, metrics, configuration, null);
+    }
+
+    public OutboxConsumerGroup(String groupName, String topic, Class<T> payloadType,
+                              dev.mars.peegeeq.api.database.DatabaseService databaseService,
+                              ObjectMapper objectMapper, MetricsProvider metrics,
+                              PeeGeeQConfiguration configuration, String clientId) {
+        this(groupName, topic, payloadType, null, databaseService, objectMapper, metrics, configuration, clientId);
+    }
+
+    private OutboxConsumerGroup(String groupName, String topic, Class<T> payloadType,
+                               PgClientFactory clientFactory,
+                               dev.mars.peegeeq.api.database.DatabaseService databaseService,
+                               ObjectMapper objectMapper, MetricsProvider metrics,
+                               PeeGeeQConfiguration configuration, String clientId) {
         this.groupName = groupName;
         this.topic = topic;
         this.payloadType = payloadType;
-        this.clientFactory = null;
+        this.clientFactory = clientFactory;
         this.databaseService = databaseService;
         this.objectMapper = objectMapper;
         this.metrics = metrics != null ? metrics : NoOpMetricsProvider.INSTANCE;
         this.configuration = configuration;
+        this.clientId = clientId;
         this.createdAt = Instant.now();
 
-        logger.info("Created outbox consumer group '{}' for topic '{}' (DatabaseService)", groupName, topic);
+        logger.info("Created outbox consumer group '{}' for topic '{}' (clientId: {})",
+                groupName, topic, clientId != null ? clientId : "default");
     }
     
     @Override
@@ -183,9 +197,9 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
             // Create the underlying consumer that will receive all messages
             OutboxConsumer<T> outboxConsumer;
             if (clientFactory != null) {
-                outboxConsumer = new OutboxConsumer<>(clientFactory, objectMapper, topic, payloadType, metrics, configuration);
+                outboxConsumer = new OutboxConsumer<>(clientFactory, objectMapper, topic, payloadType, metrics, configuration, clientId);
             } else if (databaseService != null) {
-                outboxConsumer = new OutboxConsumer<>(databaseService, objectMapper, topic, payloadType, metrics, configuration);
+                outboxConsumer = new OutboxConsumer<>(databaseService, objectMapper, topic, payloadType, metrics, configuration, clientId);
             } else {
                 throw new IllegalStateException("Both clientFactory and databaseService are null");
             }
@@ -377,7 +391,8 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
         if (groupFilter != null && !groupFilter.test(message)) {
             totalMessagesFiltered.incrementAndGet();
             logger.debug("Message {} filtered out by outbox group filter", message.getId());
-            return java.util.concurrent.CompletableFuture.completedFuture(null);
+            return java.util.concurrent.CompletableFuture.failedFuture(
+                    new MessageFilteredException(message.getId(), groupName, "rejected by group filter"));
         }
         
         // Find eligible consumers (those whose filters accept the message)
@@ -388,12 +403,11 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
         
         if (eligibleConsumers.isEmpty()) {
             totalMessagesFiltered.incrementAndGet();
-            logger.debug("Message {} has no eligible consumers in outbox group '{}', message will be marked as filtered",
+            logger.debug("Message {} has no eligible consumers in outbox group '{}', resetting to PENDING",
                 message.getId(), groupName);
 
-            // TODO: Consider if filtered messages should be reset to PENDING for other consumer groups
-            // or marked with a FILTERED status. For now, we complete successfully to avoid retries.
-            return java.util.concurrent.CompletableFuture.completedFuture(null);
+            return java.util.concurrent.CompletableFuture.failedFuture(
+                    new MessageFilteredException(message.getId(), groupName, "no eligible consumer in group"));
         }
         
         // Simple round-robin load balancing
