@@ -547,6 +547,13 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                     rootCause = error.getCause();
                 }
 
+                // Filtered messages should be reset to PENDING, not treated as failures
+                if (rootCause instanceof MessageFilteredException) {
+                    logger.debug("Message {} filtered by consumer group, resetting to PENDING: {}",
+                            messageId, rootCause.getMessage());
+                    return resetFilteredMessageToPending(messageId);
+                }
+
                 logger.warn("Message processing failed for {} in consumer group {}: {}",
                         messageId, consumerGroupName, rootCause.getMessage());
 
@@ -599,6 +606,39 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                                 "CRITICAL: Failed to mark message {} as completed: {} - MESSAGE MAY BE REPROCESSED",
                                 messageId, error.getMessage());
                         metrics.recordMessageFailed(topic, "COMPLETION_FAILURE");
+                    }
+                })
+                .mapEmpty();
+    }
+
+    /**
+     * Resets a filtered message back to PENDING so it can be picked up by other
+     * consumer groups. This is used when a consumer group's filter rejects a
+     * message — the message is not completed or failed, just not relevant to
+     * this group.
+     */
+    private Future<Void> resetFilteredMessageToPending(String messageId) {
+        if (closed.get()) {
+            logger.debug("Consumer is closed, skipping filtered message reset for {}", messageId);
+            return Future.succeededFuture();
+        }
+
+        String sql = "UPDATE outbox SET status = 'PENDING', processed_at = NULL WHERE id = $1";
+
+        return getReactivePoolFuture()
+                .compose(pool -> pool.preparedQuery(sql)
+                        .execute(Tuple.of(Long.parseLong(messageId))))
+                .compose(result -> {
+                    logger.debug("Reset filtered message {} to PENDING", messageId);
+                    return Future.succeededFuture();
+                })
+                .onFailure(error -> {
+                    if (closed.get()) {
+                        logger.debug("Pool closed during filtered message reset for {} - expected during shutdown",
+                                messageId);
+                    } else {
+                        logger.warn("Failed to reset filtered message {} to PENDING: {}", messageId,
+                                error.getMessage());
                     }
                 })
                 .mapEmpty();

@@ -77,7 +77,7 @@ public class OutboxQueueBrowser<T> implements QueueBrowser<T> {
                 WHERE topic = $1
                 ORDER BY id DESC
                 LIMIT $2 OFFSET $3
-                """.formatted(schema);
+                """.formatted(OutboxFactory.quoteIdentifier(schema));
 
         return pool.preparedQuery(sql)
                 .execute(Tuple.of(topic, limit, offset))
