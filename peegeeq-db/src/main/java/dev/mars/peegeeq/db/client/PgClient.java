@@ -92,7 +92,7 @@ public class PgClient implements AutoCloseable {
         return getReactiveConnection()
             .compose(connection -> {
                 return connectionConsumer.accept(connection)
-                    .onComplete(ar -> connection.close());
+                    .eventually(connection::close);
             });
     }
 
@@ -107,7 +107,7 @@ public class PgClient implements AutoCloseable {
         return getReactiveConnection()
             .compose(connection -> {
                 return connectionFunction.apply(connection)
-                    .onComplete(ar -> connection.close());
+                    .eventually(connection::close);
             });
     }
 

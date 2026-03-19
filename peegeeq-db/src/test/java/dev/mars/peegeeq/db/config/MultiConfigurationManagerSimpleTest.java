@@ -10,6 +10,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -53,10 +54,12 @@ class MultiConfigurationManagerSimpleTest {
     void testMultiConfigurationManagerBasicShape() {
         assertNotNull(MultiConfigurationManager.class);
 
-        try (MultiConfigurationManager configManager = new MultiConfigurationManager()) {
-            assertInstanceOf(AutoCloseable.class, configManager);
+        MultiConfigurationManager configManager = new MultiConfigurationManager();
+        try {
             assertTrue(configManager.getConfigurationNames().isEmpty());
             assertFalse(configManager.hasConfiguration("test"));
+        } finally {
+            closeManager(configManager);
         }
     }
     
@@ -102,7 +105,7 @@ class MultiConfigurationManagerSimpleTest {
             logger.info("Basic configuration management tests passed");
             
         } finally {
-            configManager.close();
+            closeManager(configManager);
         }
     }
 
@@ -137,7 +140,7 @@ class MultiConfigurationManagerSimpleTest {
             logger.info("Configuration registration logic tests passed");
 
         } finally {
-            configManager.close();
+            closeManager(configManager);
         }
     }
     
@@ -184,7 +187,7 @@ class MultiConfigurationManagerSimpleTest {
             
             // Can call start (will fail due to no configurations, but method exists)
             assertDoesNotThrow(() -> {
-                configManager.start(); // Should not throw, just do nothing
+                configManager.startReactive().toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS); // Should not throw, just do nothing
             });
             
             // After start with no configurations, should still work
@@ -192,13 +195,13 @@ class MultiConfigurationManagerSimpleTest {
             
             // Can call start again (should be idempotent)
             assertDoesNotThrow(() -> {
-                configManager.start();
+                configManager.startReactive().toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
             });
             
             logger.info("Manager lifecycle tests passed");
             
         } finally {
-            configManager.close();
+            closeManager(configManager);
             assertFalse(configManager.isStarted());
         }
     }
@@ -222,23 +225,23 @@ class MultiConfigurationManagerSimpleTest {
             logger.info("Configuration names management tests passed");
             
         } finally {
-            configManager.close();
+            closeManager(configManager);
         }
     }
 
     @Test
-    void testRegisterConfigurationAfterStartFails() {
+    void testRegisterConfigurationAfterStartFails() throws Exception {
         MultiConfigurationManager configManager = new MultiConfigurationManager();
 
         try {
-            configManager.start();
+            configManager.startReactive().toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
             assertTrue(configManager.isStarted());
 
             IllegalStateException exception = assertThrows(IllegalStateException.class,
                 () -> configManager.registerConfiguration("late-config", "test"));
             assertTrue(exception.getMessage().contains("Cannot register configurations while manager is in state"));
         } finally {
-            configManager.close();
+            closeManager(configManager);
         }
     }
     
@@ -269,7 +272,7 @@ class MultiConfigurationManagerSimpleTest {
             logger.info("Error handling tests passed");
             
         } finally {
-            configManager.close();
+            closeManager(configManager);
         }
     }
     
@@ -280,12 +283,12 @@ class MultiConfigurationManagerSimpleTest {
         
         // Should be able to close without issues
         assertDoesNotThrow(() -> {
-            configManager.close();
+            closeManager(configManager);
         });
         
         // Should be able to close multiple times
         assertDoesNotThrow(() -> {
-            configManager.close();
+            closeManager(configManager);
         });
         
         // After close, should be in clean state
@@ -300,7 +303,7 @@ class MultiConfigurationManagerSimpleTest {
         TrackingSimpleMeterRegistry registry = new TrackingSimpleMeterRegistry();
         MultiConfigurationManager configManager = new MultiConfigurationManager(registry);
 
-        configManager.close();
+        closeManager(configManager);
 
         assertFalse(registry.isClosedByManager(),
             "Injected meter registry should not be closed by manager");
@@ -347,7 +350,15 @@ class MultiConfigurationManagerSimpleTest {
             logger.info("Thread safety tests passed");
 
         } finally {
-            configManager.close();
+            closeManager(configManager);
+        }
+    }
+
+    private void closeManager(MultiConfigurationManager configManager) {
+        try {
+            configManager.closeReactive().toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to close MultiConfigurationManager reactively", e);
         }
     }
 

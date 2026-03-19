@@ -6,7 +6,9 @@ import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Future;
 import io.vertx.sqlclient.Pool;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -16,12 +18,12 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Instant;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
+import java.util.concurrent.TimeUnit;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -82,10 +84,10 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
 
     private void cleanupDeadLetterQueue() {
         try {
-            reactivePool.withConnection(connection ->
+            awaitFuture(reactivePool.withConnection(connection ->
                 connection.preparedQuery("DELETE FROM dead_letter_queue").execute()
                     .map(rowSet -> (Void) null)
-            ).toCompletionStage().toCompletableFuture().get();
+            ));
         } catch (Exception e) {
             // Ignore cleanup errors
         }
@@ -328,13 +330,13 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         assertEquals(1, messages.size());
         long messageId = messages.get(0).getId();
 
-        CompletableFuture<Boolean> f1 = CompletableFuture.supplyAsync(
-            () -> reprocessDeadLetterMessage(messageId, "reprocess-attempt-1"));
-        CompletableFuture<Boolean> f2 = CompletableFuture.supplyAsync(
-            () -> reprocessDeadLetterMessage(messageId, "reprocess-attempt-2"));
+        Future<Boolean> f1 = deadLetterQueueManager.reprocessDeadLetterMessageRecord(messageId, "reprocess-attempt-1");
+        Future<Boolean> f2 = deadLetterQueueManager.reprocessDeadLetterMessageRecord(messageId, "reprocess-attempt-2");
 
-        boolean r1 = f1.join();
-        boolean r2 = f2.join();
+        awaitFuture(Future.join(f1, f2));
+
+        boolean r1 = f1.result();
+        boolean r2 = f2.result();
         int successCount = (r1 ? 1 : 0) + (r2 ? 1 : 0);
 
         assertEquals(1, successCount, "Exactly one concurrent reprocess should succeed");
@@ -371,18 +373,14 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
     void testAsyncReadApisCompleteExceptionallyWhenDeadLetterTableUnavailable() {
         renameDeadLetterTable("dead_letter_queue_tmp");
         try {
-            assertThrows(CompletionException.class,
-                () -> deadLetterQueueManager.getDeadLetterMessages("topic", 10, 0)
-                    .toCompletionStage().toCompletableFuture().join());
-            assertThrows(CompletionException.class,
-                () -> deadLetterQueueManager.getAllDeadLetterMessages(10, 0)
-                    .toCompletionStage().toCompletableFuture().join());
-            assertThrows(CompletionException.class,
-                () -> deadLetterQueueManager.getDeadLetterMessage(1L)
-                    .toCompletionStage().toCompletableFuture().join());
-            assertThrows(CompletionException.class,
-                () -> deadLetterQueueManager.getStatistics()
-                    .toCompletionStage().toCompletableFuture().join());
+            assertThrows(RuntimeException.class,
+                () -> awaitFuture(deadLetterQueueManager.getDeadLetterMessages("topic", 10, 0)));
+            assertThrows(RuntimeException.class,
+                () -> awaitFuture(deadLetterQueueManager.getAllDeadLetterMessages(10, 0)));
+            assertThrows(RuntimeException.class,
+                () -> awaitFuture(deadLetterQueueManager.getDeadLetterMessage(1L)));
+            assertThrows(RuntimeException.class,
+                () -> awaitFuture(deadLetterQueueManager.getStatistics()));
         } finally {
             renameDeadLetterTableBack("dead_letter_queue_tmp");
         }
@@ -392,15 +390,12 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
     void testAsyncWriteApisCompleteExceptionallyWhenDeadLetterTableUnavailable() {
         renameDeadLetterTable("dead_letter_queue_tmp");
         try {
-            assertThrows(CompletionException.class,
-                () -> deadLetterQueueManager.reprocessDeadLetterMessage(1L, "reason")
-                    .toCompletionStage().toCompletableFuture().join());
-            assertThrows(CompletionException.class,
-                () -> deadLetterQueueManager.deleteDeadLetterMessage(1L, "reason")
-                    .toCompletionStage().toCompletableFuture().join());
-            assertThrows(CompletionException.class,
-                () -> deadLetterQueueManager.cleanupOldMessages(1)
-                    .toCompletionStage().toCompletableFuture().join());
+            assertThrows(RuntimeException.class,
+                () -> awaitFuture(deadLetterQueueManager.reprocessDeadLetterMessage(1L, "reason")));
+            assertThrows(RuntimeException.class,
+                () -> awaitFuture(deadLetterQueueManager.deleteDeadLetterMessage(1L, "reason")));
+            assertThrows(RuntimeException.class,
+                () -> awaitFuture(deadLetterQueueManager.cleanupOldMessages(1)));
         } finally {
             renameDeadLetterTableBack("dead_letter_queue_tmp");
         }
@@ -565,79 +560,85 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
     }
 
     private int countOutboxRowsByTopic(String topic) {
-        try {
-            return reactivePool.withConnection(connection ->
-                connection.preparedQuery("SELECT COUNT(*) AS cnt FROM outbox WHERE topic = $1")
-                    .execute(io.vertx.sqlclient.Tuple.of(topic))
-                    .map(rows -> rows.iterator().next().getInteger("cnt"))
-            ).toCompletionStage().toCompletableFuture().get();
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to count outbox rows", e);
-        }
+        return awaitFuture(reactivePool.withConnection(connection ->
+            connection.preparedQuery("SELECT COUNT(*) AS cnt FROM outbox WHERE topic = $1")
+                .execute(io.vertx.sqlclient.Tuple.of(topic))
+                .map(rows -> rows.iterator().next().getInteger("cnt"))
+        ));
     }
 
     private void renameDeadLetterTable(String temporaryName) {
-        try {
-            reactivePool.withConnection(connection ->
-                connection.query("ALTER TABLE dead_letter_queue RENAME TO " + temporaryName).execute().mapEmpty()
-            ).toCompletionStage().toCompletableFuture().get();
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to rename dead_letter_queue to temporary name", e);
-        }
+        awaitFuture(reactivePool.withConnection(connection ->
+            connection.query("ALTER TABLE dead_letter_queue RENAME TO " + temporaryName).execute().mapEmpty()
+        ));
     }
 
     private void renameDeadLetterTableBack(String temporaryName) {
-        try {
-            reactivePool.withConnection(connection ->
-                connection.query("ALTER TABLE " + temporaryName + " RENAME TO dead_letter_queue").execute().mapEmpty()
-            ).toCompletionStage().toCompletableFuture().get();
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to restore dead_letter_queue table", e);
-        }
+        awaitFuture(reactivePool.withConnection(connection ->
+            connection.query("ALTER TABLE " + temporaryName + " RENAME TO dead_letter_queue").execute().mapEmpty()
+        ));
     }
 
     private void moveToDeadLetterQueue(String originalTable, long originalId, String topic,
                                        Object payload, Instant originalCreatedAt, String failureReason,
                                        int retryCount, Map<String, String> headers, String correlationId,
                                        String messageGroup) {
-        deadLetterQueueManager
+        awaitFuture(deadLetterQueueManager
             .moveToDeadLetterQueue(originalTable, originalId, topic, payload, originalCreatedAt,
-                failureReason, retryCount, headers, correlationId, messageGroup)
-            .join();
+                failureReason, retryCount, headers, correlationId, messageGroup));
     }
 
     private List<DeadLetterMessage> getDeadLetterMessages(String topic, int limit, int offset) {
-        return deadLetterQueueManager.fetchDeadLetterMessagesByTopic(topic, limit, offset)
-            .toCompletionStage().toCompletableFuture().join();
+        return awaitFuture(deadLetterQueueManager.fetchDeadLetterMessagesByTopic(topic, limit, offset));
     }
 
     private List<DeadLetterMessage> getAllDeadLetterMessages(int limit, int offset) {
-        return deadLetterQueueManager.fetchAllDeadLetterMessages(limit, offset)
-            .toCompletionStage().toCompletableFuture().join();
+        return awaitFuture(deadLetterQueueManager.fetchAllDeadLetterMessages(limit, offset));
     }
 
     private Optional<DeadLetterMessage> getDeadLetterMessage(long id) {
-        return deadLetterQueueManager.fetchDeadLetterMessage(id)
-            .toCompletionStage().toCompletableFuture().join();
+        return awaitFuture(deadLetterQueueManager.fetchDeadLetterMessage(id));
     }
 
     private boolean reprocessDeadLetterMessage(long id, String reason) {
-        return deadLetterQueueManager.reprocessDeadLetterMessageRecord(id, reason)
-            .toCompletionStage().toCompletableFuture().join();
+        return awaitFuture(deadLetterQueueManager.reprocessDeadLetterMessageRecord(id, reason));
     }
 
     private boolean deleteDeadLetterMessage(long id, String reason) {
-        return deadLetterQueueManager.removeDeadLetterMessage(id, reason)
-            .toCompletionStage().toCompletableFuture().join();
+        return awaitFuture(deadLetterQueueManager.removeDeadLetterMessage(id, reason));
     }
 
     private DeadLetterQueueStats getStatistics() {
-        return deadLetterQueueManager.fetchStatistics()
-            .toCompletionStage().toCompletableFuture().join();
+        return awaitFuture(deadLetterQueueManager.fetchStatistics());
     }
 
     private int cleanupOldMessages(int retentionDays) {
-        return deadLetterQueueManager.purgeOldDeadLetterMessages(retentionDays)
-            .toCompletionStage().toCompletableFuture().join();
+        return awaitFuture(deadLetterQueueManager.purgeOldDeadLetterMessages(retentionDays));
+    }
+
+    private <T> T awaitFuture(Future<T> future) {
+        VertxTestContext testContext = new VertxTestContext();
+        AtomicReference<T> result = new AtomicReference<>();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+
+        future
+            .onSuccess(result::set)
+            .onFailure(failure::set)
+            .eventually(() -> {
+                testContext.completeNow();
+                return Future.succeededFuture();
+            });
+
+        try {
+            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Timed out waiting for Future completion");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted while waiting for Future completion", e);
+        }
+
+        if (failure.get() != null) {
+            throw new RuntimeException(failure.get());
+        }
+        return result.get();
     }
 }

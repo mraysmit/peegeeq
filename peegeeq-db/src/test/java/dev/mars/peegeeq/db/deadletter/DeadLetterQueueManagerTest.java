@@ -23,7 +23,9 @@ import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,7 +40,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -121,15 +125,15 @@ class DeadLetterQueueManagerTest {
      */
     private void cleanupTestDataSynchronously() {
         try {
-            reactivePool.withTransaction(connection -> {
+            awaitFuture(reactivePool.withTransaction(connection -> {
                 // Clean up all test data from tables - SYNCHRONOUSLY with proper transaction commit
                 return connection.query("DELETE FROM dead_letter_queue").execute()
                     .compose(result -> connection.query("DELETE FROM outbox").execute())
                     .compose(result -> connection.query("DELETE FROM queue_messages").execute());
-            }).toCompletionStage().toCompletableFuture().get(10, java.util.concurrent.TimeUnit.SECONDS);
+            }));
 
             // Add a small delay to ensure transaction is committed and visible
-            vertx.timer(100).toCompletionStage().toCompletableFuture().join();
+            awaitTimer(100);
 
             System.out.println("DEBUG: Cleaned up test data for test isolation (SYNCHRONOUS)");
         } catch (Exception e) {
@@ -208,7 +212,7 @@ class DeadLetterQueueManagerTest {
         addTestDeadLetterMessage("topic2", "queue_messages", 3L);
 
         // Add delay to ensure database operations are committed
-                    vertx.timer(500).toCompletionStage().toCompletableFuture().join(); // Increased delay for parallel execution
+                    awaitTimer(500); // Increased delay for parallel execution
 
 
         // Retrieve messages for topic1 with retry logic
@@ -221,7 +225,7 @@ class DeadLetterQueueManagerTest {
             if (topic1Messages.size() == 2) {
                 break;
             }
-                            vertx.timer(200).toCompletionStage().toCompletableFuture().join();
+                            awaitTimer(200);
 
             retries++;
         }
@@ -272,7 +276,7 @@ class DeadLetterQueueManagerTest {
             if (!messages.isEmpty()) {
                 break;
             }
-                            vertx.timer(200).toCompletionStage().toCompletableFuture().join(); // Increased delay for parallel execution
+                            awaitTimer(200); // Increased delay for parallel execution
 
             retries++;
         }
@@ -389,7 +393,7 @@ class DeadLetterQueueManagerTest {
         );
 
         // Add delay to ensure database operations are committed
-                    vertx.timer(300).toCompletionStage().toCompletableFuture().join();
+                    awaitTimer(300);
 
 
         // Get statistics with retry logic for race conditions
@@ -403,7 +407,7 @@ class DeadLetterQueueManagerTest {
             if (stats.getTotalMessages() == 4) {
                 break;
             }
-                            vertx.timer(300).toCompletionStage().toCompletableFuture().join(); // Increased delay
+                            awaitTimer(300); // Increased delay
 
             retries++;
         }
@@ -419,18 +423,18 @@ class DeadLetterQueueManagerTest {
     }
 
     @Test
-    void testCleanupOldMessages() throws InterruptedException {
+    void testCleanupOldMessages() {
         // Add some messages
         addTestDeadLetterMessage("topic1", "outbox", 1L);
         addTestDeadLetterMessage("topic2", "outbox", 2L);
 
         // Mark messages as old so cleanup with retentionDays=1 removes them.
         try {
-            reactivePool.withConnection(connection ->
+            awaitFuture(reactivePool.withConnection(connection ->
                 connection.query("UPDATE dead_letter_queue SET failed_at = NOW() - INTERVAL '2 days'")
                     .execute()
                     .mapEmpty()
-            ).toCompletionStage().toCompletableFuture().get();
+            ));
         } catch (Exception e) {
             throw new RuntimeException("Failed to age dead letter messages for cleanup test", e);
         }
@@ -564,7 +568,7 @@ class DeadLetterQueueManagerTest {
         }
 
         // Add a much longer delay to ensure all database operations are committed and visible in parallel execution
-        vertx.timer(2000).toCompletionStage().toCompletableFuture().join(); // Increased to 2 seconds for parallel execution
+        awaitTimer(2000); // Increased to 2 seconds for parallel execution
 
         // Log the success count for debugging
         int expectedMessages = threadCount * messagesPerThread;
@@ -582,7 +586,7 @@ class DeadLetterQueueManagerTest {
             if (stats.getTotalMessages() >= actualSuccessCount) {
                 break;
             }
-            vertx.timer(500).toCompletionStage().toCompletableFuture().join(); // Increased delay for parallel execution
+            awaitTimer(500); // Increased delay for parallel execution
             retries++;
         }
 
@@ -610,7 +614,7 @@ class DeadLetterQueueManagerTest {
         );
 
         // Add a small delay to ensure transaction is committed and visible
-                    vertx.timer(150).toCompletionStage().toCompletableFuture().join(); // Increased delay for parallel execution
+                    awaitTimer(150); // Increased delay for parallel execution
 
     }
 
@@ -626,50 +630,43 @@ class DeadLetterQueueManagerTest {
                                        Object payload, Instant originalCreatedAt, String failureReason,
                                        int retryCount, Map<String, String> headers, String correlationId,
                                        String messageGroup) {
-        dlqManager.moveToDeadLetterQueue(originalTable, originalId, topic, payload, originalCreatedAt,
-            failureReason, retryCount, headers, correlationId, messageGroup).join();
+        awaitFuture(dlqManager.moveToDeadLetterQueue(originalTable, originalId, topic, payload, originalCreatedAt,
+            failureReason, retryCount, headers, correlationId, messageGroup));
     }
 
     private List<DeadLetterMessage> getDeadLetterMessages(String topic, int limit, int offset) {
-        return dlqManager.fetchDeadLetterMessagesByTopic(topic, limit, offset)
-            .toCompletionStage().toCompletableFuture().join();
+        return awaitFuture(dlqManager.fetchDeadLetterMessagesByTopic(topic, limit, offset));
     }
 
     private List<DeadLetterMessage> getAllDeadLetterMessages(int limit, int offset) {
-        return dlqManager.fetchAllDeadLetterMessages(limit, offset)
-            .toCompletionStage().toCompletableFuture().join();
+        return awaitFuture(dlqManager.fetchAllDeadLetterMessages(limit, offset));
     }
 
     private Optional<DeadLetterMessage> getDeadLetterMessage(long id) {
-        return dlqManager.fetchDeadLetterMessage(id)
-            .toCompletionStage().toCompletableFuture().join();
+        return awaitFuture(dlqManager.fetchDeadLetterMessage(id));
     }
 
     private boolean reprocessDeadLetterMessage(long id, String reason) {
-        return dlqManager.reprocessDeadLetterMessageRecord(id, reason)
-            .toCompletionStage().toCompletableFuture().join();
+        return awaitFuture(dlqManager.reprocessDeadLetterMessageRecord(id, reason));
     }
 
     private boolean deleteDeadLetterMessage(long id, String reason) {
-        return dlqManager.removeDeadLetterMessage(id, reason)
-            .toCompletionStage().toCompletableFuture().join();
+        return awaitFuture(dlqManager.removeDeadLetterMessage(id, reason));
     }
 
     private DeadLetterQueueStats getStatistics() {
-        return dlqManager.fetchStatistics()
-            .toCompletionStage().toCompletableFuture().join();
+        return awaitFuture(dlqManager.fetchStatistics());
     }
 
     private int cleanupOldMessages(int retentionDays) {
-        return dlqManager.purgeOldDeadLetterMessages(retentionDays)
-            .toCompletionStage().toCompletableFuture().join();
+        return awaitFuture(dlqManager.purgeOldDeadLetterMessages(retentionDays));
     }
 
     private void verifyMessageInOriginalTable(String tableName, String expectedTopic) {
         String sql = "SELECT COUNT(*) FROM " + tableName + " WHERE topic = $1";
 
         try {
-            Integer count = reactivePool.withConnection(connection -> {
+            Integer count = awaitFuture(reactivePool.withConnection(connection -> {
                 return connection.preparedQuery(sql)
                     .execute(io.vertx.sqlclient.Tuple.of(expectedTopic))
                     .map(rowSet -> {
@@ -678,7 +675,7 @@ class DeadLetterQueueManagerTest {
                         }
                         return 0;
                     });
-            }).toCompletionStage().toCompletableFuture().get();
+            }));
 
             assertTrue(count > 0, "Message should exist in original table");
         } catch (Exception e) {
@@ -725,8 +722,8 @@ class DeadLetterQueueManagerTest {
 
         // This should work without throwing an exception
         assertDoesNotThrow(() -> {
-            reactiveDlqManager.moveToDeadLetterQueue(originalTable, originalId, topic, payload,
-                originalCreatedAt, failureReason, retryCount, headers, correlationId, messageGroup).join();
+            awaitFuture(reactiveDlqManager.moveToDeadLetterQueue(originalTable, originalId, topic, payload,
+                originalCreatedAt, failureReason, retryCount, headers, correlationId, messageGroup));
         });
 
         // Verify the message was inserted by checking with the legacy manager
@@ -741,5 +738,35 @@ class DeadLetterQueueManagerTest {
         assertEquals(retryCount, message.getRetryCount());
         assertEquals(correlationId, message.getCorrelationId());
         assertEquals(messageGroup, message.getMessageGroup());
+    }
+
+    private void awaitTimer(long delayMs) {
+        awaitFuture(vertx.timer(delayMs).mapEmpty());
+    }
+
+    private <T> T awaitFuture(Future<T> future) {
+        VertxTestContext testContext = new VertxTestContext();
+        AtomicReference<T> result = new AtomicReference<>();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+
+        future
+            .onSuccess(result::set)
+            .onFailure(failure::set)
+            .eventually(() -> {
+                testContext.completeNow();
+                return Future.succeededFuture();
+            });
+
+        try {
+            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Timed out waiting for Future completion");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted while waiting for Future completion", e);
+        }
+
+        if (failure.get() != null) {
+            throw new RuntimeException(failure.get());
+        }
+        return result.get();
     }
 }
