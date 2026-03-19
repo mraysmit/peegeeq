@@ -270,7 +270,8 @@ class JsonbConversionValidationTest {
         }
 
         // Reprocess the message
-        boolean reprocessed = dlqManager.reprocessDeadLetterMessage(deadLetterMessageId, "Manual reprocessing test").join();
+        boolean reprocessed = dlqManager.reprocessDeadLetterMessage(deadLetterMessageId, "Manual reprocessing test")
+            .toCompletionStage().toCompletableFuture().join();
         assertTrue(reprocessed, "Message should be reprocessed successfully");
 
         logger.info("Dead letter message reprocessing with JSONB data successful");

@@ -12,8 +12,6 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 
-import java.util.concurrent.CompletableFuture;
-
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -41,30 +39,23 @@ public class PgDatabaseServiceCoreTest extends BaseIntegrationTest {
 
     @Test
     void testInitialize() throws Exception {
-        CompletableFuture<Void> future = databaseService.initialize();
+        var future = databaseService.initialize();
         assertNotNull(future);
-        future.get(); // Should complete successfully
+        future.toCompletionStage().toCompletableFuture().get(); // Should complete successfully
     }
 
     @Test
     void testStart() throws Exception {
-        CompletableFuture<Void> future = databaseService.start();
-        assertNotNull(future);
-        future.get(); // Should complete successfully
-    }
-
-    @Test
-    void testStartReactive() throws Exception {
-        io.vertx.core.Future<Void> future = databaseService.startReactive();
+        var future = databaseService.start();
         assertNotNull(future);
         future.toCompletionStage().toCompletableFuture().get(); // Should complete successfully
     }
 
     @Test
     void testStop() throws Exception {
-        CompletableFuture<Void> future = databaseService.stop();
+        var future = databaseService.stop();
         assertNotNull(future);
-        future.get(); // Should complete successfully
+        future.toCompletionStage().toCompletableFuture().get(); // Should complete successfully
     }
 
     @Test
@@ -93,17 +84,17 @@ public class PgDatabaseServiceCoreTest extends BaseIntegrationTest {
 
     @Test
     void testPerformHealthCheck() throws Exception {
-        CompletableFuture<Boolean> future = databaseService.performHealthCheck();
+        var future = databaseService.performHealthCheck();
         assertNotNull(future);
-        Boolean healthy = future.get();
+        Boolean healthy = future.toCompletionStage().toCompletableFuture().get();
         assertNotNull(healthy);
     }
 
     @Test
     void testRunMigrations() throws Exception {
-        CompletableFuture<Void> future = databaseService.runMigrations();
+        var future = databaseService.runMigrations();
         assertNotNull(future);
-        future.get(); // Should complete successfully
+        future.toCompletionStage().toCompletableFuture().get(); // Should complete successfully
     }
 
     @Test
@@ -114,15 +105,15 @@ public class PgDatabaseServiceCoreTest extends BaseIntegrationTest {
 
     @Test
     void testMultipleInitializeCalls() throws Exception {
-        databaseService.initialize().get();
-        databaseService.initialize().get();
+        databaseService.initialize().toCompletionStage().toCompletableFuture().get();
+        databaseService.initialize().toCompletionStage().toCompletableFuture().get();
         // Should be idempotent
     }
 
     @Test
     void testMultipleStartCalls() throws Exception {
-        databaseService.start().get();
-        databaseService.start().get();
+        databaseService.start().toCompletionStage().toCompletableFuture().get();
+        databaseService.start().toCompletionStage().toCompletableFuture().get();
         // Should be idempotent
     }
 }

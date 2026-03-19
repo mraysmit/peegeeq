@@ -324,7 +324,8 @@ class PeeGeeQMetricsTest {
         metrics.recordMessageProcessed("topic1", Duration.ofMillis(100));
         
         // Test metrics persistence
-        assertDoesNotThrow(() -> metrics.persistMetrics(meterRegistry));
+        assertDoesNotThrow(() -> metrics.persistMetrics(meterRegistry)
+            .toCompletionStage().toCompletableFuture().get());
         
         // Verify metrics were persisted to database using reactive patterns
         try {
@@ -344,12 +345,14 @@ class PeeGeeQMetricsTest {
     }
 
     @Test
-    void testHealthCheck() {
-        assertTrue(metrics.isHealthy());
+    void testHealthCheck() throws Exception {
+        assertTrue(metrics.isHealthy()
+            .toCompletionStage().toCompletableFuture().get());
         
         // Health check should work even without binding to registry
         PeeGeeQMetrics unboundMetrics = new PeeGeeQMetrics(reactivePool, "test-instance-2");
-        assertTrue(unboundMetrics.isHealthy());
+        assertTrue(unboundMetrics.isHealthy()
+            .toCompletionStage().toCompletableFuture().get());
     }
 
     @Test
@@ -430,7 +433,8 @@ class PeeGeeQMetricsTest {
         });
 
         // Health check should return false
-        assertFalse(metrics.isHealthy());
+        assertFalse(metrics.isHealthy()
+            .toCompletionStage().toCompletableFuture().get());
 
         // Queue depth gauges should return 0 on database failure
         assertEquals(0.0, meterRegistry.get("peegeeq.queue.depth.outbox").gauge().value());
@@ -477,7 +481,7 @@ class PeeGeeQMetricsTest {
     }
 
     @Test
-    void testReactiveMetricsConstructor() {
+    void testReactiveMetricsConstructor() throws Exception {
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
         // Create connection config for reactive pool
@@ -502,7 +506,8 @@ class PeeGeeQMetricsTest {
         assertNotNull(reactiveMetrics);
 
         // Test that reactive health check works
-        assertTrue(reactiveMetrics.isHealthy());
+        assertTrue(reactiveMetrics.isHealthy()
+            .toCompletionStage().toCompletableFuture().get());
 
         // Test that metrics can be bound to registry
         assertDoesNotThrow(() -> reactiveMetrics.bindTo(meterRegistry));

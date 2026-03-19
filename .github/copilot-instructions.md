@@ -65,6 +65,13 @@ Reference examples:
 - Work incrementally: one small change, then run tests.
 - Read test logs in detail; do not rely on process exit code only.
 
+### Mandatory: Remove Sync Wrappers Before Converting Tests
+- Before converting any test file to Vert.x test primitives, check whether the production class under test has synchronous wrapper methods (methods that internally block on futures via `.join()`, `.get()`, `.toCompletionStage()` etc.).
+- If synchronous wrappers exist in the production class, **remove them first** before touching any tests.
+- Then rewrite the tests to call the async `Future<T>` APIs directly using `VertxTestContext`, `.compose()`, `.onSuccess()`, `.onFailure()`, and `awaitCompletion()`.
+- Never write tests that call synchronous wrapper methods. Never write new synchronous wrapper helper methods in tests.
+- Order is mandatory: production sync wrappers removed → tests rewritten to async APIs. Never the reverse.
+
 ### Maven Profile Rules
 - `mvn test` runs core tests only by default.
 - Use `-Pintegration-tests` for integration tests.

@@ -11,7 +11,6 @@ import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.SqlConnection;
 
-import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 
 final class TestDatabaseService implements DatabaseService {
@@ -58,18 +57,18 @@ final class TestDatabaseService implements DatabaseService {
     };
 
     @Override
-    public CompletableFuture<Void> initialize() {
-        return CompletableFuture.completedFuture(null);
+    public Future<Void> initialize() {
+        return Future.succeededFuture();
     }
 
     @Override
-    public CompletableFuture<Void> start() {
-        return CompletableFuture.completedFuture(null);
+    public Future<Void> start() {
+        return Future.succeededFuture();
     }
 
     @Override
-    public CompletableFuture<Void> stop() {
-        return CompletableFuture.completedFuture(null);
+    public Future<Void> stop() {
+        return Future.succeededFuture();
     }
 
     @Override
@@ -98,13 +97,13 @@ final class TestDatabaseService implements DatabaseService {
     }
 
     @Override
-    public CompletableFuture<Void> runMigrations() {
-        return CompletableFuture.completedFuture(null);
+    public Future<Void> runMigrations() {
+        return Future.succeededFuture();
     }
 
     @Override
-    public CompletableFuture<Boolean> performHealthCheck() {
-        return CompletableFuture.completedFuture(false);
+    public Future<Boolean> performHealthCheck() {
+        return Future.succeededFuture(false);
     }
 
     @Override

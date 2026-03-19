@@ -113,7 +113,8 @@ public class PeeGeeQExampleTest {
         logger.info("PeeGeeQ Manager started successfully");
         
         // Test health checks
-        PeeGeeQManager.SystemStatus systemStatus = manager.getSystemStatus();
+        PeeGeeQManager.SystemStatus systemStatus = manager.getSystemStatus()
+            .toCompletionStage().toCompletableFuture().join();
         assertNotNull(systemStatus, "System status should not be null");
         assertNotNull(systemStatus.getHealthStatus(), "Health status should not be null");
         logger.info("Health status retrieved: {}", systemStatus.getHealthStatus().getStatus());
@@ -268,7 +269,8 @@ public class PeeGeeQExampleTest {
      */
     private void demonstrateHealthMonitoring() {
         logger.info("Demonstrating health monitoring...");
-        PeeGeeQManager.SystemStatus systemStatus = manager.getSystemStatus();
+        PeeGeeQManager.SystemStatus systemStatus = manager.getSystemStatus()
+            .toCompletionStage().toCompletableFuture().join();
         assertNotNull(systemStatus.getHealthStatus());
         logger.info("Health monitoring demonstrated: {}", systemStatus.getHealthStatus().getStatus());
     }
@@ -278,7 +280,8 @@ public class PeeGeeQExampleTest {
      */
     private void demonstrateMetricsCollection() {
         logger.info("Demonstrating metrics collection...");
-        PeeGeeQManager.SystemStatus systemStatus = manager.getSystemStatus();
+        PeeGeeQManager.SystemStatus systemStatus = manager.getSystemStatus()
+            .toCompletionStage().toCompletableFuture().join();
         assertNotNull(systemStatus.getMetricsSummary());
         logger.info("Metrics collection demonstrated");
     }
