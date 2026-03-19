@@ -23,6 +23,8 @@ import dev.mars.peegeeq.db.health.OverallHealthStatus;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import dev.mars.peegeeq.db.resilience.BackpressureManager;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -91,21 +93,25 @@ public class PeeGeeQManagerIntegrationTest {
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown(VertxTestContext testContext) throws InterruptedException {
         if (manager != null) {
-            try {
-                manager.closeReactive()
-                    .toCompletionStage()
-                    .toCompletableFuture()
-                    .get(30, TimeUnit.SECONDS);
-            } catch (Exception e) {
-                System.err.println("Error during manager teardown: " + e.getMessage());
-            }
+            manager.closeReactive()
+                .recover(t -> {
+                    System.err.println("Error during manager teardown: " + t.getMessage());
+                    return Future.succeededFuture();
+                })
+                .onSuccess(v -> {
+                    System.getProperties().entrySet().removeIf(entry -> 
+                        entry.getKey().toString().startsWith("peegeeq."));
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
+        } else {
+            System.getProperties().entrySet().removeIf(entry -> 
+                entry.getKey().toString().startsWith("peegeeq."));
+            testContext.completeNow();
         }
-        
-        // Clean up system properties
-        System.getProperties().entrySet().removeIf(entry -> 
-            entry.getKey().toString().startsWith("peegeeq."));
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
@@ -121,146 +127,158 @@ public class PeeGeeQManagerIntegrationTest {
     }
 
     @Test
-    void testStartAndStop() {
-        // Test start
-        assertDoesNotThrow(() -> manager.start());
-        
-        // Wait a moment for initialization
-                    manager.getVertx().timer(2000).toCompletionStage().toCompletableFuture().join();
+    void testStartAndStop(VertxTestContext testContext) throws InterruptedException {
+        manager.start()
+            .compose(v -> manager.getVertx().timer(2000))
+            .compose(v -> {
+                assertTrue(manager.isHealthy(), "System should be healthy after start");
+                return manager.getSystemStatus();
+            })
+            .compose(status -> {
+                assertNotNull(status);
+                assertTrue(status.isStarted());
+                assertEquals("test", status.getProfile());
+                return manager.stop();
+            })
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
 
-        
-        // Verify system is healthy
-        assertTrue(manager.isHealthy(), "System should be healthy after start");
-        
-        // Test system status
-        PeeGeeQManager.SystemStatus status = manager.getSystemStatus();
-        assertNotNull(status);
-        assertTrue(status.isStarted());
-        assertEquals("test", status.getProfile());
-        
-        // Test stop
-        assertDoesNotThrow(() -> manager.stop());
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testDatabaseMigration() {
-        manager.start();
-
-        // Note: We skip validateConfiguration() because migrations are disabled in this test
-        // and validateMigrations() would fail trying to query the non-existent schema_version table.
-        // Instead, we directly verify that the core tables exist (created by SharedPostgresTestExtension).
-
-        // Check that core tables exist (created by SharedPostgresTestExtension) using reactive patterns
-        assertDoesNotThrow(() -> {
-            manager.getDatabaseService().getConnectionProvider()
-                .withConnection("peegeeq-main", connection -> {
-                    return connection.query("SELECT COUNT(*) FROM outbox")
+    void testDatabaseMigration(VertxTestContext testContext) throws InterruptedException {
+        manager.start()
+            .compose(v -> manager.getDatabaseService().getConnectionProvider()
+                .withConnection("peegeeq-main", connection ->
+                    connection.query("SELECT COUNT(*) FROM outbox")
                         .execute()
                         .map(rowSet -> {
                             var row = rowSet.iterator().next();
                             long count = row.getLong(0);
-                            // Table exists and is queryable (count may be 0 or more)
                             assertTrue(count >= 0, "Outbox table should exist and be queryable");
                             return count;
-                        });
-                })
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get(5, TimeUnit.SECONDS);
-        });
+                        })
+                ))
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     @Test
-    void testHealthChecks() {
-        manager.start();
-        
-        // Wait for health checks to run
-                    manager.getVertx().timer(3000).toCompletionStage().toCompletableFuture().join();
+    void testHealthChecks(VertxTestContext testContext) throws InterruptedException {
+        manager.start()
+            .compose(v -> manager.getVertx().timer(3000))
+            .compose(v -> {
+                assertTrue(manager.isHealthy());
 
-        
-        // Test overall health
-        assertTrue(manager.isHealthy());
+                OverallHealthStatus healthStatus = manager.getHealthCheckManager().getOverallHealthInternal();
+                assertNotNull(healthStatus);
+                assertTrue(healthStatus.isHealthy());
+                assertFalse(healthStatus.getComponents().isEmpty());
 
-        OverallHealthStatus healthStatus = manager.getHealthCheckManager().getOverallHealthInternal();
-        assertNotNull(healthStatus);
-        assertTrue(healthStatus.isHealthy());
-        assertFalse(healthStatus.getComponents().isEmpty());
+                assertTrue(healthStatus.getComponents().containsKey("database"));
+                assertTrue(healthStatus.getComponents().containsKey("memory"));
+                return Future.succeededFuture();
+            })
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
 
-        // Verify specific health checks
-        assertTrue(healthStatus.getComponents().containsKey("database"));
-        assertTrue(healthStatus.getComponents().containsKey("memory"));
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     @Test
-    void testMetrics() {
-        manager.start();
-        
-        PeeGeeQMetrics metrics = manager.getMetrics();
-        assertNotNull(metrics);
-        
-        // Test metrics recording
-        metrics.recordMessageSent("test-topic");
-        metrics.recordMessageReceived("test-topic");
-        metrics.recordMessageProcessed("test-topic", Duration.ofMillis(100));
-        
-        PeeGeeQMetrics.MetricsSummary summary = metrics.getSummary();
-        assertNotNull(summary);
-        assertEquals(1.0, summary.getMessagesSent());
-        assertEquals(1.0, summary.getMessagesReceived());
-        assertEquals(1.0, summary.getMessagesProcessed());
+    void testMetrics(VertxTestContext testContext) throws InterruptedException {
+        manager.start()
+            .compose(v -> {
+                PeeGeeQMetrics metrics = manager.getMetrics();
+                assertNotNull(metrics);
+
+                metrics.recordMessageSent("test-topic");
+                metrics.recordMessageReceived("test-topic");
+                metrics.recordMessageProcessed("test-topic", Duration.ofMillis(100));
+
+                PeeGeeQMetrics.MetricsSummary summary = metrics.getSummary();
+                assertNotNull(summary);
+                assertEquals(1.0, summary.getMessagesSent());
+                assertEquals(1.0, summary.getMessagesReceived());
+                assertEquals(1.0, summary.getMessagesProcessed());
+                return Future.succeededFuture();
+            })
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     @Test
-    void testCircuitBreaker() {
-        manager.start();
-        
-        var circuitBreakerManager = manager.getCircuitBreakerManager();
-        assertNotNull(circuitBreakerManager);
-        
-        // Test circuit breaker execution
-        String result = circuitBreakerManager.executeSupplier("test-operation", () -> "success");
-        assertEquals("success", result);
-        
-        // Test metrics
-        var metrics = circuitBreakerManager.getMetrics("test-operation");
-        assertNotNull(metrics);
-        assertTrue(metrics.isEnabled());
+    void testCircuitBreaker(VertxTestContext testContext) throws InterruptedException {
+        manager.start()
+            .compose(v -> {
+                var circuitBreakerManager = manager.getCircuitBreakerManager();
+                assertNotNull(circuitBreakerManager);
+
+                String result = circuitBreakerManager.executeSupplier("test-operation", () -> "success");
+                assertEquals("success", result);
+
+                var metrics = circuitBreakerManager.getMetrics("test-operation");
+                assertNotNull(metrics);
+                assertTrue(metrics.isEnabled());
+                return Future.succeededFuture();
+            })
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     @Test
-    void testBackpressure() throws Exception {
-        manager.start();
-        
-        BackpressureManager backpressureManager = manager.getBackpressureManager();
-        assertNotNull(backpressureManager);
-        
-        // Test successful operation
-        String result = backpressureManager.execute("test-op", () -> "success");
-        assertEquals("success", result);
-        
-        // Test metrics
-        BackpressureManager.BackpressureMetrics metrics = backpressureManager.getMetrics();
-        assertNotNull(metrics);
-        assertEquals(1, metrics.getSuccessfulOperations());
-        assertEquals(0, metrics.getFailedOperations());
+    void testBackpressure(VertxTestContext testContext) throws InterruptedException {
+        manager.start()
+            .compose(v -> {
+                try {
+                    BackpressureManager backpressureManager = manager.getBackpressureManager();
+                    assertNotNull(backpressureManager);
+
+                    String result = backpressureManager.execute("test-op", () -> "success");
+                    assertEquals("success", result);
+
+                    BackpressureManager.BackpressureMetrics metrics = backpressureManager.getMetrics();
+                    assertNotNull(metrics);
+                    assertEquals(1, metrics.getSuccessfulOperations());
+                    assertEquals(0, metrics.getFailedOperations());
+                    return Future.succeededFuture();
+                } catch (Exception e) {
+                    return Future.failedFuture(e);
+                }
+            })
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     @Test
-    void testDeadLetterQueue() {
-        manager.start();
+    void testDeadLetterQueue(VertxTestContext testContext) throws InterruptedException {
+        manager.start()
+            .compose(v -> {
+                var dlqManager = manager.getDeadLetterQueueManager();
+                assertNotNull(dlqManager);
+                return dlqManager.cleanupOldMessages(1);
+            })
+            .compose(cleaned -> manager.getVertx().timer(100))
+            .compose(v -> manager.getDeadLetterQueueManager().getStatistics())
+            .compose(stats -> {
+                assertNotNull(stats);
+                assertTrue(stats.totalMessages() >= 0,
+                    "Total messages should be non-negative, got: " + stats.totalMessages());
+                return Future.succeededFuture();
+            })
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
 
-        var dlqManager = manager.getDeadLetterQueueManager();
-        assertNotNull(dlqManager);
-
-        // Clean up any existing messages from parallel tests
-        dlqManager.cleanupOldMessages(1).join();
-        manager.getVertx().timer(100).toCompletionStage().toCompletableFuture().join(); // Allow cleanup to complete
-
-        // Test statistics (should be empty after cleanup)
-        DeadLetterStatsInfo stats = dlqManager.getStatistics().join();
-        assertNotNull(stats);
-        // In parallel execution, we can't guarantee it's completely empty, so just check it's not null
-        assertTrue(stats.totalMessages() >= 0, "Total messages should be non-negative, got: " + stats.totalMessages());
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     @Test
@@ -289,46 +307,44 @@ public class PeeGeeQManagerIntegrationTest {
     }
 
     @Test
-    void testSystemStatusReporting() {
-        manager.start();
-        
-        // Wait for components to initialize
-                    manager.getVertx().timer(2000).toCompletionStage().toCompletableFuture().join();
+    void testSystemStatusReporting(VertxTestContext testContext) throws InterruptedException {
+        manager.start()
+            .compose(v -> manager.getVertx().timer(2000))
+            .compose(v -> manager.getSystemStatus())
+            .compose(status -> {
+                assertNotNull(status);
+                assertTrue(status.isStarted());
+                assertEquals("test", status.getProfile());
 
-        
-        PeeGeeQManager.SystemStatus status = manager.getSystemStatus();
-        assertNotNull(status);
-        assertTrue(status.isStarted());
-        assertEquals("test", status.getProfile());
-        
-        // Verify all status components are present
-        assertNotNull(status.getHealthStatus());
-        assertNotNull(status.getMetricsSummary());
-        assertNotNull(status.getBackpressureMetrics());
-        assertNotNull(status.getDeadLetterStats());
-        
-        // Test toString for logging
-        String statusString = status.toString();
-        assertNotNull(statusString);
-        assertTrue(statusString.contains("started=true"));
-        assertTrue(statusString.contains("profile='test'"));
+                assertNotNull(status.getHealthStatus());
+                assertNotNull(status.getMetricsSummary());
+                assertNotNull(status.getBackpressureMetrics());
+                assertNotNull(status.getDeadLetterStats());
+
+                String statusString = status.toString();
+                assertNotNull(statusString);
+                assertTrue(statusString.contains("started=true"));
+                assertTrue(statusString.contains("profile='test'"));
+                return Future.succeededFuture();
+            })
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     @Test
-    void testResourceCleanup() {
-        manager.start();
+    void testResourceCleanup(VertxTestContext testContext) throws InterruptedException {
+        manager.start()
+            .compose(v -> manager.getSystemStatus())
+            .compose(statusBeforeClose -> {
+                assertTrue(statusBeforeClose.isStarted());
+                manager.close();
+                return manager.stop();
+            })
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
 
-        // Verify manager is running
-        PeeGeeQManager.SystemStatus statusBeforeClose = manager.getSystemStatus();
-        assertTrue(statusBeforeClose.isStarted());
-
-        // Test graceful shutdown
-        assertDoesNotThrow(() -> manager.close());
-
-        // Verify cleanup - check that the manager is no longer started
-        // Note: We can't call getSystemStatus() after close() because it tries to access the closed database
-        // Instead, we verify that the manager properly closed by checking that close() didn't throw an exception
-        // and that subsequent operations would fail gracefully
-        assertDoesNotThrow(() -> manager.stop()); // Should be safe to call stop() after close()
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 }

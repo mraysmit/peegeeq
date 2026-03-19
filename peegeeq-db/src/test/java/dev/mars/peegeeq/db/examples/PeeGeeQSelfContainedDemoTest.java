@@ -247,7 +247,8 @@ public class PeeGeeQSelfContainedDemoTest {
     private void demonstrateMetrics(PeeGeeQManager manager) {
         logger.info("\n=== Metrics Demo ===");
         
-        PeeGeeQManager.SystemStatus systemStatus = manager.getSystemStatus();
+        PeeGeeQManager.SystemStatus systemStatus = manager.getSystemStatus()
+            .toCompletionStage().toCompletableFuture().join();
         assertNotNull(systemStatus.getMetricsSummary(), "Metrics summary should not be null");
         
         logger.info("Metrics demonstrated");
@@ -259,7 +260,8 @@ public class PeeGeeQSelfContainedDemoTest {
     private void demonstrateSystemStatus(PeeGeeQManager manager) {
         logger.info("\n=== System Status Demo ===");
         
-        PeeGeeQManager.SystemStatus systemStatus = manager.getSystemStatus();
+        PeeGeeQManager.SystemStatus systemStatus = manager.getSystemStatus()
+            .toCompletionStage().toCompletableFuture().join();
         assertNotNull(systemStatus, "System status should not be null");
         assertTrue(systemStatus.isStarted(), "System should be started");
         assertEquals("demo", systemStatus.getProfile());
@@ -275,7 +277,8 @@ public class PeeGeeQSelfContainedDemoTest {
         
         // Monitor for a brief period
         for (int i = 0; i < 3; i++) {
-            PeeGeeQManager.SystemStatus status = manager.getSystemStatus();
+            PeeGeeQManager.SystemStatus status = manager.getSystemStatus()
+                .toCompletionStage().toCompletableFuture().join();
             assertNotNull(status, "System status should be available");
             logger.info("Monitor cycle {}: System healthy={}", i + 1, manager.isHealthy());
             

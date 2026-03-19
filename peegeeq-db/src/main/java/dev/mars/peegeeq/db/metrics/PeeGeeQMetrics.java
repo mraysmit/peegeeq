@@ -36,7 +36,6 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -52,11 +51,15 @@ import java.util.concurrent.atomic.AtomicReference;
  */
 public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQMetrics.class);
-    private static final Duration SYNC_BRIDGE_TIMEOUT = Duration.ofSeconds(2);
 
     private final Pool reactivePool;
     private final String instanceId;
     private MeterRegistry registry;
+
+    // Cached queue depth values — refreshed periodically by refreshDepthCache()
+    private volatile double cachedOutboxDepth = 0.0;
+    private volatile double cachedNativeDepth = 0.0;
+    private volatile double cachedDeadLetterDepth = 0.0;
 
     // Counters
     private Counter messagesSent;
@@ -452,8 +455,8 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
 
     @Override
     public long getQueueDepth(String topic) {
-        // For now, return native queue depth - this could be enhanced to be topic-specific
-        return (long) getNativeQueueDepth();
+        // Returns cached native queue depth - refreshed periodically by refreshDepthCache()
+        return (long) cachedNativeDepth;
     }
 
     @Override
@@ -597,9 +600,9 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
             metrics.put("messages_failed", messagesFailed.count());
         }
 
-        metrics.put("outbox_queue_depth", getOutboxQueueDepth());
-        metrics.put("native_queue_depth", getNativeQueueDepth());
-        metrics.put("dead_letter_queue_depth", getDeadLetterQueueDepth());
+        metrics.put("outbox_queue_depth", cachedOutboxDepth);
+        metrics.put("native_queue_depth", cachedNativeDepth);
+        metrics.put("dead_letter_queue_depth", cachedDeadLetterDepth);
 
         if (activeConnections != null) {
             metrics.put("active_connections", activeConnections.get());
@@ -611,17 +614,43 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
         return metrics;
     }
 
-    // Queue depth calculations
-    private Future<Double> getOutboxQueueDepth() {
-        return executeCountQuery("SELECT COUNT(*) FROM outbox WHERE status IN ('PENDING', 'PROCESSING')");
+    // Queue depth — synchronous reads from cache for gauges and MetricsProvider
+    private double getOutboxQueueDepth() {
+        return cachedOutboxDepth;
     }
 
-    private Future<Double> getNativeQueueDepth() {
-        return executeCountQuery("SELECT COUNT(*) FROM queue_messages WHERE status = 'AVAILABLE'");
+    private double getNativeQueueDepth() {
+        return cachedNativeDepth;
     }
 
-    private Future<Double> getDeadLetterQueueDepth() {
-        return executeCountQuery("SELECT COUNT(*) FROM dead_letter_queue");
+    private double getDeadLetterQueueDepth() {
+        return cachedDeadLetterDepth;
+    }
+
+    /**
+     * Refreshes cached queue depth values by querying the database asynchronously.
+     * Call this periodically (e.g. from a Vert.x timer) to keep gauge/summary values current.
+     *
+     * @return Future that completes when all depth caches have been updated
+     */
+    public Future<Void> refreshDepthCache() {
+        if (reactivePool == null) {
+            return Future.succeededFuture();
+        }
+
+        Future<Double> outbox = executeCountQuery(
+            "SELECT COUNT(*) FROM outbox WHERE status IN ('PENDING', 'PROCESSING')");
+        Future<Double> native_ = executeCountQuery(
+            "SELECT COUNT(*) FROM queue_messages WHERE status = 'AVAILABLE'");
+        Future<Double> deadLetter = executeCountQuery(
+            "SELECT COUNT(*) FROM dead_letter_queue");
+
+        return Future.all(outbox, native_, deadLetter).map(cf -> {
+            cachedOutboxDepth = cf.resultAt(0);
+            cachedNativeDepth = cf.resultAt(1);
+            cachedDeadLetterDepth = cf.resultAt(2);
+            return null;
+        });
     }
 
     /**
@@ -647,44 +676,10 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
     }
 
     /**
-     * Records metrics to database for historical analysis.
+     * Persists metrics to database for historical analysis.
+     * Returns a Future for non-blocking database operations.
      */
-    public void persistMetrics(MeterRegistry registry) {
-        // Use reactive approach - block on the result for compatibility with synchronous interface
-        try {
-            persistMetricsReactive(registry)
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get(SYNC_BRIDGE_TIMEOUT.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
-        } catch (TimeoutException e) {
-            logger.warn("Timed out persisting metrics using reactive approach (timeout={}ms)",
-                SYNC_BRIDGE_TIMEOUT.toMillis());
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            logger.warn("Interrupted while persisting metrics to database", e);
-        } catch (Exception e) {
-            // Check if this is a connection error during shutdown (expected during cleanup)
-            String errorMsg = e.getMessage();
-            boolean isConnectionError = errorMsg != null &&
-                (errorMsg.contains("Connection refused") ||
-                 errorMsg.contains("connection may have been lost") ||
-                 errorMsg.contains("underlying connection"));
-
-            if (isConnectionError) {
-                logger.debug("Failed to persist metrics due to connection issue (expected during shutdown): {}", errorMsg);
-            } else {
-                logger.warn("Failed to persist metrics to database using reactive approach", e);
-            }
-        }
-    }
-
-
-
-    /**
-     * Reactive version of persistMetrics using Vert.x Pool.
-     * This method returns a Future for non-blocking database operations.
-     */
-    public Future<Void> persistMetricsReactive(MeterRegistry registry) {
+    public Future<Void> persistMetrics(MeterRegistry registry) {
         if (reactivePool == null) {
             return Future.failedFuture(new IllegalStateException("No reactive pool available"));
         }
@@ -694,16 +689,16 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
             Future<Void> future = Future.succeededFuture();
 
             if (messagesSent != null) {
-                future = future.compose(v -> persistCounterReactive(connection, "messages_sent", messagesSent));
+                future = future.compose(v -> persistCounter(connection, "messages_sent", messagesSent));
             }
             if (messagesReceived != null) {
-                future = future.compose(v -> persistCounterReactive(connection, "messages_received", messagesReceived));
+                future = future.compose(v -> persistCounter(connection, "messages_received", messagesReceived));
             }
             if (messagesProcessed != null) {
-                future = future.compose(v -> persistCounterReactive(connection, "messages_processed", messagesProcessed));
+                future = future.compose(v -> persistCounter(connection, "messages_processed", messagesProcessed));
             }
             if (messagesFailed != null) {
-                future = future.compose(v -> persistCounterReactive(connection, "messages_failed", messagesFailed));
+                future = future.compose(v -> persistCounter(connection, "messages_failed", messagesFailed));
             }
 
             return future.onSuccess(v -> logger.debug("Persisted metrics to database using reactive patterns"));
@@ -725,9 +720,9 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
     }
 
     /**
-     * Reactive version of persistCounter using Vert.x SqlConnection.
+     * Persists a counter metric to the database using Vert.x SqlConnection.
      */
-    private Future<Void> persistCounterReactive(io.vertx.sqlclient.SqlConnection connection, String name, Counter counter) {
+    private Future<Void> persistCounter(io.vertx.sqlclient.SqlConnection connection, String name, Counter counter) {
         String sql = "INSERT INTO queue_metrics (metric_name, metric_value, tags) VALUES ($1, $2, $3::jsonb)";
         return connection.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of(name, counter.count(), "{}"))
@@ -735,33 +730,10 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
     }
 
     /**
-     * Health check metrics.
+     * Health check using Vert.x Pool.
+     * Returns a Future for non-blocking health checks.
      */
-    public boolean isHealthy() {
-        // Use reactive approach - block on the result for compatibility with synchronous interface
-        try {
-            return isHealthyReactive()
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get(SYNC_BRIDGE_TIMEOUT.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
-        } catch (TimeoutException e) {
-            logger.warn("Reactive health check timed out (timeout={}ms)", SYNC_BRIDGE_TIMEOUT.toMillis());
-            return false;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            logger.warn("Reactive health check was interrupted", e);
-            return false;
-        } catch (Exception e) {
-            logger.warn("Reactive health check failed", e);
-            return false;
-        }
-    }
-
-    /**
-     * Reactive version of health check using Vert.x Pool.
-     * This method returns a Future for non-blocking health checks.
-     */
-    public Future<Boolean> isHealthyReactive() {
+    public Future<Boolean> isHealthy() {
         if (reactivePool == null) {
             return Future.failedFuture(new IllegalStateException("No reactive pool available"));
         }
@@ -794,9 +766,9 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
             messagesReceived != null ? messagesReceived.count() : 0.0,
             messagesProcessed != null ? messagesProcessed.count() : 0.0,
             messagesFailed != null ? messagesFailed.count() : 0.0,
-            getOutboxQueueDepth(),
-            getNativeQueueDepth(),
-            getDeadLetterQueueDepth(),
+            cachedOutboxDepth,
+            cachedNativeDepth,
+            cachedDeadLetterDepth,
             activeConnections != null ? activeConnections.get() : 0L,
             idleConnections != null ? idleConnections.get() : 0L
         );

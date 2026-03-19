@@ -279,6 +279,10 @@ public class PeeGeeQConfiguration {
             if (reportingInterval.toMillis() < 1000) {
                 errors.add("Metrics reporting interval must be at least 1000ms");
             }
+            Duration depthCacheInterval = getDuration("peegeeq.metrics.depth-cache-interval", Duration.ofSeconds(5));
+            if (depthCacheInterval.toMillis() < 1000) {
+                errors.add("Metrics depth cache interval must be at least 1000ms");
+            }
         }
     }
     
@@ -411,6 +415,7 @@ public class PeeGeeQConfiguration {
         return new MetricsConfig(
             getBoolean("peegeeq.metrics.enabled", true),
             getDuration("peegeeq.metrics.reporting-interval", Duration.ofMinutes(1)),
+            getDuration("peegeeq.metrics.depth-cache-interval", Duration.ofSeconds(5)),
             getBoolean("peegeeq.metrics.jvm.enabled", true),
             getBoolean("peegeeq.metrics.database.enabled", true),
             instanceId
@@ -500,14 +505,16 @@ public class PeeGeeQConfiguration {
     public static class MetricsConfig {
         private final boolean enabled;
         private final Duration reportingInterval;
+        private final Duration depthCacheInterval;
         private final boolean jvmMetricsEnabled;
         private final boolean databaseMetricsEnabled;
         private final String instanceId;
         
-        public MetricsConfig(boolean enabled, Duration reportingInterval, boolean jvmMetricsEnabled,
-                           boolean databaseMetricsEnabled, String instanceId) {
+        public MetricsConfig(boolean enabled, Duration reportingInterval, Duration depthCacheInterval,
+                           boolean jvmMetricsEnabled, boolean databaseMetricsEnabled, String instanceId) {
             this.enabled = enabled;
             this.reportingInterval = reportingInterval;
+            this.depthCacheInterval = depthCacheInterval;
             this.jvmMetricsEnabled = jvmMetricsEnabled;
             this.databaseMetricsEnabled = databaseMetricsEnabled;
             this.instanceId = instanceId;
@@ -515,6 +522,7 @@ public class PeeGeeQConfiguration {
         
         public boolean isEnabled() { return enabled; }
         public Duration getReportingInterval() { return reportingInterval; }
+        public Duration getDepthCacheInterval() { return depthCacheInterval; }
         public boolean isJvmMetricsEnabled() { return jvmMetricsEnabled; }
         public boolean isDatabaseMetricsEnabled() { return databaseMetricsEnabled; }
         public String getInstanceId() { return instanceId; }

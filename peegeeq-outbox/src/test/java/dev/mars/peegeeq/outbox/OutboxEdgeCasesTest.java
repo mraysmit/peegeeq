@@ -41,7 +41,6 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -143,7 +142,7 @@ public class OutboxEdgeCasesTest {
 
         producer.send(testMessage).get(5, TimeUnit.SECONDS);
 
-        // Set up consumer that throws exception when accessing message properties
+        // Set up consumer that throws exception when accessing message propertiesfg
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
             logger.info("INTENTIONAL FAILURE: Processing attempt {} with message access exception", attempt);

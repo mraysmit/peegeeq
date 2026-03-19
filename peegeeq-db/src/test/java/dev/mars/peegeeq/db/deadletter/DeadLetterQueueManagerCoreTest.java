@@ -372,13 +372,17 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         renameDeadLetterTable("dead_letter_queue_tmp");
         try {
             assertThrows(CompletionException.class,
-                () -> deadLetterQueueManager.getDeadLetterMessages("topic", 10, 0).join());
+                () -> deadLetterQueueManager.getDeadLetterMessages("topic", 10, 0)
+                    .toCompletionStage().toCompletableFuture().join());
             assertThrows(CompletionException.class,
-                () -> deadLetterQueueManager.getAllDeadLetterMessages(10, 0).join());
+                () -> deadLetterQueueManager.getAllDeadLetterMessages(10, 0)
+                    .toCompletionStage().toCompletableFuture().join());
             assertThrows(CompletionException.class,
-                () -> deadLetterQueueManager.getDeadLetterMessage(1L).join());
+                () -> deadLetterQueueManager.getDeadLetterMessage(1L)
+                    .toCompletionStage().toCompletableFuture().join());
             assertThrows(CompletionException.class,
-                () -> deadLetterQueueManager.getStatistics().join());
+                () -> deadLetterQueueManager.getStatistics()
+                    .toCompletionStage().toCompletableFuture().join());
         } finally {
             renameDeadLetterTableBack("dead_letter_queue_tmp");
         }
@@ -389,11 +393,14 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
         renameDeadLetterTable("dead_letter_queue_tmp");
         try {
             assertThrows(CompletionException.class,
-                () -> deadLetterQueueManager.reprocessDeadLetterMessage(1L, "reason").join());
+                () -> deadLetterQueueManager.reprocessDeadLetterMessage(1L, "reason")
+                    .toCompletionStage().toCompletableFuture().join());
             assertThrows(CompletionException.class,
-                () -> deadLetterQueueManager.deleteDeadLetterMessage(1L, "reason").join());
+                () -> deadLetterQueueManager.deleteDeadLetterMessage(1L, "reason")
+                    .toCompletionStage().toCompletableFuture().join());
             assertThrows(CompletionException.class,
-                () -> deadLetterQueueManager.cleanupOldMessages(1).join());
+                () -> deadLetterQueueManager.cleanupOldMessages(1)
+                    .toCompletionStage().toCompletableFuture().join());
         } finally {
             renameDeadLetterTableBack("dead_letter_queue_tmp");
         }

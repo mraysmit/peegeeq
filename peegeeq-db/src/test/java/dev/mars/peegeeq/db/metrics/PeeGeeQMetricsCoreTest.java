@@ -359,8 +359,8 @@ public class PeeGeeQMetricsCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testIsHealthyReactive() throws Exception {
-        Boolean healthy = metrics.isHealthyReactive()
+    void testIsHealthy() throws Exception {
+        Boolean healthy = metrics.isHealthy()
             .toCompletionStage().toCompletableFuture().get();
         assertNotNull(healthy);
     }
