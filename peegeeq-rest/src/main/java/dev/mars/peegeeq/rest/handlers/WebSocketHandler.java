@@ -257,7 +257,7 @@ public class WebSocketHandler {
         logger.info("Starting message streaming for WebSocket connection: {}", connection.getConnectionId());
 
         setupService.getSetupResult(connection.getSetupId())
-                .thenAccept(setupResult -> {
+                .onSuccess(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                         sendErrorMessage(connection, "Setup " + connection.getSetupId() + " is not active");
                         return;
@@ -292,11 +292,10 @@ public class WebSocketHandler {
                         sendErrorMessage(connection, "Failed to start message streaming: " + e.getMessage());
                     }
                 })
-                .exceptionally(throwable -> {
+                .onFailure(throwable -> {
                     logger.error("Error setting up message streaming for connection {}: {}",
                             connection.getConnectionId(), throwable.getMessage(), throwable);
                     sendErrorMessage(connection, "Failed to setup message streaming: " + throwable.getMessage());
-                    return null;
                 });
     }
 

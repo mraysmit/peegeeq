@@ -77,7 +77,10 @@ class RuntimeDatabaseSetupServiceIntegrationTest {
     void tearDown() {
         if (setupService != null && testSetupId != null) {
             try {
-                setupService.destroySetup(testSetupId).get(10, TimeUnit.SECONDS);
+                setupService.destroySetup(testSetupId)
+                        .toCompletionStage()
+                        .toCompletableFuture()
+                        .get(10, TimeUnit.SECONDS);
                 logger.info("Test setup destroyed");
             } catch (Exception e) {
                 logger.warn("Failed to destroy test setup: {}", e.getMessage());
@@ -117,7 +120,9 @@ class RuntimeDatabaseSetupServiceIntegrationTest {
 
         // When
         DatabaseSetupResult result = setupService.createCompleteSetup(request)
-                .get(30, TimeUnit.SECONDS);
+            .toCompletionStage()
+            .toCompletableFuture()
+            .get(30, TimeUnit.SECONDS);
 
         // Then
         assertNotNull(result, "Setup result should not be null");
@@ -143,7 +148,9 @@ class RuntimeDatabaseSetupServiceIntegrationTest {
     void getSetupStatus_returnsActiveForExistingSetup() throws Exception {
         // When
         DatabaseSetupStatus status = setupService.getSetupStatus(testSetupId)
-                .get(10, TimeUnit.SECONDS);
+            .toCompletionStage()
+            .toCompletableFuture()
+            .get(10, TimeUnit.SECONDS);
 
         // Then
         assertEquals(DatabaseSetupStatus.ACTIVE, status, "Status should be ACTIVE");
@@ -155,7 +162,9 @@ class RuntimeDatabaseSetupServiceIntegrationTest {
     void getAllActiveSetupIds_includesTestSetup() throws Exception {
         // When
         Set<String> activeIds = setupService.getAllActiveSetupIds()
-                .get(10, TimeUnit.SECONDS);
+            .toCompletionStage()
+            .toCompletableFuture()
+            .get(10, TimeUnit.SECONDS);
 
         // Then
         assertNotNull(activeIds, "Active IDs should not be null");

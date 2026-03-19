@@ -14,6 +14,7 @@ import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
 import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
 import dev.mars.peegeeq.api.subscription.SubscriptionService;
+import io.vertx.core.Future;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
@@ -26,7 +27,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Predicate;
@@ -167,7 +167,7 @@ public class ConsumerGroupHandler {
 
             // Validate setup and queue exist, then create real consumer group
             setupService.getSetupResult(setupId)
-                .thenAccept(setupResult -> {
+                .onSuccess(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                         sendError(ctx, 404, "Setup not found or not active: " + setupId);
                         return;
@@ -200,12 +200,13 @@ public class ConsumerGroupHandler {
                             try {
                                 SubscriptionService subscriptionService = subscriptionManagerFactory.getManager(setupId);
                                 subscriptionService.subscribe(topic, groupName, finalSubscriptionOptions)
-                                    .toCompletionStage()
-                                    .toCompletableFuture()
-                                    .get(5, java.util.concurrent.TimeUnit.SECONDS);
-
-                                logger.info("Subscription created successfully for group '{}' on topic '{}'",
-                                           groupName, topic);
+                                    .onSuccess(v -> logger.info("Subscription created successfully for group '{}' on topic '{}'",
+                                           groupName, topic))
+                                    .onFailure(e -> {
+                                        logger.error("Failed to create subscription for group '{}': {}", groupName, e.getMessage());
+                                        // Don't fail the consumer group creation - subscription can be set later
+                                        logger.warn("Consumer group '{}' created without subscription options due to error", groupName);
+                                    });
                             } catch (Exception e) {
                                 logger.error("Failed to create subscription for group '{}': {}", groupName, e.getMessage());
                                 // Don't fail the consumer group creation - subscription can be set later
@@ -262,10 +263,9 @@ public class ConsumerGroupHandler {
                         sendError(ctx, 500, "Failed to create consumer group: " + e.getMessage());
                     }
                 })
-                .exceptionally(throwable -> {
+                .onFailure(throwable -> {
                     logger.error("Error creating consumer group {}: {}", groupName, throwable.getMessage(), throwable);
                     sendError(ctx, 500, "Failed to create consumer group: " + throwable.getMessage());
-                    return null;
                 });
 
         } catch (Exception e) {
@@ -469,7 +469,7 @@ public class ConsumerGroupHandler {
             // In a real scenario, the consumer would have its own handler for processing messages
             MessageHandler<Object> placeholderHandler = message -> {
                 logger.debug("REST consumer {} received message: {}", consumerId, message.getId());
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             };
 
             // Parse message filter if provided
@@ -890,13 +890,11 @@ public class ConsumerGroupHandler {
     
     /**
      * Gets subscription options for a consumer group (internal use).
-     * Returns null if consumer group doesn't exist or has no subscription options configured.
+     * Returns a Future that completes with null if consumer group doesn't exist
+     * or has no subscription options configured.
      * Caller should handle null by using defaults if appropriate.
-     * 
-     * Note: This is a BLOCKING call that waits for the database Future to complete.
-     * Only use this from non-event-loop contexts.
      */
-    public SubscriptionOptions getSubscriptionOptionsInternal(String setupId, String queueName, String groupName) {
+    public Future<SubscriptionOptions> getSubscriptionOptionsInternal(String setupId, String queueName, String groupName) {
         // Use topic naming convention: setupId-queueName
         String topic = setupId + "-" + queueName;
 
@@ -904,23 +902,22 @@ public class ConsumerGroupHandler {
             // Get SubscriptionService for this setup
             SubscriptionService subscriptionService = subscriptionManagerFactory.getManager(setupId);
 
-            // Block and wait for the database future to complete
-            // This is acceptable in SSE handler context as it's already async
-            SubscriptionInfo subscriptionInfo = subscriptionService.getSubscription(topic, groupName)
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get(5, java.util.concurrent.TimeUnit.SECONDS);
-
-            // If no subscription found, return null (caller will use defaults)
-            if (subscriptionInfo == null) {
-                return null;
-            }
-
-            return subscriptionInfoToOptions(subscriptionInfo);
+            return subscriptionService.getSubscription(topic, groupName)
+                .map(subscriptionInfo -> {
+                    if (subscriptionInfo == null) {
+                        return null;
+                    }
+                    return subscriptionInfoToOptions(subscriptionInfo);
+                })
+                .recover(e -> {
+                    logger.debug("No subscription options found for consumer group '{}' on topic '{}', caller should use defaults: {}",
+                               groupName, topic, e.getMessage());
+                    return Future.succeededFuture(null);
+                });
         } catch (Exception e) {
             logger.debug("No subscription options found for consumer group '{}' on topic '{}', caller should use defaults: {}",
                        groupName, topic, e.getMessage());
-            return null;
+            return Future.succeededFuture(null);
         }
     }
     

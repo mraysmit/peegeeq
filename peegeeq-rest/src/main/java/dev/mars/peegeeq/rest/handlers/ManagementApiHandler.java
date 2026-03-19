@@ -26,7 +26,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Handler for Management API endpoints that support the web-based admin
@@ -45,7 +44,6 @@ public class ManagementApiHandler {
     private static final Logger logger = LoggerFactory.getLogger(ManagementApiHandler.class);
 
     private final DatabaseSetupService setupService;
-    private static final long BLOCKING_TIMEOUT_SECONDS = 30;
     // Cache for system metrics (updated periodically)
     private final Map<String, Object> systemMetricsCache = new ConcurrentHashMap<>();
     private long lastMetricsUpdate = 0;
@@ -137,11 +135,11 @@ public class ManagementApiHandler {
 
         try {
             // Get all active setups and their queues synchronously
-            Set<String> activeSetupIds = setupService.getAllActiveSetupIds().get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            Set<String> activeSetupIds = setupService.getAllActiveSetupIds().await();
 
             for (String setupId : activeSetupIds) {
                 try {
-                    DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                    DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).await();
 
                     if (setupResult.getStatus() == DatabaseSetupStatus.ACTIVE) {
                         // Get all queue factories from this setup
@@ -416,11 +414,10 @@ public class ManagementApiHandler {
      */
     private long getRealEventCount(String setupId, String storeName) {
         try {
-            DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).await();
             var eventStore = setupResult.getEventStores().get(storeName);
             if (eventStore != null) {
-                var stats = eventStore.getStats().toCompletionStage().toCompletableFuture()
-                        .get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                var stats = eventStore.getStats().await();
                 return stats.getTotalEvents();
             }
             return 0;
@@ -436,11 +433,10 @@ public class ManagementApiHandler {
      */
     private long getRealAggregateCount(String setupId, String storeName) {
         try {
-            DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).await();
             var eventStore = setupResult.getEventStores().get(storeName);
             if (eventStore != null) {
-                var stats = eventStore.getStats().toCompletionStage().toCompletableFuture()
-                        .get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                var stats = eventStore.getStats().await();
                 return stats.getUniqueAggregateCount();
             }
             return 0;
@@ -456,11 +452,10 @@ public class ManagementApiHandler {
      */
     private long getRealCorrectionCount(String setupId, String storeName) {
         try {
-            DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).await();
             var eventStore = setupResult.getEventStores().get(storeName);
             if (eventStore != null) {
-                var stats = eventStore.getStats().toCompletionStage().toCompletableFuture()
-                        .get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                var stats = eventStore.getStats().await();
                 return stats.getTotalCorrections();
             }
             return 0;
@@ -589,7 +584,7 @@ public class ManagementApiHandler {
 
         try {
             // Get all active setup IDs
-            Set<String> activeSetupIds = setupService.getAllActiveSetupIds().get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            Set<String> activeSetupIds = setupService.getAllActiveSetupIds().await();
 
             // Collect recent events from all event stores
             List<JsonObject> allActivities = new ArrayList<>();
@@ -604,7 +599,7 @@ public class ManagementApiHandler {
 
             for (String setupId : activeSetupIds) {
                 try {
-                    DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                    DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).await();
 
                     if (setupResult.getStatus() == DatabaseSetupStatus.ACTIVE) {
                         Map<String, EventStore<?>> eventStoreMap = setupResult.getEventStores();
@@ -615,8 +610,7 @@ public class ManagementApiHandler {
 
                             try {
                                 List<? extends BiTemporalEvent<?>> events = eventStore.query(recentQuery)
-                                    .toCompletionStage().toCompletableFuture()
-                                    .get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                                    .await();
 
                                 for (BiTemporalEvent<?> event : events) {
                                     JsonObject activity = new JsonObject()
@@ -750,11 +744,11 @@ public class ManagementApiHandler {
 
         try {
             // Get consumer groups from active setups
-            Set<String> activeSetupIds = setupService.getAllActiveSetupIds().get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            Set<String> activeSetupIds = setupService.getAllActiveSetupIds().await();
 
             for (String setupId : activeSetupIds) {
                 try {
-                    DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                    DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).await();
 
                     if (setupResult.getStatus() == DatabaseSetupStatus.ACTIVE) {
                         // Get SubscriptionService for this setup
@@ -772,9 +766,7 @@ public class ManagementApiHandler {
                                 try {
                                     java.util.List<SubscriptionInfo> subscriptions = subscriptionService
                                             .listSubscriptions(queueName)
-                                            .toCompletionStage()
-                                            .toCompletableFuture()
-                                            .get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                                            .await();
 
                                     for (SubscriptionInfo sub : subscriptions) {
                                         JsonObject group = new JsonObject()
@@ -845,11 +837,11 @@ public class ManagementApiHandler {
 
         try {
             // Get event stores from active setups
-            Set<String> activeSetupIds = setupService.getAllActiveSetupIds().get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            Set<String> activeSetupIds = setupService.getAllActiveSetupIds().await();
 
             for (String setupId : activeSetupIds) {
                 try {
-                    DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                    DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).await();
 
                     if (setupResult.getStatus() == DatabaseSetupStatus.ACTIVE) {
                         // Get all event stores from this setup
@@ -898,7 +890,7 @@ public class ManagementApiHandler {
                 int limit = limitStr != null ? Integer.parseInt(limitStr) : 50;
                 int offset = offsetStr != null ? Integer.parseInt(offsetStr) : 0;
 
-                DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).await();
                 if (setupResult.getStatus() == DatabaseSetupStatus.ACTIVE) {
                     QueueFactory queueFactory = setupResult.getQueueFactories().get(queueName);
                     if (queueFactory != null) {
@@ -906,7 +898,7 @@ public class ManagementApiHandler {
 
                         // Use QueueBrowser to browse messages without consuming them
                         try (var browser = queueFactory.createBrowser(queueName, Object.class)) {
-                            var messageList = browser.browse(limit, offset).get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                            var messageList = browser.browse(limit, offset).await();
                             for (var message : messageList) {
                                 JsonObject headersJson = new JsonObject();
                                 if (message.getHeaders() != null) {
@@ -955,7 +947,7 @@ public class ManagementApiHandler {
 
             // Add queue to the specified setup
             setupService.addQueue(setupId, queueConfig)
-                    .thenAccept(result -> {
+                    .onSuccess(result -> {
                         JsonObject response = new JsonObject()
                                 .put("message", "Queue '" + queueName
                                         + "' created successfully in setup '" + setupId + "'")
@@ -980,7 +972,7 @@ public class ManagementApiHandler {
                         logger.info("Queue {} created successfully in setup {} with all parameters", queueName,
                                 setupId);
                     })
-                    .exceptionally(throwable -> {
+                    .onFailure(throwable -> {
                         logger.error("Error creating queue '{}' in setup '{}': {}", queueName, setupId,
                                 throwable.getMessage());
 
@@ -994,7 +986,6 @@ public class ManagementApiHandler {
                         }
 
                         sendError(ctx, statusCode, errorMessage);
-                        return null;
                     });
 
         } catch (IllegalArgumentException e) {
@@ -1032,7 +1023,7 @@ public class ManagementApiHandler {
 
             // Verify the queue exists
             setupService.getSetupResult(setupId)
-                    .thenAccept(setupResult -> {
+                    .onSuccess(setupResult -> {
                         if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                             sendError(ctx, 404, "Setup not found or not active: " + setupId);
                             return;
@@ -1061,11 +1052,10 @@ public class ManagementApiHandler {
 
                         logger.info("Queue {} updated successfully in setup {}", queueName, setupId);
                     })
-                    .exceptionally(throwable -> {
+                    .onFailure(throwable -> {
                         logger.error("Error updating queue {} in setup {}: {}", queueName, setupId,
                                 throwable.getMessage());
                         sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
-                        return null;
                     });
 
         } catch (Exception e) {
@@ -1098,7 +1088,7 @@ public class ManagementApiHandler {
 
             // Verify the queue exists first
             setupService.getSetupResult(setupId)
-                    .thenAccept(setupResult -> {
+                    .onSuccess(setupResult -> {
                         if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                             sendError(ctx, 404, "Setup not found or not active: " + setupId);
                             return;
@@ -1110,48 +1100,40 @@ public class ManagementApiHandler {
                             return;
                         }
 
-                        java.util.concurrent.CompletableFuture.runAsync(() -> {
-                            try {
-                                queueFactory.close();
-                            } catch (Exception e) {
-                                throw new java.util.concurrent.CompletionException(e);
-                            }
-                        }).whenComplete((ignored, error) -> ctx.vertx().runOnContext(v -> {
-                            if (error != null) {
-                                Throwable cause = error.getCause() != null ? error.getCause() : error;
-                                logger.error("Error cleaning up queue resources for {} in setup {}: {}", queueName, setupId,
-                                        cause.getMessage());
-                                sendError(ctx, 500, "Failed to clean up queue resources: " + cause.getMessage());
-                                return;
-                            }
+                        try {
+                            queueFactory.close();
+                        } catch (Exception e) {
+                            logger.error("Error cleaning up queue resources for {} in setup {}: {}", queueName, setupId,
+                                    e.getMessage());
+                            sendError(ctx, 500, "Failed to clean up queue resources: " + e.getMessage());
+                            return;
+                        }
 
-                            // Note: In a full implementation, you would also:
-                            // 1. Drop the queue table from the database
-                            // 2. Remove the queue from the setup result
-                            // 3. Clean up any associated consumer groups
-                            // 4. Handle any pending messages appropriately
+                        // Note: In a full implementation, you would also:
+                        // 1. Drop the queue table from the database
+                        // 2. Remove the queue from the setup result
+                        // 3. Clean up any associated consumer groups
+                        // 4. Handle any pending messages appropriately
 
-                            JsonObject response = new JsonObject()
-                                .put("message", "Queue '" + queueName + "' deleted successfully from setup '" + setupId + "'")
-                                .put("queueId", queueId)
-                                .put("setupId", setupId)
-                                .put("queueName", queueName)
-                                .put("note", "Queue resources have been cleaned up")
-                                .put("timestamp", System.currentTimeMillis());
+                        JsonObject response = new JsonObject()
+                            .put("message", "Queue '" + queueName + "' deleted successfully from setup '" + setupId + "'")
+                            .put("queueId", queueId)
+                            .put("setupId", setupId)
+                            .put("queueName", queueName)
+                            .put("note", "Queue resources have been cleaned up")
+                            .put("timestamp", System.currentTimeMillis());
 
-                            ctx.response()
-                                .setStatusCode(200)
-                                .putHeader("content-type", "application/json")
-                                .end(response.encode());
+                        ctx.response()
+                            .setStatusCode(200)
+                            .putHeader("content-type", "application/json")
+                            .end(response.encode());
 
-                            logger.info("Queue {} deleted successfully from setup {}", queueName, setupId);
-                        }));
+                        logger.info("Queue {} deleted successfully from setup {}", queueName, setupId);
                     })
-                    .exceptionally(throwable -> {
+                    .onFailure(throwable -> {
                         logger.error("Error deleting queue {} from setup {}: {}", queueName, setupId,
                                 throwable.getMessage());
                         sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
-                        return null;
                     });
 
         } catch (Exception e) {
@@ -1183,7 +1165,7 @@ public class ManagementApiHandler {
 
             // Get the setup and create consumer group
             setupService.getSetupResult(setupId)
-                    .thenAccept(setupResult -> {
+                    .onSuccess(setupResult -> {
                         if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                             sendError(ctx, 404, "Setup not found or not active: " + setupId);
                             return;
@@ -1224,10 +1206,9 @@ public class ManagementApiHandler {
                             sendError(ctx, 500, "Failed to create consumer group: " + e.getMessage());
                         }
                     })
-                    .exceptionally(throwable -> {
+                    .onFailure(throwable -> {
                         logger.error("Error getting setup {}: {}", setupId, throwable.getMessage());
                         sendError(ctx, 404, "Setup not found: " + setupId);
-                        return null;
                     });
 
         } catch (Exception e) {
@@ -1260,7 +1241,7 @@ public class ManagementApiHandler {
 
             // Verify the setup exists
             setupService.getSetupResult(setupId)
-                    .thenAccept(setupResult -> {
+                    .onSuccess(setupResult -> {
                         if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                             sendError(ctx, 404, "Setup not found or not active: " + setupId);
                             return;
@@ -1288,11 +1269,10 @@ public class ManagementApiHandler {
 
                         logger.info("Consumer group {} deleted successfully from setup {}", groupName, setupId);
                     })
-                    .exceptionally(throwable -> {
+                    .onFailure(throwable -> {
                         logger.error("Error deleting consumer group {} from setup {}: {}", groupName, setupId,
                                 throwable.getMessage());
                         sendError(ctx, 404, "Setup not found: " + throwable.getMessage());
-                        return null;
                     });
 
         } catch (Exception e) {
@@ -1321,7 +1301,7 @@ public class ManagementApiHandler {
 
             // Add event store to the specified setup
             setupService.addEventStore(setupId, eventStoreConfig)
-                    .thenAccept(result -> {
+                    .onSuccess(result -> {
                         JsonObject response = new JsonObject()
                                 .put("message", "Event store '" + eventStoreName
                                         + "' created successfully in setup '" + setupId + "'")
@@ -1346,7 +1326,7 @@ public class ManagementApiHandler {
                         logger.info("Event store {} created successfully in setup {} using unified ConfigParser",
                                 eventStoreName, setupId);
                     })
-                    .exceptionally(throwable -> {
+                    .onFailure(throwable -> {
                         logger.error("Error creating event store '{}' in setup '{}': {}", eventStoreName, setupId,
                                 throwable.getMessage());
 
@@ -1360,7 +1340,6 @@ public class ManagementApiHandler {
                         }
 
                         sendError(ctx, statusCode, errorMessage);
-                        return null;
                     });
 
         } catch (IllegalArgumentException e) {
@@ -1528,7 +1507,7 @@ public class ManagementApiHandler {
 
         // Verify the setup exists and has the event store
         setupService.getSetupResult(setupId)
-                .thenAccept(setupResult -> {
+                .onSuccess(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                         sendError(ctx, 404, "Setup not found or not active: " + setupId);
                         return;
@@ -1564,11 +1543,10 @@ public class ManagementApiHandler {
 
                     logger.info("Event store {} deleted successfully from setup {}", storeName, setupId);
                 })
-                .exceptionally(throwable -> {
+                .onFailure(throwable -> {
                     logger.error("Error deleting event store {} from setup {}: {}", storeName, setupId,
                             throwable.getMessage());
                     sendError(ctx, 404, "Setup or event store not found: " + throwable.getMessage());
-                    return null;
                 });
     }
 
@@ -1609,9 +1587,7 @@ public class ManagementApiHandler {
                     .getSubscriptionServiceForSetup(setupResult.getSetupId());
             if (subscriptionService != null) {
                 java.util.List<SubscriptionInfo> subscriptions = subscriptionService.listSubscriptions(queueName)
-                        .toCompletionStage()
-                        .toCompletableFuture()
-                        .get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                        .await();
 
                 // Count active subscriptions
                 return (int) subscriptions.stream()
@@ -1638,7 +1614,7 @@ public class ManagementApiHandler {
         logger.debug("Queue details requested for setup: {}, queue: {}", setupId, queueName);
 
         setupService.getSetupResult(setupId)
-                .thenAccept(setupResult -> {
+                .onSuccess(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                         sendError(ctx, 404, "Setup not found or not active: " + setupId);
                         return;
@@ -1679,7 +1655,7 @@ public class ManagementApiHandler {
                             .putHeader("content-type", "application/json")
                             .end(queueDetails.encode());
                 })
-                .exceptionally(throwable -> {
+                .onFailure(throwable -> {
                     // Check if this is an expected setup not found error (no stack trace)
                     Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
                     if (isSetupNotFoundError(cause)) {
@@ -1690,7 +1666,6 @@ public class ManagementApiHandler {
                                 throwable);
                     }
                     sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
-                    return null;
                 });
     }
 
@@ -1707,7 +1682,7 @@ public class ManagementApiHandler {
         logger.debug("Queue consumers requested for setup: {}, queue: {}", setupId, queueName);
 
         setupService.getSetupResult(setupId)
-                .thenAccept(setupResult -> {
+                .onSuccess(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                         sendError(ctx, 404, "Setup not found or not active: " + setupId);
                         return;
@@ -1727,9 +1702,7 @@ public class ManagementApiHandler {
                         try {
                             java.util.List<SubscriptionInfo> subscriptions = subscriptionService
                                     .listSubscriptions(queueName)
-                                    .toCompletionStage()
-                                    .toCompletableFuture()
-                                    .get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                                    .await();
 
                             for (SubscriptionInfo sub : subscriptions) {
                                 JsonObject consumer = new JsonObject()
@@ -1767,10 +1740,9 @@ public class ManagementApiHandler {
                             .putHeader("content-type", "application/json")
                             .end(response.encode());
                 })
-                .exceptionally(throwable -> {
+                .onFailure(throwable -> {
                     logger.error("Error getting consumers for setup: {}, queue: {}", setupId, queueName, throwable);
                     sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
-                    return null;
                 });
     }
 
@@ -1785,7 +1757,7 @@ public class ManagementApiHandler {
         logger.debug("Queue bindings requested for setup: {}, queue: {}", setupId, queueName);
 
         setupService.getSetupResult(setupId)
-                .thenAccept(setupResult -> {
+                .onSuccess(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                         sendError(ctx, 404, "Setup not found or not active: " + setupId);
                         return;
@@ -1814,10 +1786,9 @@ public class ManagementApiHandler {
                             .putHeader("content-type", "application/json")
                             .end(response.encode());
                 })
-                .exceptionally(throwable -> {
+                .onFailure(throwable -> {
                     logger.error("Error getting bindings for setup: {}, queue: {}", setupId, queueName, throwable);
                     sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
-                    return null;
                 });
     }
 
@@ -1842,7 +1813,7 @@ public class ManagementApiHandler {
                 setupId, queueName, count, ackMode, offset);
 
         setupService.getSetupResult(setupId)
-                .thenAccept(setupResult -> {
+                .onSuccess(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                         sendError(ctx, 404, "Setup not found or not active: " + setupId);
                         return;
@@ -1858,7 +1829,7 @@ public class ManagementApiHandler {
                         // Use QueueBrowser to browse messages without consuming them
                         JsonArray messages = new JsonArray();
                         try (var browser = queueFactory.createBrowser(queueName, Object.class)) {
-                            var messageList = browser.browse(count, offset).get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                            var messageList = browser.browse(count, offset).await();
                             for (var message : messageList) {
                                 JsonObject headersJson = new JsonObject();
                                 if (message.getHeaders() != null) {
@@ -1897,10 +1868,9 @@ public class ManagementApiHandler {
                         sendError(ctx, 500, "Failed to browse messages: " + e.getMessage());
                     }
                 })
-                .exceptionally(throwable -> {
+                .onFailure(throwable -> {
                     logger.error("Error getting messages for setup: {}, queue: {}", setupId, queueName, throwable);
                     sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
-                    return null;
                 });
     }
 
@@ -1936,7 +1906,7 @@ public class ManagementApiHandler {
         logger.info("Purge queue requested for setup: {}, queue: {}", setupId, queueName);
 
         setupService.getSetupResult(setupId)
-                .thenAccept(setupResult -> {
+                .onSuccess(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                         sendError(ctx, 404, "Setup not found or not active: " + setupId);
                         return;
@@ -1974,10 +1944,9 @@ public class ManagementApiHandler {
                                 sendError(ctx, 500, "Failed to purge queue: " + error.getMessage());
                             });
                 })
-                .exceptionally(throwable -> {
+                .onFailure(throwable -> {
                     logger.error("Error purging queue for setup: {}, queue: {}", setupId, queueName, throwable);
                     sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
-                    return null;
                 });
     }
 
@@ -2108,7 +2077,7 @@ public class ManagementApiHandler {
         logger.info("Delete queue requested for setup: {}, queue: {}", setupId, queueName);
 
         setupService.getSetupResult(setupId)
-                .thenAccept(setupResult -> {
+                .onSuccess(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                         sendError(ctx, 404, "Setup not found or not active: " + setupId);
                         return;
@@ -2139,21 +2108,15 @@ public class ManagementApiHandler {
                                             });
                                 })
                                 .onSuccess(deletedCount -> {
-                                    java.util.concurrent.CompletableFuture.runAsync(() -> {
-                                        try {
-                                            queueFactory.close();
-                                        } catch (Exception e) {
-                                            throw new java.util.concurrent.CompletionException(e);
-                                        }
-                                    }).whenComplete((ignored, error) -> ctx.vertx().runOnContext(v -> {
-                                        if (error != null) {
-                                            Throwable cause = error.getCause() != null ? error.getCause() : error;
-                                            logger.error("Error cleaning up queue resources for {} in setup {}: {}",
-                                                    queueName, setupId, cause.getMessage());
-                                            sendError(ctx, 500,
-                                                    "Failed to clean up queue resources: " + cause.getMessage());
-                                            return;
-                                        }
+                                    try {
+                                        queueFactory.close();
+                                    } catch (Exception e) {
+                                        logger.error("Error cleaning up queue resources for {} in setup {}: {}",
+                                                queueName, setupId, e.getMessage());
+                                        sendError(ctx, 500,
+                                                "Failed to clean up queue resources: " + e.getMessage());
+                                        return;
+                                    }
 
                                     // Remove the queue from the setup result
                                     setupResult.getQueueFactories().remove(queueName);
@@ -2172,17 +2135,15 @@ public class ManagementApiHandler {
                                         .setStatusCode(200)
                                         .putHeader("content-type", "application/json")
                                         .end(response.encode());
-                                    }));
                                 })
                                 .onFailure(error -> {
                                     logger.error("❌ Failed to delete queue: {}", queueName, error);
                                     sendError(ctx, 500, "Failed to delete queue: " + error.getMessage());
                                 });
                 })
-                .exceptionally(throwable -> {
+                .onFailure(throwable -> {
                     logger.error("Error deleting queue for setup: {}, queue: {}", setupId, queueName, throwable);
                     sendError(ctx, 404, "Setup or queue not found: " + throwable.getMessage());
-                    return null;
                 });
     }
 

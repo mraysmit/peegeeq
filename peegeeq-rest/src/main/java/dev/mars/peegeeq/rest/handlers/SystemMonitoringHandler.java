@@ -35,7 +35,6 @@ import java.util.Map;
 import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.Timer;
@@ -67,7 +66,6 @@ import java.util.concurrent.atomic.AtomicReference;
 public class SystemMonitoringHandler {
 
     private static final Logger log = LoggerFactory.getLogger(SystemMonitoringHandler.class);
-    private static final long BLOCKING_TIMEOUT_SECONDS = 30;
 
     // Dependencies (ONLY from peegeeq-api and peegeeq-runtime)
     private final DatabaseSetupService setupService;
@@ -440,7 +438,7 @@ public class SystemMonitoringHandler {
             long uptime = ManagementFactory.getRuntimeMXBean().getUptime();
 
             // Get active setups from service layer
-            Set<String> activeSetupIds = setupService.getAllActiveSetupIds().get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+            Set<String> activeSetupIds = setupService.getAllActiveSetupIds().await();
 
             // Aggregate system-wide statistics
             int totalQueues = 0;
@@ -451,7 +449,7 @@ public class SystemMonitoringHandler {
 
             for (String setupId : activeSetupIds) {
                 try {
-                    DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                    DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).await();
 
                     if (setupResult.getStatus() == DatabaseSetupStatus.ACTIVE) {
                         // Queues and Messages
@@ -480,9 +478,7 @@ public class SystemMonitoringHandler {
                                 try {
                                     java.util.List<dev.mars.peegeeq.api.subscription.SubscriptionInfo> subs = subService
                                             .listSubscriptions(topic)
-                                            .toCompletionStage()
-                                            .toCompletableFuture()
-                                            .get(BLOCKING_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                                            .await();
                                     totalConsumerGroups += subs.size();
                                     // Sum up active members if we had that info, for now use 1 per active group
                                     // as a proxy for active connections if we don't have deeper registry access

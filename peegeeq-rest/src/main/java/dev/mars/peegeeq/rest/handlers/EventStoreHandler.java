@@ -24,6 +24,7 @@ import dev.mars.peegeeq.api.TemporalRange;
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpServerResponse;
 import io.vertx.core.json.JsonObject;
@@ -95,7 +96,7 @@ public class EventStoreHandler {
                     eventRequest.getEventType(), eventStoreName, setupId);
             
             setupService.getSetupResult(setupId)
-                    .thenAccept(setupResult -> {
+                    .onSuccess(setupResult -> {
                         if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                             sendError(ctx, 404, "Setup not found or not active: " + setupId);
                             return;
@@ -132,8 +133,7 @@ public class EventStoreHandler {
                             eventRequest.getCausationId(),
                             eventRequest.getAggregateId()
                         )
-                        .toCompletionStage()
-                        .thenAccept(storedEvent -> {
+                        .onSuccess(storedEvent -> {
                             JsonObject response = new JsonObject()
                                     .put("message", "Event '" + eventRequest.getEventType() + "' stored successfully in event store '" + eventStoreName + "' in setup '" + setupId + "'")
                                     .put("eventStoreName", eventStoreName)
@@ -151,15 +151,14 @@ public class EventStoreHandler {
                             logger.info("Event stored successfully in event store {} for setup {} with ID {} (version {})",
                                     eventStoreName, setupId, storedEvent.getEventId(), storedEvent.getVersion());
                         })
-                        .exceptionally(storeEx -> {
+                        .onFailure(storeEx -> {
                             logger.error("Error storing event '{}' in event store '{}' in setup '{}': {}",
                                     eventRequest.getEventType(), eventStoreName, setupId, storeEx.getMessage(), storeEx);
                             sendError(ctx, 500, "Failed to store event '" + eventRequest.getEventType()
                                     + "' in event store '" + eventStoreName + "': " + storeEx.getMessage());
-                            return null;
                         });
                     })
-                    .exceptionally(throwable -> {
+                    .onFailure(throwable -> {
                         // Check if this is an expected setup not found error (no stack trace)
                         Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
                         if (isSetupNotFoundError(cause)) {
@@ -170,7 +169,6 @@ public class EventStoreHandler {
                             logger.error("Error setting up event store for storing: " + eventStoreName, throwable);
                             sendError(ctx, 500, "Failed to setup event store: " + throwable.getMessage());
                         }
-                        return null;
                     });
                     
         } catch (Exception e) {
@@ -238,7 +236,7 @@ public class EventStoreHandler {
         }
 
         setupService.getSetupResult(setupId)
-                .thenAccept(setupResult -> {
+                .onSuccess(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                         sendError(ctx, 404, "Setup not found or not active: " + setupId);
                         return;
@@ -257,8 +255,7 @@ public class EventStoreHandler {
 
                         // Query events from the event store using the real implementation
                         eventStore.query(eventQuery)
-                            .toCompletionStage()
-                            .thenAccept(events -> {
+                            .onSuccess(events -> {
                                 List<EventResponse> eventResponses = events.stream()
                                     .map(this::convertToEventResponse)
                                     .toList();
@@ -283,10 +280,9 @@ public class EventStoreHandler {
 
                                 logger.info("Retrieved {} events from event store {}", eventResponses.size(), eventStoreName);
                             })
-                            .exceptionally(ex -> {
+                            .onFailure(ex -> {
                                 logger.error("Error querying events from event store {}: {}", eventStoreName, ex.getMessage(), ex);
                                 sendError(ctx, 500, "Failed to query events: " + ex.getMessage());
-                                return null;
                             });
 
                     } catch (Exception e) {
@@ -294,7 +290,7 @@ public class EventStoreHandler {
                         sendError(ctx, 500, "Failed to query events: " + e.getMessage());
                     }
                 })
-                .exceptionally(throwable -> {
+                .onFailure(throwable -> {
                     // Check if this is an expected setup not found error (no stack trace)
                     Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
                     if (isSetupNotFoundError(cause)) {
@@ -305,7 +301,6 @@ public class EventStoreHandler {
                         logger.error("Error setting up event store query for {}: {}", eventStoreName, throwable.getMessage(), throwable);
                         sendError(ctx, 500, "Failed to setup event store query: " + throwable.getMessage());
                     }
-                    return null;
                 });
     }
     
@@ -320,7 +315,7 @@ public class EventStoreHandler {
         logger.info("Getting event {} from event store {} in setup: {}", eventId, eventStoreName, setupId);
 
         setupService.getSetupResult(setupId)
-                .thenAccept(setupResult -> {
+                .onSuccess(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                         sendError(ctx, 404, "Setup not found or not active: " + setupId);
                         return;
@@ -336,8 +331,7 @@ public class EventStoreHandler {
                     try {
                         // Get the specific event using the real implementation
                         eventStore.getById(eventId)
-                            .toCompletionStage()
-                            .thenAccept(event -> {
+                            .onSuccess(event -> {
                                 if (event == null) {
                                     sendError(ctx, 404, "Event not found: " + eventId);
                                     return;
@@ -360,10 +354,9 @@ public class EventStoreHandler {
 
                                 logger.info("Retrieved event {} from event store {}", eventId, eventStoreName);
                             })
-                            .exceptionally(ex -> {
+                            .onFailure(ex -> {
                                 logger.error("Error getting event {} from event store {}: {}", eventId, eventStoreName, ex.getMessage(), ex);
                                 sendError(ctx, 500, "Failed to get event: " + ex.getMessage());
-                                return null;
                             });
 
                     } catch (Exception e) {
@@ -371,10 +364,9 @@ public class EventStoreHandler {
                         sendError(ctx, 500, "Failed to get event: " + e.getMessage());
                     }
                 })
-                .exceptionally(throwable -> {
+                .onFailure(throwable -> {
                     logger.error("Error setting up event retrieval for {}: {}", eventId, throwable.getMessage(), throwable);
                     sendError(ctx, 500, "Failed to setup event retrieval: " + throwable.getMessage());
-                    return null;
                 });
     }
     
@@ -389,7 +381,7 @@ public class EventStoreHandler {
         logger.info("Getting unique aggregates for event store {} in setup: {}", eventStoreName, setupId);
         
         setupService.getSetupResult(setupId)
-                .thenAccept(setupResult -> {
+                .onSuccess(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                         sendError(ctx, 404, "Setup not found or not active: " + setupId);
                         return;
@@ -403,24 +395,21 @@ public class EventStoreHandler {
                     }
                     
                     eventStore.getUniqueAggregates(eventType)
-                            .toCompletionStage()
-                            .thenAccept(aggregates -> {
+                            .onSuccess(aggregates -> {
                                 JsonObject response = new JsonObject()
                                         .put("aggregates", aggregates)
                                         .put("count", aggregates.size());
                                 
                                 sendResponse(ctx, 200, response);
                             })
-                            .exceptionally(e -> {
+                            .onFailure(e -> {
                                 logger.error("Error getting aggregates for store {}: {}", eventStoreName, e.getMessage(), e);
                                 sendError(ctx, 500, "Failed to get aggregates: " + e.getMessage());
-                                return null;
                             });
                 })
-                .exceptionally(e -> {
+                .onFailure(e -> {
                     logger.error("Error accessing setup {}: {}", setupId, e.getMessage(), e);
                     sendError(ctx, 500, "Failed to access setup: " + e.getMessage());
-                    return null;
                 });
     }
 
@@ -434,7 +423,7 @@ public class EventStoreHandler {
         logger.info("Getting stats for event store {} in setup: {}", eventStoreName, setupId);
 
         setupService.getSetupResult(setupId)
-                .thenAccept(setupResult -> {
+                .onSuccess(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                         sendError(ctx, 404, "Setup not found or not active: " + setupId);
                         return;
@@ -450,8 +439,7 @@ public class EventStoreHandler {
                     try {
                         // Get statistics from the event store using the real implementation
                         eventStore.getStats()
-                            .toCompletionStage()
-                            .thenAccept(stats -> {
+                            .onSuccess(stats -> {
                                 // Convert EventStore.EventStoreStats to our REST EventStoreStats
                                 EventStoreStats restStats = new EventStoreStats(
                                     eventStoreName,
@@ -474,10 +462,9 @@ public class EventStoreHandler {
 
                                 logger.info("Retrieved statistics for event store {}", eventStoreName);
                             })
-                            .exceptionally(ex -> {
+                            .onFailure(ex -> {
                                 logger.error("Error getting event store stats for {}: {}", eventStoreName, ex.getMessage(), ex);
                                 sendError(ctx, 500, "Failed to get event store stats: " + ex.getMessage());
-                                return null;
                             });
 
                     } catch (Exception e) {
@@ -485,10 +472,9 @@ public class EventStoreHandler {
                         sendError(ctx, 500, "Failed to get event store stats: " + e.getMessage());
                     }
                 })
-                .exceptionally(throwable -> {
+                .onFailure(throwable -> {
                     logger.error("Error setting up event store stats retrieval for {}: {}", eventStoreName, throwable.getMessage(), throwable);
                     sendError(ctx, 500, "Failed to setup event store stats retrieval: " + throwable.getMessage());
-                    return null;
                 });
     }
 
@@ -1038,7 +1024,7 @@ public class EventStoreHandler {
         logger.info("Getting all versions of event {} from event store {} in setup: {}", eventId, eventStoreName, setupId);
 
         setupService.getSetupResult(setupId)
-                .thenAccept(setupResult -> {
+                .onSuccess(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                         sendError(ctx, 404, "Setup not found or not active: " + setupId);
                         return;
@@ -1054,8 +1040,7 @@ public class EventStoreHandler {
                     try {
                         // Get all versions from the event store
                         eventStore.getAllVersions(eventId)
-                            .toCompletionStage()
-                            .thenAccept(events -> {
+                            .onSuccess(events -> {
                                 List<EventResponse> versions = events.stream()
                                     .map(this::convertToEventResponse)
                                     .toList();
@@ -1075,10 +1060,9 @@ public class EventStoreHandler {
 
                                 logger.info("Retrieved {} versions of event {} from event store {}", versions.size(), eventId, eventStoreName);
                             })
-                            .exceptionally(ex -> {
+                            .onFailure(ex -> {
                                 logger.error("Error getting versions of event {} from event store {}: {}", eventId, eventStoreName, ex.getMessage(), ex);
                                 sendError(ctx, 500, "Failed to get event versions: " + ex.getMessage());
-                                return null;
                             });
 
                     } catch (Exception e) {
@@ -1086,7 +1070,7 @@ public class EventStoreHandler {
                         sendError(ctx, 500, "Failed to get event versions: " + e.getMessage());
                     }
                 })
-                .exceptionally(throwable -> {
+                .onFailure(throwable -> {
                     Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
                     if (isSetupNotFoundError(cause)) {
                         logger.debug("🚫 EXPECTED: Setup not found for getting event versions: {} (setup: {})",
@@ -1096,7 +1080,6 @@ public class EventStoreHandler {
                         logger.error("Error setting up event versions retrieval for {}: {}", eventId, throwable.getMessage(), throwable);
                         sendError(ctx, 500, "Failed to setup event versions retrieval: " + throwable.getMessage());
                     }
-                    return null;
                 });
     }
 
@@ -1127,7 +1110,7 @@ public class EventStoreHandler {
         }
 
         setupService.getSetupResult(setupId)
-                .thenAccept(setupResult -> {
+                .onSuccess(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                         sendError(ctx, 404, "Setup not found or not active: " + setupId);
                         return;
@@ -1145,8 +1128,7 @@ public class EventStoreHandler {
                         Instant transactionTime = Instant.parse(transactionTimeParam);
                         
                         eventStore.getAsOfTransactionTime(eventId, transactionTime)
-                            .toCompletionStage()
-                            .thenAccept(event -> {
+                            .onSuccess(event -> {
                                 if (event == null) {
                                     // No event found at this transaction time
                                     sendError(ctx, 404, "Event not found as of transaction time: " + transactionTimeParam);
@@ -1172,11 +1154,10 @@ public class EventStoreHandler {
                                 logger.info("Retrieved event {} as of transaction time {} from event store {}", 
                                           eventId, transactionTimeParam, eventStoreName);
                             })
-                            .exceptionally(ex -> {
+                            .onFailure(ex -> {
                                 logger.error("Error getting event {} as of time {} from event store {}: {}", 
                                            eventId, transactionTimeParam, eventStoreName, ex.getMessage(), ex);
                                 sendError(ctx, 500, "Failed to get event as of transaction time: " + ex.getMessage());
-                                return null;
                             });
 
                     } catch (Exception e) {
@@ -1184,7 +1165,7 @@ public class EventStoreHandler {
                         sendError(ctx, 400, "Invalid transaction time format: " + e.getMessage());
                     }
                 })
-                .exceptionally(throwable -> {
+                .onFailure(throwable -> {
                     Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
                     if (isSetupNotFoundError(cause)) {
                         logger.debug("🚫 EXPECTED: Setup not found for temporal event query: {} (setup: {})",
@@ -1194,7 +1175,6 @@ public class EventStoreHandler {
                         logger.error("Error setting up temporal event query for {}: {}", eventId, throwable.getMessage(), throwable);
                         sendError(ctx, 500, "Failed to setup temporal event query: " + throwable.getMessage());
                     }
-                    return null;
                 });
     }
 
@@ -1239,7 +1219,7 @@ public class EventStoreHandler {
                     originalEventId, eventStoreName, setupId, correctionRequest.getCorrectionReason());
 
             setupService.getSetupResult(setupId)
-                    .thenAccept(setupResult -> {
+                    .onSuccess(setupResult -> {
                         if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                             sendError(ctx, 404, "Setup not found or not active: " + setupId);
                             return;
@@ -1255,8 +1235,7 @@ public class EventStoreHandler {
 
                         // First, get the original event to determine the event type if not provided
                         eventStore.getById(originalEventId)
-                            .toCompletionStage()
-                            .thenCompose(originalEvent -> {
+                            .compose(originalEvent -> {
                                 if (originalEvent == null) {
                                     throw new RuntimeException("Original event not found: " + originalEventId);
                                 }
@@ -1292,7 +1271,7 @@ public class EventStoreHandler {
                                         correctionRequest.getCorrelationId(),
                                         correctionRequest.getCausationId(),
                                         correctionRequest.getCorrectionReason()
-                                    ).toCompletionStage();
+                                    );
                                 } else {
                                     // Use simple version
                                     return eventStore.appendCorrection(
@@ -1301,10 +1280,10 @@ public class EventStoreHandler {
                                         correctionRequest.getEventData(),
                                         validTime,
                                         correctionRequest.getCorrectionReason()
-                                    ).toCompletionStage();
+                                    );
                                 }
                             })
-                            .thenAccept(correctionEvent -> {
+                            .onSuccess(correctionEvent -> {
                                 JsonObject response = new JsonObject()
                                         .put("message", "Correction appended successfully")
                                         .put("eventStoreName", eventStoreName)
@@ -1323,7 +1302,7 @@ public class EventStoreHandler {
                                 logger.info("Correction appended successfully to event {} in event store {} for setup {} with new ID {} (version {})",
                                         originalEventId, eventStoreName, setupId, correctionEvent.getEventId(), correctionEvent.getVersion());
                             })
-                            .exceptionally(ex -> {
+                            .onFailure(ex -> {
                                 Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
                                 String errorMessage = cause.getMessage();
 
@@ -1335,10 +1314,9 @@ public class EventStoreHandler {
                                             originalEventId, eventStoreName, errorMessage, ex);
                                     sendError(ctx, 500, "Failed to append correction: " + errorMessage);
                                 }
-                                return null;
                             });
                     })
-                    .exceptionally(throwable -> {
+                    .onFailure(throwable -> {
                         Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
                         if (isSetupNotFoundError(cause)) {
                             logger.debug("🚫 EXPECTED: Setup not found for correction: {} (setup: {})",
@@ -1348,7 +1326,6 @@ public class EventStoreHandler {
                             logger.error("Error setting up correction for event {}: {}", originalEventId, throwable.getMessage(), throwable);
                             sendError(ctx, 500, "Failed to setup correction: " + throwable.getMessage());
                         }
-                        return null;
                     });
 
         } catch (Exception e) {
@@ -1500,7 +1477,7 @@ public class EventStoreHandler {
      */
     private void startEventStreaming(EventStoreSSEConnection connection) {
         setupService.getSetupResult(connection.getSetupId())
-            .thenAccept(setupResult -> {
+            .onSuccess(setupResult -> {
                 if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                     sendErrorEvent(connection, "Setup not found or not active: " + connection.getSetupId());
                     return;
@@ -1534,11 +1511,11 @@ public class EventStoreHandler {
                                 connection.setResumePointReached(true);
                                 logger.info("SSE connection {} reached resume point at event {}",
                                            connection.getConnectionId(), lastEventId);
-                                return java.util.concurrent.CompletableFuture.completedFuture(null);
+                                return Future.succeededFuture();
                             } else {
                                 logger.trace("SSE connection {} skipping event {} (waiting for {})",
                                             connection.getConnectionId(), event.getEventId(), lastEventId);
-                                return java.util.concurrent.CompletableFuture.completedFuture(null);
+                                return Future.succeededFuture();
                             }
                         }
 
@@ -1569,14 +1546,14 @@ public class EventStoreHandler {
                         // Send the event with event ID for reconnection support
                         sendSSEEvent(connection, "event", eventData, event.getEventId());
 
-                        return java.util.concurrent.CompletableFuture.completedFuture(null);
+                        return Future.succeededFuture();
 
                     } catch (Exception e) {
                         logger.error("Error processing event for SSE connection {}: {}",
                                     connection.getConnectionId(), e.getMessage(), e);
-                        return java.util.concurrent.CompletableFuture.failedFuture(e);
+                        return Future.failedFuture(e);
                     }
-                }).toCompletionStage().thenAccept(v -> {
+                }).onSuccess(v -> {
                     logger.info("Event subscription established for SSE connection {}",
                                connection.getConnectionId());
 
@@ -1595,19 +1572,17 @@ public class EventStoreHandler {
 
                     sendSSEEvent(connection, "subscribed", configEvent, null);
 
-                }).exceptionally(throwable -> {
+                }).onFailure(throwable -> {
                     logger.error("Failed to subscribe for SSE connection {}: {}",
                                 connection.getConnectionId(), throwable.getMessage(), throwable);
                     sendErrorEvent(connection, "Failed to subscribe: " + throwable.getMessage());
-                    return null;
                 });
 
             })
-            .exceptionally(throwable -> {
+            .onFailure(throwable -> {
                 logger.error("Error setting up event streaming for SSE connection {}: {}",
                             connection.getConnectionId(), throwable.getMessage(), throwable);
                 sendErrorEvent(connection, "Failed to setup streaming: " + throwable.getMessage());
-                return null;
             });
     }
 

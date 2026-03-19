@@ -80,24 +80,23 @@ public class DeadLetterHandler {
             ? service.getDeadLetterMessages(topic, limit, offset)
             : service.getAllDeadLetterMessages(limit, offset);
 
-        future.whenComplete((messages, throwable) -> ctx.vertx().runOnContext(v -> {
-            if (throwable != null) {
+        future
+            .onSuccess(messages -> ctx.vertx().runOnContext(v -> {
+                JsonArray result = new JsonArray();
+                for (DeadLetterMessageInfo msg : messages) {
+                    result.add(messageToJson(msg));
+                }
+
+                ctx.response()
+                    .putHeader("content-type", "application/json")
+                    .end(result.encode());
+            }))
+            .onFailure(throwable -> ctx.vertx().runOnContext(v -> {
                 Throwable root = unwrap(throwable);
                 logger.error("Failed to list dead letter messages", root);
                 sendError(ctx, 500, PeeGeeQErrorCodes.DLQ_LIST_FAILED,
                     "Failed to list dead letter messages: " + root.getMessage());
-                return;
-            }
-
-            JsonArray result = new JsonArray();
-            for (DeadLetterMessageInfo msg : messages) {
-                result.add(messageToJson(msg));
-            }
-
-            ctx.response()
-                .putHeader("content-type", "application/json")
-                .end(result.encode());
-        }));
+            }));
     }
 
     /**
@@ -119,15 +118,7 @@ public class DeadLetterHandler {
         try {
             long messageId = Long.parseLong(messageIdStr);
             service.getDeadLetterMessage(messageId)
-                .whenComplete((message, throwable) -> ctx.vertx().runOnContext(v -> {
-                    if (throwable != null) {
-                        Throwable root = unwrap(throwable);
-                        logger.error("Failed to get dead letter message", root);
-                        sendError(ctx, 500, PeeGeeQErrorCodes.DLQ_GET_FAILED,
-                            "Failed to get dead letter message: " + root.getMessage());
-                        return;
-                    }
-
+                .onSuccess(message -> ctx.vertx().runOnContext(v -> {
                     if (message.isEmpty()) {
                         sendDlqMessageNotFoundError(ctx, messageId);
                         return;
@@ -136,6 +127,12 @@ public class DeadLetterHandler {
                     ctx.response()
                         .putHeader("content-type", "application/json")
                         .end(messageToJson(message.get()).encode());
+                }))
+                .onFailure(throwable -> ctx.vertx().runOnContext(v -> {
+                    Throwable root = unwrap(throwable);
+                    logger.error("Failed to get dead letter message", root);
+                    sendError(ctx, 500, PeeGeeQErrorCodes.DLQ_GET_FAILED,
+                        "Failed to get dead letter message: " + root.getMessage());
                 }));
         } catch (NumberFormatException e) {
             sendError(ctx, 400, PeeGeeQErrorCodes.INVALID_MESSAGE_ID, "Invalid message ID: " + messageIdStr);
@@ -170,15 +167,7 @@ public class DeadLetterHandler {
             }
 
             service.reprocessDeadLetterMessage(messageId, reason)
-                .whenComplete((success, throwable) -> ctx.vertx().runOnContext(v -> {
-                    if (throwable != null) {
-                        Throwable root = unwrap(throwable);
-                        logger.error("Failed to reprocess dead letter message", root);
-                        sendError(ctx, 500, PeeGeeQErrorCodes.DLQ_REPROCESS_FAILED,
-                            "Failed to reprocess dead letter message: " + root.getMessage());
-                        return;
-                    }
-
+                .onSuccess(success -> ctx.vertx().runOnContext(v -> {
                     if (success) {
                         ctx.response()
                             .putHeader("content-type", "application/json")
@@ -189,6 +178,12 @@ public class DeadLetterHandler {
                     } else {
                         sendDlqMessageNotFoundError(ctx, messageId);
                     }
+                }))
+                .onFailure(throwable -> ctx.vertx().runOnContext(v -> {
+                    Throwable root = unwrap(throwable);
+                    logger.error("Failed to reprocess dead letter message", root);
+                    sendError(ctx, 500, PeeGeeQErrorCodes.DLQ_REPROCESS_FAILED,
+                        "Failed to reprocess dead letter message: " + root.getMessage());
                 }));
         } catch (NumberFormatException e) {
             sendError(ctx, 400, PeeGeeQErrorCodes.INVALID_MESSAGE_ID, "Invalid message ID: " + messageIdStr);
@@ -219,20 +214,18 @@ public class DeadLetterHandler {
         try {
             long messageId = Long.parseLong(messageIdStr);
             service.deleteDeadLetterMessage(messageId, reason)
-                .whenComplete((success, throwable) -> ctx.vertx().runOnContext(v -> {
-                    if (throwable != null) {
-                        Throwable root = unwrap(throwable);
-                        logger.error("Failed to delete dead letter message", root);
-                        sendError(ctx, 500, PeeGeeQErrorCodes.DLQ_DELETE_FAILED,
-                            "Failed to delete dead letter message: " + root.getMessage());
-                        return;
-                    }
-
+                .onSuccess(success -> ctx.vertx().runOnContext(v -> {
                     if (success) {
                         ctx.response().setStatusCode(204).end();
                     } else {
                         sendDlqMessageNotFoundError(ctx, messageId);
                     }
+                }))
+                .onFailure(throwable -> ctx.vertx().runOnContext(v -> {
+                    Throwable root = unwrap(throwable);
+                    logger.error("Failed to delete dead letter message", root);
+                    sendError(ctx, 500, PeeGeeQErrorCodes.DLQ_DELETE_FAILED,
+                        "Failed to delete dead letter message: " + root.getMessage());
                 }));
         } catch (NumberFormatException e) {
             sendError(ctx, 400, PeeGeeQErrorCodes.INVALID_MESSAGE_ID, "Invalid message ID: " + messageIdStr);
@@ -255,15 +248,7 @@ public class DeadLetterHandler {
         }
 
         service.getStatistics()
-            .whenComplete((stats, throwable) -> ctx.vertx().runOnContext(v -> {
-                if (throwable != null) {
-                    Throwable root = unwrap(throwable);
-                    logger.error("Failed to get dead letter stats", root);
-                    sendError(ctx, 500, PeeGeeQErrorCodes.DLQ_STATS_FAILED,
-                        "Failed to get dead letter stats: " + root.getMessage());
-                    return;
-                }
-
+            .onSuccess(stats -> ctx.vertx().runOnContext(v -> {
                 JsonObject result = new JsonObject()
                     .put("totalMessages", stats.totalMessages())
                     .put("uniqueTopics", stats.uniqueTopics())
@@ -280,6 +265,12 @@ public class DeadLetterHandler {
                 ctx.response()
                     .putHeader("content-type", "application/json")
                     .end(result.encode());
+            }))
+            .onFailure(throwable -> ctx.vertx().runOnContext(v -> {
+                Throwable root = unwrap(throwable);
+                logger.error("Failed to get dead letter stats", root);
+                sendError(ctx, 500, PeeGeeQErrorCodes.DLQ_STATS_FAILED,
+                    "Failed to get dead letter stats: " + root.getMessage());
             }));
     }
 
@@ -301,15 +292,7 @@ public class DeadLetterHandler {
         }
 
         service.cleanupOldMessages(retentionDays)
-            .whenComplete((cleaned, throwable) -> ctx.vertx().runOnContext(v -> {
-                if (throwable != null) {
-                    Throwable root = unwrap(throwable);
-                    logger.error("Failed to cleanup dead letter messages", root);
-                    sendError(ctx, 500, PeeGeeQErrorCodes.DLQ_CLEANUP_FAILED,
-                        "Failed to cleanup dead letter messages: " + root.getMessage());
-                    return;
-                }
-
+            .onSuccess(cleaned -> ctx.vertx().runOnContext(v -> {
                 ctx.response()
                     .putHeader("content-type", "application/json")
                     .end(new JsonObject()
@@ -317,6 +300,12 @@ public class DeadLetterHandler {
                         .put("messagesDeleted", cleaned)
                         .put("retentionDays", retentionDays)
                         .encode());
+            }))
+            .onFailure(throwable -> ctx.vertx().runOnContext(v -> {
+                Throwable root = unwrap(throwable);
+                logger.error("Failed to cleanup dead letter messages", root);
+                sendError(ctx, 500, PeeGeeQErrorCodes.DLQ_CLEANUP_FAILED,
+                    "Failed to cleanup dead letter messages: " + root.getMessage());
             }));
     }
 

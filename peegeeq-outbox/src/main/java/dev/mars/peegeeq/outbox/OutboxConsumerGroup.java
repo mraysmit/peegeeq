@@ -418,13 +418,8 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
             message.getId(), selectedConsumer.getConsumerId(), groupName);
         
         return selectedConsumer.processMessage(message)
-            .onComplete(ar -> {
-                if (ar.failed()) {
-                    totalMessagesFailed.incrementAndGet();
-                } else {
-                    totalMessagesProcessed.incrementAndGet();
-                }
-            });
+            .onSuccess(result -> totalMessagesProcessed.incrementAndGet())
+            .onFailure(error -> totalMessagesFailed.incrementAndGet());
     }
     
     /**

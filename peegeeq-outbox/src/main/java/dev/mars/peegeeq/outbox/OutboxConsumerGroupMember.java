@@ -356,22 +356,22 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
         }
 
         return processingFuture
-            .onComplete(ar -> {
+            .onSuccess(result -> {
                 long processingTime = System.currentTimeMillis() - startTime;
                 totalProcessingTimeMs.addAndGet(processingTime);
-
-                if (ar.failed()) {
-                    failedMessageCount.incrementAndGet();
-                    lastError.set(ar.cause().getMessage());
-                    logger.warn("Failed to process message {} with outbox consumer '{}' in group '{}': {}",
-                        message.getId(), consumerId, groupName, ar.cause().getMessage());
-                } else {
-                    processedMessageCount.incrementAndGet();
-                    lastError.set(null);
-                    logger.debug("Successfully processed message {} with outbox consumer '{}' in group '{}' ({}ms)",
-                        message.getId(), consumerId, groupName, processingTime);
-                }
-
+                processedMessageCount.incrementAndGet();
+                lastError.set(null);
+                logger.debug("Successfully processed message {} with outbox consumer '{}' in group '{}' ({}ms)",
+                    message.getId(), consumerId, groupName, processingTime);
+                lastActiveAt.set(Instant.now());
+            })
+            .onFailure(error -> {
+                long processingTime = System.currentTimeMillis() - startTime;
+                totalProcessingTimeMs.addAndGet(processingTime);
+                failedMessageCount.incrementAndGet();
+                lastError.set(error.getMessage());
+                logger.warn("Failed to process message {} with outbox consumer '{}' in group '{}': {}",
+                    message.getId(), consumerId, groupName, error.getMessage());
                 lastActiveAt.set(Instant.now());
             });
     }

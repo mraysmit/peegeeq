@@ -519,10 +519,10 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
 
             // Handle null return from message handler
             if (processingFuture == null) {
-            logger.warn("Message handler returned null Future for message {}: treating as failure",
+                logger.warn("Message handler returned null Future for message {}: treating as failure",
                         messageId);
-            processingFuture = Future.failedFuture(
-                new IllegalStateException("Message handler returned null Future"));
+                processingFuture = Future.failedFuture(
+                        new IllegalStateException("Message handler returned null Future"));
             }
         } catch (Exception directException) {
             // Convert direct exceptions to failed futures

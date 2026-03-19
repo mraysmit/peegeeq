@@ -19,7 +19,6 @@ import org.slf4j.LoggerFactory;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -420,64 +419,64 @@ public class ServerSentEventsHandler {
         logger.info("Starting message streaming for SSE connection: {}", connection.getConnectionId());
         
         setupService.getSetupResult(connection.getSetupId())
-            .thenAccept(setupResult -> {
+            .compose(setupResult -> {
                 if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                     sendErrorEvent(connection, "Setup " + connection.getSetupId() + " is not active");
-                    return;
+                    return Future.succeededFuture();
                 }
                 
                 QueueFactory queueFactory = setupResult.getQueueFactories().get(connection.getQueueName());
                 if (queueFactory == null) {
                     sendErrorEvent(connection, "Queue " + connection.getQueueName() + " not found in setup " + connection.getSetupId());
-                    return;
+                    return Future.succeededFuture();
                 }
                 
-                try {
-                    // Retrieve subscription options for the consumer group if configured
-                    SubscriptionOptions subscriptionOptions = null;
-                    if (connection.getConsumerGroup() != null && !connection.getConsumerGroup().trim().isEmpty()) {
-                        subscriptionOptions = consumerGroupHandler.getSubscriptionOptionsInternal(
-                            connection.getSetupId(),
-                            connection.getQueueName(),
-                            connection.getConsumerGroup()
-                        );
-                        
-                        if (subscriptionOptions != null) {
+                // Retrieve subscription options for the consumer group if configured
+                Future<SubscriptionOptions> optionsFuture;
+                if (connection.getConsumerGroup() != null && !connection.getConsumerGroup().trim().isEmpty()) {
+                    optionsFuture = consumerGroupHandler.getSubscriptionOptionsInternal(
+                        connection.getSetupId(),
+                        connection.getQueueName(),
+                        connection.getConsumerGroup()
+                    ).map(opts -> {
+                        if (opts != null) {
                             logger.info("Retrieved subscription options for consumer group '{}': startPosition={}, heartbeatInterval={}s",
                                        connection.getConsumerGroup(),
-                                       subscriptionOptions.getStartPosition(),
-                                       subscriptionOptions.getHeartbeatIntervalSeconds());
-                            
-                            // Store subscription options in connection for reference
-                            connection.setSubscriptionOptions(subscriptionOptions);
+                                       opts.getStartPosition(),
+                                       opts.getHeartbeatIntervalSeconds());
+                            connection.setSubscriptionOptions(opts);
+                            return opts;
                         } else {
                             logger.warn("Consumer group '{}' not found, using default subscription options", connection.getConsumerGroup());
-                            subscriptionOptions = SubscriptionOptions.defaults();
-                            connection.setSubscriptionOptions(subscriptionOptions);
+                            SubscriptionOptions defaults = SubscriptionOptions.defaults();
+                            connection.setSubscriptionOptions(defaults);
+                            return defaults;
                         }
-                    } else {
-                        // Use default subscription options (FROM_NOW)
-                        subscriptionOptions = SubscriptionOptions.defaults();
-                        logger.info("Using default subscription options (FROM_NOW) - no consumer group specified");
-                    }
-                    
-                    // Create consumer for streaming
-                    MessageConsumer<Object> consumer = queueFactory.createConsumer(connection.getQueueName(), Object.class);
-                    connection.setConsumer(consumer);
-                    
-                    // Apply subscription options based on start position
-                    final SubscriptionOptions finalOptions = subscriptionOptions;
-                    applySubscriptionOptions(consumer, finalOptions, connection);
-
-                } catch (Exception e) {
-                    logger.error("Error starting message streaming for SSE connection {}: {}", connection.getConnectionId(), e.getMessage(), e);
-                    sendErrorEvent(connection, "Failed to start message streaming: " + e.getMessage());
+                    });
+                } else {
+                    // Use default subscription options (FROM_NOW)
+                    logger.info("Using default subscription options (FROM_NOW) - no consumer group specified");
+                    optionsFuture = Future.succeededFuture(SubscriptionOptions.defaults());
                 }
+                
+                return optionsFuture.map(subscriptionOptions -> {
+                    try {
+                        // Create consumer for streaming
+                        MessageConsumer<Object> consumer = queueFactory.createConsumer(connection.getQueueName(), Object.class);
+                        connection.setConsumer(consumer);
+                        
+                        // Apply subscription options based on start position
+                        applySubscriptionOptions(consumer, subscriptionOptions, connection);
+                    } catch (Exception e) {
+                        logger.error("Error starting message streaming for SSE connection {}: {}", connection.getConnectionId(), e.getMessage(), e);
+                        sendErrorEvent(connection, "Failed to start message streaming: " + e.getMessage());
+                    }
+                    return (Void) null;
+                });
             })
-            .exceptionally(throwable -> {
+            .onFailure(throwable -> {
                 logger.error("Error setting up message streaming for SSE connection {}: {}", connection.getConnectionId(), throwable.getMessage(), throwable);
                 sendErrorEvent(connection, "Failed to setup message streaming: " + throwable.getMessage());
-                return null;
             });
     }
     
@@ -579,12 +578,12 @@ public class ServerSentEventsHandler {
                                     connection.setResumePointReached(true);
                                     logger.info("SSE connection {} reached resume point at message {}",
                                                connection.getConnectionId(), resumeFrom);
-                                    return CompletableFuture.completedFuture(null);
+                                    return Future.succeededFuture();
                                 } else {
                                     // Skip this message, we haven't reached the resume point yet
                                     logger.trace("SSE connection {} skipping message {} (waiting for {})",
                                                 connection.getConnectionId(), message.getId(), resumeFrom);
-                                    return CompletableFuture.completedFuture(null);
+                                    return Future.succeededFuture();
                                 }
                             }
 
@@ -598,7 +597,7 @@ public class ServerSentEventsHandler {
                             // Apply filters if configured (messageType, headers, content)
                             if (!connection.shouldSendMessage(message.getPayload(), headersJson, messageType)) {
                                 // Message filtered out, skip it
-                                return CompletableFuture.completedFuture(null);
+                                return Future.succeededFuture();
                             }
 
                             // Add message to batch or send immediately
@@ -607,13 +606,13 @@ public class ServerSentEventsHandler {
                             addMessageToBatch(connection, message.getPayload(), message.getId(),
                                             headersJson, messageType);
 
-                            return CompletableFuture.completedFuture(null);
+                            return Future.succeededFuture();
 
                         } catch (Exception e) {
                             logger.error("Error processing message for SSE connection {}: {}",
                                         connection.getConnectionId(), e.getMessage(), e);
                             sendErrorEvent(connection, "Error processing message: " + e.getMessage());
-                            return CompletableFuture.failedFuture(e);
+                            return Future.failedFuture(e);
                         }
                     });
     }

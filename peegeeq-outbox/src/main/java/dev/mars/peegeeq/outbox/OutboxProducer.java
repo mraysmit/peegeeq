@@ -115,8 +115,8 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      *         outbox
      */
     @Override
-    public CompletableFuture<Void> send(T payload) {
-        return sendInternal(payload);
+    public Future<Void> send(T payload) {
+        return sendInternalReactive(payload, null, null, null);
     }
 
     /**
@@ -130,8 +130,8 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      *         outbox
      */
     @Override
-    public CompletableFuture<Void> send(T payload, Map<String, String> headers) {
-        return sendInternal(payload, headers);
+    public Future<Void> send(T payload, Map<String, String> headers) {
+        return sendInternalReactive(payload, headers, null, null);
     }
 
     /**
@@ -146,8 +146,8 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      *         outbox
      */
     @Override
-    public CompletableFuture<Void> send(T payload, Map<String, String> headers, String correlationId) {
-        return sendInternal(payload, headers, correlationId);
+    public Future<Void> send(T payload, Map<String, String> headers, String correlationId) {
+        return sendInternalReactive(payload, headers, correlationId, null);
     }
 
     /**
@@ -163,9 +163,9 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      *         outbox
      */
     @Override
-    public CompletableFuture<Void> send(T payload, Map<String, String> headers, String correlationId,
+    public Future<Void> send(T payload, Map<String, String> headers, String correlationId,
             String messageGroup) {
-        return sendInternal(payload, headers, correlationId, messageGroup);
+        return sendInternalReactive(payload, headers, correlationId, messageGroup);
     }
 
     /**

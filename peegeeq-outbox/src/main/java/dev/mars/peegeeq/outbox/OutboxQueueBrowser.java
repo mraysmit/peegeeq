@@ -19,6 +19,7 @@ package dev.mars.peegeeq.outbox;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.QueueBrowser;
+import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
@@ -32,7 +33,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 
 /**
  * Implementation of QueueBrowser for outbox pattern queues.
@@ -66,9 +66,9 @@ public class OutboxQueueBrowser<T> implements QueueBrowser<T> {
     }
 
     @Override
-    public CompletableFuture<List<Message<T>>> browse(int limit, int offset) {
+    public Future<List<Message<T>>> browse(int limit, int offset) {
         if (closed) {
-            return CompletableFuture.failedFuture(new IllegalStateException("Browser is closed"));
+            return Future.failedFuture(new IllegalStateException("Browser is closed"));
         }
 
         String sql = """
@@ -81,9 +81,7 @@ public class OutboxQueueBrowser<T> implements QueueBrowser<T> {
 
         return pool.preparedQuery(sql)
                 .execute(Tuple.of(topic, limit, offset))
-                .toCompletionStage()
-                .toCompletableFuture()
-                .thenApply(rows -> {
+                .map(rows -> {
                     List<Message<T>> messages = new ArrayList<>();
                     for (Row row : rows) {
                         try {
