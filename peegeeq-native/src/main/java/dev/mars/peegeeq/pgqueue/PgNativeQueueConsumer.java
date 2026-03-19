@@ -370,7 +370,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
 
     private void processAvailableMessages() {
         logger.debug("processAvailableMessages() called for topic: {}", topic);
-        // Critical fix: Check if consumer is closed to prevent infinite retry loops
+        // : Check if consumer is closed to prevent infinite retry loops
         // during shutdown
         if (!subscribed.get() || messageHandler == null || closed.get()) {
             logger.debug(
@@ -383,7 +383,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
         try {
             final Pool pool = poolAdapter.getPoolOrThrow();
 
-            // CRITICAL FIX: Check if pool is closed before attempting operations
+            // : Check if pool is closed before attempting operations
             // This prevents RejectedExecutionException during shutdown
             if (pool == null) {
                 logger.debug("Pool is null, skipping message processing for topic: {}", topic);
@@ -498,7 +498,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                             logger.debug("Processing {} messages for topic {}", result.size(), topic);
                             logger.debug("Processing {} messages for topic {}", result.size(), topic);
 
-                            // CRITICAL FIX: Process messages without transactions since locking is already
+                            // : Process messages without transactions since locking is already
                             // committed
                             for (Row row : result) {
                                 processMessageWithoutTransaction(row);
@@ -511,7 +511,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                     .onFailure(error -> {
                         logger.debug("Error querying messages for topic {}: {}", topic,
                                 error.getMessage());
-                        // CRITICAL FIX: Handle shutdown-related errors gracefully following established
+                        // : Handle shutdown-related errors gracefully following established
                         // pattern
                         if (closed.get() && (error.getMessage().contains("Pool closed") ||
                                 error.getMessage().contains("event executor terminated") ||
@@ -522,7 +522,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                         }
                     }))
                     .onFailure(error -> {
-                        // Critical fix: Handle various error conditions gracefully following
+                        // : Handle various error conditions gracefully following
                         // established pattern
                         String errorMessage = error.getMessage() != null ? error.getMessage()
                                 : error.getClass().getSimpleName();
@@ -553,7 +553,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                     });
 
         } catch (Exception e) {
-            // Critical fix: Handle executor termination and other errors gracefully
+            // : Handle executor termination and other errors gracefully
             String errorMessage = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
 
             if (closed.get()) {
@@ -572,7 +572,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     }
 
     /**
-     * CRITICAL FIX: Process message without transaction since locking is already
+     * : Process message without transaction since locking is already
      * committed.
      * This prevents transaction rollback from undoing the LOCKED status.
      */
@@ -580,7 +580,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
         Long messageIdLong = row.getLong("id");
         String messageId = messageIdLong.toString();
 
-        // Critical fix: Check if consumer is closed before processing message
+        // : Check if consumer is closed before processing message
         if (closed.get()) {
             logger.debug("Skipping message processing - consumer is closed");
             return;
@@ -707,7 +707,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     // processMessageWithTransaction
 
     private void deleteMessage(Long messageIdLong, String messageId) {
-        // Critical fix: Don't attempt to delete messages if consumer is closed
+        // : Don't attempt to delete messages if consumer is closed
         if (closed.get()) {
             logger.debug("Skipping message deletion for {} - consumer is closed", messageId);
             // Transaction-level advisory lock will be automatically released when
@@ -722,7 +722,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             final Pool pool = poolAdapter.getPoolOrThrow();
             String sql = "DELETE FROM queue_messages WHERE id = $1";
 
-            // CRITICAL FIX: Use synchronous deletion during shutdown to prevent race
+            // : Use synchronous deletion during shutdown to prevent race
             // conditions
             if (closed.get()) {
                 // Double-check after getting pool - if closed, skip deletion
@@ -888,7 +888,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                                 .compose(selectResult -> {
                                     if (selectResult.size() > 0) {
                                         Row row = selectResult.iterator().next();
-                                        // CRITICAL FIX: Use JSONB objects instead of JSON strings for dead letter queue
+                                        // : Use JSONB objects instead of JSON strings for dead letter queue
                                         JsonObject payload = row.getJsonObject("payload");
                                         JsonObject headers = row.getJsonObject("headers");
                                         String correlationId = row.getString("correlation_id");
@@ -974,7 +974,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     // handle cleanup
 
     private void releaseExpiredLocks() {
-        // Critical fix: Don't attempt to release expired locks if consumer is closed
+        // : Don't attempt to release expired locks if consumer is closed
         if (closed.get()) {
             return;
         }
@@ -982,7 +982,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
         try {
             final Pool pool = poolAdapter.getPoolOrThrow();
 
-            // CRITICAL FIX: Just reset expired locks in database - don't manually release
+            // : Just reset expired locks in database - don't manually release
             // advisory locks
             // Advisory locks will be auto-released when connections are returned to pool
             String updateSql = """
@@ -1094,7 +1094,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
      * @return Future that completes when the operation completes
      */
     private static <T> Future<T> executeOnVertxContext(Vertx vertx, java.util.function.Supplier<Future<T>> operation) {
-        // CRITICAL FIX: Check if Vert.x instance is null or closed before attempting
+        // : Check if Vert.x instance is null or closed before attempting
         // operations
         if (vertx == null) {
             logger.debug("Vert.x instance is null, returning failed future");
@@ -1108,7 +1108,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 try {
                     return operation.get();
                 } catch (Exception e) {
-                    // CRITICAL FIX: Handle RejectedExecutionException and other errors gracefully
+                    // : Handle RejectedExecutionException and other errors gracefully
                     if (e.getMessage() != null && (e.getMessage().contains("event executor terminated") ||
                             e.getMessage().contains("RejectedExecutionException"))) {
                         logger.debug("Event executor terminated during direct execution: {}",
@@ -1129,7 +1129,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                                     .onSuccess(promise::complete)
                                     .onFailure(promise::fail);
                         } catch (Exception e) {
-                            // CRITICAL FIX: Handle exceptions during context execution
+                            // : Handle exceptions during context execution
                             if (e.getMessage() != null && (e.getMessage().contains("event executor terminated") ||
                                     e.getMessage().contains("RejectedExecutionException"))) {
                                 logger.debug("Event executor terminated during context execution: {}",
@@ -1141,7 +1141,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                         }
                     });
                 } catch (Exception e) {
-                    // CRITICAL FIX: Handle RejectedExecutionException when scheduling on context
+                    // : Handle RejectedExecutionException when scheduling on context
                     if (e.getMessage() != null && (e.getMessage().contains("event executor terminated") ||
                             e.getMessage().contains("RejectedExecutionException"))) {
                         logger.debug("Event executor terminated when scheduling on context: {}",
@@ -1153,7 +1153,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 return promise.future();
             }
         } catch (Exception e) {
-            // CRITICAL FIX: Handle any other exceptions during context creation
+            // : Handle any other exceptions during context creation
             if (e.getMessage() != null && (e.getMessage().contains("event executor terminated") ||
                     e.getMessage().contains("RejectedExecutionException"))) {
                 logger.debug("Event executor terminated during context creation: {}", e.getMessage());
@@ -1243,7 +1243,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
      * Parse payload from JsonObject back to the expected type.
      * Handles both simple values (wrapped in {"value": ...}) and complex objects.
      *
-     * CRITICAL FIX: Use the same ObjectMapper that was used for serialization
+     * : Use the same ObjectMapper that was used for serialization
      * instead of JsonObject.mapTo() which uses Vert.x's internal ObjectMapper.
      * This ensures consistent Instant/LocalDateTime serialization/deserialization.
      */
@@ -1274,7 +1274,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             }
         }
 
-        // CRITICAL FIX: For complex objects, use the configured ObjectMapper
+        // : For complex objects, use the configured ObjectMapper
         // instead of JsonObject.mapTo() to ensure consistent
         // serialization/deserialization
         // This fixes the Instant deserialization issue with Vert.x's

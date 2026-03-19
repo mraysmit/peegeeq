@@ -591,7 +591,7 @@ poolOptions.setMaxSize(maxPoolSize);
 poolOptions.setShared(true);
 poolOptions.setName("peegeeq-bitemporal-pool"); // Named shared pool for monitoring
 
-// CRITICAL FIX: Set wait queue size to 10x pool size to handle high-concurrency scenarios
+// : Set wait queue size to 10x pool size to handle high-concurrency scenarios
 // Based on performance test failures, bitemporal workloads need larger wait queues
 poolOptions.setMaxWaitQueueSize(maxPoolSize * 10);
 
@@ -1347,7 +1347,7 @@ T5      Pool closed                     ❌ "Connection is not active" error
 ```java
 // ✅ CORRECT: Proper shutdown coordination
 private void moveToDeadLetterQueueReactive(String messageId, int retryCount, String errorMessage) {
-    // CRITICAL FIX: Check if consumer is closed before attempting operations
+    // : Check if consumer is closed before attempting operations
     if (closed.get()) {
         logger.debug("Consumer is closed, skipping dead letter queue operation for message {}", messageId);
         return;
@@ -1382,7 +1382,7 @@ private void moveToDeadLetterQueueReactive(String messageId, int retryCount, Str
                     });
             })
             .onFailure(error -> {
-                // CRITICAL FIX: Handle shutdown errors gracefully
+                // : Handle shutdown errors gracefully
                 if (closed.get() && (error.getMessage().contains("Connection is not active") ||
                                     error.getMessage().contains("Pool closed") ||
                                     error.getMessage().contains("CLOSING"))) {
@@ -1393,7 +1393,7 @@ private void moveToDeadLetterQueueReactive(String messageId, int retryCount, Str
             });
         })
         .onFailure(error -> {
-            // CRITICAL FIX: Handle pool/connection errors during shutdown gracefully
+            // : Handle pool/connection errors during shutdown gracefully
             if (closed.get() && (error.getMessage().contains("Connection is not active") ||
                                 error.getMessage().contains("Pool closed") ||
                                 error.getMessage().contains("CLOSING"))) {
@@ -1458,7 +1458,7 @@ This pattern follows the established shutdown coordination pattern found in `PgN
 ```java
 // Established pattern from PgNativeQueueConsumer
 private void releaseExpiredLocks() {
-    // Critical fix: Don't attempt operations if consumer is closed
+    // : Don't attempt operations if consumer is closed
     if (closed.get()) {
         return;
     }
@@ -1466,7 +1466,7 @@ private void releaseExpiredLocks() {
     pool.preparedQuery(updateSql)
         .execute(params)
         .onFailure(error -> {
-            // Critical fix: Handle "Pool closed" errors during shutdown gracefully
+            // : Handle "Pool closed" errors during shutdown gracefully
             if (closed.get() && error.getMessage().contains("Pool closed")) {
                 logger.debug("Pool closed during shutdown - this is expected");
             } else {

@@ -309,7 +309,7 @@ public class PgConnectionManager implements AutoCloseable {
             connectOptions.setSslMode(io.vertx.pgclient.SslMode.DISABLE);
         }
 
-        // CRITICAL FIX: Set search_path at connection level so all connections from the pool
+        // : Set search_path at connection level so all connections from the pool
         // automatically use the configured schema. This is the proper Vert.x 5.x approach
         // as documented in https://vertx.io/docs/vertx-pg-client/java/
         String configuredSchema = connectionConfig.getSchema();

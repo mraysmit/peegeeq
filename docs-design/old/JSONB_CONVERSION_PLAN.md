@@ -815,7 +815,7 @@ return payload.mapTo(payloadType);  // Uses Vert.x's internal ObjectMapper
 
 **After (Fixed)**:
 ```java
-// CRITICAL FIX: For complex objects, use the configured ObjectMapper
+// : For complex objects, use the configured ObjectMapper
 // instead of JsonObject.mapTo() to ensure consistent serialization/deserialization
 // This fixes the Instant deserialization issue with Vert.x's InstantDeserializer
 try {

@@ -175,7 +175,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         eventBusInstanceRegistry.put(eventBusInstanceKey, this);
 
         logger.debug("Deferring reactive notification handler startup until first use");
-        // CRITICAL FIX: Defer notification handler startup until first use to avoid
+        // : Defer notification handler startup until first use to avoid
         // Spring Boot startup issues
         // The handler will be started lazily when first subscription is made
 
@@ -1094,7 +1094,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             return Future.failedFuture(new IllegalStateException("Event store is closed"));
         }
 
-        // CRITICAL FIX: Ensure notification handler is started before subscription
+        // : Ensure notification handler is started before subscription
         return ensureNotificationHandlerStarted().compose(v -> reactiveNotificationHandler.subscribe(eventType,
                 aggregateId, handler));
     }
@@ -1502,7 +1502,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     }
 
     public Future<Void> subscribeReactive(String eventType, MessageHandler<BiTemporalEvent<T>> handler) {
-        // CRITICAL FIX: Ensure notification handler is started before subscription
+        // : Ensure notification handler is started before subscription
         return ensureNotificationHandlerStarted()
                 .compose(v -> reactiveNotificationHandler.subscribe(eventType, null, handler));
     }
@@ -1536,7 +1536,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                         connectOptions.setSslMode(io.vertx.pgclient.SslMode.REQUIRE);
                     }
 
-                    // CRITICAL FIX: Set search_path at connection level so all connections from the pool
+                    // : Set search_path at connection level so all connections from the pool
                     // automatically use the configured schema. This is the proper Vert.x 5.x approach
                     // as documented in https://vertx.io/docs/vertx-pg-client/java/
                     String configuredSchema = connectionConfig.getSchema();
@@ -1606,7 +1606,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 int maxPoolSize = getConfiguredPoolSize();
                 poolOptions.setMaxSize(maxPoolSize);
 
-                // CRITICAL FIX: Use unique pool name per event store to avoid cross-database
+                // : Use unique pool name per event store to avoid cross-database
                 // connection issues
                 // When multiple setups with different databases exist, shared pools with the
                 // same name
@@ -1616,7 +1616,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 poolOptions.setName("peegeeq-bitemporal-pool-" + tableName.replace(".", "-")); // Unique pool name for
                                                                                                // monitoring
 
-                // CRITICAL FIX: Set wait queue size to 10x pool size to handle high-concurrency
+                // : Set wait queue size to 10x pool size to handle high-concurrency
                 // scenarios
                 // Based on performance test failures, bitemporal workloads need larger wait
                 // queues

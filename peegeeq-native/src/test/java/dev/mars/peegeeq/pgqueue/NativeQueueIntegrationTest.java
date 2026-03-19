@@ -96,7 +96,7 @@ class NativeQueueIntegrationTest {
 
     @BeforeEach
     void setUp() {
-        // Initialize database schema using centralized schema initializer (CRITICAL FIX)
+        // Initialize database schema using centralized schema initializer ()
         logger.info("Initializing database schema for native queue integration tests");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
         logger.info("Database schema initialized successfully using centralized schema initializer");

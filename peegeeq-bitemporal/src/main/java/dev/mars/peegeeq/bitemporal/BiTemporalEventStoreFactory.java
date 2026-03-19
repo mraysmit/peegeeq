@@ -79,7 +79,7 @@ public class BiTemporalEventStoreFactory implements EventStoreFactory {
         Objects.requireNonNull(tableName, "Table name cannot be null");
         String normalizedTableName = validateTableName(tableName);
 
-        // CRITICAL FIX: Remove manual schema qualification - rely on connection-level search_path
+        // : Remove manual schema qualification - rely on connection-level search_path
         // The connection pool is configured with search_path in PgConnectionManager.createReactivePool()
         // so all SQL statements will automatically use the correct schema
         logger.info("Creating bi-temporal event store for payload type: {} using table: {}",
