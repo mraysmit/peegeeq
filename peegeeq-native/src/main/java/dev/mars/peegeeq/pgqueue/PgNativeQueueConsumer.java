@@ -72,7 +72,6 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     private final ConsumerConfig consumerConfig;
     private final AtomicBoolean subscribed = new AtomicBoolean(false);
     private final AtomicBoolean closed = new AtomicBoolean(false);
-    private final AtomicInteger pendingLockOperations = new AtomicInteger(0);
     private final AtomicInteger inFlightOperations = new AtomicInteger(0);
     private final AtomicInteger processingInFlight = new AtomicInteger(0);
 
@@ -271,20 +270,14 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             connectionToClose
                     .query("UNLISTEN \"" + notifyChannel + "\"")
                     .execute()
-                    .onComplete(ar -> {
-                        try {
-                            connectionToClose.close();
-                        } catch (Exception ignore) {
-                        }
-                        if (ar.succeeded()) {
-                            logger.info("Stopped listening on channel: {}", notifyChannel);
-                        } else {
+                    .onSuccess(rs -> logger.info("Stopped listening on channel: {}", notifyChannel))
+                    .onFailure(err ->
                             // During shutdown, UNLISTEN errors are expected (connection may already be
                             // closed)
                             logger.debug("Error during UNLISTEN for channel {}: {}", notifyChannel,
-                                    ar.cause().getMessage());
-                        }
-                    });
+                                    err.getMessage()))
+                    .eventually(() -> connectionToClose.close()
+                            .recover(ignore -> Future.succeededFuture()));
         }
     }
 
@@ -684,9 +677,9 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                                 processingInFlight.decrementAndGet();
                             }
                         })
-                        .onComplete(ar -> {
-                            // Clear MDC after message processing completes
+                        .eventually(() -> {
                             TraceContextUtil.clearTraceMDC();
+                            return Future.succeededFuture();
                         });
 
             } catch (Exception processingError) {
@@ -1058,8 +1051,6 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
         if (closed.compareAndSet(false, true)) {
             logger.info("Starting graceful shutdown of native queue consumer for topic: {}", topic);
 
-            boolean onEventLoop = Vertx.currentContext() != null && Vertx.currentContext().isEventLoopContext();
-
             // Step 1: Stop accepting new work
             unsubscribe();
             stopListening();
@@ -1080,48 +1071,9 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 }
             }
 
-            if (onEventLoop) {
-                logger.warn(
-                        "Skipping blocking shutdown waits on event-loop thread for topic {} (pendingLocks={}, inFlightOps={})",
-                        topic, pendingLockOperations.get(), inFlightOperations.get());
-            } else {
-                // Step 4: Wait for pending advisory lock operations to complete
-                int waitCount = 0;
-                while (pendingLockOperations.get() > 0 && waitCount < 50) { // Max 5 seconds
-                    try {
-                        Thread.sleep(100); // Wait 100ms between checks
-                        waitCount++;
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        break;
-                    }
-                }
-
-                if (pendingLockOperations.get() > 0) {
-                    logger.warn("Shutdown proceeding with {} pending advisory lock operations",
-                            pendingLockOperations.get());
-                } else {
-                    logger.debug("All advisory lock operations completed before shutdown");
-                }
-
-                // Step 5: Wait for in-flight operations (like message deletion) to complete
-                waitCount = 0;
-                while (inFlightOperations.get() > 0 && waitCount < 30) { // Max 3 seconds
-                    try {
-                        Thread.sleep(100); // Wait 100ms between checks
-                        waitCount++;
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                        break;
-                    }
-                }
-
-                if (inFlightOperations.get() > 0) {
-                    logger.warn("Shutdown proceeding with {} in-flight operations (message deletions may fail)",
-                            inFlightOperations.get());
-                } else {
-                    logger.debug("All in-flight operations completed before shutdown");
-                }
+            if (inFlightOperations.get() > 0) {
+                logger.info("Shutdown of native queue consumer for topic: {} with {} in-flight operations that will complete asynchronously",
+                        topic, inFlightOperations.get());
             }
 
             logger.info("Completed graceful shutdown of native queue consumer for topic: {}", topic);
