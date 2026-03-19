@@ -283,7 +283,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
      */
     private Future<Void> processAvailableMessagesReactive() {
         logger.debug("OUTBOX-DEBUG: processAvailableMessagesReactive() called for topic: {}", topic);
-        // CRITICAL FIX: Check if consumer is closed to prevent infinite retry loops
+        // : Check if consumer is closed to prevent infinite retry loops
         // during shutdown
         if (closed.get()) {
             logger.debug("OUTBOX-DEBUG: Skipping message processing - consumer closed for topic {}", topic);
@@ -371,7 +371,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                         return processingChain;
                     })
                     .onFailure(error -> {
-                        // CRITICAL FIX: Handle shutdown-related errors gracefully following established
+                        // : Handle shutdown-related errors gracefully following established
                         // pattern
                         if (closed.get() && (error.getMessage().contains("Pool closed") ||
                                 error.getMessage().contains("event executor terminated") ||
@@ -383,7 +383,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                     });
 
         } catch (Exception e) {
-            // Critical fix: Handle various error conditions gracefully following
+            // : Handle various error conditions gracefully following
             // established pattern
             String errorMessage = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
 
@@ -957,7 +957,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
      * Parse payload from JsonObject back to the expected type.
      * Handles both simple values (wrapped in {"value": ...}) and complex objects.
      *
-     * CRITICAL FIX: Use the same ObjectMapper that was used for serialization
+     * : Use the same ObjectMapper that was used for serialization
      * instead of JsonObject.mapTo() which uses Vert.x's internal ObjectMapper.
      * This ensures consistent Instant/LocalDateTime serialization/deserialization.
      */
@@ -975,7 +975,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             }
         }
 
-        // CRITICAL FIX: For complex objects, use the configured ObjectMapper
+        // : For complex objects, use the configured ObjectMapper
         // instead of JsonObject.mapTo() to ensure consistent
         // serialization/deserialization
         // This fixes the Instant deserialization issue with Vert.x's

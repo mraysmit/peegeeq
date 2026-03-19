@@ -297,7 +297,7 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
             return Future.succeededFuture(QueueStats.basic(topic, 0, 0, 0));
         }
 
-        // CRITICAL FIX: Remove manual schema qualification - rely on connection-level search_path
+        // : Remove manual schema qualification - rely on connection-level search_path
         // The connection pool is configured with search_path in PgConnectionManager.createReactivePool()
         // so all SQL statements will automatically use the correct schema
         String sql = """
