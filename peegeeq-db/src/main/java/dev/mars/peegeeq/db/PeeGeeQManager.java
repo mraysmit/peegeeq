@@ -101,6 +101,7 @@ public class PeeGeeQManager implements AutoCloseable {
 
     // Background services - using Vert.x timers instead of ScheduledExecutorService
     private long metricsTimerId = 0;
+    private long depthCacheTimerId = 0;
     private long dlqTimerId = 0;
     private long recoveryTimerId = 0;
     private DeadConsumerDetectionJob deadConsumerDetectionJob;
@@ -713,8 +714,15 @@ public class PeeGeeQManager implements AutoCloseable {
 
             long intervalMs = configuration.getMetricsConfig().getReportingInterval().toMillis();
             metricsTimerId = vertx.setPeriodic(intervalMs, id -> {
-                metrics.persistMetricsReactive(meterRegistry)
+                metrics.persistMetrics(meterRegistry)
                     .onFailure(e -> logger.warn("Failed to persist metrics", e));
+            });
+
+            // Separate timer for refreshing cached queue depth values used by gauges
+            long depthCacheIntervalMs = configuration.getMetricsConfig().getDepthCacheInterval().toMillis();
+            depthCacheTimerId = vertx.setPeriodic(depthCacheIntervalMs, id -> {
+                metrics.refreshDepthCache()
+                    .onFailure(e -> logger.warn("Failed to refresh depth cache", e));
             });
 
             logger.info("Started metrics collection every {}", configuration.getMetricsConfig().getReportingInterval());
@@ -791,6 +799,10 @@ public class PeeGeeQManager implements AutoCloseable {
         if (metricsTimerId != 0) {
             vertx.cancelTimer(metricsTimerId);
             metricsTimerId = 0;
+        }
+        if (depthCacheTimerId != 0) {
+            vertx.cancelTimer(depthCacheTimerId);
+            depthCacheTimerId = 0;
         }
         if (deadConsumerDetectionJob != null) {
             deadConsumerDetectionJob.stop();
