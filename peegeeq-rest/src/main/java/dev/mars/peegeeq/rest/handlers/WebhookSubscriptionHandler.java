@@ -39,7 +39,6 @@ import org.slf4j.LoggerFactory;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.CompletableFuture;
 
 /**
  * Handler for webhook subscription REST endpoints.
@@ -228,10 +227,7 @@ public class WebhookSubscriptionHandler {
      * Uses MessageConsumer API's push-based pattern.
      */
     private Future<Void> startConsumingForWebhook(WebhookSubscription subscription) {
-        CompletableFuture<QueueFactory> queueFactoryFuture = 
-            getQueueFactory(subscription.getSetupId(), subscription.getQueueName());
-        
-        return Future.fromCompletionStage(queueFactoryFuture)
+        return getQueueFactory(subscription.getSetupId(), subscription.getQueueName())
             .compose(queueFactory -> {
                 MessageConsumer<Object> consumer = queueFactory.createConsumer(
                     subscription.getQueueName(), Object.class);
@@ -257,9 +253,7 @@ public class WebhookSubscriptionHandler {
                                 logger.warn("Webhook subscription {} disabled after {} consecutive failures", 
                                     subscription.getSubscriptionId(), subscription.getConsecutiveFailures());
                             }
-                        })
-                        .toCompletionStage()
-                        .toCompletableFuture();
+                        });
                 });
                 
                 activeConsumers.put(subscription.getSubscriptionId(), consumer);
@@ -310,9 +304,7 @@ public class WebhookSubscriptionHandler {
      * Verifies that a setup exists and is active.
      */
     private Future<Boolean> verifySetupActive(String setupId) {
-        CompletableFuture<DatabaseSetupStatus> future = setupService.getSetupStatus(setupId);
-        
-        return Future.fromCompletionStage(future)
+        return setupService.getSetupStatus(setupId)
             .compose(status -> {
                 if (status == null) {
                     return Future.failedFuture("Setup not found: " + setupId);
@@ -324,9 +316,9 @@ public class WebhookSubscriptionHandler {
     /**
      * Gets QueueFactory for a setup.
      */
-    private CompletableFuture<QueueFactory> getQueueFactory(String setupId, String queueName) {
+    private Future<QueueFactory> getQueueFactory(String setupId, String queueName) {
         return setupService.getSetupResult(setupId)
-            .thenApply(setupResult -> {
+            .map(setupResult -> {
                 if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                     throw new IllegalStateException("Setup " + setupId + " is not active");
                 }

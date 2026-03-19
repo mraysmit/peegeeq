@@ -27,6 +27,7 @@ import dev.mars.peegeeq.api.setup.DatabaseSetupResult;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
 import dev.mars.peegeeq.api.subscription.SubscriptionService;
+import io.vertx.core.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -34,7 +35,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
 /**
@@ -95,37 +95,37 @@ public class RuntimeDatabaseSetupService implements DatabaseSetupService {
     // ========== DatabaseSetupService delegation ==========
 
     @Override
-    public CompletableFuture<DatabaseSetupResult> createCompleteSetup(DatabaseSetupRequest request) {
+    public Future<DatabaseSetupResult> createCompleteSetup(DatabaseSetupRequest request) {
         return delegate.createCompleteSetup(request);
     }
 
     @Override
-    public CompletableFuture<Void> destroySetup(String setupId) {
+    public Future<Void> destroySetup(String setupId) {
         return delegate.destroySetup(setupId);
     }
 
     @Override
-    public CompletableFuture<DatabaseSetupStatus> getSetupStatus(String setupId) {
+    public Future<DatabaseSetupStatus> getSetupStatus(String setupId) {
         return delegate.getSetupStatus(setupId);
     }
 
     @Override
-    public CompletableFuture<DatabaseSetupResult> getSetupResult(String setupId) {
+    public Future<DatabaseSetupResult> getSetupResult(String setupId) {
         return delegate.getSetupResult(setupId);
     }
 
     @Override
-    public CompletableFuture<Void> addQueue(String setupId, QueueConfig queueConfig) {
+    public Future<Void> addQueue(String setupId, QueueConfig queueConfig) {
         return delegate.addQueue(setupId, queueConfig);
     }
 
     @Override
-    public CompletableFuture<Void> addEventStore(String setupId, EventStoreConfig eventStoreConfig) {
+    public Future<Void> addEventStore(String setupId, EventStoreConfig eventStoreConfig) {
         return delegate.addEventStore(setupId, eventStoreConfig);
     }
 
     @Override
-    public CompletableFuture<Set<String>> getAllActiveSetupIds() {
+    public Future<Set<String>> getAllActiveSetupIds() {
         return delegate.getAllActiveSetupIds();
     }
 

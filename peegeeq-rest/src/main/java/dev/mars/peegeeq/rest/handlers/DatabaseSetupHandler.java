@@ -83,7 +83,7 @@ public class DatabaseSetupHandler {
                         request.getEventStores().size());
 
                 setupService.createCompleteSetup(request)
-                        .thenAccept(result -> {
+                        .onSuccess(result -> {
                             try (var scope = TraceContextUtil.mdcScope(finalTraceCtx)) {
                                 logger.debug("REST HANDLER: Received completion from createCompleteSetup for setupId={}",
                                         request.getSetupId());
@@ -102,7 +102,7 @@ public class DatabaseSetupHandler {
                                 logger.info("Database setup created successfully: {}", request.getSetupId());
                             }
                         })
-                        .exceptionally(throwable -> {
+                        .onFailure(throwable -> {
                             try (var scope = TraceContextUtil.mdcScope(finalTraceCtx)) {
                                 // Check if this is an expected database creation conflict (no stack trace)
                                 Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
@@ -128,7 +128,6 @@ public class DatabaseSetupHandler {
                                 }
 
                                 sendError(ctx, statusCode, errorMessage);
-                                return null;
                             }
                         });
 
@@ -159,17 +158,16 @@ public class DatabaseSetupHandler {
         logger.info("Deleting database setup: {}", setupId);
 
         setupService.destroySetup(setupId)
-                .thenAccept(v -> {
+                .onSuccess(v -> {
                     ctx.response()
                             .setStatusCode(204) // No Content
                             .end();
 
                     logger.info("Database setup deleted successfully: {}", setupId);
                 })
-                .exceptionally(err -> {
+                .onFailure(err -> {
                     logger.error("Failed to delete database setup: {}", setupId, err);
                     sendError(ctx, 500, "Failed to delete setup: " + err.getMessage());
-                    return null;
                 });
     }
 
@@ -190,7 +188,7 @@ public class DatabaseSetupHandler {
         logger.debug("Getting status for setup: {}", setupId);
 
         setupService.getSetupStatus(setupId)
-                .thenAccept(status -> {
+                .onSuccess(status -> {
                     JsonObject response = new JsonObject()
                             .put("setupId", setupId)
                             .put("status", status.name());
@@ -200,10 +198,9 @@ public class DatabaseSetupHandler {
                             .putHeader("Content-Type", "application/json")
                             .end(response.encode());
                 })
-                .exceptionally(err -> {
+                .onFailure(err -> {
                     logger.debug("Setup not found: {}", setupId);
                     sendError(ctx, 404, "Setup not found: " + setupId);
-                    return null;
                 });
     }
 
@@ -217,7 +214,7 @@ public class DatabaseSetupHandler {
         logger.debug("Getting details for setup: {}", setupId);
 
         setupService.getSetupResult(setupId)
-                .thenAccept(result -> {
+                .onSuccess(result -> {
                     JsonObject response = new JsonObject()
                             .put("setupId", result.getSetupId())
                             .put("status", result.getStatus().name())
@@ -229,7 +226,7 @@ public class DatabaseSetupHandler {
                             .putHeader("Content-Type", "application/json")
                             .end(response.encode());
                 })
-                .exceptionally(err -> {
+                .onFailure(err -> {
                     // Check if this is an expected setup not found error (no stack trace)
                     Throwable cause = err.getCause() != null ? err.getCause() : err;
                     if (isSetupNotFoundError(cause)) {
@@ -241,7 +238,6 @@ public class DatabaseSetupHandler {
                         logger.error("Error getting setup details: " + setupId, err);
                     }
                     sendError(ctx, 404, "Setup not found: " + setupId);
-                    return null;
                 });
     }
 
@@ -258,7 +254,7 @@ public class DatabaseSetupHandler {
             logger.info("Adding queue {} to setup: {}", queueConfig.getQueueName(), setupId);
 
             setupService.addQueue(setupId, queueConfig)
-                    .thenAccept(v -> {
+                    .onSuccess(v -> {
                         JsonObject response = new JsonObject()
                                 .put("message", "Queue '" + queueConfig.getQueueName()
                                         + "' added successfully to setup '" + setupId + "'")
@@ -272,7 +268,7 @@ public class DatabaseSetupHandler {
 
                         logger.info("Queue added successfully: {} to setup {}", queueConfig.getQueueName(), setupId);
                     })
-                    .exceptionally(err -> {
+                    .onFailure(err -> {
                         logger.error("Failed to add queue '{}' to setup: {}", queueConfig.getQueueName(), setupId, err);
 
                         int statusCode = 500;
@@ -286,7 +282,6 @@ public class DatabaseSetupHandler {
                         }
 
                         sendError(ctx, statusCode, errorMessage);
-                        return null;
                     });
 
         } catch (IllegalArgumentException e) {
@@ -311,7 +306,7 @@ public class DatabaseSetupHandler {
             logger.info("Adding event store {} to setup: {}", eventStoreConfig.getEventStoreName(), setupId);
 
             setupService.addEventStore(setupId, eventStoreConfig)
-                    .thenAccept(v -> {
+                    .onSuccess(v -> {
                         JsonObject response = new JsonObject()
                                 .put("message", "Event store '" + eventStoreConfig.getEventStoreName()
                                         + "' added successfully to setup '" + setupId + "'")
@@ -326,7 +321,7 @@ public class DatabaseSetupHandler {
                         logger.info("Event store added successfully: {} to setup {}",
                                 eventStoreConfig.getEventStoreName(), setupId);
                     })
-                    .exceptionally(err -> {
+                    .onFailure(err -> {
                         logger.error("Failed to add event store '{}' to setup: {}",
                                 eventStoreConfig.getEventStoreName(), setupId, err);
 
@@ -341,7 +336,6 @@ public class DatabaseSetupHandler {
                         }
 
                         sendError(ctx, statusCode, errorMessage);
-                        return null;
                     });
 
         } catch (IllegalArgumentException e) {
@@ -361,7 +355,7 @@ public class DatabaseSetupHandler {
         logger.debug("Listing all active setups");
 
         setupService.getAllActiveSetupIds()
-                .thenAccept(setupIds -> {
+                .onSuccess(setupIds -> {
                     JsonObject response = new JsonObject()
                             .put("count", setupIds.size())
                             .put("setupIds", new JsonArray(new ArrayList<>(setupIds)));
@@ -371,10 +365,9 @@ public class DatabaseSetupHandler {
                             .putHeader("Content-Type", "application/json")
                             .end(response.encode());
                 })
-                .exceptionally(err -> {
+                .onFailure(err -> {
                     logger.error("Failed to list setups", err);
                     sendError(ctx, 500, "Failed to list setups: " + err.getMessage());
-                    return null;
                 });
     }
 
@@ -388,7 +381,7 @@ public class DatabaseSetupHandler {
         logger.debug("Listing queues for setup: {}", setupId);
 
         setupService.getSetupResult(setupId)
-                .thenAccept(result -> {
+                .onSuccess(result -> {
                     JsonArray queuesArray = new JsonArray();
                     for (var entry : result.getQueueFactories().entrySet()) {
                         String queueName = entry.getKey();
@@ -410,7 +403,7 @@ public class DatabaseSetupHandler {
                             .putHeader("Content-Type", "application/json")
                             .end(response.encode());
                 })
-                .exceptionally(err -> {
+                .onFailure(err -> {
                     Throwable cause = err.getCause() != null ? err.getCause() : err;
                     if (cause.getMessage() != null && cause.getMessage().contains("not found")) {
                         sendError(ctx, 404, "Setup not found: " + setupId);
@@ -418,7 +411,6 @@ public class DatabaseSetupHandler {
                         logger.error("Failed to list queues for setup: {}", setupId, err);
                         sendError(ctx, 500, "Failed to list queues: " + err.getMessage());
                     }
-                    return null;
                 });
     }
 
@@ -432,7 +424,7 @@ public class DatabaseSetupHandler {
         logger.debug("Listing event stores for setup: {}", setupId);
 
         setupService.getSetupResult(setupId)
-                .thenAccept(result -> {
+                .onSuccess(result -> {
                     JsonArray eventStoresArray = new JsonArray();
                     for (var entry : result.getEventStores().entrySet()) {
                         String storeName = entry.getKey();
@@ -451,7 +443,7 @@ public class DatabaseSetupHandler {
                             .putHeader("Content-Type", "application/json")
                             .end(response.encode());
                 })
-                .exceptionally(err -> {
+                .onFailure(err -> {
                     Throwable cause = err.getCause() != null ? err.getCause() : err;
                     if (cause.getMessage() != null && cause.getMessage().contains("not found")) {
                         sendError(ctx, 404, "Setup not found: " + setupId);
@@ -459,7 +451,6 @@ public class DatabaseSetupHandler {
                         logger.error("Failed to list event stores for setup: {}", setupId, err);
                         sendError(ctx, 500, "Failed to list event stores: " + err.getMessage());
                     }
-                    return null;
                 });
     }
 

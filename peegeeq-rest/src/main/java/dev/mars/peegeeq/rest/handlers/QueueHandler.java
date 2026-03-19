@@ -24,6 +24,7 @@ import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
 import dev.mars.peegeeq.api.tracing.TraceContextUtil;
 import dev.mars.peegeeq.api.tracing.TraceCtx;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
@@ -34,7 +35,6 @@ import org.slf4j.MDC;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.stream.Collectors;
 
 /**
@@ -93,13 +93,13 @@ public class QueueHandler {
 
             // Get queue factory and send message
             getQueueFactory(setupId, queueName)
-                .thenCompose(queueFactory -> {
+                .compose(queueFactory -> {
                     // Create producer for the message type
                     MessageProducer<Object> producer = queueFactory.createProducer(queueName, Object.class);
 
                     // Send the message
                     return sendMessageWithProducer(producer, messageRequest, ctx)
-                        .whenComplete((messageId, error) -> {
+                        .onComplete(ar -> {
                             // Always close the producer
                             try {
                                 producer.close();
@@ -108,7 +108,7 @@ public class QueueHandler {
                             }
                         });
                 })
-                .thenAccept(messageId -> {
+                .onSuccess(messageId -> {
                     // Set correlation ID in MDC for logging
                     TraceContextUtil.setMDC(TraceContextUtil.MDC_CORRELATION_ID, messageId);
                     TraceContextUtil.setMDC(TraceContextUtil.MDC_MESSAGE_ID, messageId);
@@ -143,7 +143,7 @@ public class QueueHandler {
                     logger.info("Message sent successfully to queue {} in setup {} with ID: {} (type: {})",
                         queueName, setupId, messageId, messageRequest.detectMessageType());
                 })
-                .exceptionally(throwable -> {
+                .onFailure(throwable -> {
                     // Check if this is an expected setup not found error (no stack trace)
                     Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
                     if (isSetupNotFoundError(cause)) {
@@ -174,9 +174,8 @@ public class QueueHandler {
                     }
 
                     sendError(ctx, statusCode, errorMessage);
-                    return null;
                 })
-                .whenComplete((result, error) -> {
+                .onComplete(ar -> {
                     // Clear MDC after request completes
                     TraceContextUtil.clearTraceMDC();
                 });
@@ -231,27 +230,27 @@ public class QueueHandler {
 
             // Get queue factory and send messages
             getQueueFactory(setupId, queueName)
-                .thenCompose(queueFactory -> {
+                .compose(queueFactory -> {
                     MessageProducer<Object> producer = queueFactory.createProducer(queueName, Object.class);
 
                     // Send all messages (propagate same trace context to all messages in batch)
-                    List<CompletableFuture<String>> futures = batchRequest.getMessages().stream()
+                    List<Future<String>> futures = batchRequest.getMessages().stream()
                         .map(msgReq -> sendMessageWithProducer(producer, msgReq, ctx)
-                            .exceptionally(throwable -> {
+                            .recover(throwable -> {
                                 if (batchRequest.isFailOnError()) {
-                                    throw new RuntimeException("Batch failed at message: " + throwable.getMessage(), throwable);
+                                    return Future.failedFuture(new RuntimeException("Batch failed at message: " + throwable.getMessage(), throwable));
                                 } else {
                                     logger.warn("Failed to send message in batch: {}", throwable.getMessage());
-                                    return "FAILED:" + throwable.getMessage();
+                                    return Future.succeededFuture("FAILED:" + throwable.getMessage());
                                 }
                             }))
                         .collect(Collectors.toList());
 
-                    return CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                        .thenApply(v -> futures.stream()
-                            .map(CompletableFuture::join)
+                    return Future.all(futures.stream().map(f -> (Future<?>) f).collect(Collectors.toList()))
+                        .map(cf -> futures.stream()
+                            .map(Future::result)
                             .collect(Collectors.toList()))
-                        .whenComplete((messageIds, error) -> {
+                        .onComplete(ar -> {
                             // Always close the producer
                             try {
                                 producer.close();
@@ -260,7 +259,7 @@ public class QueueHandler {
                             }
                         });
                 })
-                .thenAccept(messageIds -> {
+                .onSuccess(messageIds -> {
                     // Count successful and failed messages
                     long successCount = messageIds.stream().filter(id -> !id.startsWith("FAILED:")).count();
                     long failureCount = messageIds.size() - successCount;
@@ -284,7 +283,7 @@ public class QueueHandler {
                     logger.info("Batch processed: {} successful, {} failed for queue {} in setup {}",
                         successCount, failureCount, queueName, setupId);
                 })
-                .exceptionally(throwable -> {
+                .onFailure(throwable -> {
                     // Check if this is an intentional test error
                     if (isTestScenario(setupId, throwable)) {
                         logger.info("🧪 EXPECTED TEST ERROR - Error sending batch messages to queue: {} (setup: {}) - {}",
@@ -293,9 +292,8 @@ public class QueueHandler {
                         logger.error("Error sending batch messages to queue: " + queueName, throwable);
                     }
                     sendError(ctx, 500, "Failed to send batch messages: " + throwable.getMessage());
-                    return null;
                 })
-                .whenComplete((result, error) -> {
+                .onComplete(ar -> {
                     // Clear MDC after request completes
                     TraceContextUtil.clearTraceMDC();
                 });
@@ -328,7 +326,7 @@ public class QueueHandler {
         logger.info("Getting stats for queue {} in setup: {}", queueName, setupId);
 
         setupService.getSetupResult(setupId)
-                .thenAccept(setupResult -> {
+                .onSuccess(setupResult -> {
                     if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                         sendError(ctx, 404, "Setup not found or not active: " + setupId);
                         return;
@@ -385,7 +383,7 @@ public class QueueHandler {
                         sendError(ctx, 500, "Internal server error");
                     }
                 })
-                .exceptionally(throwable -> {
+                .onFailure(throwable -> {
                     // Check if this is an expected setup not found error (no stack trace)
                     Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
                     if (isSetupNotFoundError(cause)) {
@@ -398,7 +396,6 @@ public class QueueHandler {
                         logger.error("Error getting queue stats: " + queueName, throwable);
                     }
                     sendError(ctx, 404, "Queue not found");
-                    return null;
                 });
     }
     
@@ -420,9 +417,9 @@ public class QueueHandler {
     /**
      * Gets the queue factory for the specified setup and queue name.
      */
-    CompletableFuture<QueueFactory> getQueueFactory(String setupId, String queueName) {
+    Future<QueueFactory> getQueueFactory(String setupId, String queueName) {
         return setupService.getSetupResult(setupId)
-            .thenApply(setupResult -> {
+            .map(setupResult -> {
                 if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
                     throw new IllegalStateException("Setup " + setupId + " is not active");
                 }
@@ -440,7 +437,7 @@ public class QueueHandler {
      * Sends a message using the MessageProducer with the appropriate headers and metadata.
      * Extracts W3C Trace Context headers from the HTTP request and propagates them to the message.
      */
-    private CompletableFuture<String> sendMessageWithProducer(MessageProducer<Object> producer, MessageRequest request, RoutingContext ctx) {
+    private Future<String> sendMessageWithProducer(MessageProducer<Object> producer, MessageRequest request, RoutingContext ctx) {
         // Build headers map
         Map<String, String> headers = new HashMap<>();
 
@@ -519,7 +516,7 @@ public class QueueHandler {
 
         // Send the message and return the correlation ID as the message ID
         return producer.send(request.getPayload(), headers, correlationId, messageGroup)
-            .thenApply(v -> {
+            .map(v -> {
                 if (idempotencyKey != null) {
                     logger.debug("Message sent successfully with idempotency key: {} (correlationId: {})",
                             idempotencyKey, correlationId);

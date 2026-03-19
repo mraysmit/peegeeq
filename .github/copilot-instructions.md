@@ -11,6 +11,12 @@ These instructions are mandatory for all code and test changes in this repositor
 ## Vert.x 5.x Reactive Only
 Use Vert.x composable futures everywhere.
 
+### Naming Rules (Reactive-Only APIs)
+- In APIs/modules that are fully Future-based, do not use `Async` or `Reactive` method suffixes just to indicate asynchrony.
+- Prefer plain domain names (for example `close`, `send`, `createSetup`) and let the return type (`Future<T>`) define async behavior.
+- Use `Async`/`Reactive` suffixes only when a synchronous variant with the same base name also exists and disambiguation is required.
+- During migrations, remove temporary `Async`/`Reactive` suffixes after sync variants are removed.
+
 ### Required
 - Use `io.vertx.core.Future<T>` for asynchronous APIs and flows.
 - Use `.compose(...)` for sequencing.
@@ -71,6 +77,19 @@ Reference examples:
 - Verify each change against existing project patterns.
 - If scope expands significantly, stop and confirm approach before continuing.
 - Compilation success alone is not completion; behavior and patterns must be correct.
+
+## Instruction Compliance Contract
+- Follow explicit user instructions exactly. Do not replace requested architecture/style changes with temporary compatibility shims unless the user explicitly asks for a temporary shim.
+- Do not optimize for short-term compile continuity when that conflicts with explicit user instructions.
+- When user asks for reactive-only style, remove all bridge/blocking patterns from touched files; do not keep `toCompletionStage`, `toCompletableFuture`, `.get`, `.join`, or equivalent blocking bridges.
+- If the implementation deviates from user instructions for any reason, stop and state the exact reason before making further edits.
+
+## Mandatory Verification Before Claiming Done
+- Provide evidence for touched files:
+	- Search proof that forbidden patterns are absent in touched files.
+	- Build/test proof for affected modules.
+	- Exact list of changed files.
+- Do not claim completion until verification passes.
 
 ## Multi-Tenant Schema Isolation Rules
 - Tenant separation is absolute: one isolated schema per tenant.
