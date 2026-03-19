@@ -23,11 +23,11 @@ import dev.mars.peegeeq.outbox.config.FilterErrorHandlingConfig;
 import dev.mars.peegeeq.outbox.deadletter.DeadLetterQueueManager;
 import dev.mars.peegeeq.outbox.resilience.FilterCircuitBreaker;
 import dev.mars.peegeeq.outbox.resilience.FilterRetryManager;
+import io.vertx.core.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -320,11 +320,11 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
      * Processes a message using this consumer's message handler.
      * 
      * @param message The message to process
-     * @return A CompletableFuture that completes when processing is done
+     * @return A Future that completes when processing is done
      */
-    public CompletableFuture<Void> processMessage(Message<T> message) {
+    public Future<Void> processMessage(Message<T> message) {
         if (!isActive()) {
-            return CompletableFuture.failedFuture(
+            return Future.failedFuture(
                 new IllegalStateException("Consumer member is not active"));
         }
         
@@ -333,7 +333,7 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
             filteredMessageCount.incrementAndGet();
             logger.debug("Message {} filtered out by outbox consumer '{}' in group '{}'", 
                 message.getId(), consumerId, groupName);
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         }
         
         lastActiveAt.set(Instant.now());
@@ -344,27 +344,27 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
 
         // Wrap the message handler call in try-catch to handle both:
         // 1. Direct exceptions thrown from the handler method
-        // 2. Exceptions returned in failed CompletableFutures
-        CompletableFuture<Void> processingFuture;
+        // 2. Failed futures returned by the handler method
+        Future<Void> processingFuture;
         try {
             processingFuture = messageHandler.handle(message);
         } catch (Exception directException) {
-            // Convert direct exceptions to failed CompletableFutures
+            // Convert direct exceptions to failed futures
             logger.debug("Message handler threw direct exception for message {} in consumer '{}': {}",
                 message.getId(), consumerId, directException.getMessage());
-            processingFuture = CompletableFuture.failedFuture(directException);
+            processingFuture = Future.failedFuture(directException);
         }
 
         return processingFuture
-            .whenComplete((result, error) -> {
+            .onComplete(ar -> {
                 long processingTime = System.currentTimeMillis() - startTime;
                 totalProcessingTimeMs.addAndGet(processingTime);
 
-                if (error != null) {
+                if (ar.failed()) {
                     failedMessageCount.incrementAndGet();
-                    lastError.set(error.getMessage());
+                    lastError.set(ar.cause().getMessage());
                     logger.warn("Failed to process message {} with outbox consumer '{}' in group '{}': {}",
-                        message.getId(), consumerId, groupName, error.getMessage());
+                        message.getId(), consumerId, groupName, ar.cause().getMessage());
                 } else {
                     processedMessageCount.incrementAndGet();
                     lastError.set(null);

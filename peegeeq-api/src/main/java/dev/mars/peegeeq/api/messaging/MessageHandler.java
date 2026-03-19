@@ -18,7 +18,6 @@ package dev.mars.peegeeq.api.messaging;
 
 
 import io.vertx.core.Future;
-import java.util.concurrent.CompletableFuture;
 
 /**
  * Functional interface for handling messages.
@@ -45,14 +44,4 @@ public interface MessageHandler<T> {
      * @return A Future that completes when the message is processed
      */
     Future<Void> handle(Message<T> message);
-
-    /**
-     * CompletableFuture bridge for non-Vert.x consumers.
-     *
-     * @param message The message to handle
-     * @return A CompletableFuture that completes when the message is processed
-     */
-    default CompletableFuture<Void> handleAsync(Message<T> message) {
-        return handle(message).toCompletionStage().toCompletableFuture();
-    }
 }

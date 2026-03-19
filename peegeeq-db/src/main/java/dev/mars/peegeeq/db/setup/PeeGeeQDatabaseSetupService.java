@@ -1085,13 +1085,13 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
                                         missingTables.add("dead_letter_queue");
 
                                     logger.error("VALIDATION FAILED: Missing required tables: {}", missingTables);
-                                    return Future.failedFuture(new IllegalStateException(
+                                    return Future.<Void>failedFuture(new IllegalStateException(
                                             "Database infrastructure validation failed - missing tables: "
                                                     + missingTables));
                                 }
 
                                 logger.info("========== VALIDATION PASSED ==========");
-                                return Future.succeededFuture();
+                                return Future.<Void>succeededFuture();
                             }
                         });
             }

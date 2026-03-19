@@ -18,7 +18,6 @@ package dev.mars.peegeeq.api.messaging;
 
 
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import io.vertx.core.Future;
 
 /**
@@ -75,56 +74,6 @@ public interface MessageProducer<T> extends AutoCloseable {
      * @return A Future that completes when the message is sent
      */
     Future<Void> send(T payload, Map<String, String> headers, String correlationId, String messageGroup);
-
-    // ========================================
-    // CompletableFuture Bridge Methods
-    // ========================================
-
-    /**
-     * CompletableFuture bridge for send(T payload).
-     *
-     * @param payload The message payload
-     * @return A CompletableFuture that completes when the message is sent
-     */
-    default CompletableFuture<Void> sendAsync(T payload) {
-        return send(payload).toCompletionStage().toCompletableFuture();
-    }
-
-    /**
-     * CompletableFuture bridge for send(T payload, Map headers).
-     *
-     * @param payload The message payload
-     * @param headers The message headers
-     * @return A CompletableFuture that completes when the message is sent
-     */
-    default CompletableFuture<Void> sendAsync(T payload, Map<String, String> headers) {
-        return send(payload, headers).toCompletionStage().toCompletableFuture();
-    }
-
-    /**
-     * CompletableFuture bridge for send(T payload, Map headers, String correlationId).
-     *
-     * @param payload The message payload
-     * @param headers The message headers
-     * @param correlationId The correlation ID for message tracking
-     * @return A CompletableFuture that completes when the message is sent
-     */
-    default CompletableFuture<Void> sendAsync(T payload, Map<String, String> headers, String correlationId) {
-        return send(payload, headers, correlationId).toCompletionStage().toCompletableFuture();
-    }
-
-    /**
-     * CompletableFuture bridge for send(T payload, Map headers, String correlationId, String messageGroup).
-     *
-     * @param payload The message payload
-     * @param headers The message headers
-     * @param correlationId The correlation ID for message tracking
-     * @param messageGroup The message group for ordering
-     * @return A CompletableFuture that completes when the message is sent
-     */
-    default CompletableFuture<Void> sendAsync(T payload, Map<String, String> headers, String correlationId, String messageGroup) {
-        return send(payload, headers, correlationId, messageGroup).toCompletionStage().toCompletableFuture();
-    }
 
     /**
      * Closes the producer and releases any resources.

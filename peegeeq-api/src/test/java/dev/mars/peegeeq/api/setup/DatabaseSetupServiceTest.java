@@ -8,8 +8,6 @@ import org.junit.jupiter.api.Test;
 
 import java.util.Collections;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -17,7 +15,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class DatabaseSetupServiceTest {
 
     @Test
-    void testDefaultAsyncBridgeMethods() throws ExecutionException, InterruptedException {
+    void testFutureMethods() {
         DatabaseSetupService service = new DatabaseSetupService() {
             @Override public Future<DatabaseSetupResult> createCompleteSetup(DatabaseSetupRequest request) { return Future.succeededFuture(null); }
             @Override public Future<Void> destroySetup(String setupId) { return Future.succeededFuture(); }
@@ -62,18 +60,5 @@ class DatabaseSetupServiceTest {
         Set<String> ids = idsFuture.result();
         assertNotNull(ids);
         assertTrue(ids.isEmpty());
-
-        // Test default *Async() bridge methods return CompletableFuture
-        CompletableFuture<Void> destroyAsync = service.destroySetupAsync("id");
-        assertNotNull(destroyAsync);
-        destroyAsync.get();
-
-        CompletableFuture<DatabaseSetupStatus> statusAsync = service.getSetupStatusAsync("id");
-        assertNotNull(statusAsync);
-        assertEquals(DatabaseSetupStatus.ACTIVE, statusAsync.get());
-
-        CompletableFuture<Set<String>> idsAsync = service.getAllActiveSetupIdsAsync();
-        assertNotNull(idsAsync);
-        assertTrue(idsAsync.get().isEmpty());
     }
 }

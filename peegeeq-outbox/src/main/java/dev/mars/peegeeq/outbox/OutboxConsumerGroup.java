@@ -28,6 +28,7 @@ import dev.mars.peegeeq.api.messaging.ConsumerMemberStats;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import io.vertx.core.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -386,12 +387,12 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
      * Distributes a message to the appropriate consumer group member.
      * Applies group-level filtering and load balancing.
      */
-    private java.util.concurrent.CompletableFuture<Void> distributeMessage(Message<T> message) {
+    private Future<Void> distributeMessage(Message<T> message) {
         // Apply group-level filter first
         if (groupFilter != null && !groupFilter.test(message)) {
             totalMessagesFiltered.incrementAndGet();
             logger.debug("Message {} filtered out by outbox group filter", message.getId());
-            return java.util.concurrent.CompletableFuture.failedFuture(
+            return Future.failedFuture(
                     new MessageFilteredException(message.getId(), groupName, "rejected by group filter"));
         }
         
@@ -406,7 +407,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
             logger.debug("Message {} has no eligible consumers in outbox group '{}', resetting to PENDING",
                 message.getId(), groupName);
 
-            return java.util.concurrent.CompletableFuture.failedFuture(
+            return Future.failedFuture(
                     new MessageFilteredException(message.getId(), groupName, "no eligible consumer in group"));
         }
         
@@ -417,8 +418,8 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
             message.getId(), selectedConsumer.getConsumerId(), groupName);
         
         return selectedConsumer.processMessage(message)
-            .whenComplete((result, error) -> {
-                if (error != null) {
+            .onComplete(ar -> {
+                if (ar.failed()) {
                     totalMessagesFailed.incrementAndGet();
                 } else {
                     totalMessagesProcessed.incrementAndGet();

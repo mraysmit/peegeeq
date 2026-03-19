@@ -17,7 +17,6 @@ package dev.mars.peegeeq.api.messaging;
  */
 
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
 import io.vertx.core.Future;
 
 /**
@@ -50,31 +49,6 @@ public interface QueueBrowser<T> extends AutoCloseable {
      */
     default Future<List<Message<T>>> browse(int limit) {
         return browse(limit, 0);
-    }
-
-    // ========================================
-    // CompletableFuture Bridge Methods
-    // ========================================
-
-    /**
-     * CompletableFuture bridge for browse(int limit, int offset).
-     *
-     * @param limit Maximum number of messages to return
-     * @param offset Number of messages to skip from the beginning
-     * @return A CompletableFuture containing the list of messages
-     */
-    default CompletableFuture<List<Message<T>>> browseAsync(int limit, int offset) {
-        return browse(limit, offset).toCompletionStage().toCompletableFuture();
-    }
-
-    /**
-     * CompletableFuture bridge for browse(int limit).
-     *
-     * @param limit Maximum number of messages to return
-     * @return A CompletableFuture containing the list of messages
-     */
-    default CompletableFuture<List<Message<T>>> browseAsync(int limit) {
-        return browse(limit).toCompletionStage().toCompletableFuture();
     }
     
     /**

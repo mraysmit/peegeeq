@@ -45,7 +45,6 @@ import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -638,7 +637,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             Message<T> message = new SimpleMessage<>(
                     messageId, topic, parsedPayload, headerMap, correlationId, messageGroup, java.time.Instant.now());
 
-            // CRITICAL FIX: Process message asynchronously and wait for CompletableFuture
+            // Process message asynchronously and wait for Future
             try {
                 long startTime = System.currentTimeMillis();
 
@@ -648,12 +647,16 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 // Capture logs context for async callbacks
                 var traceCtx = TraceContextUtil.captureTraceContext();
 
-                // Call handler and get CompletableFuture
-                CompletableFuture<Void> processingFuture = handler.handle(message);
+                // Call handler and get Future
+                Future<Void> processingFuture = handler.handle(message);
+
+                if (processingFuture == null) {
+                    throw new IllegalStateException("Message handler returned null Future");
+                }
 
                 // Wait for completion and handle success/failure
                 processingFuture
-                        .thenAccept(result -> {
+                        .onSuccess(result -> {
                             // Restore trace context for logging and cleanup operations
                             try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
                                 long processingTime = System.currentTimeMillis() - startTime;
@@ -669,7 +672,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                                 processingInFlight.decrementAndGet();
                             }
                         })
-                        .exceptionally(processingError -> {
+                        .onFailure(processingError -> {
                             // Restore trace context for logging and cleanup operations
                             try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
                                 logger.error("Error processing message {}: {}", messageId, processingError.getMessage());
@@ -680,9 +683,8 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                                 // Decrement processing concurrency on failure
                                 processingInFlight.decrementAndGet();
                             }
-                            return null;
                         })
-                        .whenComplete((result, error) -> {
+                        .onComplete(ar -> {
                             // Clear MDC after message processing completes
                             TraceContextUtil.clearTraceMDC();
                         });

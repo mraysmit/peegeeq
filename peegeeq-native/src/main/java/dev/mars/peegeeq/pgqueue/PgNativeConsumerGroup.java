@@ -28,6 +28,7 @@ import dev.mars.peegeeq.api.messaging.ConsumerGroupStats;
 import dev.mars.peegeeq.api.messaging.ConsumerMemberStats;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import io.vertx.core.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -353,12 +354,12 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
      * Distributes a message to the appropriate consumer group member.
      * Applies group-level filtering and load balancing.
      */
-    private java.util.concurrent.CompletableFuture<Void> distributeMessage(Message<T> message) {
+    private Future<Void> distributeMessage(Message<T> message) {
         // Apply group-level filter first
         if (groupFilter != null && !groupFilter.test(message)) {
             totalMessagesFiltered.incrementAndGet();
             logger.debug("Message {} filtered out by group filter", message.getId());
-            return java.util.concurrent.CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         }
         
         // Find eligible consumers (those whose filters accept the message)
@@ -370,7 +371,7 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
         if (eligibleConsumers.isEmpty()) {
             totalMessagesFiltered.incrementAndGet();
             logger.debug("Message {} has no eligible consumers in group '{}'", message.getId(), groupName);
-            return java.util.concurrent.CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         }
         
         // Simple round-robin load balancing
@@ -380,13 +381,8 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
             message.getId(), selectedConsumer.getConsumerId(), groupName);
         
         return selectedConsumer.processMessage(message)
-            .whenComplete((result, error) -> {
-                if (error != null) {
-                    totalMessagesFailed.incrementAndGet();
-                } else {
-                    totalMessagesProcessed.incrementAndGet();
-                }
-            });
+            .onSuccess(result -> totalMessagesProcessed.incrementAndGet())
+            .onFailure(error -> totalMessagesFailed.incrementAndGet());
     }
     
     /**

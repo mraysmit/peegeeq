@@ -21,15 +21,13 @@ import dev.mars.peegeeq.api.database.QueueConfig;
 import dev.mars.peegeeq.api.database.EventStoreConfig;
 import io.vertx.core.Future;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
 /**
- * Database setup service interface with dual API support.
+ * Database setup service interface.
  *
  * This interface provides methods for creating and managing database setups.
- * External API uses CompletableFuture for non-Vert.x consumers, with reactive
- * convenience methods for Vert.x consumers.
+ * All asynchronous operations use Vert.x Future.
  *
  * Extends ServiceProvider to provide access to services (subscription, dead letter,
  * health) for each setup without requiring direct dependencies on implementation modules.
@@ -51,38 +49,6 @@ public interface DatabaseSetupService extends ServiceProvider {
      * @return A Future that completes with a set of active setup IDs
      */
     Future<Set<String>> getAllActiveSetupIds();
-
-    // ========================================
-    // CompletableFuture Bridge Methods
-    // ========================================
-
-    default CompletableFuture<DatabaseSetupResult> createCompleteSetupAsync(DatabaseSetupRequest request) {
-        return createCompleteSetup(request).toCompletionStage().toCompletableFuture();
-    }
-
-    default CompletableFuture<Void> destroySetupAsync(String setupId) {
-        return destroySetup(setupId).toCompletionStage().toCompletableFuture();
-    }
-
-    default CompletableFuture<DatabaseSetupStatus> getSetupStatusAsync(String setupId) {
-        return getSetupStatus(setupId).toCompletionStage().toCompletableFuture();
-    }
-
-    default CompletableFuture<DatabaseSetupResult> getSetupResultAsync(String setupId) {
-        return getSetupResult(setupId).toCompletionStage().toCompletableFuture();
-    }
-
-    default CompletableFuture<Void> addQueueAsync(String setupId, QueueConfig queueConfig) {
-        return addQueue(setupId, queueConfig).toCompletionStage().toCompletableFuture();
-    }
-
-    default CompletableFuture<Void> addEventStoreAsync(String setupId, EventStoreConfig eventStoreConfig) {
-        return addEventStore(setupId, eventStoreConfig).toCompletionStage().toCompletableFuture();
-    }
-
-    default CompletableFuture<Set<String>> getAllActiveSetupIdsAsync() {
-        return getAllActiveSetupIds().toCompletionStage().toCompletableFuture();
-    }
 
     /**
      * Adds a factory registration callback that will be invoked during setup.
