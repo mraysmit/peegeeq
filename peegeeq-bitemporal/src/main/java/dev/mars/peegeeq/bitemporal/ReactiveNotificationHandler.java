@@ -804,11 +804,10 @@ public class ReactiveNotificationHandler<T> {
         if (handlers != null) {
             for (MessageHandler<BiTemporalEvent<T>> handler : handlers) {
                 try {
-                    handler.handle(message).exceptionally(throwable -> {
-                        logger.error("Error in reactive subscription handler for key '{}': {}",
-                                subscriptionKey, throwable.getMessage(), throwable);
-                        return null;
-                    });
+                    handler.handle(message)
+                            .onFailure(throwable -> logger.error(
+                                    "Error in reactive subscription handler for key '{}': {}",
+                                    subscriptionKey, throwable.getMessage(), throwable));
                 } catch (Exception e) {
                     logger.error("Error invoking reactive subscription handler for key '{}': {}",
                             subscriptionKey, e.getMessage(), e);

@@ -511,27 +511,27 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
 
         // Wrap the message handler call in try-catch to handle both:
         // 1. Direct exceptions thrown from the handler method
-        // 2. Exceptions returned in failed CompletableFutures
+        // 2. Failed futures returned by the handler
         // 3. Null returns from the handler method
-        CompletableFuture<Void> processingFuture;
+        Future<Void> processingFuture;
         try {
             processingFuture = messageHandler.handle(message);
 
             // Handle null return from message handler
             if (processingFuture == null) {
-                logger.warn("Message handler returned null CompletableFuture for message {}: treating as failure",
+            logger.warn("Message handler returned null Future for message {}: treating as failure",
                         messageId);
-                processingFuture = CompletableFuture.failedFuture(
-                        new IllegalStateException("Message handler returned null CompletableFuture"));
+            processingFuture = Future.failedFuture(
+                new IllegalStateException("Message handler returned null Future"));
             }
         } catch (Exception directException) {
-            // Convert direct exceptions to failed CompletableFutures
+            // Convert direct exceptions to failed futures
             logger.debug("Message handler threw direct exception for message {}: {}",
                     messageId, directException.getMessage());
-            processingFuture = CompletableFuture.failedFuture(directException);
+            processingFuture = Future.failedFuture(directException);
         }
 
-        return Future.fromCompletionStage(processingFuture)
+        return processingFuture
             .compose(ignored -> {
                     // Record successful processing metrics
                     Duration processingTime = Duration.between(processingStart, Instant.now());

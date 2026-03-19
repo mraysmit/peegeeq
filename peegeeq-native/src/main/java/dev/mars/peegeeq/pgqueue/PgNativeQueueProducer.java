@@ -21,6 +21,7 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.api.database.MetricsProvider;
 import dev.mars.peegeeq.api.database.NoOpMetricsProvider;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.json.JsonArray;
 import io.vertx.sqlclient.Pool;
@@ -31,7 +32,6 @@ import org.slf4j.LoggerFactory;
 import java.time.OffsetDateTime;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
 
 /**
  * Native PostgreSQL queue message producer.
@@ -135,19 +135,19 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
     }
 
     @Override
-    public CompletableFuture<Void> send(T payload) {
+    public Future<Void> send(T payload) {
         return send(payload, Map.of());
     }
 
     @Override
-    public CompletableFuture<Void> send(T payload, Map<String, String> headers) {
+    public Future<Void> send(T payload, Map<String, String> headers) {
         return send(payload, headers, null);
     }
 
     @Override
-    public CompletableFuture<Void> send(T payload, Map<String, String> headers, String correlationId) {
+    public Future<Void> send(T payload, Map<String, String> headers, String correlationId) {
         if (closed) {
-            return CompletableFuture.failedFuture(new IllegalStateException("Producer is closed"));
+            return Future.failedFuture(new IllegalStateException("Producer is closed"));
         }
 
         try {
@@ -178,51 +178,41 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
                     5 // Default priority
             );
 
-            // Use withTransaction for automatic commit/rollback and search_path support
-            return pool.withTransaction(conn ->
+                // Use withTransaction for automatic commit/rollback and search_path support
+                return (Future<Void>) (Future<?>) pool.withTransaction(conn ->
                     conn.preparedQuery(sql)
-                            .execute(params)
-                            .compose(result -> {
-                                // Get the auto-generated ID from the database
-                                Long generatedId = result.iterator().next().getLong("id");
-                                logger.debug("Message sent to topic {}: {} (DB ID: {})", topic, messageId, generatedId);
-                                metrics.recordMessageSent(topic);
+                        .execute(params)
+                        .compose(result -> {
+                        // Get the auto-generated ID from the database
+                        Long generatedId = result.iterator().next().getLong("id");
+                        logger.debug("Message sent to topic {}: {} (DB ID: {})", topic, messageId, generatedId);
+                        metrics.recordMessageSent(topic);
 
-                                // Send NOTIFY to wake up consumers using the database-generated ID
-                                return conn.preparedQuery("SELECT pg_notify($1, $2)")
-                                        .execute(Tuple.of(notifyChannel, String.valueOf(generatedId)))
-                                        .compose(notifyResult -> {
-                                            logger.debug("Notification sent for message: {} (DB ID: {})", messageId,
-                                                    generatedId);
-                                            return io.vertx.core.Future.succeededFuture();
-                                        })
-                                        .recover(notifyError -> {
-                                            logger.warn("Failed to send notification for message {} (DB ID: {}): {}",
-                                                    messageId, generatedId, notifyError.getMessage());
-                                            // Continue anyway since message was stored
-                                            return io.vertx.core.Future.succeededFuture();
-                                        });
-                            })
-            ).mapEmpty()
-                    .toCompletionStage()
-                    .toCompletableFuture()
-                    .exceptionally(error -> {
-                        logger.error("Failed to send message to topic {}: {}", topic, error.getMessage());
-                        throw new RuntimeException(error);
-                    })
-                    .thenApply(v -> null);
+                        // Send NOTIFY to wake up consumers using the database-generated ID
+                        return conn.preparedQuery("SELECT pg_notify($1, $2)")
+                            .execute(Tuple.of(notifyChannel, String.valueOf(generatedId)))
+                            .onSuccess(ignored -> logger.debug("Notification sent for message: {} (DB ID: {})",
+                                messageId, generatedId))
+                            .onFailure(notifyError -> logger.warn(
+                                "Failed to send notification for message {} (DB ID: {}): {}",
+                                messageId, generatedId, notifyError.getMessage()))
+                            .mapEmpty()
+                            .otherwise(ignored -> (Void) null);
+                        }))
+                    .onFailure(error -> logger.error("Failed to send message to topic {}: {}", topic,
+                        error.getMessage()));
 
         } catch (Exception e) {
             logger.error("Error preparing message for topic {}: {}", topic, e.getMessage());
-            return CompletableFuture.failedFuture(e);
+            return Future.<Void>failedFuture(e);
         }
     }
 
     @Override
-    public CompletableFuture<Void> send(T payload, Map<String, String> headers, String correlationId,
+    public Future<Void> send(T payload, Map<String, String> headers, String correlationId,
             String messageGroup) {
         if (closed) {
-            return CompletableFuture.failedFuture(new IllegalStateException("Producer is closed"));
+            return Future.failedFuture(new IllegalStateException("Producer is closed"));
         }
 
         try {
@@ -297,33 +287,29 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
                     priority,
                     idempotencyKey);
 
-            // Use withTransaction for automatic commit/rollback and search_path support
-            return pool.withTransaction(conn ->
+                // Use withTransaction for automatic commit/rollback and search_path support
+                return (Future<Void>) (Future<?>) pool.withTransaction(conn ->
                     conn.preparedQuery(sql)
-                            .execute(params)
-                            .compose(result -> {
-                                // Get the auto-generated ID from the database
-                                Long generatedId = result.iterator().next().getLong("id");
-                                logger.debug("Message sent to topic {} with group {}: {} (DB ID: {})", topic, messageGroup,
-                                        messageId, generatedId);
-                                metrics.recordMessageSent(topic);
+                        .execute(params)
+                        .compose(result -> {
+                        // Get the auto-generated ID from the database
+                        Long generatedId = result.iterator().next().getLong("id");
+                        logger.debug("Message sent to topic {} with group {}: {} (DB ID: {})", topic, messageGroup,
+                            messageId, generatedId);
+                        metrics.recordMessageSent(topic);
 
-                                // Send NOTIFY to wake up consumers using the database-generated ID
-                                return conn.preparedQuery("SELECT pg_notify($1, $2)")
-                                        .execute(Tuple.of(notifyChannel, String.valueOf(generatedId)))
-                                        .compose(notifyResult -> {
-                                            logger.debug("Notification sent for message: {} (DB ID: {})", messageId,
-                                                    generatedId);
-                                            return io.vertx.core.Future.succeededFuture();
-                                        })
-                                        .recover(notifyError -> {
-                                            logger.warn("Failed to send notification for message {} (DB ID: {}): {}",
-                                                    messageId, generatedId, notifyError.getMessage());
-                                            // Continue anyway since message was stored
-                                            return io.vertx.core.Future.succeededFuture();
-                                        });
-                            })
-                            .recover(error -> {
+                        // Send NOTIFY to wake up consumers using the database-generated ID
+                        return conn.preparedQuery("SELECT pg_notify($1, $2)")
+                            .execute(Tuple.of(notifyChannel, String.valueOf(generatedId)))
+                            .onSuccess(ignored -> logger.debug("Notification sent for message: {} (DB ID: {})",
+                                messageId, generatedId))
+                            .onFailure(notifyError -> logger.warn(
+                                "Failed to send notification for message {} (DB ID: {}): {}",
+                                messageId, generatedId, notifyError.getMessage()))
+                            .mapEmpty()
+                            .otherwise(ignored -> (Void) null);
+                        })
+                        .recover(error -> {
                                 // Check if this is a duplicate idempotency key error (Phase 2: Message Deduplication)
                                 // PostgreSQL error code 23505 = unique_violation
                                 String errorMsg = error.getMessage();
@@ -332,23 +318,17 @@ public class PgNativeQueueProducer<T> implements dev.mars.peegeeq.api.messaging.
                                             topic, idempotencyKey);
                                     // Return success - message already exists with this idempotency key
                                     // This is the expected behavior for idempotent operations
-                                    return io.vertx.core.Future.succeededFuture();
+                                    return io.vertx.core.Future.succeededFuture((Object) null);
                                 }
                                 // Re-throw other errors
                                 return io.vertx.core.Future.failedFuture(error);
-                            })
-            ).mapEmpty()
-                    .toCompletionStage()
-                    .toCompletableFuture()
-                    .exceptionally(error -> {
-                        logger.error("Failed to send message to topic {}: {}", topic, error.getMessage());
-                        throw new RuntimeException(error);
-                    })
-                    .thenApply(v -> null);
+                            }))
+                    .onFailure(error -> logger.error("Failed to send message to topic {}: {}", topic,
+                            error.getMessage()));
 
         } catch (Exception e) {
             logger.error("Error preparing message for topic {}: {}", topic, e.getMessage());
-            return CompletableFuture.failedFuture(e);
+            return Future.<Void>failedFuture(e);
         }
     }
 

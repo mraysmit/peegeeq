@@ -160,7 +160,7 @@ public interface ConsumerGroup<T> extends AutoCloseable {
      * emailService.setMessageHandler(message -> {
      *     logger.info("Processing order: {}", message.getPayload().orderId());
      *     sendEmail(message.getPayload());
-     *     return CompletableFuture.completedFuture(null);
+     *     return Future.succeededFuture();
      * });
      * 
      * emailService.start();

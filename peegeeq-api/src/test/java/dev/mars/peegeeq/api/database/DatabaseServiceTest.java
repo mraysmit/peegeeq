@@ -4,16 +4,13 @@ import io.vertx.core.Future;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-
 import static org.junit.jupiter.api.Assertions.*;
 
 @Tag("core")
 class DatabaseServiceTest {
 
     @Test
-    void testPrimaryFutureAndAsyncBridgeMethods() throws ExecutionException, InterruptedException {
+    void testPrimaryFutureMethods() {
         // Create a mock or anonymous implementation
         DatabaseService service = new DatabaseService() {
             @Override public Future<Void> initialize() { return Future.succeededFuture(); }
@@ -52,18 +49,5 @@ class DatabaseServiceTest {
         Future<Boolean> healthFuture = service.performHealthCheck();
         assertNotNull(healthFuture);
         assertTrue(healthFuture.result());
-
-        // Test default *Async() bridge methods return CompletableFuture
-        CompletableFuture<Void> initAsync = service.initializeAsync();
-        assertNotNull(initAsync);
-        initAsync.get();
-
-        CompletableFuture<Void> startAsync = service.startAsync();
-        assertNotNull(startAsync);
-        startAsync.get();
-
-        CompletableFuture<Boolean> healthAsync = service.performHealthCheckAsync();
-        assertNotNull(healthAsync);
-        assertTrue(healthAsync.get());
     }
 }

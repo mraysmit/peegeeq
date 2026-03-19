@@ -20,11 +20,11 @@ import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageHandler;
 
 import dev.mars.peegeeq.api.messaging.ConsumerMemberStats;
+import io.vertx.core.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -239,11 +239,11 @@ public class PgNativeConsumerGroupMember<T> implements dev.mars.peegeeq.api.mess
      * Processes a message using this consumer's message handler.
      * 
      * @param message The message to process
-     * @return A CompletableFuture that completes when processing is done
+     * @return A Future that completes when processing is done
      */
-    public CompletableFuture<Void> processMessage(Message<T> message) {
+    public Future<Void> processMessage(Message<T> message) {
         if (!isActive()) {
-            return CompletableFuture.failedFuture(
+            return Future.failedFuture(
                 new IllegalStateException("Consumer member is not active"));
         }
         
@@ -252,7 +252,7 @@ public class PgNativeConsumerGroupMember<T> implements dev.mars.peegeeq.api.mess
             filteredMessageCount.incrementAndGet();
             logger.debug("Message {} filtered out by consumer '{}' in group '{}'", 
                 message.getId(), consumerId, groupName);
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         }
         
         lastActiveAt.set(Instant.now());
@@ -262,22 +262,22 @@ public class PgNativeConsumerGroupMember<T> implements dev.mars.peegeeq.api.mess
             message.getId(), consumerId, groupName);
         
         return messageHandler.handle(message)
-            .whenComplete((result, error) -> {
+            .onSuccess(result -> {
                 long processingTime = System.currentTimeMillis() - startTime;
                 totalProcessingTimeMs.addAndGet(processingTime);
-                
-                if (error != null) {
-                    failedMessageCount.incrementAndGet();
-                    lastError.set(error.getMessage());
-                    logger.warn("Failed to process message {} with consumer '{}' in group '{}': {}", 
-                        message.getId(), consumerId, groupName, error.getMessage());
-                } else {
-                    processedMessageCount.incrementAndGet();
-                    lastError.set(null);
-                    logger.debug("Successfully processed message {} with consumer '{}' in group '{}' ({}ms)", 
-                        message.getId(), consumerId, groupName, processingTime);
-                }
-                
+                processedMessageCount.incrementAndGet();
+                lastError.set(null);
+                logger.debug("Successfully processed message {} with consumer '{}' in group '{}' ({}ms)",
+                    message.getId(), consumerId, groupName, processingTime);
+                lastActiveAt.set(Instant.now());
+            })
+            .onFailure(error -> {
+                long processingTime = System.currentTimeMillis() - startTime;
+                totalProcessingTimeMs.addAndGet(processingTime);
+                failedMessageCount.incrementAndGet();
+                lastError.set(error.getMessage());
+                logger.warn("Failed to process message {} with consumer '{}' in group '{}': {}",
+                    message.getId(), consumerId, groupName, error.getMessage());
                 lastActiveAt.set(Instant.now());
             });
     }

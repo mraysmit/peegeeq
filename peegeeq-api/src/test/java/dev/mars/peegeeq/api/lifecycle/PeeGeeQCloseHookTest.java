@@ -4,16 +4,13 @@ import io.vertx.core.Future;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
-
 import static org.junit.jupiter.api.Assertions.*;
 
 @Tag("core")
 class PeeGeeQCloseHookTest {
 
     @Test
-    void testDefaultCloseAsync() throws ExecutionException, InterruptedException {
+    void testCloseReactive() {
         PeeGeeQCloseHook hook = new PeeGeeQCloseHook() {
             @Override
             public String name() {
@@ -26,10 +23,10 @@ class PeeGeeQCloseHookTest {
             }
         };
 
-        CompletableFuture<Void> future = hook.closeAsync();
+        Future<Void> future = hook.closeReactive();
         assertNotNull(future);
-        future.get(); // Should complete successfully
-        assertTrue(future.isDone());
-        assertFalse(future.isCompletedExceptionally());
+        assertTrue(future.succeeded());
+        assertTrue(future.isComplete());
+        assertFalse(future.failed());
     }
 }

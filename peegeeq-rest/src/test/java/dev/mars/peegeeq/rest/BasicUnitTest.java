@@ -219,32 +219,32 @@ public class BasicUnitTest {
      */
     private static class StubDatabaseSetupService implements DatabaseSetupService {
         @Override
-        public java.util.concurrent.CompletableFuture<DatabaseSetupResult> createCompleteSetup(DatabaseSetupRequest request) {
-            return java.util.concurrent.CompletableFuture.completedFuture(null);
+        public io.vertx.core.Future<DatabaseSetupResult> createCompleteSetup(DatabaseSetupRequest request) {
+            return io.vertx.core.Future.succeededFuture(null);
         }
         @Override
-        public java.util.concurrent.CompletableFuture<Void> destroySetup(String setupId) {
-            return java.util.concurrent.CompletableFuture.completedFuture(null);
+        public io.vertx.core.Future<Void> destroySetup(String setupId) {
+            return io.vertx.core.Future.succeededFuture();
         }
         @Override
-        public java.util.concurrent.CompletableFuture<DatabaseSetupStatus> getSetupStatus(String setupId) {
-            return java.util.concurrent.CompletableFuture.completedFuture(DatabaseSetupStatus.ACTIVE);
+        public io.vertx.core.Future<DatabaseSetupStatus> getSetupStatus(String setupId) {
+            return io.vertx.core.Future.succeededFuture(DatabaseSetupStatus.ACTIVE);
         }
         @Override
-        public java.util.concurrent.CompletableFuture<DatabaseSetupResult> getSetupResult(String setupId) {
-            return java.util.concurrent.CompletableFuture.completedFuture(null);
+        public io.vertx.core.Future<DatabaseSetupResult> getSetupResult(String setupId) {
+            return io.vertx.core.Future.succeededFuture(null);
         }
         @Override
-        public java.util.concurrent.CompletableFuture<Void> addQueue(String setupId, QueueConfig queueConfig) {
-            return java.util.concurrent.CompletableFuture.completedFuture(null);
+        public io.vertx.core.Future<Void> addQueue(String setupId, QueueConfig queueConfig) {
+            return io.vertx.core.Future.succeededFuture();
         }
         @Override
-        public java.util.concurrent.CompletableFuture<Void> addEventStore(String setupId, EventStoreConfig eventStoreConfig) {
-            return java.util.concurrent.CompletableFuture.completedFuture(null);
+        public io.vertx.core.Future<Void> addEventStore(String setupId, EventStoreConfig eventStoreConfig) {
+            return io.vertx.core.Future.succeededFuture();
         }
         @Override
-        public java.util.concurrent.CompletableFuture<java.util.Set<String>> getAllActiveSetupIds() {
-            return java.util.concurrent.CompletableFuture.completedFuture(java.util.Set.of());
+        public io.vertx.core.Future<java.util.Set<String>> getAllActiveSetupIds() {
+            return io.vertx.core.Future.succeededFuture(java.util.Set.of());
         }
         @Override
         public SubscriptionService getSubscriptionServiceForSetup(String setupId) {

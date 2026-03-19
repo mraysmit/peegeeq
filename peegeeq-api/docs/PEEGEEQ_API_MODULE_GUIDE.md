@@ -12,7 +12,7 @@ The `peegeeq-api` module is the **pure contracts layer** of PeeGeeQ. It contains
 - **Zero implementation code** - Only interfaces and data classes
 - **Foundation of the hexagonal architecture** - All other modules depend on this
 - **Stable API surface** - Changes here affect the entire system
-- **Dual async API** - Both `CompletableFuture<T>` and Vert.x `Future<T>` patterns
+- **Vert.x reactive async API** - Uses Vert.x `Future<T>` patterns
 
 ## 2. Architecture Position
 
@@ -481,49 +481,29 @@ TemporalRange.until(endTime);
 TemporalRange.between(startTime, endTime);
 ```
 
-## 7. Dual Async API Pattern
+## 7. Async API Pattern
 
-The `peegeeq-api` module provides two async patterns for all operations:
+The `peegeeq-api` module uses Vert.x `Future<T>` for all asynchronous operations.
 
-### 7.1 CompletableFuture (Primary)
-
-Used by non-Vert.x consumers and for interoperability.
-
-```java
-// Using CompletableFuture
-eventStore.append("OrderCreated", payload, Instant.now())
-    .thenAccept(event -> System.out.println("Stored: " + event.getEventId()))
-    .exceptionally(err -> {
-        System.err.println("Failed: " + err.getMessage());
-        return null;
-    });
-```
-
-### 7.2 Vert.x Future (Reactive)
-
-Used by Vert.x consumers for composable async operations.
+### 7.1 Vert.x Future (Reactive)
 
 ```java
 // Using Vert.x Future
-eventStore.appendReactive("OrderCreated", payload, Instant.now())
+eventStore.append("OrderCreated", payload, Instant.now())
     .onSuccess(event -> System.out.println("Stored: " + event.getEventId()))
     .onFailure(err -> System.err.println("Failed: " + err.getMessage()));
 ```
 
-### 7.3 Default Method Pattern
+### 7.2 Composition Pattern
 
-Reactive methods are implemented as default methods that convert from CompletableFuture:
+Use Vert.x composition methods for sequencing and transformation.
 
 ```java
-public interface MessageProducer<T> {
-    // Primary method
-    CompletableFuture<Void> send(T payload);
-
-    // Reactive convenience method
-    default Future<Void> sendReactive(T payload) {
-        return Future.fromCompletionStage(send(payload));
-    }
-}
+producer.send(payload)
+    .compose(v -> producer.send(payload2))
+    .map(v -> "sent")
+    .onSuccess(status -> System.out.println(status))
+    .onFailure(err -> System.err.println(err.getMessage()));
 ```
 
 ## 8. Dependencies

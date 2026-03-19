@@ -20,8 +20,6 @@ package dev.mars.peegeeq.api.database;
 import dev.mars.peegeeq.api.subscription.SubscriptionService;
 import io.vertx.core.Future;
 
-import java.util.concurrent.CompletableFuture;
-
 /**
  * Abstract interface for database operations using Vert.x 5.x reactive patterns.
  *
@@ -59,37 +57,6 @@ public interface DatabaseService extends AutoCloseable, VertxProvider, PoolProvi
      * @return A Future that completes when the service is stopped
      */
     Future<Void> stop();
-
-    // ========================================
-    // CompletableFuture Bridge Methods
-    // ========================================
-
-    /**
-     * CompletableFuture bridge for initialize().
-     *
-     * @return A CompletableFuture that completes when initialization is done
-     */
-    default CompletableFuture<Void> initializeAsync() {
-        return initialize().toCompletionStage().toCompletableFuture();
-    }
-
-    /**
-     * CompletableFuture bridge for start().
-     *
-     * @return A CompletableFuture that completes when the service is started
-     */
-    default CompletableFuture<Void> startAsync() {
-        return start().toCompletionStage().toCompletableFuture();
-    }
-
-    /**
-     * CompletableFuture bridge for stop().
-     *
-     * @return A CompletableFuture that completes when the service is stopped
-     */
-    default CompletableFuture<Void> stopAsync() {
-        return stop().toCompletionStage().toCompletableFuture();
-    }
     
     /**
      * Checks if the database service is running.
@@ -140,24 +107,6 @@ public interface DatabaseService extends AutoCloseable, VertxProvider, PoolProvi
      * @return A Future that completes with the health status
      */
     Future<Boolean> performHealthCheck();
-
-    /**
-     * CompletableFuture bridge for runMigrations().
-     *
-     * @return A CompletableFuture that completes when migrations are done
-     */
-    default CompletableFuture<Void> runMigrationsAsync() {
-        return runMigrations().toCompletionStage().toCompletableFuture();
-    }
-
-    /**
-     * CompletableFuture bridge for performHealthCheck().
-     *
-     * @return A CompletableFuture that completes with the health status
-     */
-    default CompletableFuture<Boolean> performHealthCheckAsync() {
-        return performHealthCheck().toCompletionStage().toCompletableFuture();
-    }
     
     /**
      * Closes the database service and releases all resources.

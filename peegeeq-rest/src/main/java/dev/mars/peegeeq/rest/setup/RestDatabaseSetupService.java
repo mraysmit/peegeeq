@@ -27,13 +27,13 @@ import dev.mars.peegeeq.api.setup.DatabaseSetupResult;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
 import dev.mars.peegeeq.api.subscription.SubscriptionService;
+import io.vertx.core.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
 import java.util.function.Consumer;
 
 /**
@@ -109,43 +109,43 @@ public class RestDatabaseSetupService implements DatabaseSetupService {
 
     @Override
     @Deprecated(since = "1.0", forRemoval = true)
-    public CompletableFuture<DatabaseSetupResult> createCompleteSetup(DatabaseSetupRequest request) {
+    public Future<DatabaseSetupResult> createCompleteSetup(DatabaseSetupRequest request) {
         return delegate.createCompleteSetup(request);
     }
 
     @Override
     @Deprecated(since = "1.0", forRemoval = true)
-    public CompletableFuture<Void> destroySetup(String setupId) {
+    public Future<Void> destroySetup(String setupId) {
         return delegate.destroySetup(setupId);
     }
 
     @Override
     @Deprecated(since = "1.0", forRemoval = true)
-    public CompletableFuture<DatabaseSetupStatus> getSetupStatus(String setupId) {
+    public Future<DatabaseSetupStatus> getSetupStatus(String setupId) {
         return delegate.getSetupStatus(setupId);
     }
 
     @Override
     @Deprecated(since = "1.0", forRemoval = true)
-    public CompletableFuture<DatabaseSetupResult> getSetupResult(String setupId) {
+    public Future<DatabaseSetupResult> getSetupResult(String setupId) {
         return delegate.getSetupResult(setupId);
     }
 
     @Override
     @Deprecated(since = "1.0", forRemoval = true)
-    public CompletableFuture<Void> addQueue(String setupId, QueueConfig queueConfig) {
+    public Future<Void> addQueue(String setupId, QueueConfig queueConfig) {
         return delegate.addQueue(setupId, queueConfig);
     }
 
     @Override
     @Deprecated(since = "1.0", forRemoval = true)
-    public CompletableFuture<Void> addEventStore(String setupId, EventStoreConfig eventStoreConfig) {
+    public Future<Void> addEventStore(String setupId, EventStoreConfig eventStoreConfig) {
         return delegate.addEventStore(setupId, eventStoreConfig);
     }
 
     @Override
     @Deprecated(since = "1.0", forRemoval = true)
-    public CompletableFuture<Set<String>> getAllActiveSetupIds() {
+    public Future<Set<String>> getAllActiveSetupIds() {
         return delegate.getAllActiveSetupIds();
     }
 

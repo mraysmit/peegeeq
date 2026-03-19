@@ -18,7 +18,6 @@ package dev.mars.peegeeq.api.deadletter;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
 import io.vertx.core.Future;
 
 /**
@@ -94,37 +93,5 @@ public interface DeadLetterService {
      * @return Future containing the number of messages deleted
      */
     Future<Integer> cleanupOldMessages(int retentionDays);
-
-    // ========================================
-    // CompletableFuture Bridge Methods
-    // ========================================
-
-    default CompletableFuture<List<DeadLetterMessageInfo>> getDeadLetterMessagesAsync(String topic, int limit, int offset) {
-        return getDeadLetterMessages(topic, limit, offset).toCompletionStage().toCompletableFuture();
-    }
-
-    default CompletableFuture<List<DeadLetterMessageInfo>> getAllDeadLetterMessagesAsync(int limit, int offset) {
-        return getAllDeadLetterMessages(limit, offset).toCompletionStage().toCompletableFuture();
-    }
-
-    default CompletableFuture<Optional<DeadLetterMessageInfo>> getDeadLetterMessageAsync(long id) {
-        return getDeadLetterMessage(id).toCompletionStage().toCompletableFuture();
-    }
-
-    default CompletableFuture<Boolean> reprocessDeadLetterMessageAsync(long id, String reason) {
-        return reprocessDeadLetterMessage(id, reason).toCompletionStage().toCompletableFuture();
-    }
-
-    default CompletableFuture<Boolean> deleteDeadLetterMessageAsync(long id, String reason) {
-        return deleteDeadLetterMessage(id, reason).toCompletionStage().toCompletableFuture();
-    }
-
-    default CompletableFuture<DeadLetterStatsInfo> getStatisticsAsync() {
-        return getStatistics().toCompletionStage().toCompletableFuture();
-    }
-
-    default CompletableFuture<Integer> cleanupOldMessagesAsync(int retentionDays) {
-        return cleanupOldMessages(retentionDays).toCompletionStage().toCompletableFuture();
-    }
 }
 
