@@ -22,9 +22,7 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.TimeUnit;
 import io.vertx.core.Future;
-import io.vertx.core.Vertx;
 
 /**
  * Manager for handling multiple PeeGeeQ configurations within the same application.
@@ -36,9 +34,6 @@ import io.vertx.core.Vertx;
  * @version 1.0
  */
 public class MultiConfigurationManager implements AutoCloseable {
-
-    private static final long START_TIMEOUT_SECONDS = 30;
-    private static final long CLOSE_TIMEOUT_SECONDS = 30;
 
     /**
      * Lifecycle states for the manager.
@@ -145,23 +140,13 @@ public class MultiConfigurationManager implements AutoCloseable {
     }
     
     /**
-     * Starts all registered configurations.
-     * 
-     * @throws RuntimeException if any configuration fails to start
+     * Starts all registered configurations by delegating to the reactive lifecycle.
+     *
+     * This method is non-blocking and exists for compatibility.
      */
     public synchronized void start() {
-        if (Vertx.currentContext() != null && Vertx.currentContext().isEventLoopContext()) {
-            throw new IllegalStateException("Do not call blocking start() on event-loop thread - use startReactive() instead");
-        }
-
-        try {
-            startReactive()
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get(START_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to start MultiConfigurationManager", e);
-        }
+        startReactive()
+            .onFailure(e -> logger.error("Failed to start MultiConfigurationManager", e));
     }
 
     /**
@@ -332,22 +317,14 @@ public class MultiConfigurationManager implements AutoCloseable {
     }
     
     /**
-     * Stops all configurations and releases resources.
+     * Stops all configurations and releases resources by delegating to the reactive lifecycle.
+     *
+     * This method is non-blocking and exists for compatibility.
      */
     @Override
     public void close() {
-        if (Vertx.currentContext() != null && Vertx.currentContext().isEventLoopContext()) {
-            throw new IllegalStateException("Do not call blocking close() on event-loop thread - use closeReactive() instead");
-        }
-
-        try {
-            closeReactive()
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get(CLOSE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        } catch (Exception e) {
-            logger.error("Failed to close MultiConfigurationManager", e);
-        }
+        closeReactive()
+            .onFailure(e -> logger.error("Failed to close MultiConfigurationManager", e));
     }
 
     /**
