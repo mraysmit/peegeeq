@@ -183,7 +183,7 @@ public class MultiConfigurationManager implements AutoCloseable {
 
         List<Future<?>> futures = new ArrayList<>();
         for (Map.Entry<String, PeeGeeQManager> entry : managers.entrySet()) {
-            futures.add(entry.getValue().startReactive()
+            futures.add(entry.getValue().start()
                 .onSuccess(v -> logger.info("Started configuration: {}", entry.getKey()))
                 .onFailure(e -> logger.error("Failed to start configuration: {}", entry.getKey(), e)));
         }

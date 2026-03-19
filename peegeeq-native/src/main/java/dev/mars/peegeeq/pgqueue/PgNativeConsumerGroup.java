@@ -35,7 +35,6 @@ import org.slf4j.LoggerFactory;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Predicate;
@@ -205,40 +204,28 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
             throw new IllegalArgumentException("subscriptionOptions cannot be null");
         }
 
-        if (io.vertx.core.Vertx.currentContext() != null && io.vertx.core.Vertx.currentContext().isEventLoopContext()) {
-            throw new IllegalStateException(
-                "Do not call blocking start(subscriptionOptions) on event-loop thread - create subscriptions asynchronously, then call start()"
-            );
-        }
-
         logger.info("Starting consumer group '{}' for topic '{}' with subscription options: {}",
                    groupName, topic, subscriptionOptions);
 
         // Convenience method: Create subscription and then start the consumer group
         // This combines the two-step process into a single call
         if (databaseService != null) {
-            try {
-                logger.debug("Creating subscription for group '{}' on topic '{}' with options: {}",
-                           groupName, topic, subscriptionOptions);
+            logger.debug("Creating subscription for group '{}' on topic '{}' with options: {}",
+                       groupName, topic, subscriptionOptions);
 
-                databaseService.getSubscriptionService()
-                    .subscribe(topic, groupName, subscriptionOptions)
-                    .toCompletionStage()
-                    .toCompletableFuture()
-                    .get(30, TimeUnit.SECONDS);
-
-                logger.info("Subscription created successfully for group '{}' on topic '{}'", groupName, topic);
-            } catch (Exception e) {
-                throw new RuntimeException("Failed to create subscription for group '" + groupName +
-                                         "' on topic '" + topic + "': " + e.getMessage(), e);
-            }
+            databaseService.getSubscriptionService()
+                .subscribe(topic, groupName, subscriptionOptions)
+                .onSuccess(v -> {
+                    logger.info("Subscription created successfully for group '{}' on topic '{}'", groupName, topic);
+                    start();
+                })
+                .onFailure(e -> logger.error("Failed to create subscription for group '{}' on topic '{}': {}",
+                        groupName, topic, e.getMessage(), e));
         } else {
             logger.warn("DatabaseService is null - cannot create subscription. " +
                        "Subscription must be created manually via SubscriptionManager before starting.");
+            start();
         }
-
-        // Now start the consumer group
-        start();
     }
     
     @Override

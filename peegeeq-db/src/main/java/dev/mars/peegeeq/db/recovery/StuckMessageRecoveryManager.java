@@ -17,7 +17,6 @@ package dev.mars.peegeeq.db.recovery;
  */
 
 import io.vertx.core.Future;
-import io.vertx.core.Vertx;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.Tuple;
@@ -28,7 +27,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Manages recovery of stuck messages in the outbox pattern.
@@ -50,7 +48,6 @@ import java.util.concurrent.TimeUnit;
 public class StuckMessageRecoveryManager {
 
     private static final Logger logger = LoggerFactory.getLogger(StuckMessageRecoveryManager.class);
-    private static final long RECOVERY_TIMEOUT_SECONDS = 30;
 
     private final Pool reactivePool;
     private final Duration processingTimeout;
@@ -75,32 +72,17 @@ public class StuckMessageRecoveryManager {
      * This method identifies messages that have been in PROCESSING state longer than
      * the configured timeout and resets them to PENDING so they can be retried.
      * 
-     * @return The number of messages recovered
+     * @return Future with the number of messages recovered
      */
-    public int recoverStuckMessages() {
+    public Future<Integer> recoverStuckMessages() {
         if (!enabled) {
             logger.debug("Stuck message recovery is disabled, skipping recovery");
-            return 0;
+            return Future.succeededFuture(0);
         }
 
-        if (Vertx.currentContext() != null && Vertx.currentContext().isEventLoopContext()) {
-            throw new IllegalStateException("Do not call blocking recoverStuckMessages() on event-loop thread - use recoverStuckMessagesReactive() instead");
-        }
+        logger.debug("Starting stuck message recovery process");
 
-        // Use reactive approach - block on the result for compatibility with synchronous interface
-        try {
-            return recoverStuckMessagesReactive()
-                .toCompletionStage().toCompletableFuture().get(RECOVERY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        } catch (Exception e) {
-            logger.error("Failed to recover stuck messages (reactive): {}", e.getMessage(), e);
-            return 0;
-        }
-    }
-
-    public Future<Integer> recoverStuckMessagesReactive() {
-        logger.debug("Starting stuck message recovery process (reactive)");
-
-        return countStuckMessagesReactive()
+        return countStuckMessages()
             .compose(stuckCount -> {
                 if (stuckCount == 0) {
                     logger.debug("No stuck messages found");
@@ -110,7 +92,7 @@ public class StuckMessageRecoveryManager {
                 logger.info("Found {} stuck messages in PROCESSING state for longer than {}",
                     stuckCount, processingTimeout);
 
-                return resetStuckMessagesReactive()
+                return resetStuckMessages()
                     .map(recoveredCount -> {
                         if (recoveredCount > 0) {
                             logger.info("Successfully recovered {} stuck messages from PROCESSING to PENDING state",
@@ -120,14 +102,14 @@ public class StuckMessageRecoveryManager {
                     });
             })
             .recover(throwable -> {
-                logger.error("Failed to recover stuck messages (reactive): {}", throwable.getMessage(), throwable);
+                logger.error("Failed to recover stuck messages: {}", throwable.getMessage(), throwable);
                 return Future.succeededFuture(0);
             });
     }
 
 
 
-    private Future<Integer> countStuckMessagesReactive() {
+    private Future<Integer> countStuckMessages() {
         String countSql = """
             SELECT COUNT(*)
             FROM outbox
@@ -148,14 +130,14 @@ public class StuckMessageRecoveryManager {
                     return 0;
                 });
         }).recover(throwable -> {
-            logger.error("Failed to count stuck messages (reactive)", throwable);
+            logger.error("Failed to count stuck messages", throwable);
             return Future.succeededFuture(0);
         });
     }
 
 
 
-    private Future<Integer> resetStuckMessagesReactive() {
+    private Future<Integer> resetStuckMessages() {
         String resetSql = """
             UPDATE outbox
             SET status = 'PENDING', processed_at = NULL
@@ -173,21 +155,21 @@ public class StuckMessageRecoveryManager {
 
                     // Log details of what was recovered if there were updates
                     if (updatedCount > 0) {
-                        return logRecoveredMessagesReactive()
+                        return logRecoveredMessages()
                             .map(v -> updatedCount);
                     } else {
                         return Future.succeededFuture(updatedCount);
                     }
                 });
         }).recover(throwable -> {
-            logger.error("Failed to reset stuck messages (reactive)", throwable);
+            logger.error("Failed to reset stuck messages", throwable);
             return Future.succeededFuture(0);
         });
     }
 
 
 
-    private Future<Void> logRecoveredMessagesReactive() {
+    private Future<Void> logRecoveredMessages() {
         // Query recently recovered messages (those that were just reset to PENDING)
         String logSql = """
             SELECT id, topic, retry_count, created_at, error_message
@@ -218,7 +200,7 @@ public class StuckMessageRecoveryManager {
                     return (Void) null;
                 });
         }).recover(throwable -> {
-            logger.warn("Failed to log recovered messages (reactive): {}", throwable.getMessage());
+            logger.warn("Failed to log recovered messages: {}", throwable.getMessage());
             return Future.succeededFuture((Void) null);
         });
     }
@@ -226,40 +208,25 @@ public class StuckMessageRecoveryManager {
     /**
      * Gets recovery statistics for monitoring purposes.
      */
-    public RecoveryStats getRecoveryStats() {
+    public Future<RecoveryStats> getRecoveryStats() {
         if (!enabled) {
-            return new RecoveryStats(0, 0, false);
+            return Future.succeededFuture(new RecoveryStats(0, 0, false));
         }
 
-        if (Vertx.currentContext() != null && Vertx.currentContext().isEventLoopContext()) {
-            throw new IllegalStateException("Do not call blocking getRecoveryStats() on event-loop thread - use getRecoveryStatsReactive() instead");
-        }
-
-        // Use reactive approach - block on the result for compatibility with synchronous interface
-        try {
-            return getRecoveryStatsReactive()
-                .toCompletionStage().toCompletableFuture().get(RECOVERY_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        } catch (Exception e) {
-            logger.warn("Failed to get recovery stats (reactive): {}", e.getMessage());
-            return new RecoveryStats(0, 0, true);
-        }
-    }
-
-    public Future<RecoveryStats> getRecoveryStatsReactive() {
-        return countStuckMessagesReactive()
+        return countStuckMessages()
             .compose(stuckCount -> {
-                return countTotalProcessingMessagesReactive()
+                return countTotalProcessingMessages()
                     .map(totalProcessingCount -> new RecoveryStats(stuckCount, totalProcessingCount, true));
             })
             .recover(throwable -> {
-                logger.warn("Failed to get recovery stats (reactive): {}", throwable.getMessage());
+                logger.warn("Failed to get recovery stats: {}", throwable.getMessage());
                 return Future.succeededFuture(new RecoveryStats(0, 0, true));
             });
     }
 
 
 
-    private Future<Integer> countTotalProcessingMessagesReactive() {
+    private Future<Integer> countTotalProcessingMessages() {
         String countSql = "SELECT COUNT(*) FROM outbox WHERE status = 'PROCESSING'";
 
         return reactivePool.withConnection(connection -> {
@@ -272,7 +239,7 @@ public class StuckMessageRecoveryManager {
                     return 0;
                 });
         }).recover(throwable -> {
-            logger.error("Failed to count total processing messages (reactive)", throwable);
+            logger.error("Failed to count total processing messages", throwable);
             return Future.succeededFuture(0);
         });
     }

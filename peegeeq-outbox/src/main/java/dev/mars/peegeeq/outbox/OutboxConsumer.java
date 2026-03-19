@@ -41,7 +41,6 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -434,9 +433,9 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             Message<T> message = new OutboxMessage<>(messageId, payload,
                     row.getLocalDateTime("created_at").toInstant(java.time.ZoneOffset.UTC), headers);
 
-            // Check if executor is shut down before submitting tasks
-            if (messageProcessingExecutor.isShutdown()) {
-                logger.debug("Message processing executor is shut down, skipping message {} for topic {}", messageId,
+            // Check if consumer is closed before processing
+            if (closed.get()) {
+                logger.debug("Consumer is closed, skipping message {} for topic {}", messageId,
                         topic);
                 return Future.succeededFuture();
             }
@@ -445,37 +444,27 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             String traceparent = headers.get("traceparent");
             TraceCtx traceCtx = TraceContextUtil.parseOrCreate(traceparent);
 
-            // Process message asynchronously using dedicated thread pool
-            // NOTE: Using CompletableFuture.runAsync bypasses Vert.x Context, so we must
-            // handle MDC manually here. This is acceptable for worker thread pools.
-            return Future.fromCompletionStage(
-                    CompletableFuture.runAsync(() -> {
-                        // Wrap entire execution in MDC scope using the parsed trace context
-                        try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
-                            // Set additional MDC fields
-                            TraceContextUtil.setMDC(TraceContextUtil.MDC_MESSAGE_ID, messageId);
-                            TraceContextUtil.setMDC(TraceContextUtil.MDC_TOPIC, topic);
-                            if (correlationId != null) {
-                                TraceContextUtil.setMDC(TraceContextUtil.MDC_CORRELATION_ID, correlationId);
-                            }
+            // Set MDC for trace context before processing
+            try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
+                TraceContextUtil.setMDC(TraceContextUtil.MDC_MESSAGE_ID, messageId);
+                TraceContextUtil.setMDC(TraceContextUtil.MDC_TOPIC, topic);
+                if (correlationId != null) {
+                    TraceContextUtil.setMDC(TraceContextUtil.MDC_CORRELATION_ID, correlationId);
+                }
+            }
 
-                                // Wait for completion/failure state to be durably persisted before
-                                // finishing worker task.
-                                processMessageWithCompletion(message, messageId)
-                                    .toCompletionStage()
-                                    .toCompletableFuture()
-                                    .join();
-                        } catch (Exception e) {
-                            logger.error("Failed to process message {} for topic {}: {}", messageId, topic,
-                                    e.getMessage(), e);
-                            // Mark message as failed
-                            markMessageFailedReactive(messageId, e.getMessage())
-                                    .toCompletionStage()
-                                    .toCompletableFuture()
-                                    .join();
-                        }
-                        // MDC is automatically cleared by the try-with-resources scope
-                    }, messageProcessingExecutor));
+            // Process message reactively — handler and all downstream operations
+            // return Future<Void>, so no worker thread is needed.
+            return processMessageWithCompletion(message, messageId)
+                    .recover(e -> {
+                        logger.error("Failed to process message {} for topic {}: {}", messageId, topic,
+                                e.getMessage(), e);
+                        return markMessageFailedReactive(messageId, e.getMessage());
+                    })
+                    .eventually(() -> {
+                        TraceContextUtil.clearTraceMDC();
+                        return Future.succeededFuture();
+                    });
 
         } catch (Exception e) {
             logger.error("Failed to process row for topic {}: {}", topic, e.getMessage(), e);

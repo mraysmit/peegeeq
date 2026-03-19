@@ -39,7 +39,6 @@ import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Factory for creating native PostgreSQL queue producers and consumers.
@@ -271,19 +270,10 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
 
     @Override
     public QueueStats getStats(String topic) {
-        checkNotClosed();
-        logger.debug("Getting stats for topic (blocking): {}", topic);
-
-        try {
-            // Delegate to async method and block for backward compatibility
-            return getStatsAsync(topic)
-                    .toCompletionStage()
-                    .toCompletableFuture()
-                    .get(5, TimeUnit.SECONDS);
-        } catch (Exception e) {
-            logger.warn("Failed to get stats for topic {}: {}", topic, e.getMessage());
-            return QueueStats.basic(topic, 0, 0, 0);
-        }
+        // Sync callers should migrate to getStatsAsync() — this returns zeros.
+        // The blocking bridge that was here violated Vert.x reactive principles.
+        logger.debug("getStats(sync) called for topic {} — use getStatsAsync() for real data", topic);
+        return QueueStats.basic(topic, 0, 0, 0);
     }
 
     @Override
@@ -406,7 +396,7 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
     }
 
     /**
-     * Closes the factory and releases resources.
+     * Closes the factory and releases resources reactively.
      */
     @Override
     public void close() throws Exception {
@@ -415,24 +405,17 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
             return;
         }
 
-        if (io.vertx.core.Vertx.currentContext() != null && io.vertx.core.Vertx.currentContext().isEventLoopContext()) {
-            throw new IllegalStateException("Do not call blocking close() on event-loop thread");
-        }
-
         logger.info("Closing PgNativeQueueFactory");
         closed = true;
 
-        try {
-            closeManagedResources();
-            if (poolAdapter != null) {
-                poolAdapter.closeAsync().toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
-            }
-        } catch (Exception e) {
-            logger.error("Error closing pool adapter", e);
-            throw e;
+        closeManagedResources();
+        if (poolAdapter != null) {
+            poolAdapter.closeAsync()
+                    .onSuccess(v -> logger.info("PgNativeQueueFactory closed successfully"))
+                    .onFailure(e -> logger.error("Error closing pool adapter", e));
+        } else {
+            logger.info("PgNativeQueueFactory closed successfully");
         }
-
-        logger.info("PgNativeQueueFactory closed successfully");
     }
 
     /**

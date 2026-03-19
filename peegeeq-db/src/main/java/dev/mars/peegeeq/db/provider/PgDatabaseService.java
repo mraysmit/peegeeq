@@ -86,7 +86,7 @@ public class PgDatabaseService implements dev.mars.peegeeq.api.database.Database
     public io.vertx.core.Future<Void> start() {
         logger.info("Starting database service");
         logger.debug("DB-DEBUG: Database service start initiated");
-        return manager.startReactive()
+        return manager.start()
             .onSuccess(v -> {
                 logger.info("Database service started successfully");
                 logger.debug("DB-DEBUG: Database service start completed");
@@ -100,7 +100,7 @@ public class PgDatabaseService implements dev.mars.peegeeq.api.database.Database
     @Override
     public io.vertx.core.Future<Void> stop() {
         logger.info("Stopping database service");
-        return manager.stopReactive()
+        return manager.stop()
             .onSuccess(v -> {
                 logger.info("Database service stopped successfully");
             })

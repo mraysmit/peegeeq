@@ -9,7 +9,6 @@ import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.setup.*;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
-import dev.mars.peegeeq.api.tracing.AsyncTraceUtils;
 import dev.mars.peegeeq.api.tracing.TraceCtx;
 import dev.mars.peegeeq.api.tracing.TraceContextUtil;
 import io.vertx.core.Context;
@@ -31,10 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -46,7 +42,6 @@ import dev.mars.peegeeq.api.info.PeeGeeQInfoCodes;
 public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCloseable {
 
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQDatabaseSetupService.class);
-    private static final long TEMPLATE_CREATE_TIMEOUT_SECONDS = 60;
 
     private final Optional<Function<PeeGeeQManager, EventStoreFactory>> eventStoreFactoryProvider;
 
@@ -194,18 +189,11 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
 
         // Offload the entire setup sequence involving blocking DB creation to a worker thread
         // using our tracing wrapper to ensure context propagation
-        return AsyncTraceUtils.executeBlockingTraced(vertx, setupWorkerExecutor, false, () -> {
-            try {
-                // 1. Create database from template
-                createDatabaseFromTemplate(request.getDatabaseConfig());
-                return request;
-            } catch (Exception e) {
-                logger.error("STEP 1 FAILED for setupId={}", request.getSetupId(), e);
-                throw new RuntimeException(e);
-            }
-        })
+        // 1. Create database from template reactively
+        return createDatabaseFromTemplate(request.getDatabaseConfig())
+                .map(v -> request)
                 .recover(ex -> {
-                    logger.error("EXCEPTION in supplyAsync for setupId={}", request.getSetupId(), ex);
+                    logger.error("STEP 1 FAILED for setupId={}: {}", request.getSetupId(), ex.getMessage(), ex);
                     return Future.failedFuture(new RuntimeException("Database creation failed", ex));
                 })
                 .compose(req -> {
@@ -217,7 +205,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
                     PeeGeeQConfiguration config = createConfiguration(req.getDatabaseConfig(), req.getSetupId());
                     PeeGeeQManager manager = new PeeGeeQManager(config);
                     // Start reactively - DO NOT block with .get()
-                    return manager.startReactive().map(v -> {
+                    return manager.start().map(v -> {
                         // Store manager for later steps
                         activeManagers.put(req.getSetupId(), manager);
                         return new Object[] { req, manager };
@@ -286,7 +274,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
                 });
     }
 
-    private void createDatabaseFromTemplate(DatabaseConfig dbConfig) throws Exception {
+    private Future<Void> createDatabaseFromTemplate(DatabaseConfig dbConfig) {
         // Use environment variables for admin connection if available, otherwise use request values
         String adminHost = getEnvOrDefault("PEEGEEQ_DATABASE_HOST", dbConfig.getHost());
         int adminPort = getEnvOrDefault("PEEGEEQ_DATABASE_PORT", String.valueOf(dbConfig.getPort()), dbConfig.getPort());
@@ -296,7 +284,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
         logger.debug("Creating database with admin connection: host={}, port={}, username={}",
                 adminHost, adminPort, adminUsername);
 
-        templateManager.createDatabaseFromTemplate(
+        return templateManager.createDatabaseFromTemplate(
                 adminHost,
                 adminPort,
                 adminUsername,
@@ -304,7 +292,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
                 dbConfig.getDatabaseName(),
                 dbConfig.getTemplateDatabase() != null ? dbConfig.getTemplateDatabase() : "template0",
                 dbConfig.getEncoding(),
-            Map.of()).toCompletionStage().toCompletableFuture().get(TEMPLATE_CREATE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
+                Map.of());
     }
 
     private String getEnvOrDefault(String envVar, String defaultValue) {
@@ -481,14 +469,9 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
                     .onSuccess(v -> logger.debug("All schema templates applied successfully"))
                     .onFailure(err -> logger.error("Schema template application failed: {}", err.getMessage()));
         })
-                .onComplete(ar -> {
-                    tempPool.close();
-                    if (ar.failed()) {
-                        logger.error("applySchemaTemplatesAsync failed", ar.cause());
-                    } else {
-                        logger.debug("applySchemaTemplatesAsync completed");
-                    }
-                })
+                .onSuccess(v -> logger.debug("applySchemaTemplatesAsync completed"))
+                .onFailure(err -> logger.error("applySchemaTemplatesAsync failed", err))
+                .eventually(() -> tempPool.close())
                 .map(v -> request);
     }
 
@@ -691,7 +674,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
                     "schema", dbConfig.getSchema());
             return templateProcessor.applyTemplateReactive(connection, "queue", params);
         })
-                .onComplete(ar -> tempPool.close())
+                .eventually(() -> tempPool.close())
                 .<Void>map(result -> {
                     // After table is created, create and register the QueueFactory
                     logger.info("Creating queue factory for queue: {} in setup: {}",
@@ -764,7 +747,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
                     "notificationPrefix", eventStoreConfig.getNotificationPrefix());
             return templateProcessor.applyTemplateReactive(connection, "eventstore", params);
         })
-                .onComplete(ar -> tempPool.close())
+                .eventually(() -> tempPool.close())
                 .<Void>map(result -> {
                     // After table is created, create and register the EventStore
                     logger.info("Creating event store for: {} in setup: {}",
@@ -1096,7 +1079,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
                         });
             }
         })
-        .onComplete(ar -> validationPool.close());
+        .eventually(() -> validationPool.close());
     }
 
     @Override
@@ -1145,15 +1128,8 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService, AutoCl
 
     @Override
     public void close() {
-        if (Vertx.currentContext() != null) {
-            throw new IllegalStateException(
-                    "Do not call blocking close() on event-loop thread - use closeAsync() instead");
-        }
-
-        try {
-            closeAsync().toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to close PeeGeeQDatabaseSetupService", e);
-        }
+        closeAsync()
+                .onSuccess(v -> logger.info("PeeGeeQDatabaseSetupService closed successfully"))
+                .onFailure(e -> logger.error("Failed to close PeeGeeQDatabaseSetupService", e));
     }
 }
