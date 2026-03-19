@@ -19,6 +19,7 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -81,21 +82,24 @@ public class StuckMessageRecoveryManagerCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testRecoverStuckMessagesWhenDisabled() {
+    void testRecoverStuckMessagesWhenDisabled() throws Exception {
         StuckMessageRecoveryManager disabledManager = new StuckMessageRecoveryManager(pool, Duration.ofMinutes(5), false);
-        int recovered = disabledManager.recoverStuckMessages();
+        int recovered = disabledManager.recoverStuckMessages()
+            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
         assertEquals(0, recovered);
     }
 
     @Test
-    void testRecoverStuckMessagesNoStuckMessages() {
-        int recovered = recoveryManager.recoverStuckMessages();
+    void testRecoverStuckMessagesNoStuckMessages() throws Exception {
+        int recovered = recoveryManager.recoverStuckMessages()
+            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
         assertEquals(0, recovered);
     }
 
     @Test
-    void testGetRecoveryStats() {
-        StuckMessageRecoveryManager.RecoveryStats stats = recoveryManager.getRecoveryStats();
+    void testGetRecoveryStats() throws Exception {
+        StuckMessageRecoveryManager.RecoveryStats stats = recoveryManager.getRecoveryStats()
+            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
         assertNotNull(stats);
         assertTrue(stats.isEnabled());
         assertEquals(0, stats.getStuckMessagesCount());
@@ -103,9 +107,10 @@ public class StuckMessageRecoveryManagerCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testGetRecoveryStatsWhenDisabled() {
+    void testGetRecoveryStatsWhenDisabled() throws Exception {
         StuckMessageRecoveryManager disabledManager = new StuckMessageRecoveryManager(pool, Duration.ofMinutes(5), false);
-        StuckMessageRecoveryManager.RecoveryStats stats = disabledManager.getRecoveryStats();
+        StuckMessageRecoveryManager.RecoveryStats stats = disabledManager.getRecoveryStats()
+            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
         assertNotNull(stats);
         assertFalse(stats.isEnabled());
         assertEquals(0, stats.getStuckMessagesCount());
@@ -130,35 +135,41 @@ public class StuckMessageRecoveryManagerCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testRecoverStuckMessagesMultipleCalls() {
+    void testRecoverStuckMessagesMultipleCalls() throws Exception {
         // First call
-        int count1 = recoveryManager.recoverStuckMessages();
+        int count1 = recoveryManager.recoverStuckMessages()
+            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
         assertTrue(count1 >= 0);
 
         // Second call
-        int count2 = recoveryManager.recoverStuckMessages();
+        int count2 = recoveryManager.recoverStuckMessages()
+            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
         assertTrue(count2 >= 0);
     }
 
     @Test
-    void testGetRecoveryStatsMultipleCalls() {
+    void testGetRecoveryStatsMultipleCalls() throws Exception {
         // First call
-        StuckMessageRecoveryManager.RecoveryStats stats1 = recoveryManager.getRecoveryStats();
+        StuckMessageRecoveryManager.RecoveryStats stats1 = recoveryManager.getRecoveryStats()
+            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
         assertNotNull(stats1);
 
         // Second call
-        StuckMessageRecoveryManager.RecoveryStats stats2 = recoveryManager.getRecoveryStats();
+        StuckMessageRecoveryManager.RecoveryStats stats2 = recoveryManager.getRecoveryStats()
+            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
         assertNotNull(stats2);
     }
 
     @Test
-    void testRecoveryManagerWithDifferentTimeouts() {
+    void testRecoveryManagerWithDifferentTimeouts() throws Exception {
         StuckMessageRecoveryManager manager1 = new StuckMessageRecoveryManager(pool, Duration.ofMinutes(1), true);
-        int count1 = manager1.recoverStuckMessages();
+        int count1 = manager1.recoverStuckMessages()
+            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
         assertTrue(count1 >= 0);
 
         StuckMessageRecoveryManager manager2 = new StuckMessageRecoveryManager(pool, Duration.ofMinutes(10), true);
-        int count2 = manager2.recoverStuckMessages();
+        int count2 = manager2.recoverStuckMessages()
+            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
         assertTrue(count2 >= 0);
     }
 }

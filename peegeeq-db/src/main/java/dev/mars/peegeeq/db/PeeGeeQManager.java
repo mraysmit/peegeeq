@@ -80,7 +80,6 @@ public class PeeGeeQManager implements AutoCloseable {
     private static final String EVENT_BUS_ADDR = "peegeeq.lifecycle";
     private static final int DEFAULT_DLQ_RETENTION_DAYS = 30;
     private static final long DLQ_CLEANUP_INTERVAL_HOURS = 24;
-    private static final long SHUTDOWN_TIMEOUT_SECONDS = 30;
 
     private final PeeGeeQConfiguration configuration;
     private final Vertx vertx;
@@ -238,14 +237,11 @@ public class PeeGeeQManager implements AutoCloseable {
     }
 
     /**
-     * Starts all PeeGeeQ services.
-     */
-    /**
      * Starts PeeGeeQ Manager using reactive event-driven lifecycle management.
      * This method orchestrates the startup sequence using Vert.x event bus for
      * proper separation of concerns and reactive patterns.
      */
-    public Future<Void> startReactive() {
+    public Future<Void> start() {
         if (started) {
             logger.warn("PeeGeeQ Manager is already started");
             return Future.succeededFuture();
@@ -281,31 +277,9 @@ public class PeeGeeQManager implements AutoCloseable {
     }
 
     /**
-     * Legacy synchronous start method for backward compatibility.
-     * Delegates to reactive implementation and blocks for completion.
-     *
-     * WARNING: Do not call this on an event loop thread - it will deadlock!
-     */
-    public synchronized void start() {
-        // Guard against calling blocking start() on event-loop thread
-        if (Vertx.currentContext() != null && Vertx.currentContext().isEventLoopContext()) {
-            throw new IllegalStateException("Do not call blocking start() on event-loop thread - use startReactive() instead");
-        }
-
-        try {
-            startReactive()
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get(30, TimeUnit.SECONDS); // Reasonable timeout for startup
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to start PeeGeeQ Manager", e);
-        }
-    }
-
-    /**
      * Stops all PeeGeeQ services reactively.
      */
-    public Future<Void> stopReactive() {
+    public Future<Void> stop() {
         if (!started) {
             return Future.succeededFuture();
         }
@@ -336,25 +310,6 @@ public class PeeGeeQManager implements AutoCloseable {
     }
 
     /**
-     * Legacy synchronous stop method for backward compatibility.
-     * Delegates to reactive implementation and blocks for completion.
-     */
-    public synchronized void stop() {
-        if (Vertx.currentContext() != null && Vertx.currentContext().isEventLoopContext()) {
-            throw new IllegalStateException("Do not call blocking stop() on event-loop thread - use stopReactive() instead");
-        }
-
-        try {
-            stopReactive()
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get(10, TimeUnit.SECONDS); // Reasonable timeout for shutdown
-        } catch (Exception e) {
-            logger.error("Error during synchronous stop", e);
-        }
-    }
-
-    /**
      * Performs a comprehensive health check of the system.
      */
     public boolean isHealthy() {
@@ -371,27 +326,9 @@ public class PeeGeeQManager implements AutoCloseable {
     }
 
     /**
-     * Gets system status information.
-     */
-    public SystemStatus getSystemStatus() {
-        if (Vertx.currentContext() != null && Vertx.currentContext().isEventLoopContext()) {
-            throw new IllegalStateException("Do not call blocking getSystemStatus() on event-loop thread - use getSystemStatusReactive() instead");
-        }
-
-        try {
-            return getSystemStatusReactive()
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get(10, TimeUnit.SECONDS);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to get system status", e);
-        }
-    }
-
-    /**
      * Gets system status information reactively.
      */
-    public Future<SystemStatus> getSystemStatusReactive() {
+    public Future<SystemStatus> getSystemStatus() {
         return deadLetterQueueManager.getStatistics()
             .map(deadLetterStatsInfo -> {
                 dev.mars.peegeeq.db.deadletter.DeadLetterQueueStats deadLetterStats =
@@ -431,9 +368,9 @@ public class PeeGeeQManager implements AutoCloseable {
         logger.info("PeeGeeQManager.closeReactive() called - starting shutdown sequence");
 
         // 1. Stop reactive components (background tasks, health checks)
-        return stopReactive()
+        return stop()
             .recover(e -> {
-                logger.warn("stopReactive failed during close, continuing cleanup: {}", e.getMessage());
+                logger.warn("stop() failed during close, continuing cleanup: {}", e.getMessage());
                 return Future.succeededFuture();
             })
             .compose(v -> {
@@ -524,22 +461,9 @@ public class PeeGeeQManager implements AutoCloseable {
 
     @Override
     public void close() {
-        // Guard against calling blocking close() on event-loop thread
-        if (Vertx.currentContext() != null && Vertx.currentContext().isEventLoopContext()) {
-            logger.warn("Blocking close() called on event loop thread! This will deadlock. Triggering async close and returning immediately.");
-            closeReactive(); // Fire and forget
-            return;
-        }
-
-        // AutoCloseable.close() should complete resource teardown before returning.
-        try {
-            closeReactive()
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to close PeeGeeQManager", e);
-        }
+        closeReactive()
+            .onSuccess(v -> logger.debug("PeeGeeQManager closed successfully"))
+            .onFailure(e -> logger.error("Error closing PeeGeeQManager", e));
     }
 
 
@@ -822,7 +746,7 @@ public class PeeGeeQManager implements AutoCloseable {
             if (stuckMessageRecoveryManager != null) {
                 long recoveryMs = configuration.getQueueConfig().getRecoveryCheckInterval().toMillis();
                 recoveryTimerId = vertx.setPeriodic(recoveryMs, id -> {
-                    stuckMessageRecoveryManager.recoverStuckMessagesReactive()
+                    stuckMessageRecoveryManager.recoverStuckMessages()
                         .onSuccess(recovered -> {
                             if (recovered > 0) {
                                 logger.info("Recovered {} stuck messages from PROCESSING state", recovered);

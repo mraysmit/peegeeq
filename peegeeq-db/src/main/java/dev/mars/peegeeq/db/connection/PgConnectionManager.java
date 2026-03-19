@@ -501,21 +501,14 @@ public class PgConnectionManager implements AutoCloseable {
 
     /**
      * Closes all pools and data sources managed by this connection manager.
-     * This is a synchronous wrapper for AutoCloseable compatibility.
-     * Prefer using closeAsync() for non-blocking shutdown.
+     * Delegates to closeAsync() reactively.
      */
     @Override
     public void close() {
-        if (Vertx.currentContext() != null && Vertx.currentContext().isEventLoopContext()) {
-            throw new IllegalStateException("Do not call blocking close() on event-loop thread - use closeAsync() instead");
-        }
-
         logger.debug("Closing PgConnectionManager and all pools");
-        try {
-            closeAsync().toCompletionStage().toCompletableFuture().get(30, java.util.concurrent.TimeUnit.SECONDS);
-        } catch (Exception e) {
-            logger.error("Error during synchronous close", e);
-        }
+        closeAsync()
+            .onSuccess(v -> logger.debug("PgConnectionManager closed successfully"))
+            .onFailure(e -> logger.error("Error closing PgConnectionManager", e));
     }
 
     /**

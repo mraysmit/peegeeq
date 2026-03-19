@@ -612,44 +612,22 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
     }
 
     // Queue depth calculations
-    private double getOutboxQueueDepth() {
+    private Future<Double> getOutboxQueueDepth() {
         return executeCountQuery("SELECT COUNT(*) FROM outbox WHERE status IN ('PENDING', 'PROCESSING')");
     }
 
-    private double getNativeQueueDepth() {
+    private Future<Double> getNativeQueueDepth() {
         return executeCountQuery("SELECT COUNT(*) FROM queue_messages WHERE status = 'AVAILABLE'");
     }
 
-    private double getDeadLetterQueueDepth() {
+    private Future<Double> getDeadLetterQueueDepth() {
         return executeCountQuery("SELECT COUNT(*) FROM dead_letter_queue");
     }
 
-    private double executeCountQuery(String sql) {
-        // Use reactive approach - block on the result for compatibility with synchronous interface
-        try {
-            return executeCountQueryReactive(sql)
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get(SYNC_BRIDGE_TIMEOUT.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS);
-        } catch (TimeoutException e) {
-            logger.warn("Timed out executing reactive count query: {} (timeout={}ms)",
-                sql, SYNC_BRIDGE_TIMEOUT.toMillis());
-            return 0;
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            logger.warn("Interrupted while executing reactive count query: {}", sql, e);
-            return 0;
-        } catch (Exception e) {
-            logger.warn("Failed to execute reactive count query: {}", sql, e);
-            return 0;
-        }
-    }
-
     /**
-     * Reactive version of executeCountQuery using Vert.x Pool.
-     * This method returns a Future for non-blocking database operations.
+     * Executes a count query reactively using Vert.x Pool.
      */
-    private Future<Double> executeCountQueryReactive(String sql) {
+    private Future<Double> executeCountQuery(String sql) {
         if (reactivePool == null) {
             return Future.failedFuture(new IllegalStateException("No reactive pool available"));
         }
