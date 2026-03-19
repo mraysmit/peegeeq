@@ -33,7 +33,7 @@ import io.vertx.core.Future;
  * @since 2025-07-17
  * @version 1.0
  */
-public class MultiConfigurationManager implements AutoCloseable {
+public class MultiConfigurationManager {
 
     /**
      * Lifecycle states for the manager.
@@ -139,16 +139,6 @@ public class MultiConfigurationManager implements AutoCloseable {
         registerConfiguration(name, new PeeGeeQConfiguration(profile));
     }
     
-    /**
-     * Starts all registered configurations by delegating to the reactive lifecycle.
-     *
-     * This method is non-blocking and exists for compatibility.
-     */
-    public synchronized void start() {
-        startReactive()
-            .onFailure(e -> logger.error("Failed to start MultiConfigurationManager", e));
-    }
-
     /**
      * Starts all registered configurations reactively.
      *
@@ -316,17 +306,6 @@ public class MultiConfigurationManager implements AutoCloseable {
         return state.get() == State.STARTED;
     }
     
-    /**
-     * Stops all configurations and releases resources by delegating to the reactive lifecycle.
-     *
-     * This method is non-blocking and exists for compatibility.
-     */
-    @Override
-    public void close() {
-        closeReactive()
-            .onFailure(e -> logger.error("Failed to close MultiConfigurationManager", e));
-    }
-
     /**
      * Stops all configurations and releases resources reactively.
      *

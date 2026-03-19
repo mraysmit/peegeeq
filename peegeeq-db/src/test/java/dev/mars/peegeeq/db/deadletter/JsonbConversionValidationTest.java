@@ -23,7 +23,9 @@ import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
@@ -37,6 +39,8 @@ import java.sql.ResultSet;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -124,9 +128,9 @@ class JsonbConversionValidationTest {
         headers.put("source", "jsonb-dlq-test");
 
         // Move message to dead letter queue
-        dlqManager.moveToDeadLetterQueue(originalTable, originalId, topic, testMessage,
+        awaitFuture(dlqManager.moveToDeadLetterQueue(originalTable, originalId, topic, testMessage,
             originalCreatedAt, failureReason, retryCount,
-            headers, "dlq-correlation-123", "test-group").join();
+            headers, "dlq-correlation-123", "test-group"));
 
         logger.info("Message moved to dead letter queue successfully");
 
@@ -191,9 +195,9 @@ class JsonbConversionValidationTest {
         headers.put("region", "US");
 
         // Move message to dead letter queue
-        dlqManager.moveToDeadLetterQueue(originalTable, originalId, topic, testOrder,
+        awaitFuture(dlqManager.moveToDeadLetterQueue(originalTable, originalId, topic, testOrder,
             originalCreatedAt, failureReason, retryCount,
-            headers, "order-correlation-456", "order-group").join();
+            headers, "order-correlation-456", "order-group"));
 
         logger.info("Complex object moved to dead letter queue successfully");
 
@@ -253,9 +257,9 @@ class JsonbConversionValidationTest {
         headers.put("maxRetries", "5");
 
         // Move message to dead letter queue
-        dlqManager.moveToDeadLetterQueue(originalTable, originalId, topic, testMessage,
+        awaitFuture(dlqManager.moveToDeadLetterQueue(originalTable, originalId, topic, testMessage,
             originalCreatedAt, failureReason, retryCount,
-            headers, "reprocess-correlation-789", "reprocess-group").join();
+            headers, "reprocess-correlation-789", "reprocess-group"));
 
         // Get the dead letter message ID
         long deadLetterMessageId;
@@ -270,8 +274,7 @@ class JsonbConversionValidationTest {
         }
 
         // Reprocess the message
-        boolean reprocessed = dlqManager.reprocessDeadLetterMessage(deadLetterMessageId, "Manual reprocessing test")
-            .toCompletionStage().toCompletableFuture().join();
+        boolean reprocessed = awaitFuture(dlqManager.reprocessDeadLetterMessage(deadLetterMessageId, "Manual reprocessing test"));
         assertTrue(reprocessed, "Message should be reprocessed successfully");
 
         logger.info("Dead letter message reprocessing with JSONB data successful");
@@ -353,5 +356,31 @@ class JsonbConversionValidationTest {
             this.status = status;
             this.amount = amount;
         }
+    }
+
+    private <T> T awaitFuture(Future<T> future) {
+        VertxTestContext testContext = new VertxTestContext();
+        AtomicReference<T> result = new AtomicReference<>();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+
+        future
+            .onSuccess(result::set)
+            .onFailure(failure::set)
+            .eventually(() -> {
+                testContext.completeNow();
+                return Future.succeededFuture();
+            });
+
+        try {
+            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Timed out waiting for Future completion");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted while waiting for Future completion", e);
+        }
+
+        if (failure.get() != null) {
+            throw new RuntimeException(failure.get());
+        }
+        return result.get();
     }
 }

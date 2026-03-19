@@ -199,22 +199,6 @@ public class HealthCheckManager implements HealthService {
         logger.info("Registered health check: {}", name);
     }
     
-    public void start() {
-        startReactive()
-            .onFailure(e -> logger.error("Failed to start health checks - database connection validation failed: {}",
-                e.getMessage()));
-    }
-    
-    public void stop() {
-        if (!running) {
-            return;
-        }
-
-        stopReactive()
-            .onSuccess(v -> logger.info("Health check manager stopped"))
-            .onFailure(e -> logger.error("Failed to stop health check manager reactively", e));
-    }
-
     /**
      * Stops the health check manager reactively.
      * This method shuts down the scheduler without blocking the calling thread.

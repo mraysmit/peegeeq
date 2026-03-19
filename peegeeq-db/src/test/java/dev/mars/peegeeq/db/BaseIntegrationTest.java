@@ -17,6 +17,8 @@ package dev.mars.peegeeq.db;
  */
 
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import io.vertx.core.Future;
+import io.vertx.junit5.VertxTestContext;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -26,7 +28,9 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.junit.jupiter.api.Tag;
 
+import java.util.concurrent.TimeUnit;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicReference;
 
 import org.junit.jupiter.api.Tag;
 /**
@@ -98,7 +102,7 @@ public abstract class BaseIntegrationTest {
             // Clean up on failure
             if (manager != null) {
                 try {
-                    manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+                    awaitFuture(manager.closeReactive());
                 } catch (Exception closeException) {
                     logger.warn("Error closing manager after startup failure", closeException);
                 }
@@ -115,14 +119,11 @@ public abstract class BaseIntegrationTest {
         if (manager != null) {
             try {
                 // Give manager time to complete any ongoing operations
-                manager.getVertx().timer(100).toCompletionStage().toCompletableFuture().join();
+                awaitFuture(manager.getVertx().timer(100).mapEmpty());
                 
                 // Close manager (this should close all HikariCP pools)
-                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+                awaitFuture(manager.closeReactive());
                 logger.info("PeeGeeQ Manager closed successfully for profile: {}", testProfile);
-                
-                // Wait a bit for cleanup to complete
-                manager.getVertx().timer(100).toCompletionStage().toCompletableFuture().join();
                 
             } catch (Exception e) {
                 logger.error("Error closing PeeGeeQ Manager for profile: {}", testProfile, e);
@@ -207,7 +208,7 @@ public abstract class BaseIntegrationTest {
         }
         
         // Wait for health checks to stabilize
-        manager.getVertx().timer(1000).toCompletionStage().toCompletableFuture().join();
+        awaitFuture(manager.getVertx().timer(1000).mapEmpty());
 
         // Verify manager is healthy
         var healthStatus = manager.getHealthCheckManager().getOverallHealthInternal();
@@ -221,6 +222,34 @@ public abstract class BaseIntegrationTest {
      */
     protected String getTestProfile() {
         return testProfile;
+    }
+
+    private <T> T awaitFuture(Future<T> future) {
+        VertxTestContext testContext = new VertxTestContext();
+        AtomicReference<T> result = new AtomicReference<>();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+
+        future
+            .onSuccess(result::set)
+            .onFailure(failure::set)
+            .eventually(() -> {
+                testContext.completeNow();
+                return Future.succeededFuture();
+            });
+
+        try {
+            if (!testContext.awaitCompletion(10, TimeUnit.SECONDS)) {
+                throw new RuntimeException("Timed out waiting for Future completion");
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted while waiting for Future completion", e);
+        }
+
+        if (failure.get() != null) {
+            throw new RuntimeException(failure.get());
+        }
+        return result.get();
     }
 }
 
