@@ -780,7 +780,7 @@ Now let's receive the message we sent:
 ```java
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.api.*;
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.CountDownLatch;
 
 public class HelloPeeGeeQ {
@@ -940,7 +940,7 @@ Real applications need proper error handling. Let's enhance our example:
 ```java
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.api.*;
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.CountDownLatch;
 
 public class HelloPeeGeeQWithErrorHandling {
@@ -1057,7 +1057,7 @@ peegeeq.health.intervalSeconds=30
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.PeeGeeQConfiguration;
 import dev.mars.peegeeq.api.*;
-import java.util.concurrent.CompletableFuture;
+
 
 public class HelloPeeGeeQConfigured {
     public static void main(String[] args) {
