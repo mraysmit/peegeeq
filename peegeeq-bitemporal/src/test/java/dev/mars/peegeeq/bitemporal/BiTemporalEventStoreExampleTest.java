@@ -41,7 +41,6 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Objects;
-import java.util.concurrent.CompletableFuture;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -386,7 +385,7 @@ class BiTemporalEventStoreExampleTest {
                 BiTemporalEvent<OrderEvent> eventRecord = message.getPayload();
                 logger.info("📡 Real-time event received: {}",
                     eventRecord.getPayload().getOrderId());
-                return CompletableFuture.completedFuture(null);
+                return io.vertx.core.Future.<Void>succeededFuture();
             });
 
             // Verify subscription was established

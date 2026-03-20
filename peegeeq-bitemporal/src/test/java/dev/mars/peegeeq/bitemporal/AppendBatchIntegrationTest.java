@@ -223,8 +223,8 @@ class AppendBatchIntegrationTest {
         }
 
         // When
-        List<BiTemporalEvent<TestEvent>> results = eventStore.appendBatch(events)
-            .get(10, TimeUnit.SECONDS);
+        List<BiTemporalEvent<TestEvent>> results = await(eventStore.appendBatch(events),
+            10, TimeUnit.SECONDS);
 
         // Then
         assertNotNull(results);
@@ -251,8 +251,8 @@ class AppendBatchIntegrationTest {
         List<PgBiTemporalEventStore.BatchEventData<TestEvent>> events = new ArrayList<>();
 
         // When
-        List<BiTemporalEvent<TestEvent>> results = eventStore.appendBatch(events)
-            .get(10, TimeUnit.SECONDS);
+        List<BiTemporalEvent<TestEvent>> results = await(eventStore.appendBatch(events),
+            10, TimeUnit.SECONDS);
 
         // Then
         assertNotNull(results);
@@ -263,8 +263,8 @@ class AppendBatchIntegrationTest {
     @DisplayName("appendBatch - returns empty list for null input")
     void testAppendBatch_NullList() throws Exception {
         // When
-        List<BiTemporalEvent<TestEvent>> results = eventStore.appendBatch(null)
-            .get(10, TimeUnit.SECONDS);
+        List<BiTemporalEvent<TestEvent>> results = await(eventStore.appendBatch(null),
+            10, TimeUnit.SECONDS);
 
         // Then
         assertNotNull(results);
@@ -287,8 +287,8 @@ class AppendBatchIntegrationTest {
         );
 
         // When
-        List<BiTemporalEvent<TestEvent>> results = eventStore.appendBatch(events)
-            .get(10, TimeUnit.SECONDS);
+        List<BiTemporalEvent<TestEvent>> results = await(eventStore.appendBatch(events),
+            10, TimeUnit.SECONDS);
 
         // Then
         assertNotNull(results);
@@ -318,8 +318,8 @@ class AppendBatchIntegrationTest {
 
         // When
         long startTime = System.currentTimeMillis();
-        List<BiTemporalEvent<TestEvent>> results = eventStore.appendBatch(events)
-            .get(30, TimeUnit.SECONDS);
+        List<BiTemporalEvent<TestEvent>> results = await(eventStore.appendBatch(events),
+            30, TimeUnit.SECONDS);
         long duration = System.currentTimeMillis() - startTime;
 
         // Then
