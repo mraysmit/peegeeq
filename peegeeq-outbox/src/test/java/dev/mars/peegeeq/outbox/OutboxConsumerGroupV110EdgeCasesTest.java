@@ -28,6 +28,8 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -111,7 +113,7 @@ class OutboxConsumerGroupV110EdgeCasesTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         if (producer != null) {
             producer.close();
         }
@@ -119,8 +121,12 @@ class OutboxConsumerGroupV110EdgeCasesTest {
             factory.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive()
+                .onComplete(ar -> testContext.completeNow());
+        } else {
+            testContext.completeNow();
         }
+        assertTrue(testContext.awaitCompletion(30, SECONDS));
     }
 
     // ========================================================================
@@ -133,46 +139,52 @@ class OutboxConsumerGroupV110EdgeCasesTest {
 
         @Test
         @DisplayName("should start from specific message ID")
-        void testStartFromMessageId_Valid(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
-            // Send 5 messages
+        void testStartFromMessageId_Valid(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws InterruptedException {
+            // Send 5 messages with gaps
+            Future<Void> sendChain = Future.succeededFuture();
             for (int i = 0; i < 5; i++) {
-                producer.send("Message-" + i).join();
-                CompletableFuture<Void> gap = new CompletableFuture<>();
-                vertx.setTimer(100, timerId -> gap.complete(null));
-                gap.get(5, SECONDS);
+                final int idx = i;
+                sendChain = sendChain
+                    .compose(v -> producer.send("Message-" + idx))
+                    .compose(v -> vertx.timer(100))
+                    .mapEmpty();
             }
 
-            ConsumerGroup<String> group = factory.createConsumerGroup(
-                "test-group", "test-topic", String.class);
+            sendChain.compose(v -> {
+                ConsumerGroup<String> group = factory.createConsumerGroup(
+                    "test-group", "test-topic", String.class);
 
-            List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
-            group.setMessageHandler(msg -> {
-                receivedMessages.add(msg.getPayload());
-                return CompletableFuture.completedFuture(null);
-            });
+                List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
+                group.setMessageHandler(msg -> {
+                    receivedMessages.add(msg.getPayload());
+                    return Future.succeededFuture();
+                });
 
-            // Start from message ID 3 (outbox doesn't return IDs, so use a reasonable ID)
-            SubscriptionOptions options = SubscriptionOptions.builder()
-                .startFromMessageId(3L)
-                .build();
+                // Start from message ID 3 (outbox doesn't return IDs, so use a reasonable ID)
+                SubscriptionOptions options = SubscriptionOptions.builder()
+                    .startFromMessageId(3L)
+                    .build();
 
-            group.start(options);
-            CompletableFuture<Void> processingWait = new CompletableFuture<>();
-            vertx.setTimer(3000, timerId -> processingWait.complete(null));
-            processingWait.get(5, SECONDS);
-
-            assertTrue(group.isActive());
-            // Should receive messages based on ID filtering
-            assertTrue(receivedMessages.size() >= 0,
-                "Should process messages from ID 3 onwards");
-
-            group.close();
-            testContext.completeNow();
+                group.start(options);
+                return vertx.timer(3000).map(timerId -> {
+                    testContext.verify(() -> {
+                        assertTrue(group.isActive());
+                        // Should receive messages based on ID filtering
+                        assertTrue(receivedMessages.size() >= 0,
+                            "Should process messages from ID 3 onwards");
+                    });
+                    group.close();
+                    return null;
+                });
+            })
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
+            assertTrue(testContext.awaitCompletion(30, SECONDS));
         }
 
         @Test
         @DisplayName("should handle message ID that doesn't exist")
-        void testStartFromMessageId_NonExistent(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+        void testStartFromMessageId_NonExistent(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws InterruptedException {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
@@ -181,7 +193,7 @@ class OutboxConsumerGroupV110EdgeCasesTest {
             group.setMessageHandler(msg -> {
                 count.incrementAndGet();
                 messageReceived.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Use very large non-existent message ID
@@ -190,53 +202,54 @@ class OutboxConsumerGroupV110EdgeCasesTest {
                 .build();
 
             group.start(options);
-            CompletableFuture<Void> initialWait = new CompletableFuture<>();
-            vertx.setTimer(2000, timerId -> initialWait.complete(null));
-            initialWait.get(5, SECONDS);
+            vertx.timer(2000)
+                .compose(timerId -> {
+                    testContext.verify(() -> {
+                        assertTrue(group.isActive());
+                        assertEquals(0, count.get(), "Should not receive any messages");
+                    });
+                    // Now send a new message
+                    return producer.send("New-Message");
+                })
+                .onFailure(testContext::failNow);
 
-            assertTrue(group.isActive());
-            assertEquals(0, count.get(), "Should not receive any messages");
-
-            // Now send a new message
-            producer.send("New-Message").join();
-
-            assertTrue(testContext.awaitCompletion(5, SECONDS));
+            assertTrue(testContext.awaitCompletion(10, SECONDS));
 
             group.close();
         }
 
         @Test
         @DisplayName("should handle message ID = 0")
-        void testStartFromMessageId_Zero(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+        void testStartFromMessageId_Zero(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws InterruptedException {
             // Send some messages first
+            Future<Void> sendChain = Future.succeededFuture();
             for (int i = 0; i < 3; i++) {
-                producer.send("Message-" + i).join();
+                final int idx = i;
+                sendChain = sendChain.compose(v -> producer.send("Message-" + idx));
             }
-            CompletableFuture<Void> sendWait = new CompletableFuture<>();
-            vertx.setTimer(500, timerId -> sendWait.complete(null));
-            sendWait.get(5, SECONDS);
 
-            ConsumerGroup<String> group = factory.createConsumerGroup(
-                "test-group", "test-topic", String.class);
+            sendChain.compose(v -> vertx.timer(500))
+                .onSuccess(timerId -> {
+                    ConsumerGroup<String> group = factory.createConsumerGroup(
+                        "test-group", "test-topic", String.class);
 
-            List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
-            Checkpoint received = testContext.checkpoint(2);
-            group.setMessageHandler(msg -> {
-                receivedMessages.add(msg.getPayload());
-                received.flag();
-                return CompletableFuture.completedFuture(null);
-            });
+                    List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
+                    Checkpoint received = testContext.checkpoint(2);
+                    group.setMessageHandler(msg -> {
+                        receivedMessages.add(msg.getPayload());
+                        received.flag();
+                        return Future.succeededFuture();
+                    });
 
-            SubscriptionOptions options = SubscriptionOptions.builder()
-                .startFromMessageId(0L)
-                .build();
+                    SubscriptionOptions options = SubscriptionOptions.builder()
+                        .startFromMessageId(0L)
+                        .build();
 
-            group.start(options);
+                    group.start(options);
+                })
+                .onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(10, SECONDS));
-            assertTrue(group.isActive());
-
-            group.close();
         }
 
         @Test
@@ -264,7 +277,7 @@ class OutboxConsumerGroupV110EdgeCasesTest {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
-            group.setMessageHandler(msg -> CompletableFuture.completedFuture(null));
+            group.setMessageHandler(msg -> Future.succeededFuture());
 
             SubscriptionOptions options = SubscriptionOptions.builder()
                 .startPosition(StartPosition.FROM_NOW)
@@ -325,7 +338,7 @@ class OutboxConsumerGroupV110EdgeCasesTest {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
-            group.setMessageHandler(msg -> CompletableFuture.completedFuture(null));
+            group.setMessageHandler(msg -> Future.succeededFuture());
 
             SubscriptionOptions options = SubscriptionOptions.builder()
                 .heartbeatIntervalSeconds(1)
@@ -349,44 +362,44 @@ class OutboxConsumerGroupV110EdgeCasesTest {
 
         @Test
         @DisplayName("should handle very old timestamp")
-        void testTimestamp_VeryOld(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+        void testTimestamp_VeryOld(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws InterruptedException {
             // Send current messages
+            Future<Void> sendChain = Future.succeededFuture();
             for (int i = 0; i < 3; i++) {
-                producer.send("Message-" + i).join();
+                final int idx = i;
+                sendChain = sendChain.compose(v -> producer.send("Message-" + idx));
             }
-            CompletableFuture<Void> sendWait = new CompletableFuture<>();
-            vertx.setTimer(500, timerId -> sendWait.complete(null));
-            sendWait.get(5, SECONDS);
 
-            ConsumerGroup<String> group = factory.createConsumerGroup(
-                "test-group", "test-topic", String.class);
+            sendChain.compose(v -> vertx.timer(500))
+                .onSuccess(timerId -> {
+                    ConsumerGroup<String> group = factory.createConsumerGroup(
+                        "test-group", "test-topic", String.class);
 
-            List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
-            Checkpoint received = testContext.checkpoint(2);
-            group.setMessageHandler(msg -> {
-                receivedMessages.add(msg.getPayload());
-                received.flag();
-                return CompletableFuture.completedFuture(null);
-            });
+                    List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
+                    Checkpoint received = testContext.checkpoint(2);
+                    group.setMessageHandler(msg -> {
+                        receivedMessages.add(msg.getPayload());
+                        received.flag();
+                        return Future.succeededFuture();
+                    });
 
-            // Use timestamp from 1 year ago
-            Instant veryOldTimestamp = Instant.now().minus(365, ChronoUnit.DAYS);
+                    // Use timestamp from 1 year ago
+                    Instant veryOldTimestamp = Instant.now().minus(365, ChronoUnit.DAYS);
 
-            SubscriptionOptions options = SubscriptionOptions.builder()
-                .startFromTimestamp(veryOldTimestamp)
-                .build();
+                    SubscriptionOptions options = SubscriptionOptions.builder()
+                        .startFromTimestamp(veryOldTimestamp)
+                        .build();
 
-            group.start(options);
+                    group.start(options);
+                })
+                .onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(10, SECONDS));
-            assertTrue(group.isActive());
-
-            group.close();
         }
 
         @Test
         @DisplayName("should handle future timestamp gracefully")
-        void testTimestamp_Future(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+        void testTimestamp_Future(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws InterruptedException {
             // Don't send any messages before starting
             
             ConsumerGroup<String> group = factory.createConsumerGroup(
@@ -395,7 +408,7 @@ class OutboxConsumerGroupV110EdgeCasesTest {
             AtomicInteger count = new AtomicInteger(0);
             group.setMessageHandler(msg -> {
                 count.incrementAndGet();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Use timestamp 1 hour in the future
@@ -406,15 +419,15 @@ class OutboxConsumerGroupV110EdgeCasesTest {
                 .build();
 
             group.start(options);
-            CompletableFuture<Void> processingWait = new CompletableFuture<>();
-            vertx.setTimer(2000, timerId -> processingWait.complete(null));
-            processingWait.get(5, SECONDS);
-
-            assertTrue(group.isActive());
-            assertTrue(count.get() >= 0);
-
-            group.close();
-            testContext.completeNow();
+            vertx.timer(2000)
+                .onSuccess(timerId -> testContext.verify(() -> {
+                    assertTrue(group.isActive());
+                    assertTrue(count.get() >= 0);
+                    group.close();
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
+            assertTrue(testContext.awaitCompletion(30, SECONDS));
         }
 
         @Test
@@ -447,7 +460,7 @@ class OutboxConsumerGroupV110EdgeCasesTest {
 
         @Test
         @DisplayName("should handle start on empty topic with FROM_BEGINNING")
-        void testEmptyTopic_FromBeginning(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+        void testEmptyTopic_FromBeginning(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws InterruptedException {
             // Don't send any messages
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "empty-topic", String.class);
@@ -455,7 +468,7 @@ class OutboxConsumerGroupV110EdgeCasesTest {
             AtomicInteger count = new AtomicInteger(0);
             group.setMessageHandler(msg -> {
                 count.incrementAndGet();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             SubscriptionOptions options = SubscriptionOptions.builder()
@@ -463,27 +476,27 @@ class OutboxConsumerGroupV110EdgeCasesTest {
                 .build();
 
             group.start(options);
-            CompletableFuture<Void> processingWait = new CompletableFuture<>();
-            vertx.setTimer(2000, timerId -> processingWait.complete(null));
-            processingWait.get(5, SECONDS);
-
-            assertTrue(group.isActive());
-            assertEquals(0, count.get(), "Should not receive any messages from empty topic");
-
-            group.close();
-            testContext.completeNow();
+            vertx.timer(2000)
+                .onSuccess(timerId -> testContext.verify(() -> {
+                    assertTrue(group.isActive());
+                    assertEquals(0, count.get(), "Should not receive any messages from empty topic");
+                    group.close();
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
+            assertTrue(testContext.awaitCompletion(30, SECONDS));
         }
 
         @Test
         @DisplayName("should handle start on empty topic with FROM_TIMESTAMP")
-        void testEmptyTopic_FromTimestamp(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+        void testEmptyTopic_FromTimestamp(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws InterruptedException {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "empty-topic", String.class);
 
             AtomicInteger count = new AtomicInteger(0);
             group.setMessageHandler(msg -> {
                 count.incrementAndGet();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             SubscriptionOptions options = SubscriptionOptions.builder()
@@ -491,15 +504,15 @@ class OutboxConsumerGroupV110EdgeCasesTest {
                 .build();
 
             group.start(options);
-            CompletableFuture<Void> processingWait = new CompletableFuture<>();
-            vertx.setTimer(2000, timerId -> processingWait.complete(null));
-            processingWait.get(5, SECONDS);
-
-            assertTrue(group.isActive());
-            assertEquals(0, count.get());
-
-            group.close();
-            testContext.completeNow();
+            vertx.timer(2000)
+                .onSuccess(timerId -> testContext.verify(() -> {
+                    assertTrue(group.isActive());
+                    assertEquals(0, count.get());
+                    group.close();
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
+            assertTrue(testContext.awaitCompletion(30, SECONDS));
         }
     }
 
@@ -513,37 +526,33 @@ class OutboxConsumerGroupV110EdgeCasesTest {
 
         @Test
         @DisplayName("should handle setMessageHandler during message processing")
-        void testConcurrent_SetHandlerDuringProcessing(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+        void testConcurrent_SetHandlerDuringProcessing(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws InterruptedException {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
-            CompletableFuture<Void> processingGate = new CompletableFuture<>();
+            Promise<Void> processingGate = Promise.promise();
             AtomicInteger count = new AtomicInteger(0);
 
             group.setMessageHandler(msg -> {
                 count.incrementAndGet();
-                try {
-                    processingGate.get(5, SECONDS);
-                } catch (Exception e) {
-                    Thread.currentThread().interrupt();
-                }
-                return CompletableFuture.completedFuture(null);
+                return processingGate.future();
             });
 
             group.start();
-            producer.send("Message").join();
-            CompletableFuture<Void> startWait = new CompletableFuture<>();
-            vertx.setTimer(500, timerId -> startWait.complete(null));
-            startWait.get(5, SECONDS);
+            producer.send("Message")
+                .compose(v -> vertx.timer(500))
+                .onSuccess(timerId -> testContext.verify(() -> {
+                    // Try to set handler again while processing
+                    assertThrows(IllegalStateException.class, () -> {
+                        group.setMessageHandler(msg -> Future.succeededFuture());
+                    });
 
-            // Try to set handler again while processing
-            assertThrows(IllegalStateException.class, () -> {
-                group.setMessageHandler(msg -> CompletableFuture.completedFuture(null));
-            });
-
-            processingGate.complete(null);
-            group.close();
-            testContext.completeNow();
+                    processingGate.complete();
+                    group.close();
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
+            assertTrue(testContext.awaitCompletion(30, SECONDS));
         }
 
         @Test
@@ -553,7 +562,7 @@ class OutboxConsumerGroupV110EdgeCasesTest {
                 ConsumerGroup<String> group = factory.createConsumerGroup(
                     "test-group-" + i, "test-topic", String.class);
 
-                group.setMessageHandler(msg -> CompletableFuture.completedFuture(null));
+                group.setMessageHandler(msg -> Future.succeededFuture());
 
                 SubscriptionOptions options = SubscriptionOptions.builder()
                     .startPosition(StartPosition.FROM_NOW)
@@ -667,7 +676,7 @@ class OutboxConsumerGroupV110EdgeCasesTest {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
-            group.setMessageHandler(msg -> CompletableFuture.completedFuture(null));
+            group.setMessageHandler(msg -> Future.succeededFuture());
 
             SubscriptionOptions options = SubscriptionOptions.builder()
                 .startPosition(StartPosition.FROM_BEGINNING)
@@ -685,7 +694,7 @@ class OutboxConsumerGroupV110EdgeCasesTest {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
-            group.setMessageHandler(msg -> CompletableFuture.completedFuture(null));
+            group.setMessageHandler(msg -> Future.succeededFuture());
             group.start(SubscriptionOptions.defaults());
 
             group.close();
@@ -701,7 +710,7 @@ class OutboxConsumerGroupV110EdgeCasesTest {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
-            group.setMessageHandler(msg -> CompletableFuture.completedFuture(null));
+            group.setMessageHandler(msg -> Future.succeededFuture());
             group.start(SubscriptionOptions.defaults());
             group.close();
 
@@ -710,7 +719,7 @@ class OutboxConsumerGroupV110EdgeCasesTest {
             });
 
             assertThrows(IllegalStateException.class, () -> {
-                group.setMessageHandler(msg -> CompletableFuture.completedFuture(null));
+                group.setMessageHandler(msg -> Future.succeededFuture());
             });
         }
     }

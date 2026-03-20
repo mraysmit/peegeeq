@@ -37,6 +37,9 @@ import java.sql.ResultSet;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
+
+import io.vertx.junit5.VertxTestContext;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -124,50 +127,64 @@ class JsonbConversionValidationTest {
         headers.put("source", "jsonb-dlq-test");
 
         // Move message to dead letter queue
+        VertxTestContext testContext = new VertxTestContext();
+
         dlqManager.moveToDeadLetterQueue(originalTable, originalId, topic, testMessage,
             originalCreatedAt, failureReason, retryCount,
-            headers, "dlq-correlation-123", "test-group").join();
+            headers, "dlq-correlation-123", "test-group")
+            .onSuccess(v -> testContext.verify(() -> {
+                logger.info("Message moved to dead letter queue successfully");
 
-        logger.info("Message moved to dead letter queue successfully");
+                // Validate JSONB storage using direct database query
+                try (Connection conn = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {
+                    String sql = """
+                        SELECT payload, jsonb_typeof(payload) as payload_type, 
+                               payload->>'value' as extracted_value,
+                               headers, jsonb_typeof(headers) as headers_type,
+                               headers->>'correlationId' as extracted_correlation_id
+                        FROM dead_letter_queue 
+                        WHERE topic = ? 
+                        ORDER BY failed_at DESC 
+                        LIMIT 1
+                        """;
 
-        // Validate JSONB storage using direct database query
-        try (Connection conn = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {
-            String sql = """
-                SELECT payload, jsonb_typeof(payload) as payload_type, 
-                       payload->>'value' as extracted_value,
-                       headers, jsonb_typeof(headers) as headers_type,
-                       headers->>'correlationId' as extracted_correlation_id
-                FROM dead_letter_queue 
-                WHERE topic = ? 
-                ORDER BY failed_at DESC 
-                LIMIT 1
-                """;
+                    try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                        stmt.setString(1, topic);
+                        ResultSet rs = stmt.executeQuery();
 
-            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-                stmt.setString(1, topic);
-                ResultSet rs = stmt.executeQuery();
+                        assertTrue(rs.next(), "Should find the dead letter message");
 
-                assertTrue(rs.next(), "Should find the dead letter message");
+                        // Verify payload is stored as JSONB object, not string
+                        String payloadType = rs.getString("payload_type");
+                        assertEquals("object", payloadType, "Payload should be stored as JSONB object, not string");
 
-                // Verify payload is stored as JSONB object, not string
-                String payloadType = rs.getString("payload_type");
-                assertEquals("object", payloadType, "Payload should be stored as JSONB object, not string");
+                        // Verify we can extract the value using JSON operators
+                        String extractedValue = rs.getString("extracted_value");
+                        assertEquals(testMessage, extractedValue, "Should be able to extract value using JSON operators");
 
-                // Verify we can extract the value using JSON operators
-                String extractedValue = rs.getString("extracted_value");
-                assertEquals(testMessage, extractedValue, "Should be able to extract value using JSON operators");
+                        // Verify headers are stored as JSONB object
+                        String headersType = rs.getString("headers_type");
+                        assertEquals("object", headersType, "Headers should be stored as JSONB object");
 
-                // Verify headers are stored as JSONB object
-                String headersType = rs.getString("headers_type");
-                assertEquals("object", headersType, "Headers should be stored as JSONB object");
+                        // Verify we can extract header values using JSON operators
+                        String extractedCorrelationId = rs.getString("extracted_correlation_id");
+                        assertEquals("dlq-test-correlation-123", extractedCorrelationId, "Should extract correlationId using JSON operators");
 
-                // Verify we can extract header values using JSON operators
-                String extractedCorrelationId = rs.getString("extracted_correlation_id");
-                assertEquals("dlq-test-correlation-123", extractedCorrelationId, "Should extract correlationId using JSON operators");
+                        logger.info("Dead Letter Queue JSONB validation successful - payload type: {}, headers type: {}", 
+                                  payloadType, headersType);
+                    }
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-                logger.info("Dead Letter Queue JSONB validation successful - payload type: {}, headers type: {}", 
-                          payloadType, headersType);
-            }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            Throwable cause = testContext.causeOfFailure();
+            if (cause instanceof Exception ex) throw ex;
+            throw new RuntimeException(cause);
         }
     }
 
@@ -191,47 +208,61 @@ class JsonbConversionValidationTest {
         headers.put("region", "US");
 
         // Move message to dead letter queue
+        VertxTestContext testContext = new VertxTestContext();
+
         dlqManager.moveToDeadLetterQueue(originalTable, originalId, topic, testOrder,
             originalCreatedAt, failureReason, retryCount,
-            headers, "order-correlation-456", "order-group").join();
+            headers, "order-correlation-456", "order-group")
+            .onSuccess(v -> testContext.verify(() -> {
+                logger.info("Complex object moved to dead letter queue successfully");
 
-        logger.info("Complex object moved to dead letter queue successfully");
+                // Validate JSONB storage using direct database query
+                try (Connection conn = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {
+                    String sql = """
+                        SELECT payload, jsonb_typeof(payload) as payload_type, 
+                               payload->>'orderId' as extracted_order_id,
+                               payload->>'status' as extracted_status,
+                               headers->>'priority' as extracted_priority
+                        FROM dead_letter_queue 
+                        WHERE topic = ? 
+                        ORDER BY failed_at DESC 
+                        LIMIT 1
+                        """;
 
-        // Validate JSONB storage using direct database query
-        try (Connection conn = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {
-            String sql = """
-                SELECT payload, jsonb_typeof(payload) as payload_type, 
-                       payload->>'orderId' as extracted_order_id,
-                       payload->>'status' as extracted_status,
-                       headers->>'priority' as extracted_priority
-                FROM dead_letter_queue 
-                WHERE topic = ? 
-                ORDER BY failed_at DESC 
-                LIMIT 1
-                """;
+                    try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                        stmt.setString(1, topic);
+                        ResultSet rs = stmt.executeQuery();
 
-            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-                stmt.setString(1, topic);
-                ResultSet rs = stmt.executeQuery();
+                        assertTrue(rs.next(), "Should find the dead letter message");
 
-                assertTrue(rs.next(), "Should find the dead letter message");
+                        // Verify payload is stored as JSONB object
+                        String payloadType = rs.getString("payload_type");
+                        assertEquals("object", payloadType, "Payload should be stored as JSONB object");
 
-                // Verify payload is stored as JSONB object
-                String payloadType = rs.getString("payload_type");
-                assertEquals("object", payloadType, "Payload should be stored as JSONB object");
+                        // Verify we can extract complex object fields using JSON operators
+                        String extractedOrderId = rs.getString("extracted_order_id");
+                        String extractedStatus = rs.getString("extracted_status");
+                        String extractedPriority = rs.getString("extracted_priority");
+                        
+                        assertEquals(testOrder.orderId, extractedOrderId, "Should extract orderId using JSON operators");
+                        assertEquals(testOrder.status, extractedStatus, "Should extract status using JSON operators");
+                        assertEquals("high", extractedPriority, "Should extract priority from headers using JSON operators");
 
-                // Verify we can extract complex object fields using JSON operators
-                String extractedOrderId = rs.getString("extracted_order_id");
-                String extractedStatus = rs.getString("extracted_status");
-                String extractedPriority = rs.getString("extracted_priority");
-                
-                assertEquals(testOrder.orderId, extractedOrderId, "Should extract orderId using JSON operators");
-                assertEquals(testOrder.status, extractedStatus, "Should extract status using JSON operators");
-                assertEquals("high", extractedPriority, "Should extract priority from headers using JSON operators");
+                        logger.info("Complex Dead Letter Queue JSONB validation successful - orderId: {}, status: {}, priority: {}", 
+                                  extractedOrderId, extractedStatus, extractedPriority);
+                    }
+                } catch (Exception e) {
+                    throw new RuntimeException(e);
+                }
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-                logger.info("Complex Dead Letter Queue JSONB validation successful - orderId: {}, status: {}, priority: {}", 
-                          extractedOrderId, extractedStatus, extractedPriority);
-            }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            Throwable cause = testContext.causeOfFailure();
+            if (cause instanceof Exception ex) throw ex;
+            throw new RuntimeException(cause);
         }
     }
 
@@ -253,28 +284,42 @@ class JsonbConversionValidationTest {
         headers.put("maxRetries", "5");
 
         // Move message to dead letter queue
+        VertxTestContext testContext = new VertxTestContext();
+
         dlqManager.moveToDeadLetterQueue(originalTable, originalId, topic, testMessage,
             originalCreatedAt, failureReason, retryCount,
-            headers, "reprocess-correlation-789", "reprocess-group").join();
+            headers, "reprocess-correlation-789", "reprocess-group")
+            .compose(v -> {
+                // Get the dead letter message ID
+                long deadLetterMessageId;
+                try (Connection conn = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {
+                    String sql = "SELECT id FROM dead_letter_queue WHERE topic = ? ORDER BY failed_at DESC LIMIT 1";
+                    try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                        stmt.setString(1, topic);
+                        ResultSet rs = stmt.executeQuery();
+                        assertTrue(rs.next(), "Should find the dead letter message");
+                        deadLetterMessageId = rs.getLong("id");
+                    }
+                } catch (Exception e) {
+                    return io.vertx.core.Future.failedFuture(e);
+                }
 
-        // Get the dead letter message ID
-        long deadLetterMessageId;
-        try (Connection conn = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {
-            String sql = "SELECT id FROM dead_letter_queue WHERE topic = ? ORDER BY failed_at DESC LIMIT 1";
-            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-                stmt.setString(1, topic);
-                ResultSet rs = stmt.executeQuery();
-                assertTrue(rs.next(), "Should find the dead letter message");
-                deadLetterMessageId = rs.getLong("id");
-            }
+                // Reprocess the message
+                return dlqManager.reprocessDeadLetterMessage(deadLetterMessageId, "Manual reprocessing test");
+            })
+            .onSuccess(reprocessed -> testContext.verify(() -> {
+                assertTrue(reprocessed, "Message should be reprocessed successfully");
+                logger.info("Dead letter message reprocessing with JSONB data successful");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            Throwable cause = testContext.causeOfFailure();
+            if (cause instanceof Exception ex) throw ex;
+            throw new RuntimeException(cause);
         }
-
-        // Reprocess the message
-        boolean reprocessed = dlqManager.reprocessDeadLetterMessage(deadLetterMessageId, "Manual reprocessing test")
-            .toCompletionStage().toCompletableFuture().join();
-        assertTrue(reprocessed, "Message should be reprocessed successfully");
-
-        logger.info("Dead letter message reprocessing with JSONB data successful");
     }
 
     private void initializeSchema(PostgreSQLContainer postgres) {

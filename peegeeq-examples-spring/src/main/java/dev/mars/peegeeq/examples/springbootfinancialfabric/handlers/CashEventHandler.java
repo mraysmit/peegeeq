@@ -12,7 +12,7 @@ import org.springframework.stereotype.Component;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.atomic.AtomicLong;
 
 /**

@@ -19,6 +19,8 @@ import dev.mars.peegeeq.db.subscription.TopicSemantics;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
+
+import java.util.concurrent.CompletableFuture;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.BeforeEach;
@@ -33,8 +35,10 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -126,18 +130,24 @@ public class P4_BackfillVsOLTPTest extends BaseIntegrationTest {
             .semantics(TopicSemantics.PUB_SUB)
             .messageRetentionHours(1)
             .build();
+        CountDownLatch setupLatch = new CountDownLatch(1);
         topicConfigService.createTopic(topicConfig)
-            .toCompletionStage().toCompletableFuture().get();
+            .onComplete(ar -> setupLatch.countDown());
+        assertTrue(setupLatch.await(10, TimeUnit.SECONDS));
 
         // Backfill consumer (subscribes from beginning - using defaults for simplicity)
         String backfillGroup = "backfill-consumer";
+        CountDownLatch backfillSubLatch = new CountDownLatch(1);
         subscriptionManager.subscribe(topic, backfillGroup, SubscriptionOptions.defaults())
-            .toCompletionStage().toCompletableFuture().get();
+            .onComplete(ar -> backfillSubLatch.countDown());
+        assertTrue(backfillSubLatch.await(10, TimeUnit.SECONDS));
 
         // OLTP consumer (subscribes from now)
         String oltpGroup = "oltp-consumer";
+        CountDownLatch oltpSubLatch = new CountDownLatch(1);
         subscriptionManager.subscribe(topic, oltpGroup, SubscriptionOptions.defaults())
-            .toCompletionStage().toCompletableFuture().get();
+            .onComplete(ar -> oltpSubLatch.countDown());
+        assertTrue(oltpSubLatch.await(10, TimeUnit.SECONDS));
 
         // Step 2: Publish historical messages (simulating backlog)
         logger.info("Publishing {} historical messages...", historicalMessageCount);
@@ -157,16 +167,23 @@ public class P4_BackfillVsOLTPTest extends BaseIntegrationTest {
         Thread backfillThread = new Thread(() -> {
             try {
                 while (backfillConsumed.get() < historicalMessageCount) {
-                    List<OutboxMessage> messages = fetcher.fetchMessages(topic, backfillGroup, 100)
-                        .toCompletionStage().toCompletableFuture().get();
+                    CountDownLatch fetchLatch = new CountDownLatch(1);
+                    AtomicReference<List<OutboxMessage>> fetchResult = new AtomicReference<>();
+                    fetcher.fetchMessages(topic, backfillGroup, 100)
+                        .onSuccess(fetchResult::set)
+                        .onComplete(ar -> fetchLatch.countDown());
+                    fetchLatch.await(30, TimeUnit.SECONDS);
 
-                    if (messages.isEmpty()) {
+                    List<OutboxMessage> messages = fetchResult.get();
+                    if (messages == null || messages.isEmpty()) {
                         break;
                     }
 
                     for (OutboxMessage message : messages) {
+                        CountDownLatch markLatch = new CountDownLatch(1);
                         completionTracker.markCompleted(message.getId(), backfillGroup, topic)
-                            .toCompletionStage().toCompletableFuture().get();
+                            .onComplete(ar -> markLatch.countDown());
+                        markLatch.await(10, TimeUnit.SECONDS);
                         backfillConsumed.incrementAndGet();
                     }
                 }
@@ -178,7 +195,9 @@ public class P4_BackfillVsOLTPTest extends BaseIntegrationTest {
         backfillThread.start();
 
         // Step 4: Publish OLTP messages while backfill is running
-        manager.getVertx().timer(100).toCompletionStage().toCompletableFuture().join();  // Give backfill a head start
+        CountDownLatch headStartLatch = new CountDownLatch(1);
+        manager.getVertx().setTimer(100, id -> headStartLatch.countDown());
+        headStartLatch.await(5, TimeUnit.SECONDS);  // Give backfill a head start
         logger.info("Publishing {} OLTP messages while backfill is running...", oltpMessageCount);
         long oltpPublishStart = System.currentTimeMillis();
 

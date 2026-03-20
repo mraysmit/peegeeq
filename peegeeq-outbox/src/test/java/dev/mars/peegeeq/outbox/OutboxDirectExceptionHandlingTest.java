@@ -43,6 +43,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.io.IOException;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -110,7 +111,9 @@ public class OutboxDirectExceptionHandlingTest {
         if (consumer != null) consumer.close();
         if (producer != null) producer.close();
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+            closeLatch.await(10, TimeUnit.SECONDS);
         }
     }
 
@@ -123,7 +126,7 @@ public class OutboxDirectExceptionHandlingTest {
         Checkpoint retryCheckpoint = testContext.checkpoint(3); // Expect 3 attempts (initial + 2 retries)
 
         // Send the message
-        producer.send(testMessage).get(5, TimeUnit.SECONDS);
+        producer.send(testMessage).onFailure(testContext::failNow);
 
         // Set up consumer that throws RuntimeException directly
         consumer.subscribe(message -> {
@@ -151,7 +154,7 @@ public class OutboxDirectExceptionHandlingTest {
         AtomicInteger attemptCount = new AtomicInteger(0);
         Checkpoint retryCheckpoint = testContext.checkpoint(3);
 
-        producer.send(testMessage).get(5, TimeUnit.SECONDS);
+        producer.send(testMessage).onFailure(testContext::failNow);
 
         // Set up consumer that throws checked exception (wrapped in RuntimeException)
         consumer.subscribe(message -> {
@@ -178,7 +181,7 @@ public class OutboxDirectExceptionHandlingTest {
         AtomicInteger attemptCount = new AtomicInteger(0);
         Checkpoint retryCheckpoint = testContext.checkpoint(3);
 
-        producer.send(testMessage).get(5, TimeUnit.SECONDS);
+        producer.send(testMessage).onFailure(testContext::failNow);
 
         // Set up consumer that throws custom business exception
         consumer.subscribe(message -> {
@@ -205,7 +208,7 @@ public class OutboxDirectExceptionHandlingTest {
         AtomicInteger attemptCount = new AtomicInteger(0);
         Checkpoint retryCheckpoint = testContext.checkpoint(3);
 
-        producer.send(testMessage).get(5, TimeUnit.SECONDS);
+        producer.send(testMessage).onFailure(testContext::failNow);
 
         // Set up consumer that throws NPE
         consumer.subscribe(message -> {

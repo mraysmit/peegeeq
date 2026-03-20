@@ -23,7 +23,10 @@ import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -38,7 +41,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -56,7 +58,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
-@ExtendWith(SharedPostgresTestExtension.class)
+@ExtendWith({SharedPostgresTestExtension.class, VertxExtension.class})
 @ResourceLock(value = "dead-letter-queue-database", mode = org.junit.jupiter.api.parallel.ResourceAccessMode.READ_WRITE)
 @org.junit.jupiter.api.parallel.Execution(org.junit.jupiter.api.parallel.ExecutionMode.SAME_THREAD)
 class DeadLetterQueueManagerTest {
@@ -68,9 +70,9 @@ class DeadLetterQueueManagerTest {
     private Vertx vertx;
 
     @BeforeEach
-    void setUp() {
+    void setUp(Vertx vertx, VertxTestContext testContext) {
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
-        vertx = Vertx.vertx();
+        this.vertx = vertx;
         connectionManager = new PgConnectionManager(vertx);
         objectMapper = new ObjectMapper();
 
@@ -91,71 +93,49 @@ class DeadLetterQueueManagerTest {
         dlqManager = new DeadLetterQueueManager(reactivePool, objectMapper);
 
         // Clean up any existing data from previous tests to ensure test isolation
-        // DO NOT recreate tables - they are created once by SharedPostgresTestExtension
-        cleanupTestData();
+        cleanupTestData()
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(v -> testContext.completeNow());
     }
 
     @AfterEach
-    void tearDown() throws Exception {
-        // Clean up test data after each test - SYNCHRONOUSLY to prevent race conditions
-        try {
-            if (reactivePool != null) {
-                cleanupTestDataSynchronously();
+    void tearDown(VertxTestContext testContext) {
+        Future<Void> cleanup = (reactivePool != null)
+            ? cleanupTestData().recover(e -> {
+                System.err.println("Warning: Failed to cleanup test data in tearDown: " + e.getMessage());
+                return Future.succeededFuture();
+            })
+            : Future.succeededFuture();
+
+        cleanup.compose(v -> {
+            if (connectionManager != null) {
+                return connectionManager.closeAsync();
             }
-        } catch (Exception e) {
-            System.err.println("Warning: Failed to cleanup test data in tearDown: " + e.getMessage());
-        }
-
-        if (connectionManager != null) {
-            connectionManager.close();
-        }
-        if (vertx != null) {
-            vertx.close();
-        }
+            return Future.succeededFuture();
+        })
+        .onSuccess(v -> testContext.completeNow())
+        .onFailure(testContext::failNow);
     }
 
-    /**
-     * Cleans up test data to ensure test isolation.
-     * This removes all data from test tables between test methods.
-     * SYNCHRONOUS version to prevent race conditions in parallel tests.
-     */
-    private void cleanupTestDataSynchronously() {
-        try {
-            reactivePool.withTransaction(connection -> {
-                // Clean up all test data from tables - SYNCHRONOUSLY with proper transaction commit
-                return connection.query("DELETE FROM dead_letter_queue").execute()
-                    .compose(result -> connection.query("DELETE FROM outbox").execute())
-                    .compose(result -> connection.query("DELETE FROM queue_messages").execute());
-            }).toCompletionStage().toCompletableFuture().get(10, java.util.concurrent.TimeUnit.SECONDS);
-
-            // Add a small delay to ensure transaction is committed and visible
-            vertx.timer(100).toCompletionStage().toCompletableFuture().join();
-
-            System.out.println("DEBUG: Cleaned up test data for test isolation (SYNCHRONOUS)");
-        } catch (Exception e) {
-            System.err.println("Warning: Failed to cleanup test data: " + e.getMessage());
-            // Don't throw - allow test to proceed
-        }
-    }
-
-    /**
-     * Cleans up test data to ensure test isolation.
-     * This removes all data from test tables between test methods.
-     * @deprecated Use cleanupTestDataSynchronously() instead to prevent race conditions
-     */
-    @Deprecated
-    private void cleanupTestData() {
-        cleanupTestDataSynchronously();
+    private Future<Void> cleanupTestData() {
+        return reactivePool.withTransaction(connection ->
+            connection.query("DELETE FROM dead_letter_queue").execute()
+                .compose(result -> connection.query("DELETE FROM outbox").execute())
+                .compose(result -> connection.query("DELETE FROM queue_messages").execute())
+        ).mapEmpty();
     }
 
     @Test
-    void testDeadLetterQueueManagerInitialization() {
+    void testDeadLetterQueueManagerInitialization(VertxTestContext testContext) {
         assertNotNull(dlqManager);
 
-        // Initially, DLQ should be empty
-        DeadLetterQueueStats stats = getStatistics();
-        assertTrue(stats.isEmpty());
-        assertEquals(0, stats.getTotalMessages());
+        getStatistics()
+            .onSuccess(stats -> testContext.verify(() -> {
+                assertTrue(stats.isEmpty());
+                assertEquals(0, stats.getTotalMessages());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     /**
@@ -167,299 +147,229 @@ class DeadLetterQueueManagerTest {
      * by moving a message to the dead letter queue with a failure reason.
      */
     @Test
-    void testMoveMessageToDeadLetterQueue() {
-        System.out.println("🧪 ===== RUNNING INTENTIONAL MESSAGE FAILURE DEAD LETTER QUEUE TEST ===== 🧪");
-        System.out.println("🔥 **INTENTIONAL TEST** 🔥 This test simulates a message processing failure and moves it to dead letter queue");
-
+    void testMoveMessageToDeadLetterQueue(VertxTestContext testContext) {
         Map<String, String> headers = createTestHeaders();
         Instant createdAt = Instant.now().minusSeconds(300);
 
-        System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Moving message to dead letter queue due to simulated processing failure");
-        moveToDeadLetterQueue(
-            "outbox",
-            123L,
-            "test-topic",
-            "{\"message\": \"test payload\"}",
-            createdAt,
-            "Test failure reason",
-            3,
-            headers,
-            "correlation-123",
-            "test-group"
-        );
-
-        // Verify the message was added
-        DeadLetterQueueStats stats = getStatistics();
-        System.out.println("DEBUG: Stats total messages = " + stats.getTotalMessages());
-        assertEquals(1, stats.getTotalMessages());
-        assertEquals(1, stats.getUniqueTopics());
-        assertEquals(1, stats.getUniqueTables());
-        assertEquals(3.0, stats.getAverageRetryCount());
-
-        System.out.println("**SUCCESS** Failed message was properly moved to dead letter queue");
-        System.out.println("🧪 ===== INTENTIONAL FAILURE TEST COMPLETED ===== 🧪");
+        moveToDeadLetterQueue("outbox", 123L, "test-topic", "{\"message\": \"test payload\"}",
+                createdAt, "Test failure reason", 3, headers, "correlation-123", "test-group")
+            .compose(v -> getStatistics())
+            .onSuccess(stats -> testContext.verify(() -> {
+                assertEquals(1, stats.getTotalMessages());
+                assertEquals(1, stats.getUniqueTopics());
+                assertEquals(1, stats.getUniqueTables());
+                assertEquals(3.0, stats.getAverageRetryCount());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testGetDeadLetterMessagesByTopic() {
-        // Add multiple messages with different topics
-        addTestDeadLetterMessage("topic1", "outbox", 1L);
-        addTestDeadLetterMessage("topic1", "outbox", 2L);
-        addTestDeadLetterMessage("topic2", "queue_messages", 3L);
-
-        // Add delay to ensure database operations are committed
-                    vertx.timer(500).toCompletionStage().toCompletableFuture().join(); // Increased delay for parallel execution
-
-
-        // Retrieve messages for topic1 with retry logic
-        List<DeadLetterMessage> topic1Messages = null;
-        int retries = 0;
-        int maxRetries = 5;
-
-        while (retries < maxRetries) {
-            topic1Messages = getDeadLetterMessages("topic1", 10, 0);
-            if (topic1Messages.size() == 2) {
-                break;
-            }
-                            vertx.timer(200).toCompletionStage().toCompletableFuture().join();
-
-            retries++;
-        }
-
-        assertNotNull(topic1Messages, "Topic1 messages should not be null");
-        assertEquals(2, topic1Messages.size(), "Expected 2 messages for topic1 after " + retries + " retries");
-
-        for (DeadLetterMessage msg : topic1Messages) {
-            assertEquals("topic1", msg.getTopic());
-        }
-
-        // Retrieve messages for topic2
-        List<DeadLetterMessage> topic2Messages = getDeadLetterMessages("topic2", 10, 0);
-        assertEquals(1, topic2Messages.size());
-        assertEquals("topic2", topic2Messages.get(0).getTopic());
+    void testGetDeadLetterMessagesByTopic(VertxTestContext testContext) {
+        addTestDeadLetterMessage("topic1", "outbox", 1L)
+            .compose(v -> addTestDeadLetterMessage("topic1", "outbox", 2L))
+            .compose(v -> addTestDeadLetterMessage("topic2", "queue_messages", 3L))
+            .compose(v -> getDeadLetterMessages("topic1", 10, 0))
+            .compose(topic1Messages -> {
+                assertEquals(2, topic1Messages.size());
+                for (DeadLetterMessage msg : topic1Messages) {
+                    assertEquals("topic1", msg.getTopic());
+                }
+                return getDeadLetterMessages("topic2", 10, 0);
+            })
+            .onSuccess(topic2Messages -> testContext.verify(() -> {
+                assertEquals(1, topic2Messages.size());
+                assertEquals("topic2", topic2Messages.get(0).getTopic());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testGetAllDeadLetterMessages() {
-        // Add multiple messages
-        addTestDeadLetterMessage("topic1", "outbox", 1L);
-        addTestDeadLetterMessage("topic2", "outbox", 2L);
-        addTestDeadLetterMessage("topic3", "queue_messages", 3L);
-
-        // Retrieve all messages
-        List<DeadLetterMessage> allMessages = getAllDeadLetterMessages(10, 0);
-        assertEquals(3, allMessages.size());
-
-        // Test pagination
-        List<DeadLetterMessage> firstPage = getAllDeadLetterMessages(2, 0);
-        assertEquals(2, firstPage.size());
-
-        List<DeadLetterMessage> secondPage = getAllDeadLetterMessages(2, 2);
-        assertEquals(1, secondPage.size());
+    void testGetAllDeadLetterMessages(VertxTestContext testContext) {
+        addTestDeadLetterMessage("topic1", "outbox", 1L)
+            .compose(v -> addTestDeadLetterMessage("topic2", "outbox", 2L))
+            .compose(v -> addTestDeadLetterMessage("topic3", "queue_messages", 3L))
+            .compose(v -> getAllDeadLetterMessages(10, 0))
+            .compose(allMessages -> {
+                assertEquals(3, allMessages.size());
+                return getAllDeadLetterMessages(2, 0);
+            })
+            .compose(firstPage -> {
+                assertEquals(2, firstPage.size());
+                return getAllDeadLetterMessages(2, 2);
+            })
+            .onSuccess(secondPage -> testContext.verify(() -> {
+                assertEquals(1, secondPage.size());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testGetSpecificDeadLetterMessage() {
-        addTestDeadLetterMessage("test-topic", "outbox", 123L);
-
-        // Retry logic to wait for message to be visible
-        List<DeadLetterMessage> messages = null;
-        int retries = 0;
-        int maxRetries = 20; // Increased retries for parallel execution
-
-        while (retries < maxRetries) {
-            messages = getAllDeadLetterMessages(1, 0);
-            if (!messages.isEmpty()) {
-                break;
-            }
-                            vertx.timer(200).toCompletionStage().toCompletableFuture().join(); // Increased delay for parallel execution
-
-            retries++;
-        }
-
-        assertFalse(messages.isEmpty(), "Expected message to be visible after " + retries + " retries");
-
-        long messageId = messages.get(0).getId();
-
-        Optional<DeadLetterMessage> retrieved = getDeadLetterMessage(messageId);
-        assertTrue(retrieved.isPresent(), "Expected to retrieve message with ID: " + messageId);
-
-        DeadLetterMessage message = retrieved.get();
-        assertEquals("test-topic", message.getTopic());
-        assertEquals("outbox", message.getOriginalTable());
-        assertEquals(123L, message.getOriginalId());
-        assertEquals("Test failure reason", message.getFailureReason());
-        assertEquals(3, message.getRetryCount());
+    void testGetSpecificDeadLetterMessage(VertxTestContext testContext) {
+        addTestDeadLetterMessage("test-topic", "outbox", 123L)
+            .compose(v -> getAllDeadLetterMessages(1, 0))
+            .compose(messages -> {
+                assertFalse(messages.isEmpty());
+                long messageId = messages.get(0).getId();
+                return getDeadLetterMessage(messageId);
+            })
+            .onSuccess(retrieved -> testContext.verify(() -> {
+                assertTrue(retrieved.isPresent());
+                DeadLetterMessage message = retrieved.get();
+                assertEquals("test-topic", message.getTopic());
+                assertEquals("outbox", message.getOriginalTable());
+                assertEquals(123L, message.getOriginalId());
+                assertEquals("Test failure reason", message.getFailureReason());
+                assertEquals(3, message.getRetryCount());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testGetNonExistentDeadLetterMessage() {
-        // ===== RUNNING INTENTIONAL NON-EXISTENT MESSAGE TEST =====
-        // **INTENTIONAL TEST** - This test deliberately queries for a non-existent dead letter message
-        // to verify proper handling of missing records
-        Optional<DeadLetterMessage> nonExistent = getDeadLetterMessage(99999L);
-        assertFalse(nonExistent.isPresent());
-        // **SUCCESS** - Non-existent message properly returned empty Optional
-        // ===== INTENTIONAL TEST COMPLETED =====
+    void testGetNonExistentDeadLetterMessage(VertxTestContext testContext) {
+        getDeadLetterMessage(99999L)
+            .onSuccess(nonExistent -> testContext.verify(() -> {
+                assertFalse(nonExistent.isPresent());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testReprocessDeadLetterMessage() {
-        // First, add a message to the dead letter queue
-        addTestDeadLetterMessage("test-topic", "outbox", 123L);
-
-        List<DeadLetterMessage> messages = getAllDeadLetterMessages(1, 0);
-        assertFalse(messages.isEmpty());
-
-        long dlqMessageId = messages.get(0).getId();
-
-        // Reprocess the message
-        boolean success = reprocessDeadLetterMessage(dlqMessageId, "Manual reprocessing");
-        assertTrue(success);
-
-        // Verify the message was removed from DLQ
-        Optional<DeadLetterMessage> shouldBeEmpty = getDeadLetterMessage(dlqMessageId);
-        assertFalse(shouldBeEmpty.isPresent());
-
-        // Verify the message was added back to the original table
-        verifyMessageInOriginalTable("outbox", "test-topic");
+    void testReprocessDeadLetterMessage(VertxTestContext testContext) {
+        addTestDeadLetterMessage("test-topic", "outbox", 123L)
+            .compose(v -> getAllDeadLetterMessages(1, 0))
+            .compose(messages -> {
+                assertFalse(messages.isEmpty());
+                long dlqMessageId = messages.get(0).getId();
+                return reprocessDeadLetterMessage(dlqMessageId, "Manual reprocessing")
+                    .compose(success -> {
+                        assertTrue(success);
+                        return getDeadLetterMessage(dlqMessageId);
+                    })
+                    .compose(shouldBeEmpty -> {
+                        assertFalse(shouldBeEmpty.isPresent());
+                        return verifyMessageInOriginalTable("outbox", "test-topic");
+                    });
+            })
+            .onSuccess(count -> testContext.verify(() -> {
+                assertTrue(count > 0, "Message should exist in original table");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testReprocessNonExistentMessage() {
-        System.out.println("🔍 ===== RUNNING INTENTIONAL NON-EXISTENT MESSAGE REPROCESS TEST =====");
-        System.out.println("🔍 **INTENTIONAL TEST** - This test deliberately attempts to reprocess a non-existent dead letter message");
-        System.out.println("🔍 **INTENTIONAL TEST FAILURE** - Expected warning: 'Dead letter message not found: 99999'");
-
-        boolean result = reprocessDeadLetterMessage(99999L, "Non-existent message");
-        assertFalse(result);
-
-        System.out.println("🔍 **SUCCESS** - Non-existent message reprocess properly returned false");
-        System.out.println("🔍 ===== INTENTIONAL TEST COMPLETED =====");
+    void testReprocessNonExistentMessage(VertxTestContext testContext) {
+        reprocessDeadLetterMessage(99999L, "Non-existent message")
+            .onSuccess(result -> testContext.verify(() -> {
+                assertFalse(result);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testDeleteDeadLetterMessage() {
-        addTestDeadLetterMessage("test-topic", "outbox", 123L);
-
-        List<DeadLetterMessage> messages = getAllDeadLetterMessages(1, 0);
-        assertFalse(messages.isEmpty());
-
-        long messageId = messages.get(0).getId();
-
-        // Delete the message
-        boolean success = deleteDeadLetterMessage(messageId, "Manual deletion");
-        assertTrue(success);
-
-        // Verify the message was deleted
-        Optional<DeadLetterMessage> shouldBeEmpty = getDeadLetterMessage(messageId);
-        assertFalse(shouldBeEmpty.isPresent());
-
-        // Verify statistics are updated
-        DeadLetterQueueStats stats = getStatistics();
-        assertEquals(0, stats.getTotalMessages());
+    void testDeleteDeadLetterMessage(VertxTestContext testContext) {
+        addTestDeadLetterMessage("test-topic", "outbox", 123L)
+            .compose(v -> getAllDeadLetterMessages(1, 0))
+            .compose(messages -> {
+                assertFalse(messages.isEmpty());
+                long messageId = messages.get(0).getId();
+                return deleteDeadLetterMessage(messageId, "Manual deletion")
+                    .compose(success -> {
+                        assertTrue(success);
+                        return getDeadLetterMessage(messageId);
+                    })
+                    .compose(shouldBeEmpty -> {
+                        assertFalse(shouldBeEmpty.isPresent());
+                        return getStatistics();
+                    });
+            })
+            .onSuccess(stats -> testContext.verify(() -> {
+                assertEquals(0, stats.getTotalMessages());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testDeleteNonExistentMessage() {
-        System.out.println("🗑️ ===== RUNNING INTENTIONAL NON-EXISTENT MESSAGE DELETION TEST =====");
-        System.out.println("🗑️ **INTENTIONAL TEST** - This test deliberately attempts to delete a non-existent dead letter message");
-        System.out.println("🗑️ **INTENTIONAL TEST FAILURE** - Expected warning: 'Dead letter message not found for deletion: 99999'");
-
-        boolean result = deleteDeadLetterMessage(99999L, "Non-existent message");
-        assertFalse(result);
-
-        System.out.println("🗑️ **SUCCESS** - Non-existent message deletion properly returned false");
-        System.out.println("🗑️ ===== INTENTIONAL TEST COMPLETED =====");
+    void testDeleteNonExistentMessage(VertxTestContext testContext) {
+        deleteDeadLetterMessage(99999L, "Non-existent message")
+            .onSuccess(result -> testContext.verify(() -> {
+                assertFalse(result);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testDeadLetterQueueStatistics() {
-        // Add messages with different characteristics
-        addTestDeadLetterMessage("topic1", "outbox", 1L);
-        addTestDeadLetterMessage("topic2", "outbox", 2L);
-        addTestDeadLetterMessage("topic1", "queue_messages", 3L);
-        
-        // Add a message with different retry count
+    void testDeadLetterQueueStatistics(VertxTestContext testContext) {
         Map<String, String> headers = createTestHeaders();
-        moveToDeadLetterQueue(
-            "outbox", 4L, "topic3", "{\"test\": \"data\"}",
-            Instant.now().minusSeconds(100), "Different failure", 5,
-            headers, "corr-4", "group-4"
-        );
-
-        // Add delay to ensure database operations are committed
-                    vertx.timer(300).toCompletionStage().toCompletableFuture().join();
-
-
-        // Get statistics with retry logic for race conditions
-        DeadLetterQueueStats stats = null;
-        int retries = 0;
-        int maxRetries = 15; // Increased retries
-
-        while (retries < maxRetries) {
-            stats = getStatistics();
-            System.out.println("DEBUG: Retry " + retries + " - Statistics show " + stats.getTotalMessages() + " messages");
-            if (stats.getTotalMessages() == 4) {
-                break;
-            }
-                            vertx.timer(300).toCompletionStage().toCompletableFuture().join(); // Increased delay
-
-            retries++;
-        }
-
-        assertNotNull(stats, "Statistics should not be null");
-        assertEquals(4, stats.getTotalMessages(), "Expected 4 messages after " + retries + " retries");
-        assertEquals(3, stats.getUniqueTopics()); // topic1, topic2, topic3
-        assertEquals(2, stats.getUniqueTables()); // outbox, queue_messages
-        assertEquals(3.5, stats.getAverageRetryCount()); // (3+3+3+5)/4 = 3.5
-        assertNotNull(stats.getOldestFailure());
-        assertNotNull(stats.getNewestFailure());
-        assertFalse(stats.isEmpty());
+        addTestDeadLetterMessage("topic1", "outbox", 1L)
+            .compose(v -> addTestDeadLetterMessage("topic2", "outbox", 2L))
+            .compose(v -> addTestDeadLetterMessage("topic1", "queue_messages", 3L))
+            .compose(v -> moveToDeadLetterQueue(
+                "outbox", 4L, "topic3", "{\"test\": \"data\"}",
+                Instant.now().minusSeconds(100), "Different failure", 5,
+                headers, "corr-4", "group-4"
+            ))
+            .compose(v -> getStatistics())
+            .onSuccess(stats -> testContext.verify(() -> {
+                assertNotNull(stats, "Statistics should not be null");
+                assertEquals(4, stats.getTotalMessages());
+                assertEquals(3, stats.getUniqueTopics());
+                assertEquals(2, stats.getUniqueTables());
+                assertEquals(3.5, stats.getAverageRetryCount());
+                assertNotNull(stats.getOldestFailure());
+                assertNotNull(stats.getNewestFailure());
+                assertFalse(stats.isEmpty());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testCleanupOldMessages() throws InterruptedException {
-        // Add some messages
-        addTestDeadLetterMessage("topic1", "outbox", 1L);
-        addTestDeadLetterMessage("topic2", "outbox", 2L);
-
-        // Mark messages as old so cleanup with retentionDays=1 removes them.
-        try {
-            reactivePool.withConnection(connection ->
+    void testCleanupOldMessages(VertxTestContext testContext) {
+        addTestDeadLetterMessage("topic1", "outbox", 1L)
+            .compose(v -> addTestDeadLetterMessage("topic2", "outbox", 2L))
+            .compose(v -> reactivePool.withConnection(connection ->
                 connection.query("UPDATE dead_letter_queue SET failed_at = NOW() - INTERVAL '2 days'")
                     .execute()
                     .mapEmpty()
-            ).toCompletionStage().toCompletableFuture().get();
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to age dead letter messages for cleanup test", e);
-        }
-
-        // Verify messages exist
-        DeadLetterQueueStats beforeCleanup = getStatistics();
-        assertEquals(2, beforeCleanup.getTotalMessages());
-
-        // Cleanup with retentionDays=1 (should delete all aged messages)
-        int deletedCount = cleanupOldMessages(1);
-        assertEquals(2, deletedCount);
-
-        // Verify messages were deleted
-        DeadLetterQueueStats afterCleanup = getStatistics();
-        assertEquals(0, afterCleanup.getTotalMessages());
+            ))
+            .compose(v -> getStatistics())
+            .compose(beforeCleanup -> {
+                assertEquals(2, beforeCleanup.getTotalMessages());
+                return cleanupOldMessages(1);
+            })
+            .compose(deletedCount -> {
+                assertEquals(2, (int) deletedCount);
+                return getStatistics();
+            })
+            .onSuccess(afterCleanup -> testContext.verify(() -> {
+                assertEquals(0, afterCleanup.getTotalMessages());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testCleanupWithNoOldMessages() {
-        // Add a recent message
-        addTestDeadLetterMessage("topic1", "outbox", 1L);
-
-        // Cleanup with long retention (should not delete anything)
-        int deletedCount = cleanupOldMessages(30);
-        assertEquals(0, deletedCount);
-
-        // Verify message still exists
-        DeadLetterQueueStats stats = getStatistics();
-        assertEquals(1, stats.getTotalMessages());
+    void testCleanupWithNoOldMessages(VertxTestContext testContext) {
+        addTestDeadLetterMessage("topic1", "outbox", 1L)
+            .compose(v -> cleanupOldMessages(30))
+            .compose(deletedCount -> {
+                assertEquals(0, (int) deletedCount);
+                return getStatistics();
+            })
+            .onSuccess(stats -> testContext.verify(() -> {
+                assertEquals(1, stats.getTotalMessages());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
@@ -532,71 +442,33 @@ class DeadLetterQueueManagerTest {
     }
 
     @Test
-    void testConcurrentDeadLetterOperations() throws InterruptedException {
-        int threadCount = 5;
-        int messagesPerThread = 10;
+    void testConcurrentDeadLetterOperations(VertxTestContext testContext) {
+        int topicCount = 5;
+        int messagesPerTopic = 10;
+        int expectedMessages = topicCount * messagesPerTopic;
 
-        Thread[] threads = new Thread[threadCount];
-        final AtomicInteger successCount = new AtomicInteger(0);
-
-        for (int i = 0; i < threadCount; i++) {
-            final int threadId = i;
-            threads[i] = new Thread(() -> {
-                for (int j = 0; j < messagesPerThread; j++) {
-                    try {
-                        addTestDeadLetterMessage("topic-" + threadId, "outbox", threadId * 1000L + j);
-                        successCount.incrementAndGet();
-                    } catch (Exception e) {
-                        System.err.println("Failed to add message in thread " + threadId + ", message " + j + ": " + e.getMessage());
-                    }
-                }
-            });
-        }
-
-        // Start all threads
-        for (Thread thread : threads) {
-            thread.start();
-        }
-
-        // Wait for all threads to complete
-        for (Thread thread : threads) {
-            thread.join();
-        }
-
-        // Add a much longer delay to ensure all database operations are committed and visible in parallel execution
-        vertx.timer(2000).toCompletionStage().toCompletableFuture().join(); // Increased to 2 seconds for parallel execution
-
-        // Log the success count for debugging
-        int expectedMessages = threadCount * messagesPerThread;
-        int actualSuccessCount = successCount.get();
-        System.out.println("DEBUG: Expected messages: " + expectedMessages + ", Successful operations: " + actualSuccessCount);
-
-        // Verify all messages were added with retry logic for race conditions
-        DeadLetterQueueStats stats = null;
-        int retries = 0;
-        int maxRetries = 20; // Increased retries for parallel execution
-
-        while (retries < maxRetries) {
-            stats = getStatistics();
-            System.out.println("DEBUG: Retry " + retries + " - Database shows " + stats.getTotalMessages() + " messages");
-            if (stats.getTotalMessages() >= actualSuccessCount) {
-                break;
+        // Build all futures concurrently using Future.all()
+        List<Future<Void>> futures = new java.util.ArrayList<>();
+        for (int i = 0; i < topicCount; i++) {
+            for (int j = 0; j < messagesPerTopic; j++) {
+                futures.add(addTestDeadLetterMessage("topic-" + i, "outbox", i * 1000L + j));
             }
-            vertx.timer(500).toCompletionStage().toCompletableFuture().join(); // Increased delay for parallel execution
-            retries++;
         }
 
-        assertNotNull(stats, "Statistics should not be null");
-        // Use the actual success count instead of expected count to handle any failures
-        assertTrue(stats.getTotalMessages() >= Math.min(actualSuccessCount, expectedMessages),
-            "Expected at least " + Math.min(actualSuccessCount, expectedMessages) + " messages after " + retries + " retries, but got " + stats.getTotalMessages());
-        assertTrue(stats.getUniqueTopics() >= Math.min(threadCount, actualSuccessCount),
-            "Expected at least " + Math.min(threadCount, actualSuccessCount) + " unique topics");
+        Future.all(futures)
+            .compose(cf -> getStatistics())
+            .onSuccess(stats -> testContext.verify(() -> {
+                assertNotNull(stats, "Statistics should not be null");
+                assertEquals(expectedMessages, stats.getTotalMessages());
+                assertEquals(topicCount, stats.getUniqueTopics());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
-    private void addTestDeadLetterMessage(String topic, String originalTable, long originalId) {
+    private Future<Void> addTestDeadLetterMessage(String topic, String originalTable, long originalId) {
         Map<String, String> headers = createTestHeaders();
-        moveToDeadLetterQueue(
+        return moveToDeadLetterQueue(
             originalTable,
             originalId,
             topic,
@@ -608,10 +480,6 @@ class DeadLetterQueueManagerTest {
             "correlation-" + originalId,
             "test-group"
         );
-
-        // Add a small delay to ensure transaction is committed and visible
-                    vertx.timer(150).toCompletionStage().toCompletableFuture().join(); // Increased delay for parallel execution
-
     }
 
     private Map<String, String> createTestHeaders() {
@@ -622,75 +490,60 @@ class DeadLetterQueueManagerTest {
         return headers;
     }
 
-    private void moveToDeadLetterQueue(String originalTable, long originalId, String topic,
+    private Future<Void> moveToDeadLetterQueue(String originalTable, long originalId, String topic,
                                        Object payload, Instant originalCreatedAt, String failureReason,
                                        int retryCount, Map<String, String> headers, String correlationId,
                                        String messageGroup) {
-        dlqManager.moveToDeadLetterQueue(originalTable, originalId, topic, payload, originalCreatedAt,
-            failureReason, retryCount, headers, correlationId, messageGroup).join();
+        return dlqManager.moveToDeadLetterQueue(originalTable, originalId, topic, payload, originalCreatedAt,
+            failureReason, retryCount, headers, correlationId, messageGroup);
     }
 
-    private List<DeadLetterMessage> getDeadLetterMessages(String topic, int limit, int offset) {
-        return dlqManager.fetchDeadLetterMessagesByTopic(topic, limit, offset)
-            .toCompletionStage().toCompletableFuture().join();
+    private Future<List<DeadLetterMessage>> getDeadLetterMessages(String topic, int limit, int offset) {
+        return dlqManager.fetchDeadLetterMessagesByTopic(topic, limit, offset);
     }
 
-    private List<DeadLetterMessage> getAllDeadLetterMessages(int limit, int offset) {
-        return dlqManager.fetchAllDeadLetterMessages(limit, offset)
-            .toCompletionStage().toCompletableFuture().join();
+    private Future<List<DeadLetterMessage>> getAllDeadLetterMessages(int limit, int offset) {
+        return dlqManager.fetchAllDeadLetterMessages(limit, offset);
     }
 
-    private Optional<DeadLetterMessage> getDeadLetterMessage(long id) {
-        return dlqManager.fetchDeadLetterMessage(id)
-            .toCompletionStage().toCompletableFuture().join();
+    private Future<Optional<DeadLetterMessage>> getDeadLetterMessage(long id) {
+        return dlqManager.fetchDeadLetterMessage(id);
     }
 
-    private boolean reprocessDeadLetterMessage(long id, String reason) {
-        return dlqManager.reprocessDeadLetterMessageRecord(id, reason)
-            .toCompletionStage().toCompletableFuture().join();
+    private Future<Boolean> reprocessDeadLetterMessage(long id, String reason) {
+        return dlqManager.reprocessDeadLetterMessageRecord(id, reason);
     }
 
-    private boolean deleteDeadLetterMessage(long id, String reason) {
-        return dlqManager.removeDeadLetterMessage(id, reason)
-            .toCompletionStage().toCompletableFuture().join();
+    private Future<Boolean> deleteDeadLetterMessage(long id, String reason) {
+        return dlqManager.removeDeadLetterMessage(id, reason);
     }
 
-    private DeadLetterQueueStats getStatistics() {
-        return dlqManager.fetchStatistics()
-            .toCompletionStage().toCompletableFuture().join();
+    private Future<DeadLetterQueueStats> getStatistics() {
+        return dlqManager.fetchStatistics();
     }
 
-    private int cleanupOldMessages(int retentionDays) {
-        return dlqManager.purgeOldDeadLetterMessages(retentionDays)
-            .toCompletionStage().toCompletableFuture().join();
+    private Future<Integer> cleanupOldMessages(int retentionDays) {
+        return dlqManager.purgeOldDeadLetterMessages(retentionDays);
     }
 
-    private void verifyMessageInOriginalTable(String tableName, String expectedTopic) {
+    private Future<Integer> verifyMessageInOriginalTable(String tableName, String expectedTopic) {
         String sql = "SELECT COUNT(*) FROM " + tableName + " WHERE topic = $1";
-
-        try {
-            Integer count = reactivePool.withConnection(connection -> {
-                return connection.preparedQuery(sql)
-                    .execute(io.vertx.sqlclient.Tuple.of(expectedTopic))
-                    .map(rowSet -> {
-                        if (rowSet.iterator().hasNext()) {
-                            return rowSet.iterator().next().getInteger(0);
-                        }
-                        return 0;
-                    });
-            }).toCompletionStage().toCompletableFuture().get();
-
-            assertTrue(count > 0, "Message should exist in original table");
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to verify message in original table", e);
-        }
+        return reactivePool.withConnection(connection ->
+            connection.preparedQuery(sql)
+                .execute(io.vertx.sqlclient.Tuple.of(expectedTopic))
+                .map(rowSet -> {
+                    if (rowSet.iterator().hasNext()) {
+                        return rowSet.iterator().next().getInteger(0);
+                    }
+                    return 0;
+                })
+        );
     }
 
     @Test
-    void testReactiveDeadLetterQueueManager() {
+    void testReactiveDeadLetterQueueManager(VertxTestContext testContext) {
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
-        // Create connection config for reactive pool
         PgConnectionConfig reactiveConnectionConfig = new PgConnectionConfig.Builder()
                 .host(postgres.getHost())
                 .port(postgres.getFirstMappedPort())
@@ -703,15 +556,12 @@ class DeadLetterQueueManagerTest {
                 .maxSize(5)
                 .build();
 
-        // Create reactive pool
         Pool reactivePool = connectionManager.getOrCreateReactivePool("test-reactive", reactiveConnectionConfig, reactivePoolConfig);
         assertNotNull(reactivePool);
 
-        // Create dead letter queue manager with reactive constructor
         DeadLetterQueueManager reactiveDlqManager = new DeadLetterQueueManager(reactivePool, objectMapper);
         assertNotNull(reactiveDlqManager);
 
-        // Test basic functionality - move a message to dead letter queue
         String originalTable = "outbox";
         long originalId = 12345L;
         String topic = "test.reactive.topic";
@@ -723,23 +573,21 @@ class DeadLetterQueueManagerTest {
         String correlationId = "reactive-correlation-123";
         String messageGroup = "reactive-group";
 
-        // This should work without throwing an exception
-        assertDoesNotThrow(() -> {
-            reactiveDlqManager.moveToDeadLetterQueue(originalTable, originalId, topic, payload,
-                originalCreatedAt, failureReason, retryCount, headers, correlationId, messageGroup).join();
-        });
-
-        // Verify the message was inserted by checking with the legacy manager
-        List<DeadLetterMessage> messages = getDeadLetterMessages(topic, 10, 0);
-        assertFalse(messages.isEmpty());
-
-        DeadLetterMessage message = messages.get(0);
-        assertEquals(originalTable, message.getOriginalTable());
-        assertEquals(originalId, message.getOriginalId());
-        assertEquals(topic, message.getTopic());
-        assertEquals(failureReason, message.getFailureReason());
-        assertEquals(retryCount, message.getRetryCount());
-        assertEquals(correlationId, message.getCorrelationId());
-        assertEquals(messageGroup, message.getMessageGroup());
+        reactiveDlqManager.moveToDeadLetterQueue(originalTable, originalId, topic, payload,
+                originalCreatedAt, failureReason, retryCount, headers, correlationId, messageGroup)
+            .compose(v -> getDeadLetterMessages(topic, 10, 0))
+            .onSuccess(messages -> testContext.verify(() -> {
+                assertFalse(messages.isEmpty());
+                DeadLetterMessage message = messages.get(0);
+                assertEquals(originalTable, message.getOriginalTable());
+                assertEquals(originalId, message.getOriginalId());
+                assertEquals(topic, message.getTopic());
+                assertEquals(failureReason, message.getFailureReason());
+                assertEquals(retryCount, message.getRetryCount());
+                assertEquals(correlationId, message.getCorrelationId());
+                assertEquals(messageGroup, message.getMessageGroup());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 }

@@ -28,10 +28,10 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
+
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -246,7 +246,7 @@ class PgBiTemporalEventStoreIntegrationTest {
             logger.info("Received notification for event: {}", event.getEventId());
             receivedEvent.set(event);
             notificationLatch.countDown();
-            return CompletableFuture.completedFuture(null);
+            return Future.<Void>succeededFuture();
         });
         await(subscriptionFuture, 10, TimeUnit.SECONDS);
         logger.info("Subscription established successfully");
@@ -359,7 +359,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         Future<Void> subscriptionFuture = eventStore.subscribeReactive("test.subscribe", message -> {
             received.set(message.getPayload());
             latch.countDown();
-            return CompletableFuture.completedFuture(null);
+            return Future.<Void>succeededFuture();
         });
         subscriptionFuture.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
 
@@ -416,7 +416,7 @@ class PgBiTemporalEventStoreIntegrationTest {
             dotSubscriberEventTypes.add(eventType);
             logger.info("DOT subscriber received event type: {}", eventType);
             allEventsLatch.countDown();
-            return CompletableFuture.completedFuture(null);
+            return Future.<Void>succeededFuture();
         });
         dotSubscription.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
 
@@ -427,7 +427,7 @@ class PgBiTemporalEventStoreIntegrationTest {
             underscoreSubscriberEventTypes.add(eventType);
             logger.info("UNDERSCORE subscriber received event type: {}", eventType);
             allEventsLatch.countDown();
-            return CompletableFuture.completedFuture(null);
+            return Future.<Void>succeededFuture();
         });
         underscoreSubscription.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
 
@@ -579,7 +579,7 @@ class PgBiTemporalEventStoreIntegrationTest {
             receivedEventTypes.add(eventType);
             logger.info("Received event type: {}", eventType);
             latch.countDown();
-            return CompletableFuture.completedFuture(null);
+            return Future.<Void>succeededFuture();
         });
         subscription.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
         awaitAsyncDelay(500);
@@ -626,7 +626,7 @@ class PgBiTemporalEventStoreIntegrationTest {
             receivedEventTypes.add(eventType);
             logger.info("Received event type: {}", eventType);
             latch.countDown();
-            return CompletableFuture.completedFuture(null);
+            return Future.<Void>succeededFuture();
         });
         subscription.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
         awaitAsyncDelay(500);
@@ -671,7 +671,7 @@ class PgBiTemporalEventStoreIntegrationTest {
             orderCreatedEvents.add(message.getPayload().getEventType());
             logger.info("order.created subscriber received: {}", message.getPayload().getEventType());
             latch.countDown();
-            return CompletableFuture.completedFuture(null);
+            return Future.<Void>succeededFuture();
         });
         sub1.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
 
@@ -680,7 +680,7 @@ class PgBiTemporalEventStoreIntegrationTest {
             paymentReceivedEvents.add(message.getPayload().getEventType());
             logger.info("payment.received subscriber received: {}", message.getPayload().getEventType());
             latch.countDown();
-            return CompletableFuture.completedFuture(null);
+            return Future.<Void>succeededFuture();
         });
         sub2.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
         awaitAsyncDelay(500);
@@ -729,7 +729,7 @@ class PgBiTemporalEventStoreIntegrationTest {
             eventCount.incrementAndGet();
             receivedEventIds.add(message.getPayload().getEventId());
             logger.info("Received event #{}: {}", eventCount.get(), message.getPayload().getEventId());
-            return CompletableFuture.completedFuture(null);
+            return Future.<Void>succeededFuture();
         });
         subscription.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
         awaitAsyncDelay(500);
@@ -776,7 +776,7 @@ class PgBiTemporalEventStoreIntegrationTest {
             receivedEventTypes.add(eventType);
             logger.info("order.* subscriber received: {}", eventType);
             latch.countDown();
-            return CompletableFuture.completedFuture(null);
+            return Future.<Void>succeededFuture();
         });
         subscription.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
         awaitAsyncDelay(500);
@@ -824,7 +824,7 @@ class PgBiTemporalEventStoreIntegrationTest {
             receivedEventTypes.add(eventType);
             logger.info("*.created subscriber received: {}", eventType);
             latch.countDown();
-            return CompletableFuture.completedFuture(null);
+            return Future.<Void>succeededFuture();
         });
         subscription.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
         awaitAsyncDelay(500);
@@ -872,7 +872,7 @@ class PgBiTemporalEventStoreIntegrationTest {
             receivedEventTypes.add(eventType);
             logger.info("order.*.completed subscriber received: {}", eventType);
             latch.countDown();
-            return CompletableFuture.completedFuture(null);
+            return Future.<Void>succeededFuture();
         });
         subscription.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
         awaitAsyncDelay(500);
@@ -921,7 +921,7 @@ class PgBiTemporalEventStoreIntegrationTest {
             receivedEventTypes.add(eventType);
             logger.info("order.* subscriber received: {}", eventType);
             latch.countDown();
-            return CompletableFuture.completedFuture(null);
+            return Future.<Void>succeededFuture();
         });
         subscription.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
         awaitAsyncDelay(500);
@@ -967,7 +967,7 @@ class PgBiTemporalEventStoreIntegrationTest {
             receivedEventTypes.add(eventType);
             logger.info("*.order.* subscriber received: {}", eventType);
             latch.countDown();
-            return CompletableFuture.completedFuture(null);
+            return Future.<Void>succeededFuture();
         });
         subscription.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
         awaitAsyncDelay(500);

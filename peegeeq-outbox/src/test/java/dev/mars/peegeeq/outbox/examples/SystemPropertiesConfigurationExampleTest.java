@@ -13,6 +13,7 @@ import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -27,7 +28,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.LockSupport;
 
@@ -243,7 +244,7 @@ public class SystemPropertiesConfigurationExampleTest {
                 int count = processedCount.incrementAndGet();
                 logger.info("📨 [{}] Processed message {} in thread: {} - Content: {}", 
                     scenarioName, count, Thread.currentThread().getName(), message.getPayload().content);
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
             
             // Send test messages

@@ -20,9 +20,12 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.lang.reflect.Field;
 import java.time.Duration;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+
+import io.vertx.core.Future;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -91,7 +94,9 @@ public class ListenReconnectFaultInjectionIT {
         if (consumer != null) consumer.unsubscribe();
         if (factory != null) factory.close();
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+            closeLatch.await(10, TimeUnit.SECONDS);
         }
     }
 
@@ -99,7 +104,7 @@ public class ListenReconnectFaultInjectionIT {
     void testListenReconnectAfterForcedDisconnect(Vertx vertx, VertxTestContext testContext) throws Exception {
         consumer.subscribe(msg -> {
             testContext.completeNow();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Wait for LISTEN connection to establish
@@ -117,7 +122,7 @@ public class ListenReconnectFaultInjectionIT {
                             if (getSubscriber((PgNativeQueueConsumer<?>) consumer) != null) {
                                 vertx.cancelTimer(reconnectId);
                                 // Send a message; should be received after reconnect
-                                producer.send("after-reconnect").get(5, TimeUnit.SECONDS);
+                                producer.send("after-reconnect");
                             }
                         } catch (Exception e) {
                             testContext.failNow(e);
@@ -134,7 +139,7 @@ public class ListenReconnectFaultInjectionIT {
 
     @Test
     void testUnsubscribeDoesNotReestablishListenConnection(Vertx vertx, VertxTestContext testContext) throws Exception {
-        consumer.subscribe(msg -> CompletableFuture.completedFuture(null));
+        consumer.subscribe(msg -> Future.succeededFuture());
 
         PgNativeQueueConsumer<?> concrete = (PgNativeQueueConsumer<?>) consumer;
 

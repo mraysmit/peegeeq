@@ -34,6 +34,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -44,7 +46,9 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.UUID;
-import java.util.concurrent.*;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -110,7 +114,9 @@ public class OutboxConsumerFailureHandlingTest {
             producer.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+            closeLatch.await(10, TimeUnit.SECONDS);
         }
     }
 
@@ -133,16 +139,18 @@ public class OutboxConsumerFailureHandlingTest {
         });
 
         // Send message that will fail
-        producer.send("test-message").get(5, TimeUnit.SECONDS);
+        CountDownLatch sendLatch = new CountDownLatch(1);
+        producer.send("test-message").onComplete(ar -> sendLatch.countDown());
+        assertTrue(sendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
         
         // Wait for all retry attempts
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Should attempt 4 times");
         assertEquals(4, attemptCount.get(), "Should have 4 processing attempts");
         
         // Allow final state transition
-        CompletableFuture<Void> stateWait = new CompletableFuture<>();
-        vertx.setTimer(2000, timerId -> stateWait.complete(null));
-        stateWait.get(5, TimeUnit.SECONDS);
+        CountDownLatch stateWaitLatch = new CountDownLatch(1);
+        vertx.setTimer(2000, timerId -> stateWaitLatch.countDown());
+        assertTrue(stateWaitLatch.await(5, TimeUnit.SECONDS), "Timer should complete");
         
         // Verify retry count after exhaustion
         try (Connection conn = DriverManager.getConnection(
@@ -163,32 +171,36 @@ public class OutboxConsumerFailureHandlingTest {
      */
     @Test
     void testProcessAvailableMessagesReactive_ConsumerClosedDuringProcessing(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
-        CompletableFuture<Void> startSignal = new CompletableFuture<>();
-        CompletableFuture<Void> finishGate = new CompletableFuture<>();
+        CountDownLatch startSignal = new CountDownLatch(1);
+        CountDownLatch finishGate = new CountDownLatch(1);
         
         // Subscribe with handler that blocks
         consumer.subscribe(message -> {
-            startSignal.complete(null);
+            startSignal.countDown();
             try {
-                finishGate.get(10, TimeUnit.SECONDS);
+                finishGate.await(10, TimeUnit.SECONDS);
             } catch (Exception e) {
                 Thread.currentThread().interrupt();
             }
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send messages to trigger processing
-        producer.send("message1").get(5, TimeUnit.SECONDS);
-        producer.send("message2").get(5, TimeUnit.SECONDS);
+        CountDownLatch sendLatch1 = new CountDownLatch(1);
+        producer.send("message1").onComplete(ar -> sendLatch1.countDown());
+        assertTrue(sendLatch1.await(5, TimeUnit.SECONDS), "Send 1 should complete");
+        CountDownLatch sendLatch2 = new CountDownLatch(1);
+        producer.send("message2").onComplete(ar -> sendLatch2.countDown());
+        assertTrue(sendLatch2.await(5, TimeUnit.SECONDS), "Send 2 should complete");
         
         // Wait for processing to start
-        startSignal.get(5, TimeUnit.SECONDS);
+        assertTrue(startSignal.await(5, TimeUnit.SECONDS), "Processing should start");
         
         // Close consumer while message is being processed
         consumer.close();
         
         // Release the blocked handler
-        finishGate.complete(null);
+        finishGate.countDown();
         
         // Verify consumer is closed
         assertTrue(true, "Consumer should handle closure during processing without errors");
@@ -206,12 +218,14 @@ public class OutboxConsumerFailureHandlingTest {
         
         consumer.subscribe(message -> {
             latch.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send multiple messages
         for (int i = 0; i < messageCount; i++) {
-            producer.send("batch-message-" + i).get(5, TimeUnit.SECONDS);
+            CountDownLatch batchSendLatch = new CountDownLatch(1);
+            producer.send("batch-message-" + i).onComplete(ar -> batchSendLatch.countDown());
+            assertTrue(batchSendLatch.await(5, TimeUnit.SECONDS), "Batch send " + i + " should complete");
         }
         
         // Wait for all messages to be processed
@@ -226,15 +240,17 @@ public class OutboxConsumerFailureHandlingTest {
     @Test
     void testGetReactivePoolFuture_ErrorHandling(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
         // Close the manager to cause pool access to fail
-        manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+        CountDownLatch mgrCloseLatch = new CountDownLatch(1);
+        manager.closeReactive().onComplete(ar -> mgrCloseLatch.countDown());
+        assertTrue(mgrCloseLatch.await(10, TimeUnit.SECONDS), "Manager close should complete");
         
         // Try to subscribe after manager is closed
         try {
-            consumer.subscribe(message -> CompletableFuture.completedFuture(null));
+            consumer.subscribe(message -> Future.succeededFuture());
             // Give time for the error to occur
-            CompletableFuture<Void> errorWait = new CompletableFuture<>();
-            vertx.setTimer(1000, timerId -> errorWait.complete(null));
-            errorWait.get(5, TimeUnit.SECONDS);
+            CountDownLatch errorWaitLatch = new CountDownLatch(1);
+            vertx.setTimer(1000, timerId -> errorWaitLatch.countDown());
+            assertTrue(errorWaitLatch.await(5, TimeUnit.SECONDS), "Timer should complete");
         } catch (Exception e) {
             // Expected - pool access should fail
         }
@@ -250,25 +266,27 @@ public class OutboxConsumerFailureHandlingTest {
      */
     @Test
     void testClose_WhileProcessing(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
-        CompletableFuture<Void> startSignal = new CompletableFuture<>();
-        CompletableFuture<Void> blockGate = new CompletableFuture<>();
+        CountDownLatch startSignal2 = new CountDownLatch(1);
+        CountDownLatch blockGate = new CountDownLatch(1);
         
         consumer.subscribe(message -> {
-            startSignal.complete(null);
+            startSignal2.countDown();
             try {
-                blockGate.get(5, TimeUnit.SECONDS);
+                blockGate.await(5, TimeUnit.SECONDS);
             } catch (Exception e) {
                 Thread.currentThread().interrupt();
             }
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
-        producer.send("test").get(5, TimeUnit.SECONDS);
-        startSignal.get(5, TimeUnit.SECONDS);
+        CountDownLatch closeSendLatch = new CountDownLatch(1);
+        producer.send("test").onComplete(ar -> closeSendLatch.countDown());
+        assertTrue(closeSendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
+        assertTrue(startSignal2.await(5, TimeUnit.SECONDS), "Processing should start");
         
         // Close while processing
         consumer.close();
-        blockGate.complete(null);
+        blockGate.countDown();
         
         // Close again (idempotent)
         consumer.close();
@@ -289,13 +307,16 @@ public class OutboxConsumerFailureHandlingTest {
         consumer.subscribe(message -> {
             receivedPayloads.add(message.getPayload());
             latch.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Test various payload formats
-        producer.send("simple-string").get(5, TimeUnit.SECONDS);
-        producer.send("{\"complex\":\"json\"}").get(5, TimeUnit.SECONDS);
-        producer.send("").get(5, TimeUnit.SECONDS); // Empty string
+        String[] payloads = {"simple-string", "{\"complex\":\"json\"}", ""};
+        for (String payload : payloads) {
+            CountDownLatch parseSendLatch = new CountDownLatch(1);
+            producer.send(payload).onComplete(ar -> parseSendLatch.countDown());
+            assertTrue(parseSendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
+        }
         
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process all payload types");
         assertEquals(3, receivedPayloads.size());
@@ -330,26 +351,28 @@ public class OutboxConsumerFailureHandlingTest {
             
             try {
                 // Send message
-                dlqProducer.send("test-dlq-failure").get(5, TimeUnit.SECONDS);
+                CountDownLatch dlqSendLatch = new CountDownLatch(1);
+                dlqProducer.send("test-dlq-failure").onComplete(ar -> dlqSendLatch.countDown());
+                assertTrue(dlqSendLatch.await(5, TimeUnit.SECONDS), "DLQ send should complete");
                 
                 // Subscribe with failing handler to exhaust retries
                 AtomicInteger attempts = new AtomicInteger(0);
-                CompletableFuture<Void> retriesExhausted = new CompletableFuture<>();
+                CountDownLatch retriesExhausted = new CountDownLatch(1);
                 
                 dlqConsumer.subscribe(message -> {
                     if (attempts.incrementAndGet() >= 2) {
-                        retriesExhausted.complete(null);
+                        retriesExhausted.countDown();
                     }
                     throw new RuntimeException("INTENTIONAL: Force DLQ");
                 });
                 
                 // Wait for retries to exhaust
-                retriesExhausted.get(15, TimeUnit.SECONDS);
+                assertTrue(retriesExhausted.await(15, TimeUnit.SECONDS), "Retries should exhaust");
                 
                 // Small delay to let DLQ operation start
-                CompletableFuture<Void> dlqWait = new CompletableFuture<>();
-                vertx.setTimer(200, timerId -> dlqWait.complete(null));
-                dlqWait.get(5, TimeUnit.SECONDS);
+                CountDownLatch dlqWaitLatch = new CountDownLatch(1);
+                vertx.setTimer(200, timerId -> dlqWaitLatch.countDown());
+                assertTrue(dlqWaitLatch.await(5, TimeUnit.SECONDS), "DLQ wait timer should complete");
                 
                 // Kill connections during DLQ operation
                 try (Connection adminConn = DriverManager.getConnection(
@@ -362,9 +385,9 @@ public class OutboxConsumerFailureHandlingTest {
                 }
                 
                 // Wait for error handling
-                CompletableFuture<Void> errorWait = new CompletableFuture<>();
-                vertx.setTimer(1000, timerId -> errorWait.complete(null));
-                errorWait.get(5, TimeUnit.SECONDS);
+                CountDownLatch dlqErrorLatch = new CountDownLatch(1);
+                vertx.setTimer(1000, timerId -> dlqErrorLatch.countDown());
+                assertTrue(dlqErrorLatch.await(5, TimeUnit.SECONDS), "Error wait timer should complete");
                 
                 testContext.completeNow();
             } finally {
@@ -407,23 +430,25 @@ public class OutboxConsumerFailureHandlingTest {
             
             try {
                 // Send message
-                retryProducer.send("test-retry-failure").get(5, TimeUnit.SECONDS);
+                CountDownLatch retrySendLatch = new CountDownLatch(1);
+                retryProducer.send("test-retry-failure").onComplete(ar -> retrySendLatch.countDown());
+                assertTrue(retrySendLatch.await(5, TimeUnit.SECONDS), "Retry send should complete");
                 
                 // Subscribe with handler that fails once
-                CompletableFuture<Void> firstAttempt = new CompletableFuture<>();
+                CountDownLatch firstAttempt = new CountDownLatch(1);
                 AtomicInteger attempts = new AtomicInteger(0);
                 
                 retryConsumer.subscribe(message -> {
                     int attempt = attempts.incrementAndGet();
                     if (attempt == 1) {
-                        firstAttempt.complete(null);
+                        firstAttempt.countDown();
                         throw new RuntimeException("INTENTIONAL: Force retry");
                     }
-                    return CompletableFuture.completedFuture(null);
+                    return Future.succeededFuture();
                 });
                 
                 // Wait for first failure
-                firstAttempt.get(10, TimeUnit.SECONDS);
+                assertTrue(firstAttempt.await(10, TimeUnit.SECONDS), "First attempt should complete");
                 
                 // Kill connections right after failure to disrupt retry increment
                 try (Connection adminConn = DriverManager.getConnection(
@@ -436,9 +461,9 @@ public class OutboxConsumerFailureHandlingTest {
                 }
                 
                 // Wait for error handling
-                CompletableFuture<Void> errorWait = new CompletableFuture<>();
-                vertx.setTimer(1000, timerId -> errorWait.complete(null));
-                errorWait.get(5, TimeUnit.SECONDS);
+                CountDownLatch retryErrorLatch = new CountDownLatch(1);
+                vertx.setTimer(1000, timerId -> retryErrorLatch.countDown());
+                assertTrue(retryErrorLatch.await(5, TimeUnit.SECONDS), "Error wait timer should complete");
                 
                 testContext.completeNow();
             } finally {

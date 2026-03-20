@@ -24,10 +24,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
+import io.vertx.core.Future;
+
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -70,18 +70,18 @@ public class LoggingDeadLetterQueueCoverageTest {
 
     @Test
     @DisplayName("should send message to dead letter successfully")
-    void testSendToDeadLetterSuccess() throws Exception {
+    void testSendToDeadLetterSuccess() {
         // Create test message
         Message<String> message = createTestMessage("msg-1", "test payload");
         Map<String, String> metadata = new HashMap<>();
         metadata.put("error", "processing failed");
         
         // Send to dead letter
-        CompletableFuture<Void> result = deadLetterQueue.sendToDeadLetter(
+        Future<Void> result = deadLetterQueue.sendToDeadLetter(
             message, "Test failure reason", 3, metadata);
         
-        // Wait for completion
-        result.get(5, TimeUnit.SECONDS);
+        // Verify completion
+        assertTrue(result.succeeded());
         
         // Verify metrics updated
         DeadLetterQueue.DeadLetterMetrics metrics = deadLetterQueue.getMetrics();
@@ -92,16 +92,16 @@ public class LoggingDeadLetterQueueCoverageTest {
 
     @Test
     @DisplayName("should handle multiple messages sent to dead letter")
-    void testMultipleMessages() throws Exception {
+    void testMultipleMessages() {
         // Send multiple messages
         for (int i = 1; i <= 3; i++) {
             Message<String> message = createTestMessage("msg-" + i, "payload-" + i);
             Map<String, String> metadata = new HashMap<>();
             
-            CompletableFuture<Void> result = deadLetterQueue.sendToDeadLetter(
+            Future<Void> result = deadLetterQueue.sendToDeadLetter(
                 message, "Failure " + i, i, metadata);
             
-            result.get(5, TimeUnit.SECONDS);
+            assertTrue(result.succeeded());
         }
         
         // Verify metrics
@@ -113,13 +113,13 @@ public class LoggingDeadLetterQueueCoverageTest {
 
     @Test
     @DisplayName("should handle null metadata gracefully")
-    void testNullMetadata() throws Exception {
+    void testNullMetadata() {
         Message<String> message = createTestMessage("msg-1", "payload");
         
-        CompletableFuture<Void> result = deadLetterQueue.sendToDeadLetter(
+        Future<Void> result = deadLetterQueue.sendToDeadLetter(
             message, "Test reason", 1, null);
         
-        assertDoesNotThrow(() -> result.get(5, TimeUnit.SECONDS));
+        assertTrue(result.succeeded());
         
         DeadLetterQueue.DeadLetterMetrics metrics = deadLetterQueue.getMetrics();
         assertEquals(1, metrics.getTotalSent());
@@ -127,14 +127,14 @@ public class LoggingDeadLetterQueueCoverageTest {
 
     @Test
     @DisplayName("should handle empty metadata")
-    void testEmptyMetadata() throws Exception {
+    void testEmptyMetadata() {
         Message<String> message = createTestMessage("msg-1", "payload");
         Map<String, String> metadata = new HashMap<>();
         
-        CompletableFuture<Void> result = deadLetterQueue.sendToDeadLetter(
+        Future<Void> result = deadLetterQueue.sendToDeadLetter(
             message, "Test reason", 1, metadata);
         
-        result.get(5, TimeUnit.SECONDS);
+        assertTrue(result.succeeded());
         
         DeadLetterQueue.DeadLetterMetrics metrics = deadLetterQueue.getMetrics();
         assertEquals(1, metrics.getTotalSent());
@@ -155,11 +155,11 @@ public class LoggingDeadLetterQueueCoverageTest {
 
     @Test
     @DisplayName("should calculate success rate correctly")
-    void testMetricsSuccessRate() throws Exception {
+    void testMetricsSuccessRate() {
         // Send one message
         Message<String> message = createTestMessage("msg-1", "payload");
-        deadLetterQueue.sendToDeadLetter(message, "reason", 1, new HashMap<>())
-            .get(5, TimeUnit.SECONDS);
+        Future<Void> rateResult = deadLetterQueue.sendToDeadLetter(message, "reason", 1, new HashMap<>());
+        assertTrue(rateResult.succeeded());
         
         DeadLetterQueue.DeadLetterMetrics metrics = deadLetterQueue.getMetrics();
         assertEquals(1.0, metrics.getSuccessRate(), 0.01);
@@ -167,30 +167,30 @@ public class LoggingDeadLetterQueueCoverageTest {
 
     @Test
     @DisplayName("should include all message details in log")
-    void testMessageDetailsLogging() throws Exception {
+    void testMessageDetailsLogging() {
         Message<String> message = createTestMessage("msg-detailed", "important payload");
         Map<String, String> metadata = new HashMap<>();
         metadata.put("key1", "value1");
         metadata.put("key2", "value2");
         
         // This should log all details without throwing
-        CompletableFuture<Void> result = deadLetterQueue.sendToDeadLetter(
+        Future<Void> result = deadLetterQueue.sendToDeadLetter(
             message, "Detailed failure reason", 5, metadata);
         
-        assertDoesNotThrow(() -> result.get(5, TimeUnit.SECONDS));
+        assertTrue(result.succeeded());
     }
 
     @Test
     @DisplayName("should handle intentional test failure messages specially")
-    void testIntentionalTestFailureMarking() throws Exception {
+    void testIntentionalTestFailureMarking() {
         Message<String> message = createTestMessage("msg-test", "test payload");
         Map<String, String> metadata = new HashMap<>();
         
         // Send with intentional test failure marker
-        CompletableFuture<Void> result = deadLetterQueue.sendToDeadLetter(
+        Future<Void> result = deadLetterQueue.sendToDeadLetter(
             message, "INTENTIONAL TEST FAILURE - testing DLQ", 1, metadata);
         
-        result.get(5, TimeUnit.SECONDS);
+        assertTrue(result.succeeded());
         
         DeadLetterQueue.DeadLetterMetrics metrics = deadLetterQueue.getMetrics();
         assertEquals(1, metrics.getTotalSent());
@@ -204,22 +204,22 @@ public class LoggingDeadLetterQueueCoverageTest {
 
     @Test
     @DisplayName("should allow operations after creation")
-    void testOperationsAfterCreation() throws Exception {
+    void testOperationsAfterCreation() {
         // Verify queue is usable immediately after creation
         Message<String> message = createTestMessage("msg-1", "payload");
         
-        CompletableFuture<Void> result = deadLetterQueue.sendToDeadLetter(
+        Future<Void> result = deadLetterQueue.sendToDeadLetter(
             message, "reason", 1, new HashMap<>());
         
-        assertDoesNotThrow(() -> result.get(5, TimeUnit.SECONDS));
+        assertTrue(result.succeeded());
     }
 
     @Test
     @DisplayName("should return valid metrics toString")
-    void testMetricsToString() throws Exception {
+    void testMetricsToString() {
         Message<String> message = createTestMessage("msg-1", "payload");
-        deadLetterQueue.sendToDeadLetter(message, "reason", 1, new HashMap<>())
-            .get(5, TimeUnit.SECONDS);
+        Future<Void> toStringResult = deadLetterQueue.sendToDeadLetter(message, "reason", 1, new HashMap<>());
+        assertTrue(toStringResult.succeeded());
         
         DeadLetterQueue.DeadLetterMetrics metrics = deadLetterQueue.getMetrics();
         String metricsString = metrics.toString();
@@ -231,13 +231,13 @@ public class LoggingDeadLetterQueueCoverageTest {
 
     @Test
     @DisplayName("should handle high volume of messages")
-    void testHighVolumeMessages() throws Exception {
+    void testHighVolumeMessages() {
         int messageCount = 10;
         
         for (int i = 0; i < messageCount; i++) {
             Message<String> message = createTestMessage("msg-" + i, "payload-" + i);
-            deadLetterQueue.sendToDeadLetter(message, "reason " + i, i, new HashMap<>())
-                .get(5, TimeUnit.SECONDS);
+            Future<Void> volumeResult = deadLetterQueue.sendToDeadLetter(message, "reason " + i, i, new HashMap<>());
+            assertTrue(volumeResult.succeeded());
         }
         
         DeadLetterQueue.DeadLetterMetrics metrics = deadLetterQueue.getMetrics();

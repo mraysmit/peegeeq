@@ -26,6 +26,8 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -36,6 +38,11 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
+
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.junit.jupiter.api.Assertions.*;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -102,52 +109,52 @@ public class RetryDebugTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         if (consumer != null) consumer.close();
         if (producer != null) producer.close();
         if (outboxFactory != null) outboxFactory.close();
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive().onComplete(ar -> testContext.completeNow());
+        } else {
+            testContext.completeNow();
         }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     /**
      * Checks database state using reactive pool for verification queries.
      */
-    private void checkDatabaseState(String phase) throws Exception {
-        io.vertx.sqlclient.Pool pool = manager.getDatabaseService().getConnectionProvider()
-            .getReactivePool("peegeeq-main").toCompletionStage().toCompletableFuture().get();
+    private Future<Void> checkDatabaseState(String phase) {
+        return manager.getDatabaseService().getConnectionProvider()
+            .getReactivePool("peegeeq-main")
+            .compose(pool -> pool.withConnection(conn -> {
+                logger.info("🔍 === DATABASE STATE: {} ===", phase);
 
-        pool.withConnection(conn -> {
-            logger.info("🔍 === DATABASE STATE: {} ===", phase);
+                String outboxSql = "SELECT id, topic, status, retry_count, max_retries, error_message FROM outbox WHERE topic = 'debug-retry' ORDER BY created_at DESC LIMIT 5";
+                return conn.preparedQuery(outboxSql).execute()
+                    .compose(outboxRows -> {
+                        logger.info("📊 OUTBOX TABLE:");
+                        outboxRows.forEach(row -> {
+                            logger.info("   ID: {}, Topic: {}, Status: {}, Retry: {}/{}, Error: {}",
+                                row.getLong("id"), row.getString("topic"), row.getString("status"),
+                                row.getInteger("retry_count"), row.getInteger("max_retries"),
+                                row.getString("error_message"));
+                        });
 
-            // Check outbox table
-            String outboxSql = "SELECT id, topic, status, retry_count, max_retries, error_message FROM outbox WHERE topic = 'debug-retry' ORDER BY created_at DESC LIMIT 5";
-            return conn.preparedQuery(outboxSql).execute()
-                .compose(outboxRows -> {
-                    logger.info("📊 OUTBOX TABLE:");
-                    outboxRows.forEach(row -> {
-                        logger.info("   ID: {}, Topic: {}, Status: {}, Retry: {}/{}, Error: {}",
-                            row.getLong("id"), row.getString("topic"), row.getString("status"),
-                            row.getInteger("retry_count"), row.getInteger("max_retries"),
-                            row.getString("error_message"));
+                        String consumerGroupSql = "SELECT ocg.consumer_group_name, ocg.status, ocg.retry_count, o.topic FROM outbox_consumer_groups ocg JOIN outbox o ON ocg.outbox_message_id = o.id WHERE o.topic = 'debug-retry' ORDER BY ocg.created_at DESC LIMIT 5";
+                        return conn.preparedQuery(consumerGroupSql).execute();
+                    })
+                    .map(groupRows -> {
+                        logger.info("📊 CONSUMER GROUPS TABLE:");
+                        groupRows.forEach(row -> {
+                            logger.info("   Group: {}, Status: {}, Retry: {}, Topic: {}",
+                                row.getString("consumer_group_name"), row.getString("status"),
+                                row.getInteger("retry_count"), row.getString("topic"));
+                        });
+                        logger.info("🔍 === END DATABASE STATE ===");
+                        return (Void) null;
                     });
-
-                    // Check consumer groups table
-                    String consumerGroupSql = "SELECT ocg.consumer_group_name, ocg.status, ocg.retry_count, o.topic FROM outbox_consumer_groups ocg JOIN outbox o ON ocg.outbox_message_id = o.id WHERE o.topic = 'debug-retry' ORDER BY ocg.created_at DESC LIMIT 5";
-                    return conn.preparedQuery(consumerGroupSql).execute();
-                })
-                .map(groupRows -> {
-                    logger.info("📊 CONSUMER GROUPS TABLE:");
-                    groupRows.forEach(row -> {
-                        logger.info("   Group: {}, Status: {}, Retry: {}, Topic: {}",
-                            row.getString("consumer_group_name"), row.getString("status"),
-                            row.getInteger("retry_count"), row.getString("topic"));
-                    });
-                    logger.info("🔍 === END DATABASE STATE ===");
-                    return null;
-                });
-        }).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
+            }));
     }
 
     @Test
@@ -157,81 +164,63 @@ public class RetryDebugTest {
 
         String testMessage = "Debug retry message";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        Checkpoint firstAttempt = testContext.checkpoint();
+        Promise<Void> firstAttemptPromise = Promise.promise();
 
         System.out.println("📤 Sending message: " + testMessage);
         logger.info("📤 Sending message: {}", testMessage);
 
-        // Send message FIRST, then set up consumer to avoid race condition
-        System.out.println("📤 Sending message FIRST to avoid race condition: " + testMessage);
-        producer.send(testMessage).get(5, TimeUnit.SECONDS);
-        System.out.println("📤 Message sent successfully: " + testMessage);
-        logger.info("📤 Message sent successfully: {}", testMessage);
+        // Send message, wait for commit, check DB, subscribe, wait for attempts
+        producer.send(testMessage)
+            .compose(v -> {
+                System.out.println("📤 Message sent successfully: " + testMessage);
+                logger.info("📤 Message sent successfully: {}", testMessage);
+                return vertx.timer(500);
+            })
+            .compose(timerId -> checkDatabaseState("After message sent"))
+            .compose(v -> {
+                System.out.println("🔧 Setting up consumer subscription AFTER message is sent...");
+                logger.info("🔧 Setting up consumer subscription...");
 
-        // Wait a moment to ensure the message is committed to the database
-        vertx.timer(500).toCompletionStage().toCompletableFuture().join();
+                consumer.subscribe(message -> {
+                    int attempt = attemptCount.incrementAndGet();
+                    System.out.println("🔥 ATTEMPT " + attempt + ": Processing message: " + message.getPayload());
+                    logger.info("🔥 ATTEMPT {}: Processing message: {}", attempt, message.getPayload());
 
-        // Check initial database state
-        checkDatabaseState("After message sent");
+                    firstAttemptPromise.tryComplete();
 
-        // NOW set up consumer that always fails
-        System.out.println("🔧 Setting up consumer subscription AFTER message is sent...");
-        logger.info("🔧 Setting up consumer subscription...");
-        System.out.println("🔧 Consumer instance: " + consumer);
-        System.out.println("🔧 Consumer class: " + consumer.getClass().getName());
+                    // Check database state during processing (fire-and-forget)
+                    checkDatabaseState("During attempt " + attempt)
+                        .onFailure(err -> logger.error("Error checking database state: {}", err.getMessage()));
 
-        try {
-            System.out.println("🔧 About to call subscribe() on consumer...");
-            consumer.subscribe(message -> {
-                int attempt = attemptCount.incrementAndGet();
-                System.out.println("🔥 ATTEMPT " + attempt + ": Processing message: " + message.getPayload());
-                logger.info("🔥 ATTEMPT {}: Processing message: {}", attempt, message.getPayload());
+                    throw new RuntimeException("INTENTIONAL FAILURE: Debug retry, attempt " + attempt);
+                });
+                System.out.println("Consumer subscribed successfully");
+                logger.info("Consumer subscribed successfully");
+                return Future.<Void>succeededFuture();
+            })
+            .compose(v -> firstAttemptPromise.future())
+            .compose(v -> {
+                System.out.println("First attempt completed");
+                logger.info("First attempt completed");
+                return vertx.timer(1000);
+            })
+            .compose(timerId -> checkDatabaseState("After first failure"))
+            .compose(v -> {
+                System.out.println("⏳ Waiting 5 seconds for potential retries...");
+                logger.info("⏳ Waiting 5 seconds for potential retries...");
+                return vertx.timer(5000);
+            })
+            .compose(timerId -> checkDatabaseState("After waiting 5 seconds"))
+            .onSuccess(v -> {
+                System.out.println("🔍 Total attempts made: " + attemptCount.get());
+                logger.info("🔍 Total attempts made: {}", attemptCount.get());
+                System.out.println("🔍 Debug test completed");
+                logger.info("🔍 Debug test completed");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
 
-                firstAttempt.flag();
-
-                // Check database state during processing
-                try {
-                    checkDatabaseState("During attempt " + attempt);
-                } catch (Exception e) {
-                    System.out.println("Error checking database state: " + e.getMessage());
-                    logger.error("Error checking database state: {}", e.getMessage());
-                }
-
-                throw new RuntimeException("INTENTIONAL FAILURE: Debug retry, attempt " + attempt);
-            });
-            System.out.println("Consumer subscribed successfully");
-            logger.info("Consumer subscribed successfully");
-        } catch (Exception e) {
-            System.out.println("❌ Failed to subscribe consumer: " + e.getMessage());
-            logger.error("❌ Failed to subscribe consumer: {}", e.getMessage(), e);
-            throw e;
-        }
-
-
-        // Wait for first attempt
-        boolean firstCompleted = testContext.awaitCompletion(10, TimeUnit.SECONDS);
-        System.out.println("First attempt completed: " + firstCompleted);
-        logger.info("First attempt completed: {}", firstCompleted);
-
-        if (!firstCompleted) {
-            System.out.println("❌ First attempt never happened - consumer may not be working");
-            logger.error("❌ First attempt never happened - consumer may not be working");
-        }
-
-        // Check database state after first failure
-        vertx.timer(1000).toCompletionStage().toCompletableFuture().join();
-        checkDatabaseState("After first failure");
-
-        // Wait longer to see if retry happens
-        System.out.println("⏳ Waiting 5 seconds for potential retries...");
-        logger.info("⏳ Waiting 5 seconds for potential retries...");
-        vertx.timer(5000).toCompletionStage().toCompletableFuture().join();
-        checkDatabaseState("After waiting 5 seconds");
-
-        System.out.println("🔍 Total attempts made: " + attemptCount.get());
-        logger.info("🔍 Total attempts made: {}", attemptCount.get());
-        System.out.println("🔍 Debug test completed");
-        logger.info("🔍 Debug test completed");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 }
 

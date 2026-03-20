@@ -28,10 +28,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+
+import io.vertx.core.Future;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -81,7 +84,9 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
             factory.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+            closeLatch.await(10, TimeUnit.SECONDS);
         }
     }
 
@@ -219,7 +224,11 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
             factory = null;
         }
         if (manager != null) {
-            try { manager.closeReactive().toCompletionStage().toCompletableFuture().join(); } catch (Exception ignore) {}
+            try {
+                CountDownLatch closeLatch = new CountDownLatch(1);
+                manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+                closeLatch.await(10, TimeUnit.SECONDS);
+            } catch (Exception ignore) {}
             manager = null;
         }
         PeeGeeQTestSchemaInitializer.initializeSchema(container,
@@ -275,10 +284,10 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
                         }
                     }
 
-                    return CompletableFuture.completedFuture(null);
+                    return Future.succeededFuture();
                 } catch (Exception e) {
                     logger.error("Error processing message", e);
-                    return CompletableFuture.failedFuture(e);
+                    return Future.failedFuture(e);
                 }
             });
 

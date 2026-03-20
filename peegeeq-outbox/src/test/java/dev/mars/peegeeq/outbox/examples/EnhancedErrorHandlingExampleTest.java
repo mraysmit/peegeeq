@@ -30,6 +30,7 @@ import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -50,7 +51,7 @@ import java.util.HashMap;
 
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -176,7 +177,7 @@ class EnhancedErrorHandlingExampleTest {
     }
     
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws InterruptedException {
         logger.info("🧹 Cleaning up Enhanced Error Handling Example Test");
 
         if (factory != null) {
@@ -187,27 +188,30 @@ class EnhancedErrorHandlingExampleTest {
             }
         }
 
-        if (manager != null) {
-            try {
-                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
-            } catch (Exception e) {
-                logger.warn("Error closing manager: {}", e.getMessage());
+        Future<Void> closeFuture = (manager != null)
+            ? manager.closeReactive()
+            : Future.succeededFuture();
+
+        closeFuture.onComplete(ar -> {
+            if (ar.failed()) {
+                logger.warn("Error closing manager: {}", ar.cause().getMessage());
             }
-        }
-        
-        // Clear system properties
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-        System.clearProperty("peegeeq.database.schema");
-        System.clearProperty("peegeeq.queue.max-retries");
-        System.clearProperty("peegeeq.queue.polling-interval");
-        System.clearProperty("peegeeq.consumer.threads");
-        System.clearProperty("peegeeq.queue.batch-size");
-        
-        logger.info("Enhanced Error Handling Example Test cleanup completed");
+            // Clear system properties
+            System.clearProperty("peegeeq.database.host");
+            System.clearProperty("peegeeq.database.port");
+            System.clearProperty("peegeeq.database.name");
+            System.clearProperty("peegeeq.database.username");
+            System.clearProperty("peegeeq.database.password");
+            System.clearProperty("peegeeq.database.schema");
+            System.clearProperty("peegeeq.queue.max-retries");
+            System.clearProperty("peegeeq.queue.polling-interval");
+            System.clearProperty("peegeeq.consumer.threads");
+            System.clearProperty("peegeeq.queue.batch-size");
+
+            logger.info("Enhanced Error Handling Example Test cleanup completed");
+            testContext.completeNow();
+        });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
     
     @Test
@@ -238,7 +242,7 @@ class EnhancedErrorHandlingExampleTest {
                     logger.info("EXPECTED SUCCESS: Successfully processed message: {} (total processed: {})",
                         payload.getMessageId(), processed);
                     checkpoint.flag();
-                    return CompletableFuture.completedFuture(null);
+                    return Future.succeededFuture();
                     
                 } catch (ProcessingException e) {
                     int retries = retryCount.incrementAndGet();
@@ -248,22 +252,21 @@ class EnhancedErrorHandlingExampleTest {
                     
                     if (e.isRetryable() && attempt < 3) {
                         // Simulate exponential backoff using Vert.x timer
-                        CompletableFuture<Void> backoffFuture = new CompletableFuture<>();
                         long delayMs = 100 * (1L << attempt); // 100ms, 200ms, 400ms
-                        vertx.setTimer(delayMs, id -> backoffFuture.complete(null));
-                        return backoffFuture.thenCompose(v -> CompletableFuture.failedFuture(e));
+                        return vertx.timer(delayMs).compose(id -> Future.failedFuture(e));
                     } else {
                         logger.info("EXPECTED FAILURE: Message failed after max retries: {}", payload.getMessageId());
                         checkpoint.flag();
-                        return CompletableFuture.failedFuture(e);
+                        return Future.failedFuture(e);
                     }
                 }
             });
             
             // Send test messages with different error scenarios
-            sendErrorTestMessage(producer, "retry-001", "TRANSIENT_ERROR", "Transient network error");
-            sendErrorTestMessage(producer, "retry-002", "VALIDATION_ERROR", "Invalid data format");
-            sendErrorTestMessage(producer, "retry-003", null, "Success message"); // Should succeed
+            sendErrorTestMessage(producer, "retry-001", "TRANSIENT_ERROR", "Transient network error")
+                .compose(v -> sendErrorTestMessage(producer, "retry-002", "VALIDATION_ERROR", "Invalid data format"))
+                .compose(v -> sendErrorTestMessage(producer, "retry-003", null, "Success message"))
+                .onFailure(testContext::failNow);
             
             // Wait for processing - increased timeout for integration test
             assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Retry strategies test should complete within timeout");
@@ -299,7 +302,7 @@ class EnhancedErrorHandlingExampleTest {
                         payload.getMessageId());
                     logger.info("   📋 This demonstrates circuit breaker protection against cascading failures");
                     checkpoint.flag();
-                    return CompletableFuture.failedFuture(new RuntimeException("Circuit breaker is OPEN"));
+                    return Future.failedFuture(new RuntimeException("Circuit breaker is OPEN"));
                 }
 
                 try {
@@ -311,7 +314,7 @@ class EnhancedErrorHandlingExampleTest {
                     logger.info("EXPECTED SUCCESS: Circuit breaker processing succeeded: {} (total: {})",
                         payload.getMessageId(), processed);
                     checkpoint.flag();
-                    return CompletableFuture.completedFuture(null);
+                    return Future.succeededFuture();
 
                 } catch (ProcessingException e) {
                     int failures = consecutiveFailures.incrementAndGet();
@@ -326,16 +329,17 @@ class EnhancedErrorHandlingExampleTest {
                     }
 
                     checkpoint.flag();
-                    return CompletableFuture.failedFuture(e);
+                    return Future.failedFuture(e);
                 }
             });
 
             // Send messages that will trigger circuit breaker
-            sendErrorTestMessage(producer, "cb-001", "SYSTEM_ERROR", "Database connection failed");
-            sendErrorTestMessage(producer, "cb-002", "SYSTEM_ERROR", "Service unavailable");
-            sendErrorTestMessage(producer, "cb-003", "SYSTEM_ERROR", "Timeout occurred");
-            sendErrorTestMessage(producer, "cb-004", "SYSTEM_ERROR", "Should be rejected by circuit breaker");
-            sendErrorTestMessage(producer, "cb-005", null, "Success message - but circuit breaker is open");
+            sendErrorTestMessage(producer, "cb-001", "SYSTEM_ERROR", "Database connection failed")
+                .compose(v -> sendErrorTestMessage(producer, "cb-002", "SYSTEM_ERROR", "Service unavailable"))
+                .compose(v -> sendErrorTestMessage(producer, "cb-003", "SYSTEM_ERROR", "Timeout occurred"))
+                .compose(v -> sendErrorTestMessage(producer, "cb-004", "SYSTEM_ERROR", "Should be rejected by circuit breaker"))
+                .compose(v -> sendErrorTestMessage(producer, "cb-005", null, "Success message - but circuit breaker is open"))
+                .onFailure(testContext::failNow);
 
             // Wait for processing - increased timeout for integration test
             assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Circuit breaker test should complete within timeout");
@@ -371,7 +375,7 @@ class EnhancedErrorHandlingExampleTest {
                     logger.info("EXPECTED SUCCESS: DLQ demo processing succeeded: {} (total: {})",
                         payload.getMessageId(), processed);
                     checkpoint.flag();
-                    return CompletableFuture.completedFuture(null);
+                    return Future.succeededFuture();
 
                 } catch (ProcessingException e) {
                     if (!e.isRetryable() || payload.getProcessingAttempts() >= 3) {
@@ -381,21 +385,22 @@ class EnhancedErrorHandlingExampleTest {
                             payload.getMessageId(), dlqMessages);
                         logger.info("   📋 This demonstrates proper dead letter queue management");
                         checkpoint.flag();
-                        return CompletableFuture.failedFuture(new RuntimeException("Moved to DLQ: " + e.getMessage()));
+                        return Future.failedFuture(new RuntimeException("Moved to DLQ: " + e.getMessage()));
                     } else {
                         logger.warn("🎯 INTENTIONAL TEST FAILURE: DLQ demo processing failed (will retry): {}",
                             payload.getMessageId());
                         checkpoint.flag();
-                        return CompletableFuture.failedFuture(e);
+                        return Future.failedFuture(e);
                     }
                 }
             });
 
             // Send messages with different failure patterns
-            sendErrorTestMessage(producer, "dlq-001", "POISON_MESSAGE", "Malformed data that cannot be processed");
-            sendErrorTestMessage(producer, "dlq-002", "VALIDATION_ERROR", "Business rule violation");
-            sendErrorTestMessage(producer, "dlq-003", null, "Success message");
-            sendErrorTestMessage(producer, "dlq-004", "TRANSIENT_ERROR", "Network timeout");
+            sendErrorTestMessage(producer, "dlq-001", "POISON_MESSAGE", "Malformed data that cannot be processed")
+                .compose(v -> sendErrorTestMessage(producer, "dlq-002", "VALIDATION_ERROR", "Business rule violation"))
+                .compose(v -> sendErrorTestMessage(producer, "dlq-003", null, "Success message"))
+                .compose(v -> sendErrorTestMessage(producer, "dlq-004", "TRANSIENT_ERROR", "Network timeout"))
+                .onFailure(testContext::failNow);
 
             // Wait for processing - increased timeout for integration test
             assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Dead letter queue test should complete within timeout");
@@ -447,22 +452,23 @@ class EnhancedErrorHandlingExampleTest {
                     logger.info("EXPECTED SUCCESS: Error routing succeeded: {} (processed: {}, routed: {})",
                         payload.getMessageId(), processed, routed);
                     checkpoint.flag();
-                    return CompletableFuture.completedFuture(null);
+                    return Future.succeededFuture();
 
                 } catch (ProcessingException e) {
                     logger.warn("\ud83c\udfaf INTENTIONAL TEST FAILURE: Error routing processing failed: {}",
                         payload.getMessageId());
                     logger.info("   \ud83d\udccb This failure demonstrates error classification and routing");
                     checkpoint.flag();
-                    return CompletableFuture.failedFuture(e);
+                    return Future.failedFuture(e);
                 }
             });
 
             // Send messages with different error types for routing
-            sendErrorTestMessage(producer, "route-001", "TRANSIENT_ERROR", "Should be retried");
-            sendErrorTestMessage(producer, "route-002", "NON_CRITICAL_ERROR", "Should be ignored");
-            sendErrorTestMessage(producer, "route-003", "CRITICAL_ERROR", "Should trigger alert");
-            sendErrorTestMessage(producer, "route-004", null, "Success message");
+            sendErrorTestMessage(producer, "route-001", "TRANSIENT_ERROR", "Should be retried")
+                .compose(v -> sendErrorTestMessage(producer, "route-002", "NON_CRITICAL_ERROR", "Should be ignored"))
+                .compose(v -> sendErrorTestMessage(producer, "route-003", "CRITICAL_ERROR", "Should trigger alert"))
+                .compose(v -> sendErrorTestMessage(producer, "route-004", null, "Success message"))
+                .onFailure(testContext::failNow);
 
             // Wait for processing - increased timeout for integration test
             assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Error classification and routing test should complete within timeout");
@@ -495,7 +501,7 @@ class EnhancedErrorHandlingExampleTest {
                         payload.getMessageId(), poisonMessages);
                     logger.info("   📋 This demonstrates poison message detection and isolation");
                     checkpoint.flag();
-                    return CompletableFuture.failedFuture(new RuntimeException("Poison message isolated"));
+                    return Future.failedFuture(new RuntimeException("Poison message isolated"));
                 }
 
                 try {
@@ -505,20 +511,21 @@ class EnhancedErrorHandlingExampleTest {
                     logger.info("\u2705 EXPECTED SUCCESS: Poison demo processing succeeded: {} (total: {})",
                         payload.getMessageId(), processed);
                     checkpoint.flag();
-                    return CompletableFuture.completedFuture(null);
+                    return Future.succeededFuture();
 
                 } catch (ProcessingException e) {
                     logger.warn("🎯 INTENTIONAL TEST FAILURE: Poison demo processing failed: {}",
                         payload.getMessageId());
                     checkpoint.flag();
-                    return CompletableFuture.failedFuture(e);
+                    return Future.failedFuture(e);
                 }
             });
 
             // Send messages including poison messages
-            sendErrorTestMessage(producer, "poison-001", "POISON_MESSAGE", "Malformed message that always fails");
-            sendErrorTestMessage(producer, "poison-002", null, "Normal message");
-            sendErrorTestMessage(producer, "poison-003", "VALIDATION_ERROR", "Recoverable error");
+            sendErrorTestMessage(producer, "poison-001", "POISON_MESSAGE", "Malformed message that always fails")
+                .compose(v -> sendErrorTestMessage(producer, "poison-002", null, "Normal message"))
+                .compose(v -> sendErrorTestMessage(producer, "poison-003", "VALIDATION_ERROR", "Recoverable error"))
+                .onFailure(testContext::failNow);
 
             // Wait for processing - increased timeout for integration test
             assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), "Poison message handling test should complete within timeout");
@@ -532,8 +539,8 @@ class EnhancedErrorHandlingExampleTest {
     /**
      * Helper method to send error test messages.
      */
-    private void sendErrorTestMessage(MessageProducer<ErrorTestMessage> producer, String messageId,
-                                    String errorType, String content) throws Exception {
+    private Future<Void> sendErrorTestMessage(MessageProducer<ErrorTestMessage> producer, String messageId,
+                                    String errorType, String content) {
         // Use a fixed ISO 8601 timestamp string to avoid serialization issues
         String fixedTimestamp = "2025-01-01T00:00:00Z";
         ErrorTestMessage message = new ErrorTestMessage(
@@ -550,8 +557,8 @@ class EnhancedErrorHandlingExampleTest {
         headers.put("messageId", messageId);
         headers.put("errorType", errorType != null ? errorType : "SUCCESS");
 
-        producer.send(message, headers).join();
-        logger.info("📤 Sent test message: {} (errorType: {})", messageId, errorType);
+        return producer.send(message, headers)
+            .onSuccess(v -> logger.info("📤 Sent test message: {} (errorType: {})", messageId, errorType));
     }
 
     /**

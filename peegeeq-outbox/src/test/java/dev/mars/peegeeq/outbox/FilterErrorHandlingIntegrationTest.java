@@ -6,6 +6,7 @@ import dev.mars.peegeeq.api.messaging.SimpleMessage;
 import dev.mars.peegeeq.outbox.config.FilterErrorHandlingConfig;
 import dev.mars.peegeeq.outbox.resilience.FilterCircuitBreaker;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Future;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
@@ -13,7 +14,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.LockSupport;
 import java.util.function.Predicate;
@@ -74,7 +75,7 @@ public class FilterErrorHandlingIntegrationTest {
         MessageHandler<TestMessage> productionHandler = message -> {
             successfulProcessing.incrementAndGet();
             logger.debug("Successfully processed: {}", message.getId());
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         };
         
         // Production-like configuration
@@ -218,7 +219,7 @@ public class FilterErrorHandlingIntegrationTest {
         
         MessageHandler<TestMessage> handler = message -> {
             logger.debug("Processing recovered message: {}", message.getId());
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         };
         
         FilterErrorHandlingConfig config = FilterErrorHandlingConfig.builder()

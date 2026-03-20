@@ -4,6 +4,7 @@ import io.vertx.core.Vertx;
 import io.vertx.core.WorkerExecutor;
 import org.junit.jupiter.api.Test;
 
+
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.RejectedExecutionException;

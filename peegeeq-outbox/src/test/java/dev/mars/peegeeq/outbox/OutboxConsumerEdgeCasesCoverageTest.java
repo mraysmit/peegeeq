@@ -15,6 +15,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -22,7 +24,8 @@ import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -99,7 +102,9 @@ class OutboxConsumerEdgeCasesCoverageTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+            closeLatch.await(10, TimeUnit.SECONDS);
         }
     }
 
@@ -113,11 +118,13 @@ class OutboxConsumerEdgeCasesCoverageTest {
 
         consumer.subscribe(message -> {
             messagesProcessed.incrementAndGet();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send a message
-        producer.send("test-data").get(5, TimeUnit.SECONDS);
+        CountDownLatch sendLatch = new CountDownLatch(1);
+        producer.send("test-data").onComplete(ar -> sendLatch.countDown());
+        assertTrue(sendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
 
         Checkpoint shutdownCheckpoint = testContext.checkpoint();
         vertx.setTimer(50, id -> {
@@ -150,7 +157,9 @@ class OutboxConsumerEdgeCasesCoverageTest {
         });
 
         // Send message
-        producer.send("test-data").get(5, TimeUnit.SECONDS);
+        CountDownLatch dlqSendLatch = new CountDownLatch(1);
+        producer.send("test-data").onComplete(ar -> dlqSendLatch.countDown());
+        assertTrue(dlqSendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
 
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should process message at least once");
 
@@ -173,13 +182,15 @@ class OutboxConsumerEdgeCasesCoverageTest {
         consumer.subscribe(message -> {
             messagesProcessed.incrementAndGet();
             firstMessageCheckpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send multiple messages
-        producer.send("message1").get(5, TimeUnit.SECONDS);
-        producer.send("message2").get(5, TimeUnit.SECONDS);
-        producer.send("message3").get(5, TimeUnit.SECONDS);
+        CountDownLatch execSendLatch = new CountDownLatch(3);
+        producer.send("message1").onComplete(ar -> execSendLatch.countDown());
+        producer.send("message2").onComplete(ar -> execSendLatch.countDown());
+        producer.send("message3").onComplete(ar -> execSendLatch.countDown());
+        assertTrue(execSendLatch.await(5, TimeUnit.SECONDS), "All sends should complete");
 
         // Wait for first message
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should process first message");
@@ -204,7 +215,9 @@ class OutboxConsumerEdgeCasesCoverageTest {
             throw new RuntimeException("INTENTIONAL FAILURE for retry test");
         });
 
-        producer.send("test").get(5, TimeUnit.SECONDS);
+        CountDownLatch retrySendLatch = new CountDownLatch(1);
+        producer.send("test").onComplete(ar -> retrySendLatch.countDown());
+        assertTrue(retrySendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
 
         // Wait for retries
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should process message multiple times");
@@ -226,9 +239,9 @@ class OutboxConsumerEdgeCasesCoverageTest {
             throw new RuntimeException("INTENTIONAL FAILURE to trigger retries and DLQ");
         });
 
-        producer.send("test-data").get(5, TimeUnit.SECONDS);
-
-        // Wait for all retry attempts
+        CountDownLatch dlqPoolSendLatch = new CountDownLatch(1);
+        producer.send("test-data").onComplete(ar -> dlqPoolSendLatch.countDown());
+        assertTrue(dlqPoolSendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should complete all retry attempts");
 
         // Close consumer to trigger pool closure during DLQ
@@ -248,15 +261,17 @@ class OutboxConsumerEdgeCasesCoverageTest {
             processedCount.incrementAndGet();
             startProcessing.flag();
             // Slow processing via non-blocking delay
-            CompletableFuture<Void> future = new CompletableFuture<>();
-            vertx.setTimer(100, id -> future.complete(null));
-            return future;
+            Promise<Void> promise = Promise.promise();
+            vertx.setTimer(100, id -> promise.complete());
+            return promise.future();
         });
 
         // Send multiple messages
+        CountDownLatch checkpointSendLatch = new CountDownLatch(5);
         for (int i = 0; i < 5; i++) {
-            producer.send("message-" + i).get(5, TimeUnit.SECONDS);
+            producer.send("message-" + i).onComplete(ar -> checkpointSendLatch.countDown());
         }
+        assertTrue(checkpointSendLatch.await(5, TimeUnit.SECONDS), "All sends should complete");
 
         // Wait for processing to start
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should start processing");
@@ -281,7 +296,7 @@ class OutboxConsumerEdgeCasesCoverageTest {
         
         // Should handle gracefully
         try {
-            earlyCloseConsumer.subscribe(msg -> CompletableFuture.completedFuture(null));
+            earlyCloseConsumer.subscribe(msg -> Future.succeededFuture());
             earlyCloseConsumer.close(); // Double close
         } catch (Exception e) {
             // Expected - consumer already closed
@@ -294,19 +309,21 @@ class OutboxConsumerEdgeCasesCoverageTest {
         activeConsumer.subscribe(message -> {
             processing.flag();
             // Simulate work via non-blocking delay
-            CompletableFuture<Void> future = new CompletableFuture<>();
-            vertx.setTimer(200, id -> future.complete(null));
-            return future;
+            Promise<Void> promise = Promise.promise();
+            vertx.setTimer(200, id -> promise.complete());
+            return promise.future();
         });
 
-        producer.send("test-message").get(5, TimeUnit.SECONDS);
+        CountDownLatch scenarioSendLatch = new CountDownLatch(1);
+        producer.send("test-message").onComplete(ar -> scenarioSendLatch.countDown());
+        assertTrue(scenarioSendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
         
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should start processing");
         activeConsumer.close(); // Close while processing
 
         // Scenario 3: Close after unsubscribe
         MessageConsumer<String> unsubscribeConsumer = outboxFactory.createConsumer(testTopic, String.class);
-        unsubscribeConsumer.subscribe(msg -> CompletableFuture.completedFuture(null));
+        unsubscribeConsumer.subscribe(msg -> Future.succeededFuture());
         unsubscribeConsumer.unsubscribe();
         unsubscribeConsumer.close();
     }

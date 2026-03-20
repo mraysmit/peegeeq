@@ -4,6 +4,7 @@ import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.outbox.config.FilterErrorHandlingConfig;
 import dev.mars.peegeeq.outbox.resilience.FilterCircuitBreaker;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Future;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.DisplayName;
@@ -11,7 +12,7 @@ import org.junit.jupiter.api.DisplayName;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
 
@@ -63,7 +64,7 @@ public class FilterErrorHandlingTest {
             "failing-filter-consumer",
             "test-group",
             "test-topic",
-            message -> CompletableFuture.completedFuture(null),
+            message -> Future.succeededFuture(),
             alwaysFailingFilter,
             mockConsumerGroup,
             config
@@ -153,7 +154,7 @@ public class FilterErrorHandlingTest {
             "reject-consumer",
             "test-group",
             "test-topic",
-            message -> CompletableFuture.completedFuture(null),
+            message -> Future.succeededFuture(),
             message -> {
                 // Throwing exception is the correct way to test REJECT_IMMEDIATELY strategy
                 throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Reject immediately - THIS IS EXPECTED");
@@ -189,7 +190,7 @@ public class FilterErrorHandlingTest {
             "test-consumer",
             "test-group",
             "test-topic",
-            message -> CompletableFuture.completedFuture(null),
+            message -> Future.succeededFuture(),
             message -> {
                 // Throwing exception is the correct way to test error handling with testing config
                 throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: Simulated test error - THIS IS EXPECTED");

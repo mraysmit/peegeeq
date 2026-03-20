@@ -15,6 +15,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -24,7 +25,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -98,7 +100,9 @@ class OutboxConsumerSurgicalCoverageTest {
         }
         if (manager != null) {
             try {
-                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+                CountDownLatch closeLatch = new CountDownLatch(1);
+                manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+                closeLatch.await(10, TimeUnit.SECONDS);
             } catch (Exception ignored) {}
         }
         System.clearProperty("peegeeq.queue.consumer-threads");
@@ -131,13 +135,13 @@ class OutboxConsumerSurgicalCoverageTest {
         consumer.subscribe(message -> {
             receivedCount.incrementAndGet();
             checkpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send multiple messages to exercise thread pool
-        producer.send("msg1").get(5, TimeUnit.SECONDS);
-        producer.send("msg2").get(5, TimeUnit.SECONDS);
-        producer.send("msg3").get(5, TimeUnit.SECONDS);
+        producer.send("msg1").onFailure(testContext::failNow);
+        producer.send("msg2").onFailure(testContext::failNow);
+        producer.send("msg3").onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process all messages with multi-threaded executor");
         assertEquals(3, receivedCount.get(), "Should process exactly 3 messages");
@@ -167,12 +171,12 @@ class OutboxConsumerSurgicalCoverageTest {
         consumer.subscribe(message -> {
             receivedCount.incrementAndGet();
             checkpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send batch of messages
         for (int i = 0; i < 5; i++) {
-            producer.send("batch-msg-" + i).get(5, TimeUnit.SECONDS);
+            producer.send("batch-msg-" + i).onFailure(testContext::failNow);
         }
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process batch of messages");
@@ -206,7 +210,7 @@ class OutboxConsumerSurgicalCoverageTest {
             throw new RuntimeException("Intentional failure for retry test");
         });
 
-        producer.send("retry-msg").get(5, TimeUnit.SECONDS);
+        producer.send("retry-msg").onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should attempt message processing");
         assertTrue(attemptCount.get() >= 1);
@@ -237,10 +241,10 @@ class OutboxConsumerSurgicalCoverageTest {
         Checkpoint checkpoint = testContext.checkpoint();
         consumer.subscribe(message -> {
             checkpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
-        producer.send("group-msg").get(5, TimeUnit.SECONDS);
+        producer.send("group-msg").onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process message with consumer group name set");
     }
@@ -266,12 +270,10 @@ class OutboxConsumerSurgicalCoverageTest {
 
         consumer.subscribe(message -> {
             checkpoint.flag();
-            CompletableFuture<Void> future = new CompletableFuture<>();
-            future.completeExceptionally(new RuntimeException("Async failure"));
-            return future;
+            return Future.failedFuture(new RuntimeException("Async failure"));
         });
 
-        producer.send("async-fail").get(5, TimeUnit.SECONDS);
+        producer.send("async-fail").onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should invoke handler");
     }
@@ -299,14 +301,14 @@ class OutboxConsumerSurgicalCoverageTest {
         consumer.subscribe(message -> {
             receivedHeaders.set(message.getHeaders());
             checkpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         Map<String, String> headers = new HashMap<>();
         headers.put("key1", "value1");
         String correlationId = "corr-" + UUID.randomUUID();
 
-        producer.send("correlation-msg", headers, correlationId).get(5, TimeUnit.SECONDS);
+        producer.send("correlation-msg", headers, correlationId).onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive message");
         assertNotNull(receivedHeaders.get(), "Should have headers");
@@ -328,10 +330,10 @@ class OutboxConsumerSurgicalCoverageTest {
         outboxFactory = new OutboxFactory(databaseService, config);
         consumer = outboxFactory.createConsumer(testTopic, String.class);
 
-        consumer.subscribe(message -> CompletableFuture.completedFuture(null));
+        consumer.subscribe(message -> Future.succeededFuture());
 
         // Subscribe again - should log warning but not fail
-        consumer.subscribe(message -> CompletableFuture.completedFuture(null));
+        consumer.subscribe(message -> Future.succeededFuture());
     }
 
     /**
@@ -352,7 +354,7 @@ class OutboxConsumerSurgicalCoverageTest {
         consumer.close();
 
         assertThrows(IllegalStateException.class, () -> {
-            consumer.subscribe(message -> CompletableFuture.completedFuture(null));
+            consumer.subscribe(message -> Future.succeededFuture());
         }, "Should throw IllegalStateException when subscribing to closed consumer");
     }
 
@@ -397,11 +399,11 @@ class OutboxConsumerSurgicalCoverageTest {
         consumer.subscribe(message -> {
             receivedHeaders.set(message.getHeaders());
             checkpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send with null headers
-        producer.send("null-header-msg", null).get(5, TimeUnit.SECONDS);
+        producer.send("null-header-msg", null).onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive message");
         assertNotNull(receivedHeaders.get(), "Headers map should not be null (should be empty map)");
@@ -429,11 +431,11 @@ class OutboxConsumerSurgicalCoverageTest {
         consumer.subscribe(message -> {
             receivedHeaders.set(message.getHeaders());
             checkpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send with empty headers map
-        producer.send("empty-header-msg", new HashMap<>()).get(5, TimeUnit.SECONDS);
+        producer.send("empty-header-msg", new HashMap<>()).onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive message");
         assertNotNull(receivedHeaders.get(), "Headers should not be null");
@@ -462,10 +464,10 @@ class OutboxConsumerSurgicalCoverageTest {
 
         consumer.subscribe(message -> {
             checkpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
-        producer.send("metrics-msg").get(5, TimeUnit.SECONDS);
+        producer.send("metrics-msg").onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process message");
     }
@@ -494,7 +496,7 @@ class OutboxConsumerSurgicalCoverageTest {
             throw new IllegalArgumentException("Test failure for metrics");
         });
 
-        producer.send("failure-metrics-msg").get(5, TimeUnit.SECONDS);
+        producer.send("failure-metrics-msg").onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should attempt to process message");
     }

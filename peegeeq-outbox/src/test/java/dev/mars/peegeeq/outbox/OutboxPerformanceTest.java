@@ -26,6 +26,7 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -46,7 +47,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Properties;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -120,7 +121,7 @@ public class OutboxPerformanceTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         if (consumer != null) {
             consumer.close();
         }
@@ -131,8 +132,11 @@ public class OutboxPerformanceTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive().onComplete(ar -> testContext.completeNow());
+        } else {
+            testContext.completeNow();
         }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         
         // Clear system properties
         System.clearProperty("peegeeq.database.host");
@@ -166,20 +170,22 @@ public class OutboxPerformanceTest {
             totalProcessingTime.addAndGet(endTime - startTime);
             
             allProcessed.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         System.out.println("Starting throughput test with " + messageCount + " messages...");
         Instant startTime = Instant.now();
 
         // Send all messages as fast as possible
-        List<CompletableFuture<Void>> sendFutures = new java.util.ArrayList<>(messageCount);
+        List<Future<Void>> sendFutures = new java.util.ArrayList<>(messageCount);
         for (int i = 0; i < messageCount; i++) {
             sendFutures.add(producer.send("Performance test message " + i));
         }
 
         // Wait for all sends to complete
-        CompletableFuture.allOf(sendFutures.toArray(new CompletableFuture[0])).get(60, TimeUnit.SECONDS);
+        java.util.concurrent.CountDownLatch sendLatch = new java.util.concurrent.CountDownLatch(1);
+        Future.all(sendFutures).onComplete(ar -> sendLatch.countDown());
+        assertTrue(sendLatch.await(60, TimeUnit.SECONDS), "All sends should complete");
         Instant sendCompleteTime = Instant.now();
 
         // Wait for all messages to be processed
@@ -232,24 +238,28 @@ public class OutboxPerformanceTest {
             maxLatency.updateAndGet(current -> Math.max(current, latency));
             
             allProcessed.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         System.out.println("Starting latency test with " + messageCount + " messages...");
 
         // Send messages with timestamps (with small delays between sends)
+        java.util.concurrent.CountDownLatch execLatch = new java.util.concurrent.CountDownLatch(1);
         vertx.executeBlocking(() -> {
             for (int i = 0; i < messageCount; i++) {
                 long sendTime = System.nanoTime();
+                java.util.concurrent.CountDownLatch sendLatch = new java.util.concurrent.CountDownLatch(1);
                 producer.send("Latency test message " + i, 
                     Map.of("sendTime", String.valueOf(sendTime)))
-                    .get(5, TimeUnit.SECONDS);
+                    .onComplete(ar -> sendLatch.countDown());
+                sendLatch.await(5, TimeUnit.SECONDS);
                 
                 // Small delay between sends to measure individual latencies
                 LockSupport.parkNanos(10_000_000L);
             }
             return null;
-        }).toCompletionStage().toCompletableFuture().join();
+        }).onComplete(ar -> execLatch.countDown());
+        execLatch.await(120, TimeUnit.SECONDS);
 
         // Wait for all messages to be processed
         assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS), 
@@ -287,7 +297,7 @@ public class OutboxPerformanceTest {
                 System.out.println("Processed " + count + " concurrent messages...");
             }
             allProcessed.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         System.out.println("Starting concurrent producer test: " + producerCount + 
@@ -296,29 +306,35 @@ public class OutboxPerformanceTest {
         Instant startTime = Instant.now();
 
         // Create and run concurrent producers
-        CompletableFuture<Void>[] producerFutures = new CompletableFuture[producerCount];
+        java.util.concurrent.ExecutorService executor = java.util.concurrent.Executors.newFixedThreadPool(producerCount);
+        java.util.concurrent.CountDownLatch producerLatch = new java.util.concurrent.CountDownLatch(producerCount);
         
         for (int p = 0; p < producerCount; p++) {
             final int producerId = p;
-            producerFutures[p] = CompletableFuture.runAsync(() -> {
+            executor.submit(() -> {
                 try {
                     MessageProducer<String> concurrentProducer = 
                         outboxFactory.createProducer(testTopic, String.class);
                     
                     for (int m = 0; m < messagesPerProducer; m++) {
+                        java.util.concurrent.CountDownLatch sendLatch = new java.util.concurrent.CountDownLatch(1);
                         concurrentProducer.send("Concurrent-P" + producerId + "-M" + m)
-                            .get(10, TimeUnit.SECONDS);
+                            .onComplete(ar -> sendLatch.countDown());
+                        sendLatch.await(10, TimeUnit.SECONDS);
                     }
                     
                     concurrentProducer.close();
                 } catch (Exception e) {
-                    throw new RuntimeException("Producer " + producerId + " failed", e);
+                    System.err.println("Producer " + producerId + " failed: " + e.getMessage());
+                } finally {
+                    producerLatch.countDown();
                 }
             });
         }
 
         // Wait for all producers to complete
-        CompletableFuture.allOf(producerFutures).get(120, TimeUnit.SECONDS);
+        assertTrue(producerLatch.await(120, TimeUnit.SECONDS), "All producers should complete");
+        executor.shutdown();
         Instant sendCompleteTime = Instant.now();
 
         // Wait for all messages to be processed

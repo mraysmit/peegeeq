@@ -29,9 +29,12 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import io.vertx.core.Future;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -107,7 +110,9 @@ class ConsumerModeBackwardCompatibilityTest {
             factory.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+            closeLatch.await(10, TimeUnit.SECONDS);
         }
         logger.info("Test teardown completed");
     }
@@ -130,18 +135,15 @@ class ConsumerModeBackwardCompatibilityTest {
                 processedCount.incrementAndGet();
                 logger.info("📨 Legacy API processed message: {}", message.getPayload());
                 messagesReceived.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Wait for consumer setup, then send
             vertx.setTimer(1000, id -> {
-                try {
-                    producer.send("Legacy message 1").get(5, TimeUnit.SECONDS);
-                    producer.send("Legacy message 2").get(5, TimeUnit.SECONDS);
-                    producer.send("Legacy message 3").get(5, TimeUnit.SECONDS);
-                } catch (Exception e) {
-                    testContext.failNow(e);
-                }
+                producer.send("Legacy message 1")
+                    .compose(v -> producer.send("Legacy message 2"))
+                    .compose(v -> producer.send("Legacy message 3"))
+                    .onFailure(testContext::failNow);
             });
 
             // Wait for message processing
@@ -184,26 +186,23 @@ class ConsumerModeBackwardCompatibilityTest {
                 legacyCount.incrementAndGet();
                 logger.info("📨 Legacy consumer processed: {}", message.getPayload());
                 messagesReceived.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             newConsumer.subscribe(message -> {
                 newCount.incrementAndGet();
                 logger.info("📨 New consumer processed: {}", message.getPayload());
                 messagesReceived.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Wait for consumer setup, then send
             vertx.setTimer(1000, id -> {
-                try {
-                    legacyProducer.send("Mixed legacy message 1").get(5, TimeUnit.SECONDS);
-                    newProducer.send("Mixed new message 1").get(5, TimeUnit.SECONDS);
-                    legacyProducer.send("Mixed legacy message 2").get(5, TimeUnit.SECONDS);
-                    newProducer.send("Mixed new message 2").get(5, TimeUnit.SECONDS);
-                } catch (Exception e) {
-                    testContext.failNow(e);
-                }
+                legacyProducer.send("Mixed legacy message 1")
+                    .compose(v -> newProducer.send("Mixed new message 1"))
+                    .compose(v -> legacyProducer.send("Mixed legacy message 2"))
+                    .compose(v -> newProducer.send("Mixed new message 2"))
+                    .onFailure(testContext::failNow);
             });
 
             // Wait for message processing
@@ -249,26 +248,23 @@ class ConsumerModeBackwardCompatibilityTest {
                 legacyCount.incrementAndGet();
                 logger.info("📨 Legacy default processed: {}", message.getPayload());
                 messagesReceived.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             hybridConsumer.subscribe(message -> {
                 hybridCount.incrementAndGet();
                 logger.info("📨 Explicit HYBRID processed: {}", message.getPayload());
                 messagesReceived.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Wait for consumer setup, then send
             vertx.setTimer(1000, id -> {
-                try {
-                    legacyProducer.send("Legacy default message 1").get(5, TimeUnit.SECONDS);
-                    hybridProducer.send("Explicit hybrid message 1").get(5, TimeUnit.SECONDS);
-                    legacyProducer.send("Legacy default message 2").get(5, TimeUnit.SECONDS);
-                    hybridProducer.send("Explicit hybrid message 2").get(5, TimeUnit.SECONDS);
-                } catch (Exception e) {
-                    testContext.failNow(e);
-                }
+                legacyProducer.send("Legacy default message 1")
+                    .compose(v -> hybridProducer.send("Explicit hybrid message 1"))
+                    .compose(v -> legacyProducer.send("Legacy default message 2"))
+                    .compose(v -> hybridProducer.send("Explicit hybrid message 2"))
+                    .onFailure(testContext::failNow);
             });
 
             // Wait for message processing
@@ -308,17 +304,14 @@ class ConsumerModeBackwardCompatibilityTest {
                 totalProcessed.incrementAndGet();
                 logger.info("📨 Legacy migration processed: {}", message.getPayload());
                 legacyMessages.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Wait for consumer setup, then send
             vertx.setTimer(500, id -> {
-                try {
-                    producer.send("Migration message 1").get(5, TimeUnit.SECONDS);
-                    producer.send("Migration message 2").get(5, TimeUnit.SECONDS);
-                } catch (Exception e) {
-                    testContext.failNow(e);
-                }
+                producer.send("Migration message 1")
+                    .compose(v -> producer.send("Migration message 2"))
+                    .onFailure(testContext::failNow);
             });
 
             // Wait for processing
@@ -338,17 +331,16 @@ class ConsumerModeBackwardCompatibilityTest {
                 totalProcessed.incrementAndGet();
                 logger.info("📨 New API migration processed: {}", message.getPayload());
                 newMessages.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Wait for new consumer setup, then send
             vertx.setTimer(500, id -> {
-                try {
-                    producer.send("Migration message 3").get(5, TimeUnit.SECONDS);
-                    producer.send("Migration message 4").get(5, TimeUnit.SECONDS);
-                } catch (Exception e) {
-                    // Best effort - phase2 will timeout
-                }
+                producer.send("Migration message 3")
+                    .compose(v -> producer.send("Migration message 4"))
+                    .onFailure(e -> {
+                        // Best effort - phase2 will timeout
+                    });
             });
 
             // Wait for processing
@@ -388,18 +380,17 @@ class ConsumerModeBackwardCompatibilityTest {
                 processedCount.incrementAndGet();
                 logger.debug("📨 Performance test processed: {}", message.getPayload());
                 messagesReceived.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Wait for consumer setup, then send
             vertx.setTimer(500, id -> {
-                try {
-                    for (int i = 1; i <= 5; i++) {
-                        producer.send("Performance message " + i).get(5, TimeUnit.SECONDS);
-                    }
-                } catch (Exception e) {
-                    testContext.failNow(e);
+                io.vertx.core.Future<Void> chain = Future.succeededFuture();
+                for (int i = 1; i <= 5; i++) {
+                    final int msgNum = i;
+                    chain = chain.compose(v -> producer.send("Performance message " + msgNum));
                 }
+                chain.onFailure(testContext::failNow);
             });
 
             // Wait for message processing

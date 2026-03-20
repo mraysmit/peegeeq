@@ -37,7 +37,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -241,7 +241,9 @@ public class VertxPerformanceOptimizationExampleTest {
 
     private void awaitAsyncDelay(long delayMs) throws Exception {
         CountDownLatch latch = new CountDownLatch(1);
-        CompletableFuture.delayedExecutor(delayMs, TimeUnit.MILLISECONDS).execute(latch::countDown);
+        new java.util.Timer().schedule(new java.util.TimerTask() {
+            @Override public void run() { latch.countDown(); }
+        }, delayMs);
         assertTrue(latch.await(delayMs + 2000, TimeUnit.MILLISECONDS),
             "Timed out waiting for async processing delay");
     }

@@ -27,6 +27,7 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -42,7 +43,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -110,12 +111,15 @@ public class OutboxExceptionHandlingDemonstrationTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         if (consumer != null) consumer.close();
         if (producer != null) producer.close();
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive().onComplete(ar -> testContext.completeNow());
+        } else {
+            testContext.completeNow();
         }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test
@@ -133,7 +137,7 @@ public class OutboxExceptionHandlingDemonstrationTest {
         Checkpoint retryCheckpoint = testContext.checkpoint(3); // Initial + 2 retries
 
         // Send the test message
-        producer.send(testMessage).get(5, TimeUnit.SECONDS);
+        producer.send(testMessage).onFailure(testContext::failNow);
         logger.info("Sent test message: {}", testMessage);
 
         // Set up consumer that throws exception DIRECTLY from the handler method
@@ -183,7 +187,9 @@ public class OutboxExceptionHandlingDemonstrationTest {
         // Reset consumer for next test
         consumer.unsubscribe();
         // GC-settle: allow unsubscribe to complete
-        vertx.timer(500).toCompletionStage().toCompletableFuture().join();
+        java.util.concurrent.CountDownLatch timerLatch = new java.util.concurrent.CountDownLatch(1);
+        vertx.timer(500).onComplete(ar -> timerLatch.countDown());
+        timerLatch.await(5, TimeUnit.SECONDS);
         
         // Test 2: CompletableFuture Exception (always worked)
         testCompletableFuturePattern(testContext);
@@ -201,7 +207,7 @@ public class OutboxExceptionHandlingDemonstrationTest {
         AtomicInteger attemptCount = new AtomicInteger(0);
         Checkpoint retryCheckpoint = testContext.checkpoint(3);
 
-        producer.send("Direct exception test").get(5, TimeUnit.SECONDS);
+        producer.send("Direct exception test").onFailure(testContext::failNow);
 
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
@@ -225,7 +231,7 @@ public class OutboxExceptionHandlingDemonstrationTest {
         AtomicInteger attemptCount = new AtomicInteger(0);
         Checkpoint retryCheckpoint = testContext.checkpoint(3);
 
-        producer.send("CompletableFuture exception test").get(5, TimeUnit.SECONDS);
+        producer.send("CompletableFuture exception test").onFailure(testContext::failNow);
 
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
@@ -233,8 +239,8 @@ public class OutboxExceptionHandlingDemonstrationTest {
                 attempt, message.getPayload());
             retryCheckpoint.flag();
             
-            // Pattern 2: Return failed CompletableFuture (ALWAYS WORKED)
-            return CompletableFuture.failedFuture(
+            // Pattern 2: Return failed Future (ALWAYS WORKED)
+            return Future.failedFuture(
                 new RuntimeException("INTENTIONAL FAILURE: Failed future, attempt " + attempt)
             );
         });

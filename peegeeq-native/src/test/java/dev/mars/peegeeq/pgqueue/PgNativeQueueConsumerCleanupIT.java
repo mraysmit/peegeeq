@@ -21,9 +21,12 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+
+import io.vertx.core.Future;
 
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile.BASIC;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent.*;
@@ -80,7 +83,11 @@ class PgNativeQueueConsumerCleanupIT {
     @AfterEach
     void tearDown() {
         if (manager != null) {
-            try { manager.closeReactive().toCompletionStage().toCompletableFuture().join(); } catch (Exception ignore) {}
+            try {
+                CountDownLatch closeLatch = new CountDownLatch(1);
+                manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+                closeLatch.await(10, TimeUnit.SECONDS);
+            } catch (Exception ignore) {}
         }
     }
 
@@ -103,7 +110,7 @@ class PgNativeQueueConsumerCleanupIT {
             testContext.verify(() -> assertEquals("locked-msg", msg.getPayload()));
             processed.set(true);
             testContext.completeNow();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Insert a message that is locked in the past (should be reset by cleanup)
@@ -114,13 +121,17 @@ class PgNativeQueueConsumerCleanupIT {
         """;
         JsonObject payload = new JsonObject().put("value", "locked-msg");
         JsonObject headers = new JsonObject();
+        CountDownLatch insertLatch = new CountDownLatch(1);
         pool.preparedQuery(insertLocked)
             .execute(Tuple.of(TOPIC, payload, headers, "c-lock"))
-            .toCompletionStage().toCompletableFuture().join();
+            .onComplete(ar -> insertLatch.countDown());
+        assertTrue(insertLatch.await(5, TimeUnit.SECONDS), "Insert should complete");
 
         // Notify to expedite wakeup (though polling will also run)
+        CountDownLatch notifyLatch = new CountDownLatch(1);
         pool.query("SELECT pg_notify('" + ("queue_" + TOPIC) + "', 'test')").execute()
-            .toCompletionStage().toCompletableFuture().join();
+            .onComplete(ar -> notifyLatch.countDown());
+        assertTrue(notifyLatch.await(5, TimeUnit.SECONDS), "Notify should complete");
 
         // Wait up to 20s for the 10s cleanup periodic to run and processing to occur
         assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS));

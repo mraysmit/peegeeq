@@ -34,6 +34,8 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.AfterEach;
@@ -50,7 +52,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -156,7 +159,9 @@ class PerformanceComparisonExampleTest {
         }
 
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+            closeLatch.await(10, TimeUnit.SECONDS);
         }
 
         // Clear system properties
@@ -259,27 +264,27 @@ class PerformanceComparisonExampleTest {
         // Test all configurations and compare performance
         PerformanceResult singleThreaded = testConfiguration("Single-Threaded", 1, 1, "PT1S", vertx);
 
-        CompletableFuture<Void> delay1 = new CompletableFuture<>();
-        vertx.setTimer(2000, id -> delay1.complete(null));
-        delay1.join();
+        CountDownLatch delay1 = new CountDownLatch(1);
+        vertx.setTimer(2000, id -> delay1.countDown());
+        delay1.await(5, TimeUnit.SECONDS);
 
         PerformanceResult multiThreaded = testConfiguration("Multi-Threaded", 4, 1, "PT1S", vertx);
 
-        CompletableFuture<Void> delay2 = new CompletableFuture<>();
-        vertx.setTimer(2000, id -> delay2.complete(null));
-        delay2.join();
+        CountDownLatch delay2 = new CountDownLatch(1);
+        vertx.setTimer(2000, id -> delay2.countDown());
+        delay2.await(5, TimeUnit.SECONDS);
 
         PerformanceResult batched = testConfiguration("Batched Processing", 2, 25, "PT1S", vertx);
 
-        CompletableFuture<Void> delay3 = new CompletableFuture<>();
-        vertx.setTimer(2000, id -> delay3.complete(null));
-        delay3.join();
+        CountDownLatch delay3 = new CountDownLatch(1);
+        vertx.setTimer(2000, id -> delay3.countDown());
+        delay3.await(5, TimeUnit.SECONDS);
 
         PerformanceResult fastPolling = testConfiguration("Fast Polling", 2, 10, "PT0.1S", vertx);
 
-        CompletableFuture<Void> delay4 = new CompletableFuture<>();
-        vertx.setTimer(2000, id -> delay4.complete(null));
-        delay4.join();
+        CountDownLatch delay4 = new CountDownLatch(1);
+        vertx.setTimer(2000, id -> delay4.countDown());
+        delay4.await(5, TimeUnit.SECONDS);
 
         PerformanceResult optimized = testConfiguration("Optimized", 6, 50, "PT0.2S", vertx);
 
@@ -361,13 +366,13 @@ class PerformanceComparisonExampleTest {
             // Performance tracking
             AtomicInteger processedCount = new AtomicInteger(0);
             AtomicLong totalProcessingTime = new AtomicLong(0);
-            CompletableFuture<Void> allProcessed = new CompletableFuture<>();
+            CountDownLatch allProcessed = new CountDownLatch(1);
 
             // Start consumer
             Instant consumerStartTime = Instant.now();
             consumer.subscribe(message -> {
                 Instant processingStart = Instant.now();
-                CompletableFuture<Void> result = new CompletableFuture<>();
+                Promise<Void> result = Promise.promise();
 
                 // Simulate some processing work (1ms via timer)
                 vertx.setTimer(1, tid -> {
@@ -379,12 +384,12 @@ class PerformanceComparisonExampleTest {
                     logger.debug("Processed message {} for config {}", message.getId(), configName);
 
                     if (count >= MESSAGE_COUNT) {
-                        allProcessed.complete(null);
+                        allProcessed.countDown();
                     }
-                    result.complete(null);
+                    result.complete();
                 });
 
-                return result;
+                return result.future();
             });
 
             // Send messages
@@ -405,8 +410,7 @@ class PerformanceComparisonExampleTest {
             logger.info("📤 Sent {} messages in {}ms", MESSAGE_COUNT, sendingTimeMs);
 
             // Wait for processing to complete (with timeout)
-            boolean completed = allProcessed.orTimeout(30, TimeUnit.SECONDS)
-                .handle((v, ex) -> ex == null).join();
+            boolean completed = allProcessed.await(30, TimeUnit.SECONDS);
             Instant endTime = Instant.now();
 
             long totalTimeMs = Duration.between(startTime, endTime).toMillis();

@@ -402,13 +402,13 @@ class OutboxFactoryUnitTest {
      */
     private static class TestDatabaseService implements DatabaseService {
         @Override
-        public java.util.concurrent.CompletableFuture<Void> initialize() { return java.util.concurrent.CompletableFuture.completedFuture(null); }
+        public io.vertx.core.Future<Void> initialize() { return io.vertx.core.Future.succeededFuture(); }
         
         @Override
-        public java.util.concurrent.CompletableFuture<Void> start() { return java.util.concurrent.CompletableFuture.completedFuture(null); }
+        public io.vertx.core.Future<Void> start() { return io.vertx.core.Future.succeededFuture(); }
         
         @Override
-        public java.util.concurrent.CompletableFuture<Void> stop() { return java.util.concurrent.CompletableFuture.completedFuture(null); }
+        public io.vertx.core.Future<Void> stop() { return io.vertx.core.Future.succeededFuture(); }
         
         @Override
         public boolean isRunning() { return true; }
@@ -426,10 +426,10 @@ class OutboxFactoryUnitTest {
         public dev.mars.peegeeq.api.subscription.SubscriptionService getSubscriptionService() { return null; }
         
         @Override
-        public java.util.concurrent.CompletableFuture<Void> runMigrations() { return java.util.concurrent.CompletableFuture.completedFuture(null); }
+        public io.vertx.core.Future<Void> runMigrations() { return io.vertx.core.Future.succeededFuture(); }
         
         @Override
-        public java.util.concurrent.CompletableFuture<Boolean> performHealthCheck() { return java.util.concurrent.CompletableFuture.completedFuture(true); }
+        public io.vertx.core.Future<Boolean> performHealthCheck() { return io.vertx.core.Future.succeededFuture(true); }
         
         @Override
         public io.vertx.core.Vertx getVertx() { return null; }

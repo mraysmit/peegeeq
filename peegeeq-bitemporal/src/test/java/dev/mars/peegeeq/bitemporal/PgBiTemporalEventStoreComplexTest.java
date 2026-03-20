@@ -42,9 +42,10 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+
+
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -199,7 +200,7 @@ class PgBiTemporalEventStoreComplexTest {
         
         if (manager != null) {
             try {
-                manager.closeReactive().toCompletionStage().toCompletableFuture().get(45, TimeUnit.SECONDS);
+                manager.closeReactive().toCompletionStage().toCompletableFuture().get(45, TimeUnit.SECONDS);  
             } catch (TimeoutException timeout) {
                 // Some CI/container environments can delay manager shutdown hooks.
                 // Continue teardown to avoid masking the test's actual assertions.
@@ -208,12 +209,7 @@ class PgBiTemporalEventStoreComplexTest {
         }
         
         if (vertx != null) {
-            CompletableFuture<Void> future = new CompletableFuture<>();
-            vertx.close().onComplete(ar -> {
-                if (ar.succeeded()) future.complete(null);
-                else future.completeExceptionally(ar.cause());
-            });
-            future.get(10, TimeUnit.SECONDS);
+            vertx.close().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
         }
         
         cleanupDatabase();
@@ -250,7 +246,7 @@ class PgBiTemporalEventStoreComplexTest {
             )
         );
         
-        List<BiTemporalEvent<TestEvent>> events = eventStore.appendBatch(batch).join();
+        List<BiTemporalEvent<TestEvent>> events = await(eventStore.appendBatch(batch));
         
         assertNotNull(events);
         assertEquals(3, events.size());
@@ -269,7 +265,7 @@ class PgBiTemporalEventStoreComplexTest {
     @Test
     void testAppendBatchEmpty() throws Exception {
         List<PgBiTemporalEventStore.BatchEventData<TestEvent>> empty = Collections.emptyList();
-        List<BiTemporalEvent<TestEvent>> events = eventStore.appendBatch(empty).join();
+        List<BiTemporalEvent<TestEvent>> events = await(eventStore.appendBatch(empty));
         
         assertNotNull(events);
         assertTrue(events.isEmpty());
@@ -291,7 +287,7 @@ class PgBiTemporalEventStoreComplexTest {
             ));
         }
         
-        List<BiTemporalEvent<TestEvent>> events = eventStore.appendBatch(batch).join();
+        List<BiTemporalEvent<TestEvent>> events = await(eventStore.appendBatch(batch));
         
         assertEquals(50, events.size());
         
@@ -343,7 +339,7 @@ class PgBiTemporalEventStoreComplexTest {
         
         Pool pool = PgBuilder.pool().connectingTo(options).using(vertx).build();
         
-        CompletableFuture<BiTemporalEvent<TestEvent>> result = new CompletableFuture<>();
+        io.vertx.core.Promise<BiTemporalEvent<TestEvent>> result = io.vertx.core.Promise.promise();
         
         pool.getConnection().onComplete(connAr -> {
             if (connAr.succeeded()) {
@@ -366,7 +362,7 @@ class PgBiTemporalEventStoreComplexTest {
                             if (eventAr.failed()) {
                                 txAr.result().rollback().onComplete(rb -> {
                                     conn.close();
-                                    result.completeExceptionally(eventAr.cause());
+                                    result.fail(eventAr.cause());
                                 });
                             } else {
                                 txAr.result().commit().onComplete(commitAr -> {
@@ -374,22 +370,22 @@ class PgBiTemporalEventStoreComplexTest {
                                     if (commitAr.succeeded()) {
                                         result.complete(eventAr.result());
                                     } else {
-                                        result.completeExceptionally(commitAr.cause());
+                                        result.fail(commitAr.cause());
                                     }
                                 });
                             }
                         });
                     } else {
                         conn.close();
-                        result.completeExceptionally(txAr.cause());
+                        result.fail(txAr.cause());
                     }
                 });
             } else {
-                result.completeExceptionally(connAr.cause());
+                result.fail(connAr.cause());
             }
         });
         
-        BiTemporalEvent<TestEvent> event = result.get(15, TimeUnit.SECONDS);
+        BiTemporalEvent<TestEvent> event = await(result.future());
         assertNotNull(event);
         assertEquals("InTxCommitEvent", event.getEventType());
         
@@ -411,7 +407,7 @@ class PgBiTemporalEventStoreComplexTest {
         
         Pool pool = PgBuilder.pool().connectingTo(options).using(vertx).build();
         
-        CompletableFuture<String> eventIdFuture = new CompletableFuture<>();
+        io.vertx.core.Promise<String> eventIdPromise = io.vertx.core.Promise.promise();
         
         pool.getConnection().onComplete(connAr -> {
             if (connAr.succeeded()) {
@@ -436,20 +432,20 @@ class PgBiTemporalEventStoreComplexTest {
                             // Intentional rollback
                             txAr.result().rollback().onComplete(rb -> {
                                 conn.close();
-                                eventIdFuture.complete(eventId);
+                                eventIdPromise.complete(eventId);
                             });
                         });
                     } else {
                         conn.close();
-                        eventIdFuture.completeExceptionally(txAr.cause());
+                        eventIdPromise.fail(txAr.cause());
                     }
                 });
             } else {
-                eventIdFuture.completeExceptionally(connAr.cause());
+                eventIdPromise.fail(connAr.cause());
             }
         });
         
-        String eventId = eventIdFuture.get(15, TimeUnit.SECONDS);
+        String eventId = await(eventIdPromise.future());
         
         // Event should NOT exist after rollback
         if (eventId != null) {
@@ -940,15 +936,15 @@ class PgBiTemporalEventStoreComplexTest {
     @Test
     void testConcurrentAppends() throws Exception {
         Instant validTime = Instant.now();
-        List<CompletableFuture<BiTemporalEvent<TestEvent>>> futures = new ArrayList<>();
+        List<io.vertx.core.Future<?>> futures = new ArrayList<>();
         
         for (int i = 0; i < 10; i++) {
             final int index = i;
-            CompletableFuture<BiTemporalEvent<TestEvent>> future = eventStore.appendBuilder().eventType("ConcurrentEvent").payload(new TestEvent("concurrent-" + index, "data-" + index, index)).validTime(validTime).execute().toCompletionStage().toCompletableFuture();
+            io.vertx.core.Future<BiTemporalEvent<TestEvent>> future = eventStore.appendBuilder().eventType("ConcurrentEvent").payload(new TestEvent("concurrent-" + index, "data-" + index, index)).validTime(validTime).execute();
             futures.add(future);
         }
         
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        await(io.vertx.core.Future.all(new ArrayList<>(futures)));
         
         List<BiTemporalEvent<TestEvent>> all = await(eventStore.query(
             EventQuery.forEventType("ConcurrentEvent")
@@ -973,13 +969,13 @@ class PgBiTemporalEventStoreComplexTest {
             )
         );
         
-        CompletableFuture<List<BiTemporalEvent<TestEvent>>> batchFuture = eventStore.appendBatch(batch);
+        io.vertx.core.Future<List<BiTemporalEvent<TestEvent>>> batchFuture = eventStore.appendBatch(batch);
         
         // Single operations
-        CompletableFuture<BiTemporalEvent<TestEvent>> single1 = eventStore.appendBuilder().eventType("MixedEvent").payload(new TestEvent("single-1", "single", 10)).validTime(validTime).execute().toCompletionStage().toCompletableFuture();
-        CompletableFuture<BiTemporalEvent<TestEvent>> single2 = eventStore.appendBuilder().eventType("MixedEvent").payload(new TestEvent("single-2", "single", 20)).validTime(validTime).execute().toCompletionStage().toCompletableFuture();
+        io.vertx.core.Future<BiTemporalEvent<TestEvent>> single1 = eventStore.appendBuilder().eventType("MixedEvent").payload(new TestEvent("single-1", "single", 10)).validTime(validTime).execute();
+        io.vertx.core.Future<BiTemporalEvent<TestEvent>> single2 = eventStore.appendBuilder().eventType("MixedEvent").payload(new TestEvent("single-2", "single", 20)).validTime(validTime).execute();
         
-        CompletableFuture.allOf(batchFuture, single1, single2).join();
+        await(io.vertx.core.Future.all(batchFuture, single1, single2));
         
         List<BiTemporalEvent<TestEvent>> all = await(eventStore.query(
             EventQuery.forEventType("MixedEvent")
@@ -1076,29 +1072,25 @@ class PgBiTemporalEventStoreComplexTest {
             
             pool.withTransaction(conn -> {
                 // Test 4-parameter overload
-                CompletableFuture<BiTemporalEvent<TestEvent>> f1 = eventStore.appendInTransaction(
+                return eventStore.appendInTransaction(
                     "InTxOverloadEvent",
                     new TestEvent("itx1", "data", 1),
                     validTime,
                     conn
-                ).toCompletionStage().toCompletableFuture();
-                
-                // Test 5-parameter overload
-                CompletableFuture<BiTemporalEvent<TestEvent>> f2 = f1.thenCompose(e1 -> {
+                ).compose(e1 -> {
                     assertNotNull(e1);
+                    // Test 5-parameter overload
                     return eventStore.appendInTransaction(
                         "InTxOverloadEvent",
                         new TestEvent("itx2", "data", 2),
                         validTime,
                         Map.of("intx", "true"),
                         conn
-                    ).toCompletionStage().toCompletableFuture();
-                });
-                
-                // Test 6-parameter overload
-                CompletableFuture<BiTemporalEvent<TestEvent>> f3 = f2.thenCompose(e2 -> {
+                    );
+                }).compose(e2 -> {
                     assertNotNull(e2);
                     assertEquals("true", e2.getHeaders().get("intx"));
+                    // Test 6-parameter overload
                     return eventStore.appendInTransaction(
                         "InTxOverloadEvent",
                         new TestEvent("itx3", "data", 3),
@@ -1106,15 +1098,12 @@ class PgBiTemporalEventStoreComplexTest {
                         Map.of(),
                         "intx-corr",
                         conn
-                    ).toCompletionStage().toCompletableFuture();
-                });
-                
-                // Convert CompletableFuture to Vert.x Future
-                return io.vertx.core.Future.fromCompletionStage(f3.thenApply(e3 -> {
+                    );
+                }).map(e3 -> {
                     assertNotNull(e3);
                     assertEquals("intx-corr", e3.getCorrelationId());
-                    return null;
-                }));
+                    return (Void) null;
+                });
             }).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
             
             pool.close().toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
@@ -1368,7 +1357,7 @@ class PgBiTemporalEventStoreComplexTest {
             )
         );
         
-        List<BiTemporalEvent<TestEvent>> results = eventStore.appendBatch(mixedBatch).join();
+        List<BiTemporalEvent<TestEvent>> results = await(eventStore.appendBatch(mixedBatch));
         
         assertNotNull(results);
         assertEquals(3, results.size());
@@ -1587,7 +1576,9 @@ class PgBiTemporalEventStoreComplexTest {
 
     private void awaitAsyncDelay(long delayMs) throws Exception {
         CountDownLatch latch = new CountDownLatch(1);
-        CompletableFuture.delayedExecutor(delayMs, TimeUnit.MILLISECONDS).execute(latch::countDown);
+        new java.util.Timer().schedule(new java.util.TimerTask() {
+            @Override public void run() { latch.countDown(); }
+        }, delayMs);
         assertTrue(latch.await(delayMs + 2000, TimeUnit.MILLISECONDS),
             "Timed out waiting for async processing delay");
     }

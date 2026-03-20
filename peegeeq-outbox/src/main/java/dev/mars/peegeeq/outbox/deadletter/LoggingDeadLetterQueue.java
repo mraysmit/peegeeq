@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.outbox.deadletter;
 
 import dev.mars.peegeeq.api.messaging.Message;
+import io.vertx.core.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -9,7 +10,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -32,51 +33,49 @@ public class LoggingDeadLetterQueue implements DeadLetterQueue {
     }
     
     @Override
-    public <T> CompletableFuture<Void> sendToDeadLetter(
+    public <T> Future<Void> sendToDeadLetter(
             Message<T> originalMessage, 
             String reason, 
             int attempts,
             Map<String, String> metadata) {
         
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                // Log the dead letter message with full details
-                // Check if this is an intentional test failure
-                boolean isIntentionalTest = reason != null && reason.contains("INTENTIONAL TEST FAILURE");
-                String logPrefix = isIntentionalTest ? "🧪 INTENTIONAL TEST FAILURE - " : "";
-                String logSuffix = isIntentionalTest ? " (THIS IS EXPECTED IN TESTS)" : "";
+        try {
+            // Log the dead letter message with full details
+            // Check if this is an intentional test failure
+            boolean isIntentionalTest = reason != null && reason.contains("INTENTIONAL TEST FAILURE");
+            String logPrefix = isIntentionalTest ? "🧪 INTENTIONAL TEST FAILURE - " : "";
+            String logSuffix = isIntentionalTest ? " (THIS IS EXPECTED IN TESTS)" : "";
 
-                logger.error("{}DEAD LETTER QUEUE [{}]: Message {} failed after {} attempts{}",
-                    logPrefix, topic, originalMessage.getId(), attempts, logSuffix);
-                logger.error("{}  Reason: {}{}", logPrefix, reason, logSuffix);
-                logger.error("{}  Original Message: {}{}", logPrefix, originalMessage, logSuffix);
-                logger.error("{}  Metadata Summary: {}{}",
-                    logPrefix, summarizeMetadataForLog(metadata), logSuffix);
-                logger.error("{}  Payload Summary: {}{}",
-                    logPrefix, summarizePayloadForLog(originalMessage.getPayload()), logSuffix);
-                logger.error("{}  Headers Summary: {}{}",
-                    logPrefix, summarizeHeadersForLog(originalMessage.getHeaders()), logSuffix);
-                
-                // In a real implementation, this would send to an actual message queue
-                // For now, we simulate success
-                totalSent.incrementAndGet();
-                lastSentTime.set(Instant.now());
-                
-                logger.info("Message {} successfully sent to dead letter queue '{}'", 
-                    originalMessage.getId(), topic);
-                
-                return null;
-                
-            } catch (Exception e) {
-                totalFailed.incrementAndGet();
-                lastFailureTime.set(Instant.now());
-                
-                logger.error("Failed to send message {} to dead letter queue '{}': {}", 
-                    originalMessage.getId(), topic, e.getMessage(), e);
-                
-                throw new RuntimeException("Failed to send to dead letter queue", e);
-            }
-        });
+            logger.error("{}DEAD LETTER QUEUE [{}]: Message {} failed after {} attempts{}",
+                logPrefix, topic, originalMessage.getId(), attempts, logSuffix);
+            logger.error("{}  Reason: {}{}", logPrefix, reason, logSuffix);
+            logger.error("{}  Original Message: {}{}", logPrefix, originalMessage, logSuffix);
+            logger.error("{}  Metadata Summary: {}{}",
+                logPrefix, summarizeMetadataForLog(metadata), logSuffix);
+            logger.error("{}  Payload Summary: {}{}",
+                logPrefix, summarizePayloadForLog(originalMessage.getPayload()), logSuffix);
+            logger.error("{}  Headers Summary: {}{}",
+                logPrefix, summarizeHeadersForLog(originalMessage.getHeaders()), logSuffix);
+            
+            // In a real implementation, this would send to an actual message queue
+            // For now, we simulate success
+            totalSent.incrementAndGet();
+            lastSentTime.set(Instant.now());
+            
+            logger.info("Message {} successfully sent to dead letter queue '{}'", 
+                originalMessage.getId(), topic);
+            
+            return Future.succeededFuture();
+            
+        } catch (Exception e) {
+            totalFailed.incrementAndGet();
+            lastFailureTime.set(Instant.now());
+            
+            logger.error("Failed to send message {} to dead letter queue '{}': {}", 
+                originalMessage.getId(), topic, e.getMessage(), e);
+            
+            return Future.failedFuture(new RuntimeException("Failed to send to dead letter queue", e));
+        }
     }
     
     @Override

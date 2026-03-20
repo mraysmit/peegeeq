@@ -22,6 +22,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Future;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
@@ -37,7 +38,8 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -97,7 +99,9 @@ class JsonbConversionValidationTest {
             factory.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+            closeLatch.await(10, TimeUnit.SECONDS);
         }
     }
 
@@ -114,7 +118,9 @@ class JsonbConversionValidationTest {
 
         // Send message
         MessageProducer<String> producer = factory.createProducer(topic, String.class);
-        producer.send(testMessage).get(5, TimeUnit.SECONDS);
+        CountDownLatch sendLatch1 = new CountDownLatch(1);
+        producer.send(testMessage).onComplete(ar -> sendLatch1.countDown());
+        assertTrue(sendLatch1.await(5, TimeUnit.SECONDS), "Send should complete");
 
         // Verify JSONB storage directly in database
         String dbUrl = String.format("jdbc:postgresql://%s:%d/%s", 
@@ -172,7 +178,9 @@ class JsonbConversionValidationTest {
         headers.put("correlationId", "test-correlation-123");
 
         MessageProducer<OrderEvent> producer = factory.createProducer(topic, OrderEvent.class);
-        producer.send(testOrder, headers).get(5, TimeUnit.SECONDS);
+        CountDownLatch sendLatch2 = new CountDownLatch(1);
+        producer.send(testOrder, headers).onComplete(ar -> sendLatch2.countDown());
+        assertTrue(sendLatch2.await(5, TimeUnit.SECONDS), "Send should complete");
 
         // Verify JSONB storage directly in database
         String dbUrl = String.format("jdbc:postgresql://%s:%d/%s", 
@@ -239,12 +247,14 @@ class JsonbConversionValidationTest {
 
         // Send message
         MessageProducer<OrderEvent> producer = factory.createProducer(topic, OrderEvent.class);
-        producer.send(testOrder, headers).get(5, TimeUnit.SECONDS);
+        CountDownLatch sendLatch3 = new CountDownLatch(1);
+        producer.send(testOrder, headers).onComplete(ar -> sendLatch3.countDown());
+        assertTrue(sendLatch3.await(5, TimeUnit.SECONDS), "Send should complete");
 
         // Consume message
         MessageConsumer<OrderEvent> consumer = factory.createConsumer(topic, OrderEvent.class);
         
-        CompletableFuture<Void> latch = new CompletableFuture<>();
+        CountDownLatch latch = new CountDownLatch(1);
         AtomicInteger processedCount = new AtomicInteger(0);
         
         consumer.subscribe(message -> {
@@ -264,13 +274,13 @@ class JsonbConversionValidationTest {
                 assertEquals("HIGH", receivedHeaders.get("priority"), "Priority header should match");
                 
                 processedCount.incrementAndGet();
-                latch.complete(null);
+                latch.countDown();
                 
                 logger.info("Consumer successfully read JSONB objects");
                 logger.info("   Received order: {}", receivedOrder.getOrderId());
                 logger.info("   Received headers: {}", receivedHeaders.size());
                 
-                return java.util.concurrent.CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             } catch (Exception e) {
                 logger.error("Error processing message", e);
                 throw new RuntimeException(e);
@@ -278,7 +288,7 @@ class JsonbConversionValidationTest {
         });
 
         // Wait for message processing
-        latch.get(10, TimeUnit.SECONDS); // Message should be processed within 10 seconds
+        assertTrue(latch.await(10, TimeUnit.SECONDS), "Message should be processed within 10 seconds");
         assertEquals(1, processedCount.get(), "Should have processed exactly 1 message");
 
         consumer.close();

@@ -29,6 +29,7 @@ import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -48,7 +49,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -148,7 +149,7 @@ public class OutboxRetryResilienceTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("🧹 Cleaning up OutboxRetryResilienceTest");
         
         if (consumer != null) {
@@ -175,14 +176,6 @@ public class OutboxRetryResilienceTest {
             }
         }
         
-        if (manager != null) {
-            try {
-                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
-            } catch (Exception e) {
-                logger.warn("Error closing manager: {}", e.getMessage());
-            }
-        }
-
         if (connectionManager != null) {
             try {
                 connectionManager.close();
@@ -191,6 +184,12 @@ public class OutboxRetryResilienceTest {
             }
         }
 
+        if (manager != null) {
+            manager.closeReactive().onComplete(ar -> testContext.completeNow());
+        } else {
+            testContext.completeNow();
+        }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         logger.info("OutboxRetryResilienceTest cleanup completed");
     }
 
@@ -224,7 +223,7 @@ public class OutboxRetryResilienceTest {
         });
 
         // Send message after consumer is subscribed
-        producer.send(testMessage).get(5, TimeUnit.SECONDS);
+        producer.send(testMessage).onFailure(testContext::failNow);
         logger.info("\u2705 Message sent successfully");
 
         // Wait for all retry attempts
@@ -233,7 +232,9 @@ public class OutboxRetryResilienceTest {
 
         // Verify message eventually moves to dead letter queue
         // GC-settle: allow time for DLQ processing
-        vertx.timer(2000).toCompletionStage().toCompletableFuture().join();
+        java.util.concurrent.CountDownLatch dlqWaitLatch = new java.util.concurrent.CountDownLatch(1);
+        vertx.timer(2000).onComplete(ar -> dlqWaitLatch.countDown());
+        dlqWaitLatch.await(5, TimeUnit.SECONDS);
         verifyMessageInDeadLetterQueue(testMessage);
 
         logger.info("Connection timeout resilience test completed successfully");
@@ -269,7 +270,7 @@ public class OutboxRetryResilienceTest {
         });
 
         // Send message after consumer is subscribed
-        producer.send(testMessage).get(5, TimeUnit.SECONDS);
+        producer.send(testMessage).onFailure(testContext::failNow);
         logger.info("Message sent successfully");
 
         // Wait for all retry attempts
@@ -284,17 +285,31 @@ public class OutboxRetryResilienceTest {
      * Verifies that a message has been moved to the dead letter queue.
      */
     private void verifyMessageInDeadLetterQueue(String expectedPayload) throws Exception {
-        Integer count = testReactivePool.withConnection(connection -> {
+        java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicReference<Integer> resultRef = new java.util.concurrent.atomic.AtomicReference<>();
+        java.util.concurrent.atomic.AtomicReference<Throwable> errorRef = new java.util.concurrent.atomic.AtomicReference<>();
+
+        testReactivePool.withConnection(connection -> {
             return connection.preparedQuery("SELECT COUNT(*) FROM dead_letter_queue WHERE payload::text LIKE $1")
                 .execute(io.vertx.sqlclient.Tuple.of("%" + expectedPayload + "%"))
                 .map(rowSet -> {
                     io.vertx.sqlclient.Row row = rowSet.iterator().next();
                     return row.getInteger(0);
                 });
-        }).toCompletionStage().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
+        }).onSuccess(count -> {
+            resultRef.set(count);
+            latch.countDown();
+        }).onFailure(err -> {
+            errorRef.set(err);
+            latch.countDown();
+        });
 
-        assertTrue(count > 0, "Message should be found in dead letter queue");
-        logger.info("Verified message in dead letter queue: {} entries found", count);
+        assertTrue(latch.await(5, TimeUnit.SECONDS), "DLQ query should complete");
+        if (errorRef.get() != null) {
+            fail("DLQ query failed: " + errorRef.get().getMessage());
+        }
+        assertTrue(resultRef.get() > 0, "Message should be found in dead letter queue");
+        logger.info("Verified message in dead letter queue: {} entries found", resultRef.get());
     }
 
     @Test
@@ -311,7 +326,7 @@ public class OutboxRetryResilienceTest {
         Checkpoint retryCheckpoint = testContext.checkpoint(2); // Expect fewer attempts due to pool exhaustion
 
         // Send message first
-        producer.send(testMessage).get(5, TimeUnit.SECONDS);
+        producer.send(testMessage).onFailure(testContext::failNow);
         logger.info("📤 Message sent: {}", testMessage);
 
         // Exhaust connection pool before processing
@@ -351,7 +366,7 @@ public class OutboxRetryResilienceTest {
         Checkpoint retryCheckpoint = testContext.checkpoint(4); // Initial + 3 retries
 
         // Send message first
-        producer.send(testMessage).get(5, TimeUnit.SECONDS);
+        producer.send(testMessage).onFailure(testContext::failNow);
         logger.info("📤 Message sent: {}", testMessage);
 
         // Set up consumer that fails and causes transaction issues
@@ -392,7 +407,7 @@ public class OutboxRetryResilienceTest {
         Checkpoint successCheckpoint = testContext.checkpoint();
 
         // Send message first
-        producer.send(testMessage).get(5, TimeUnit.SECONDS);
+        producer.send(testMessage).onFailure(testContext::failNow);
         logger.info("📤 Message sent: {}", testMessage);
 
         // Set up consumer that fails initially but succeeds after "recovery"
@@ -412,7 +427,7 @@ public class OutboxRetryResilienceTest {
                 // Simulate database recovery - process successfully
                 successCount.incrementAndGet();
                 successCheckpoint.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             }
         });
 
@@ -430,6 +445,9 @@ public class OutboxRetryResilienceTest {
      * Verifies that retry state remains consistent after transaction rollbacks.
      */
     private void verifyRetryStateConsistency(String expectedPayload) throws Exception {
+        java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicReference<Throwable> errorRef = new java.util.concurrent.atomic.AtomicReference<>();
+
         testReactivePool.withConnection(connection -> {
             return connection.preparedQuery("SELECT retry_count, status FROM outbox WHERE payload::text LIKE $1 ORDER BY created_at DESC LIMIT 1")
                 .execute(io.vertx.sqlclient.Tuple.of("%" + expectedPayload + "%"))
@@ -452,7 +470,16 @@ public class OutboxRetryResilienceTest {
                     }
                     return null;
                 });
-        }).toCompletionStage().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
+        }).onSuccess(v -> latch.countDown())
+          .onFailure(err -> {
+              errorRef.set(err);
+              latch.countDown();
+          });
+
+        assertTrue(latch.await(5, TimeUnit.SECONDS), "Retry state query should complete");
+        if (errorRef.get() != null) {
+            fail("Retry state query failed: " + errorRef.get().getMessage());
+        }
     }
 
     /**
@@ -461,12 +488,9 @@ public class OutboxRetryResilienceTest {
     private void simulateConnectionPoolExhaustion() throws Exception {
         logger.info("🔥 INTENTIONAL TEST: Simulating connection pool exhaustion");
 
-        // Create multiple long-running connections to exhaust the pool
-        java.util.List<java.util.concurrent.CompletableFuture<Void>> futures = new java.util.ArrayList<>();
-
         for (int i = 0; i < 10; i++) {
             final int connectionNum = i + 1;
-            java.util.concurrent.CompletableFuture<Void> future = testReactivePool.getConnection()
+            testReactivePool.getConnection()
                 .compose(connection -> {
                     logger.debug("Created reactive connection {}", connectionNum);
                     // Hold connection for a while to simulate exhaustion
@@ -480,15 +504,13 @@ public class OutboxRetryResilienceTest {
                 .recover(throwable -> {
                     logger.info("Connection pool exhausted at connection {}: {}", connectionNum, throwable.getMessage());
                     return io.vertx.core.Future.succeededFuture();
-                })
-                .toCompletionStage()
-                .toCompletableFuture();
-
-            futures.add(future);
+                });
         }
 
         // GC-settle: wait for connections to be acquired
-        io.vertx.core.Vertx.vertx().timer(500).toCompletionStage().toCompletableFuture().join();
+        java.util.concurrent.CountDownLatch settleLatch = new java.util.concurrent.CountDownLatch(1);
+        io.vertx.core.Vertx.vertx().setTimer(500, id -> settleLatch.countDown());
+        settleLatch.await(5, TimeUnit.SECONDS);
         logger.info("Connection pool exhaustion simulation initiated");
     }
 }

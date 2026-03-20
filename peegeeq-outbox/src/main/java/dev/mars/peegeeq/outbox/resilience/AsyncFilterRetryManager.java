@@ -3,6 +3,8 @@ package dev.mars.peegeeq.outbox.resilience;
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.outbox.config.FilterErrorHandlingConfig;
 import dev.mars.peegeeq.outbox.deadletter.DeadLetterQueueManager;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -56,7 +58,7 @@ public class AsyncFilterRetryManager {
     /**
      * Executes a filter operation with async retry logic
      */
-    public <T> CompletableFuture<FilterResult> executeFilterWithRetry(
+    public <T> Future<FilterResult> executeFilterWithRetry(
             Message<T> message,
             Predicate<Message<T>> filter,
             FilterCircuitBreaker circuitBreaker) {
@@ -64,7 +66,7 @@ public class AsyncFilterRetryManager {
         return executeFilterWithRetry(message, filter, circuitBreaker, 0, config.getInitialRetryDelay(), Instant.now());
     }
     
-    private <T> CompletableFuture<FilterResult> executeFilterWithRetry(
+    private <T> Future<FilterResult> executeFilterWithRetry(
             Message<T> message,
             Predicate<Message<T>> filter,
             FilterCircuitBreaker circuitBreaker,
@@ -76,13 +78,14 @@ public class AsyncFilterRetryManager {
         if (!circuitBreaker.allowRequest()) {
             logger.debug("Filter circuit breaker '{}' is open, rejecting message {}", 
                 filterId, message.getId());
-            return CompletableFuture.completedFuture(
+            return Future.succeededFuture(
                 FilterResult.rejected("Circuit breaker open", attemptNumber + 1, 
                     Duration.between(startTime, Instant.now())));
         }
         
-        // Execute filter asynchronously
-        CompletableFuture<FilterResult> filterFuture = CompletableFuture.supplyAsync(() -> {
+        // Execute filter asynchronously via Promise + executor
+        Promise<FilterResult> filterPromise = Promise.promise();
+        filterExecutor.submit(() -> {
             try {
                 totalRetryAttempts.incrementAndGet();
                 activeRetries.incrementAndGet();
@@ -100,7 +103,7 @@ public class AsyncFilterRetryManager {
                 logger.debug("Filter '{}' succeeded on attempt {} for message {} (total time: {})", 
                     filterId, attemptNumber + 1, message.getId(), totalTime);
                 
-                return FilterResult.accepted(result, attemptNumber + 1, totalTime);
+                filterPromise.complete(FilterResult.accepted(result, attemptNumber + 1, totalTime));
                 
             } catch (Exception e) {
                 // Record failure
@@ -113,39 +116,36 @@ public class AsyncFilterRetryManager {
                 logger.debug("Filter '{}' failed on attempt {} for message {} - Classification: {}, Strategy: {}, Error: {}", 
                     filterId, attemptNumber + 1, message.getId(), classification, strategy, e.getMessage());
                 
-                throw new FilterException(e, classification, strategy, attemptNumber + 1);
+                filterPromise.fail(new FilterException(e, classification, strategy, attemptNumber + 1));
                 
             } finally {
                 activeRetries.decrementAndGet();
             }
-        }, filterExecutor);
+        });
         
         // Handle the result or retry
-        return filterFuture.handle((result, throwable) -> {
-            if (throwable == null) {
-                return CompletableFuture.completedFuture(result);
+        return filterPromise.future().compose(
+            result -> Future.succeededFuture(result),
+            throwable -> {
+                // Extract the filter exception
+                FilterException filterException;
+                if (throwable instanceof FilterException) {
+                    filterException = (FilterException) throwable;
+                } else {
+                    // Unexpected exception
+                    Duration totalTime = Duration.between(startTime, Instant.now());
+                    return Future.succeededFuture(
+                        FilterResult.rejected("Unexpected error: " + throwable.getMessage(), 
+                            attemptNumber + 1, totalTime));
+                }
+                
+                return handleFilterException(message, filter, circuitBreaker, filterException, 
+                    attemptNumber, currentDelay, startTime);
             }
-            
-            // Extract the filter exception
-            FilterException filterException;
-            if (throwable instanceof CompletionException && throwable.getCause() instanceof FilterException) {
-                filterException = (FilterException) throwable.getCause();
-            } else if (throwable instanceof FilterException) {
-                filterException = (FilterException) throwable;
-            } else {
-                // Unexpected exception
-                Duration totalTime = Duration.between(startTime, Instant.now());
-                return CompletableFuture.completedFuture(
-                    FilterResult.rejected("Unexpected error: " + throwable.getMessage(), 
-                        attemptNumber + 1, totalTime));
-            }
-            
-            return handleFilterException(message, filter, circuitBreaker, filterException, 
-                attemptNumber, currentDelay, startTime);
-        }).thenCompose(future -> future);
+        );
     }
     
-    private <T> CompletableFuture<FilterResult> handleFilterException(
+    private <T> Future<FilterResult> handleFilterException(
             Message<T> message,
             Predicate<Message<T>> filter,
             FilterCircuitBreaker circuitBreaker,
@@ -164,7 +164,7 @@ public class AsyncFilterRetryManager {
                 logger.info("Filter '{}' rejecting message {} immediately due to {} error: {}",
                     filterId, message.getId(), filterException.getClassification().name().toLowerCase(),
                     originalError.getMessage());
-                return CompletableFuture.completedFuture(
+                return Future.succeededFuture(
                     FilterResult.rejected(originalError.getMessage(), attemptNumber + 1, totalTime));
                 
             case RETRY_THEN_REJECT:
@@ -174,7 +174,7 @@ public class AsyncFilterRetryManager {
                     Duration finalTime = Duration.between(startTime, Instant.now());
                     logger.info("Filter '{}' rejecting message {} after {} attempts. Final error: {}",
                         filterId, message.getId(), attemptNumber + 1, originalError.getMessage());
-                    return CompletableFuture.completedFuture(
+                    return Future.succeededFuture(
                         FilterResult.rejected(originalError.getMessage(), attemptNumber + 1, finalTime));
                 } else {
                     return scheduleAsyncRetry(message, filter, circuitBreaker, attemptNumber, currentDelay, startTime);
@@ -208,12 +208,12 @@ public class AsyncFilterRetryManager {
                 failedRetries.incrementAndGet();
                 Duration unknownTime = Duration.between(startTime, Instant.now());
                 logger.warn("Unknown filter error strategy: {}. Rejecting message {}", strategy, message.getId());
-                return CompletableFuture.completedFuture(
+                return Future.succeededFuture(
                     FilterResult.rejected("Unknown strategy: " + strategy, attemptNumber + 1, unknownTime));
         }
     }
     
-    private <T> CompletableFuture<FilterResult> scheduleAsyncRetry(
+    private <T> Future<FilterResult> scheduleAsyncRetry(
             Message<T> message,
             Predicate<Message<T>> filter,
             FilterCircuitBreaker circuitBreaker,
@@ -221,7 +221,7 @@ public class AsyncFilterRetryManager {
             Duration currentDelay,
             Instant startTime) {
         
-        CompletableFuture<FilterResult> retryFuture = new CompletableFuture<>();
+        Promise<FilterResult> promise = Promise.promise();
         
         logger.debug("Filter '{}' scheduling async retry {} for message {} after delay of {}", 
             filterId, attemptNumber + 1, message.getId(), currentDelay);
@@ -232,19 +232,14 @@ public class AsyncFilterRetryManager {
                 Duration nextDelay = calculateNextDelay(currentDelay);
                 
                 executeFilterWithRetry(message, filter, circuitBreaker, attemptNumber + 1, nextDelay, startTime)
-                    .whenComplete((result, throwable) -> {
-                        if (throwable != null) {
-                            retryFuture.completeExceptionally(throwable);
-                        } else {
-                            retryFuture.complete(result);
-                        }
-                    });
+                    .onSuccess(promise::complete)
+                    .onFailure(promise::fail);
             } catch (Exception e) {
-                retryFuture.completeExceptionally(e);
+                promise.fail(e);
             }
         }, currentDelay.toMillis(), TimeUnit.MILLISECONDS);
         
-        return retryFuture;
+        return promise.future();
     }
     
     private Duration calculateNextDelay(Duration currentDelay) {
@@ -262,7 +257,7 @@ public class AsyncFilterRetryManager {
     /**
      * Sends a message to the dead letter queue
      */
-    private <T> CompletableFuture<FilterResult> sendToDeadLetterQueue(
+    private <T> Future<FilterResult> sendToDeadLetterQueue(
             Message<T> message,
             FilterException filterException,
             int attempts,
@@ -276,9 +271,9 @@ public class AsyncFilterRetryManager {
                 filterException.getClassification(),
                 filterException.getOriginalException()
             )
-            .thenApply(result -> FilterResult.deadLetter(
+            .map(v -> FilterResult.deadLetter(
                 filterException.getOriginalException().getMessage(), attempts, totalTime))
-            .exceptionally(throwable -> {
+            .otherwise(throwable -> {
                 logger.error("Failed to send message {} to dead letter queue: {}",
                     message.getId(), throwable.getMessage());
                 // Even if DLQ fails, we still consider the message as dead lettered

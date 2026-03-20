@@ -13,6 +13,8 @@ import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -32,7 +34,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -125,7 +128,9 @@ public class IntegrationPatternsExampleTest {
 
         if (manager != null) {
             try {
-                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+                CountDownLatch closeLatch = new CountDownLatch(1);
+                manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+                closeLatch.await(10, TimeUnit.SECONDS);
             } catch (Exception e) {
                 logger.warn("Error closing manager: {}", e.getMessage());
             }
@@ -158,33 +163,33 @@ public class IntegrationPatternsExampleTest {
             IntegrationMessage request = message.getPayload();
             logger.info("📨 Processing request: {} from {}", request.getMessageId(), request.getSource());
             
-            // Simulate processing
-            CompletableFuture<Void> delayFuture = new CompletableFuture<>();
-            vertx.setTimer(50, id -> delayFuture.complete(null));
-            delayFuture.join();
-            
-            // Send reply
-            IntegrationMessage reply = new IntegrationMessage(
-                "reply-" + request.getMessageId(),
-                "ORDER_REPLY",
-                "order-service",
-                request.getSource(),
-                request.getCorrelationId(),
-                "{\"status\": \"processed\", \"orderId\": \"" + request.getCorrelationId() + "\"}",
-                "2025-01-01T00:00:00Z",
-                Map.of("replyTo", request.getSource())
-            );
-            
-            try {
-                replyProducer.send(reply);
-                logger.info("Sent reply: {} to {}", reply.getMessageId(), reply.getDestination());
-            } catch (Exception e) {
-                logger.error("Failed to send reply", e);
-            }
-            
-            processedRequests.incrementAndGet();
-            requestCheckpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            // Simulate processing with non-blocking delay
+            Promise<Void> promise = Promise.promise();
+            vertx.setTimer(50, id -> {
+                // Send reply
+                IntegrationMessage reply = new IntegrationMessage(
+                    "reply-" + request.getMessageId(),
+                    "ORDER_REPLY",
+                    "order-service",
+                    request.getSource(),
+                    request.getCorrelationId(),
+                    "{\"status\": \"processed\", \"orderId\": \"" + request.getCorrelationId() + "\"}",
+                    "2025-01-01T00:00:00Z",
+                    Map.of("replyTo", request.getSource())
+                );
+                
+                try {
+                    replyProducer.send(reply);
+                    logger.info("Sent reply: {} to {}", reply.getMessageId(), reply.getDestination());
+                } catch (Exception e) {
+                    logger.error("Failed to send reply", e);
+                }
+                
+                processedRequests.incrementAndGet();
+                requestCheckpoint.flag();
+                promise.complete();
+            });
+            return promise.future();
         });
         
         // Set up reply processor (simulates client service)
@@ -195,7 +200,7 @@ public class IntegrationPatternsExampleTest {
             
             receivedReplies.incrementAndGet();
             replyCheckpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
         
         // Send requests
@@ -266,7 +271,7 @@ public class IntegrationPatternsExampleTest {
             logger.info("📧 Email Service received: {} - {}", event.getMessageType(), event.getMessageId());
             emailEvents.incrementAndGet();
             checkpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Analytics service subscriber
@@ -275,7 +280,7 @@ public class IntegrationPatternsExampleTest {
             logger.info("\ud83d\udcca Analytics Service received: {} - {}", event.getMessageType(), event.getMessageId());
             analyticsEvents.incrementAndGet();
             checkpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Audit service subscriber
@@ -284,7 +289,7 @@ public class IntegrationPatternsExampleTest {
             logger.info("\ud83d\udcdd Audit Service received: {} - {}", event.getMessageType(), event.getMessageId());
             auditEvents.incrementAndGet();
             checkpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Publish events to all subscriber queues (simulating pub-sub with outbox pattern)
@@ -383,7 +388,7 @@ public class IntegrationPatternsExampleTest {
                 logger.error("Failed to route message: {}", order.getMessageId(), e);
             }
 
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Set up destination consumers
@@ -391,21 +396,21 @@ public class IntegrationPatternsExampleTest {
             logger.info("Domestic processor received: {}", message.getPayload().getMessageId());
             domesticCount.incrementAndGet();
             checkpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         internationalConsumer.subscribe(message -> {
             logger.info("\ud83c\udf0d International processor received: {}", message.getPayload().getMessageId());
             internationalCount.incrementAndGet();
             checkpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         expressConsumer.subscribe(message -> {
             logger.info("\u26a1 Express processor received: {}", message.getPayload().getMessageId());
             expressCount.incrementAndGet();
             checkpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send test messages with different routing criteria

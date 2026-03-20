@@ -25,6 +25,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -42,7 +43,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -126,22 +128,28 @@ public class MultiTenantSchemaIsolationTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext tearDownContext) throws Exception {
         if (factoryTenantA != null) factoryTenantA.close();
         if (factoryTenantB != null) factoryTenantB.close();
+        CountDownLatch closeLatch = new CountDownLatch(1);
+        io.vertx.core.Future<Void> closeChain = io.vertx.core.Future.succeededFuture();
         if (managerTenantA != null) {
-            managerTenantA.closeReactive().toCompletionStage().toCompletableFuture().join();
+            closeChain = closeChain.compose(v -> managerTenantA.closeReactive());
         }
         if (managerTenantB != null) {
-            managerTenantB.closeReactive().toCompletionStage().toCompletableFuture().join();
+            closeChain = closeChain.compose(v -> managerTenantB.closeReactive());
         }
+        closeChain.onComplete(ar -> {
+            tearDownContext.completeNow();
+        });
+        assertTrue(tearDownContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test
     void testMessageIsolationBetweenTenants(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Tenant A sends a message
         MessageProducer<String> producerA = factoryTenantA.createProducer("test-topic", String.class);
-        producerA.send("tenant-a-message").get(5, TimeUnit.SECONDS);
+        producerA.send("tenant-a-message").onFailure(testContext::failNow);
 
         // Tenant B creates a consumer - should NOT receive tenant A's message
         MessageConsumer<String> consumerB = factoryTenantB.createConsumer("test-topic", String.class);
@@ -149,11 +157,13 @@ public class MultiTenantSchemaIsolationTest {
 
         consumerB.subscribe(message -> {
             receivedMessagesB.add(message.getPayload());
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Wait a bit to ensure no messages are received
-        vertx.timer(3000).toCompletionStage().toCompletableFuture().join();
+        CountDownLatch waitLatch = new CountDownLatch(1);
+        vertx.timer(3000).onComplete(ar -> waitLatch.countDown());
+        waitLatch.await(5, TimeUnit.SECONDS);
         assertTrue(receivedMessagesB.isEmpty(), "Tenant B should have no messages");
 
         // Tenant A creates a consumer - should receive its own message
@@ -164,7 +174,7 @@ public class MultiTenantSchemaIsolationTest {
         consumerA.subscribe(message -> {
             receivedMessagesA.add(message.getPayload());
             messageReceivedA.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Tenant A should receive its own message
@@ -182,13 +192,13 @@ public class MultiTenantSchemaIsolationTest {
         // Tenant A sends 5 messages
         MessageProducer<String> producerA = factoryTenantA.createProducer("stats-topic", String.class);
         for (int i = 0; i < 5; i++) {
-            producerA.send("tenant-a-message-" + i).get(5, TimeUnit.SECONDS);
+            producerA.send("tenant-a-message-" + i).onFailure(e -> { throw new RuntimeException(e); });
         }
 
         // Tenant B sends 3 messages
         MessageProducer<String> producerB = factoryTenantB.createProducer("stats-topic", String.class);
         for (int i = 0; i < 3; i++) {
-            producerB.send("tenant-b-message-" + i).get(5, TimeUnit.SECONDS);
+            producerB.send("tenant-b-message-" + i).onFailure(e -> { throw new RuntimeException(e); });
         }
 
         // Verify stats are isolated
@@ -210,8 +220,8 @@ public class MultiTenantSchemaIsolationTest {
         MessageProducer<String> producerA = factoryTenantA.createProducer(sharedTopicName, String.class);
         MessageProducer<String> producerB = factoryTenantB.createProducer(sharedTopicName, String.class);
 
-        producerA.send("message-from-tenant-a").get(5, TimeUnit.SECONDS);
-        producerB.send("message-from-tenant-b").get(5, TimeUnit.SECONDS);
+        producerA.send("message-from-tenant-a").onFailure(testContext::failNow);
+        producerB.send("message-from-tenant-b").onFailure(testContext::failNow);
 
         // Use a shared context with 2 checkpoints (one per tenant)
         Checkpoint tenantAReceived = testContext.checkpoint();
@@ -224,7 +234,7 @@ public class MultiTenantSchemaIsolationTest {
         consumerA.subscribe(message -> {
             receivedA.add(message.getPayload());
             tenantAReceived.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Tenant B consumer should only receive tenant B's message
@@ -234,7 +244,7 @@ public class MultiTenantSchemaIsolationTest {
         consumerB.subscribe(message -> {
             receivedB.add(message.getPayload());
             tenantBReceived.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Both tenants should receive messages");

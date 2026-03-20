@@ -1,9 +1,10 @@
 package dev.mars.peegeeq.outbox.deadletter;
 
 import dev.mars.peegeeq.api.messaging.Message;
+import io.vertx.core.Future;
 import java.time.Instant;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
+
 
 /**
  * Dead Letter Queue interface for handling messages that cannot be processed
@@ -18,9 +19,9 @@ public interface DeadLetterQueue {
      * @param reason The reason for sending to DLQ
      * @param attempts Number of processing attempts made
      * @param metadata Additional metadata about the failure
-     * @return CompletableFuture that completes when the message is sent to DLQ
+     * @return Future that completes when the message is sent to DLQ
      */
-    <T> CompletableFuture<Void> sendToDeadLetter(
+    <T> Future<Void> sendToDeadLetter(
         Message<T> originalMessage, 
         String reason, 
         int attempts,

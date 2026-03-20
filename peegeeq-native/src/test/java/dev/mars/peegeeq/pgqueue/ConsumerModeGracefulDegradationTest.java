@@ -12,6 +12,8 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -116,7 +118,9 @@ class ConsumerModeGracefulDegradationTest {
             factory.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+            closeLatch.await(10, TimeUnit.SECONDS);
         }
         
         // Clear test properties
@@ -163,7 +167,7 @@ class ConsumerModeGracefulDegradationTest {
                         "Should process degradation test messages correctly"));
                 logger.info("Processed message {}: {}", count, message.getPayload());
                 received.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Delay for consumer setup using Vert.x timer
@@ -216,13 +220,13 @@ class ConsumerModeGracefulDegradationTest {
                     resourceExhaustionSimulated.set(true);
                     errorCount.incrementAndGet();
                     logger.info("Simulating resource exhaustion for message {}", count);
-                    return CompletableFuture.failedFuture(
+                    return Future.failedFuture(
                         new RuntimeException("Simulated resource exhaustion"));
                 }
 
                 logger.info("Successfully processed message {}: {}", count, message.getPayload());
                 processed.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Delay for consumer setup, then send messages with periodic timer
@@ -285,12 +289,12 @@ class ConsumerModeGracefulDegradationTest {
                     degradationPhase.set(1);
                     logger.info("Processing message {} during degradation phase: {}", count, message.getPayload());
                     // Simulate degraded performance using non-blocking Vert.x timer
-                    CompletableFuture<Void> delayed = new CompletableFuture<>();
+                    Promise<Void> promise = Promise.promise();
                     vertx.setTimer(200, timerId -> {
                         received.flag();
-                        delayed.complete(null);
+                        promise.complete();
                     });
-                    return delayed;
+                    return promise.future();
                 } else if (count >= 5) {
                     degradationPhase.set(2);
                     logger.info("Processing message {} after recovery: {}", count, message.getPayload());
@@ -299,7 +303,7 @@ class ConsumerModeGracefulDegradationTest {
                 }
 
                 received.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Delay for consumer setup, then send messages in phases using Vert.x timers

@@ -10,6 +10,7 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -26,7 +27,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -76,7 +78,7 @@ public class OutboxConfigurationIntegrationTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext tearDownContext) throws Exception {
         if (consumer != null) {
             consumer.close();
         }
@@ -84,7 +86,10 @@ public class OutboxConfigurationIntegrationTest {
             producer.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive().onComplete(ar -> tearDownContext.completeNow());
+            assertTrue(tearDownContext.awaitCompletion(10, TimeUnit.SECONDS));
+        } else {
+            tearDownContext.completeNow();
         }
         
         // Clean up system properties
@@ -131,7 +136,7 @@ public class OutboxConfigurationIntegrationTest {
         Checkpoint retryCheckpoint = testContext.checkpoint(3); // Expect 3 attempts (initial + 2 retries)
 
         // Send message
-        producer.send(testMessage).get(5, TimeUnit.SECONDS);
+        producer.send(testMessage).onFailure(testContext::failNow);
 
         // Set up consumer that always fails
         consumer.subscribe(message -> {
@@ -140,8 +145,8 @@ public class OutboxConfigurationIntegrationTest {
                 attempt, message.getPayload(), Thread.currentThread().getName());
             retryCheckpoint.flag();
 
-            // Return a failed CompletableFuture instead of throwing an exception
-            return CompletableFuture.failedFuture(
+            // Return a failed Future instead of throwing an exception
+            return Future.failedFuture(
                 new RuntimeException("INTENTIONAL FAILURE: Testing config integration, attempt " + attempt));
         });
 
@@ -151,7 +156,9 @@ public class OutboxConfigurationIntegrationTest {
         assertEquals(3, attemptCount.get(), "Should respect max retries configuration of 2");
         
         // Wait a bit more to ensure no additional attempts
-        vertx.timer(2000).toCompletionStage().toCompletableFuture().join();
+        CountDownLatch waitLatch1 = new CountDownLatch(1);
+        vertx.timer(2000).onComplete(ar -> waitLatch1.countDown());
+        waitLatch1.await(5, TimeUnit.SECONDS);
         assertEquals(3, attemptCount.get(), "Should not exceed configured max retries");
         
         logger.info("Outbox configuration integration test completed successfully");
@@ -198,15 +205,15 @@ public class OutboxConfigurationIntegrationTest {
                 attempt, message.getPayload(), Thread.currentThread().getName());
             retryCheckpoint.flag();
 
-            // Return a failed CompletableFuture instead of throwing an exception
-            return CompletableFuture.failedFuture(
+            // Return a failed Future instead of throwing an exception
+            return Future.failedFuture(
                 new RuntimeException("INTENTIONAL FAILURE: Testing default config, attempt " + attempt));
         });
 
         // Send message
         logger.info("📤 Sending message: {}", testMessage);
         try {
-            producer.send(testMessage).get(5, TimeUnit.SECONDS);
+            producer.send(testMessage).onFailure(testContext::failNow);
             logger.info("Message sent successfully");
         } catch (Exception e) {
             logger.error("❌ Failed to send message", e);
@@ -219,7 +226,9 @@ public class OutboxConfigurationIntegrationTest {
         assertEquals(4, attemptCount.get(), "Should use default max retries from default profile (3)");
 
         // Wait a bit more to ensure no additional attempts
-        vertx.timer(2000).toCompletionStage().toCompletableFuture().join();
+        CountDownLatch waitLatch2 = new CountDownLatch(1);
+        vertx.timer(2000).onComplete(ar -> waitLatch2.countDown());
+        waitLatch2.await(5, TimeUnit.SECONDS);
         assertEquals(4, attemptCount.get(), "Should not exceed default max retries");
 
         logger.info("Outbox default configuration test completed successfully");
@@ -275,14 +284,14 @@ public class OutboxConfigurationIntegrationTest {
             int count = processedCount.incrementAndGet();
             System.out.println("Successfully processed message " + count + " (attempt " + count + "): " + message.getPayload());
             messageProcessed.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
         System.out.println("Consumer subscribed successfully");
 
         // Send message
-        System.out.println("📤 Sending basic test message: " + testMessage);
+        System.out.println("\uD83D\uDCE4 Sending basic test message: " + testMessage);
         try {
-            producer.send(testMessage).get(5, TimeUnit.SECONDS);
+            producer.send(testMessage).onFailure(testContext::failNow);
             System.out.println("Message sent successfully");
         } catch (Exception e) {
             System.out.println("❌ Failed to send message: " + e.getMessage());

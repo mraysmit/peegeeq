@@ -24,10 +24,12 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -101,7 +103,9 @@ public class ConsumerModeIntegrationTest {
             factory.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+            closeLatch.await(10, TimeUnit.SECONDS);
         }
         logger.info("Test teardown completed");
     }
@@ -132,7 +136,7 @@ public class ConsumerModeIntegrationTest {
                 assertEquals("Hello LISTEN_NOTIFY_ONLY!", receivedMessage.get());
             });
             testContext.completeNow();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
         System.out.println("consumer.subscribe() completed");
 
@@ -174,7 +178,7 @@ public class ConsumerModeIntegrationTest {
         consumer.subscribe(message -> {
             receivedMessage.set(message.getPayload());
             methodCtx.completeNow();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send message
@@ -209,7 +213,7 @@ public class ConsumerModeIntegrationTest {
         consumer.subscribe(message -> {
             receivedMessage.set(message.getPayload());
             methodCtx.completeNow();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send message
@@ -239,7 +243,7 @@ public class ConsumerModeIntegrationTest {
         consumer.subscribe(message -> {
             receivedMessage.set(message.getPayload());
             methodCtx.completeNow();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send message

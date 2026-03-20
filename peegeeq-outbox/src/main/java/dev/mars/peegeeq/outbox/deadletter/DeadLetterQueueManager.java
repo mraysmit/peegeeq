@@ -2,6 +2,7 @@ package dev.mars.peegeeq.outbox.deadletter;
 
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.outbox.config.FilterErrorHandlingConfig;
+import io.vertx.core.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -9,7 +10,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -38,7 +39,7 @@ public class DeadLetterQueueManager {
     /**
      * Sends a message to the appropriate dead letter queue
      */
-    public <T> CompletableFuture<Void> sendToDeadLetter(
+    public <T> Future<Void> sendToDeadLetter(
             Message<T> originalMessage,
             String filterId,
             String reason,
@@ -49,7 +50,7 @@ public class DeadLetterQueueManager {
         if (!config.isDeadLetterQueueEnabled()) {
             String messageId = originalMessage != null ? originalMessage.getId() : "<null>";
             logger.warn("Dead letter queue is disabled, cannot send message {}", messageId);
-            return CompletableFuture.failedFuture(
+            return Future.failedFuture(
                 new IllegalStateException("Dead letter queue is disabled"));
         }
 
@@ -81,16 +82,15 @@ public class DeadLetterQueueManager {
             logPrefix, originalMessage.getId(), topic, attempts, reason, logSuffix);
         
         return dlq.sendToDeadLetter(originalMessage, reason, attempts, metadata)
-            .whenComplete((result, throwable) -> {
-                if (throwable != null) {
-                    logger.error("Failed to send message {} to dead letter queue '{}': {}", 
-                        originalMessage.getId(), topic, throwable.getMessage());
-                } else {
-                    totalDeadLetterMessages.incrementAndGet();
-                    logger.info("Successfully sent message {} to dead letter queue '{}'", 
-                        originalMessage.getId(), topic);
-                }
-            });
+            .onSuccess(v -> {
+                totalDeadLetterMessages.incrementAndGet();
+                logger.info("Successfully sent message {} to dead letter queue '{}'", 
+                    originalMessage.getId(), topic);
+            })
+            .onFailure(throwable -> 
+                logger.error("Failed to send message {} to dead letter queue '{}': {}", 
+                    originalMessage.getId(), topic, throwable.getMessage())
+            );
     }
     
     /**

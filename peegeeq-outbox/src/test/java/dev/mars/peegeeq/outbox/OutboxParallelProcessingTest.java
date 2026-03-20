@@ -25,6 +25,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -41,7 +42,10 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.ConcurrentHashMap;
@@ -133,7 +137,7 @@ public class OutboxParallelProcessingTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext tearDownContext) throws Exception {
         if (consumer != null) {
             consumer.close();
         }
@@ -144,7 +148,10 @@ public class OutboxParallelProcessingTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive().onComplete(ar -> tearDownContext.completeNow());
+            assertTrue(tearDownContext.awaitCompletion(10, TimeUnit.SECONDS));
+        } else {
+            tearDownContext.completeNow();
         }
         
         // Clear system properties
@@ -175,22 +182,24 @@ public class OutboxParallelProcessingTest {
             System.out.println("🔄 Processing message " + count + " on thread: " + threadName + " - " + message.getPayload());
 
             // Longer processing time to ensure parallel execution opportunity
-            CompletableFuture<Void> delay = new CompletableFuture<>();
+            io.vertx.core.Promise<Void> delay = io.vertx.core.Promise.promise();
             vertx.setTimer(2000, id -> {
                 System.out.println("Completed message " + count + " on thread: " + threadName);
                 completionCheckpoint.flag();
                 delay.complete(null);
             });
-            return delay;
+            return delay.future();
         });
 
         // Send all messages quickly to create backlog for parallel processing
         System.out.println("Sending " + messageCount + " messages quickly to create processing backlog...");
         for (int i = 0; i < messageCount; i++) {
-            producer.send("Parallel message " + i).get(2, TimeUnit.SECONDS);
+            producer.send("Parallel message " + i).onFailure(testContext::failNow);
             System.out.println("Sent message " + i);
             // Small delay to ensure messages are persisted but create backlog
-            vertx.timer(10).toCompletionStage().toCompletableFuture().join();
+            CountDownLatch smallDelay = new CountDownLatch(1);
+            vertx.timer(10).onComplete(ar -> smallDelay.countDown());
+            smallDelay.await(5, TimeUnit.SECONDS);
         }
         System.out.println("All messages sent, waiting for parallel processing...");
 
@@ -240,13 +249,13 @@ public class OutboxParallelProcessingTest {
             System.out.println("Batch processing message " + count + " on thread: " + threadName);
             
             completionCheckpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send messages in rapid succession to test batch processing
         System.out.println("Sending " + messageCount + " messages for batch processing...");
         for (int i = 0; i < messageCount; i++) {
-            producer.send("Batch message " + i).get(1, TimeUnit.SECONDS);
+            producer.send("Batch message " + i).onFailure(testContext::failNow);
         }
 
         // Wait for all messages to be processed
@@ -278,31 +287,37 @@ public class OutboxParallelProcessingTest {
             System.out.println("Concurrent processing message " + count + " on thread: " + threadName);
             
             completionCheckpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Create multiple producers sending concurrently
-        CompletableFuture<Void>[] producerFutures = new CompletableFuture[producerCount];
+        ExecutorService executor = Executors.newFixedThreadPool(producerCount);
+        CountDownLatch producerLatch = new CountDownLatch(producerCount);
         
         for (int p = 0; p < producerCount; p++) {
             final int producerId = p;
-            producerFutures[p] = CompletableFuture.runAsync(() -> {
+            executor.submit(() -> {
                 try {
                     MessageProducer<String> concurrentProducer = outboxFactory.createProducer(testTopic, String.class);
                     for (int m = 0; m < messagesPerProducer; m++) {
                         String message = "Producer-" + producerId + "-Message-" + m;
-                        concurrentProducer.send(message).get(5, TimeUnit.SECONDS);
+                        CountDownLatch sendLatch = new CountDownLatch(1);
+                        concurrentProducer.send(message).onComplete(ar -> sendLatch.countDown());
+                        sendLatch.await(5, TimeUnit.SECONDS);
                         System.out.println("Producer " + producerId + " sent message " + m);
                     }
                     concurrentProducer.close();
                 } catch (Exception e) {
                     throw new RuntimeException("Producer " + producerId + " failed", e);
+                } finally {
+                    producerLatch.countDown();
                 }
             });
         }
 
         // Wait for all producers to complete
-        CompletableFuture.allOf(producerFutures).get(30, TimeUnit.SECONDS);
+        assertTrue(producerLatch.await(30, TimeUnit.SECONDS), "All producers should complete");
+        executor.shutdown();
         System.out.println("All concurrent producers completed");
 
         // Wait for all messages to be processed

@@ -27,6 +27,7 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -41,6 +42,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -102,7 +104,9 @@ public class OutboxEdgeCasesTest {
         if (consumer != null) consumer.close();
         if (producer != null) producer.close();
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+            closeLatch.await(10, TimeUnit.SECONDS);
         }
     }
 
@@ -114,7 +118,9 @@ public class OutboxEdgeCasesTest {
         AtomicInteger attemptCount = new AtomicInteger(0);
         Checkpoint errorCheckpoint = testContext.checkpoint();
 
-        producer.send(testMessage).get(5, TimeUnit.SECONDS);
+        CountDownLatch nullSendLatch = new CountDownLatch(1);
+        producer.send(testMessage).onComplete(ar -> nullSendLatch.countDown());
+        assertTrue(nullSendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
 
         // Set up consumer that returns null CompletableFuture
         consumer.subscribe(message -> {
@@ -140,7 +146,9 @@ public class OutboxEdgeCasesTest {
         AtomicInteger attemptCount = new AtomicInteger(0);
         Checkpoint retryCheckpoint = testContext.checkpoint(3);
 
-        producer.send(testMessage).get(5, TimeUnit.SECONDS);
+        CountDownLatch accessSendLatch = new CountDownLatch(1);
+        producer.send(testMessage).onComplete(ar -> accessSendLatch.countDown());
+        assertTrue(accessSendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
 
         // Set up consumer that throws exception when accessing message propertiesfg
         consumer.subscribe(message -> {
@@ -155,7 +163,7 @@ public class OutboxEdgeCasesTest {
                 throw new IllegalStateException("INTENTIONAL FAILURE: Exception during message access, attempt " + attempt);
             }
             
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times");
@@ -172,7 +180,9 @@ public class OutboxEdgeCasesTest {
         AtomicInteger attemptCount = new AtomicInteger(0);
         Checkpoint retryCheckpoint = testContext.checkpoint(3);
 
-        producer.send(testMessage).get(5, TimeUnit.SECONDS);
+        CountDownLatch interruptSendLatch = new CountDownLatch(1);
+        producer.send(testMessage).onComplete(ar -> interruptSendLatch.countDown());
+        assertTrue(interruptSendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
 
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
@@ -199,7 +209,9 @@ public class OutboxEdgeCasesTest {
         AtomicInteger attemptCount = new AtomicInteger(0);
         Checkpoint errorCheckpoint = testContext.checkpoint();
 
-        producer.send(testMessage).get(5, TimeUnit.SECONDS);
+        CountDownLatch oomSendLatch = new CountDownLatch(1);
+        producer.send(testMessage).onComplete(ar -> oomSendLatch.countDown());
+        assertTrue(oomSendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
 
         // Set up consumer that simulates OOM
         consumer.subscribe(message -> {

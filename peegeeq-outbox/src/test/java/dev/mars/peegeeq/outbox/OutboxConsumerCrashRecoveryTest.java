@@ -29,6 +29,7 @@ import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
+import io.vertx.core.Future;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -42,7 +43,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -134,7 +137,9 @@ public class OutboxConsumerCrashRecoveryTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+            closeLatch.await(10, TimeUnit.SECONDS);
         }
         if (connectionManager != null) {
             connectionManager.close();
@@ -163,7 +168,9 @@ public class OutboxConsumerCrashRecoveryTest {
 
         // Send message first
         logger.info("🔧 DEBUG: About to send message...");
-        producer.send(testMessage).get(5, TimeUnit.SECONDS);
+        CountDownLatch sendLatch = new CountDownLatch(1);
+        producer.send(testMessage).onComplete(ar -> sendLatch.countDown());
+        assertTrue(sendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
         logger.info("📤 Message sent: {}", testMessage);
 
         // Wait for message to be persisted
@@ -231,7 +238,9 @@ public class OutboxConsumerCrashRecoveryTest {
         logger.info("🔧 DEBUG: Executing update SQL with parameters: timestamp={}, payload_like={}, topic={}",
             java.time.Instant.now(), "%" + messagePayload + "%", testTopic);
 
-        Integer updated = testReactivePool.withConnection(connection -> {
+        CountDownLatch stuckLatch = new CountDownLatch(1);
+        AtomicReference<Integer> updatedRef = new AtomicReference<>();
+        testReactivePool.withConnection(connection -> {
             logger.info("🔧 DEBUG: Got database connection");
 
             return connection.preparedQuery(updateSql)
@@ -241,7 +250,10 @@ public class OutboxConsumerCrashRecoveryTest {
                     testTopic
                 ))
                 .map(rowSet -> rowSet.rowCount());
-        }).toCompletionStage().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
+        }).onSuccess(v -> { updatedRef.set(v); stuckLatch.countDown(); })
+          .onFailure(t -> { logger.error("DB update failed", t); stuckLatch.countDown(); });
+        assertTrue(stuckLatch.await(5, TimeUnit.SECONDS), "DB update should complete");
+        Integer updated = updatedRef.get();
 
         logger.info("💥 CREATED STUCK MESSAGE: Updated {} messages to PROCESSING state", updated);
         assertTrue(updated > 0, "Should have updated at least one message to PROCESSING state");
@@ -253,7 +265,9 @@ public class OutboxConsumerCrashRecoveryTest {
      * Gets the current status of a message in the database.
      */
     private String getCurrentMessageStatus(String expectedPayload) throws Exception {
-        return testReactivePool.withConnection(connection -> {
+        CountDownLatch statusLatch = new CountDownLatch(1);
+        AtomicReference<String> statusRef = new AtomicReference<>();
+        testReactivePool.withConnection(connection -> {
             String sql = "SELECT status FROM outbox WHERE payload::text LIKE $1 AND topic = $2";
             return connection.preparedQuery(sql)
                 .execute(io.vertx.sqlclient.Tuple.of("%" + expectedPayload + "%", testTopic))
@@ -265,7 +279,10 @@ public class OutboxConsumerCrashRecoveryTest {
                         throw new AssertionError("No message found with payload: " + expectedPayload);
                     }
                 });
-        }).toCompletionStage().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
+        }).onSuccess(v -> { statusRef.set(v); statusLatch.countDown(); })
+          .onFailure(t -> { logger.error("Status query failed", t); statusLatch.countDown(); });
+        assertTrue(statusLatch.await(5, TimeUnit.SECONDS), "Status query should complete");
+        return statusRef.get();
     }
 
     /**
@@ -273,6 +290,7 @@ public class OutboxConsumerCrashRecoveryTest {
      */
     @SuppressWarnings("unused") // Kept for potential future use
     private void verifyMessageInProcessingState(String expectedPayload) throws Exception {
+        CountDownLatch processingLatch = new CountDownLatch(1);
         testReactivePool.withConnection(connection -> {
             String sql = "SELECT id, status, processed_at, retry_count FROM outbox WHERE payload::text LIKE $1 AND topic = $2";
             return connection.preparedQuery(sql)
@@ -298,13 +316,15 @@ public class OutboxConsumerCrashRecoveryTest {
 
                     return null;
                 });
-        }).toCompletionStage().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
+        }).onComplete(ar -> processingLatch.countDown());
+        assertTrue(processingLatch.await(5, TimeUnit.SECONDS), "Processing state verification should complete");
     }
 
     /**
      * Helper method to verify that a message exists in the database with the expected status.
      */
     private void verifyMessageExists(String expectedPayload, String expectedStatus) throws Exception {
+        CountDownLatch existsLatch = new CountDownLatch(1);
         testReactivePool.withConnection(connection -> {
             String sql = "SELECT id, status, processed_at, retry_count FROM outbox WHERE payload::text LIKE $1 AND topic = $2";
             return connection.preparedQuery(sql)
@@ -325,7 +345,8 @@ public class OutboxConsumerCrashRecoveryTest {
 
                     return null;
                 });
-        }).toCompletionStage().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
+        }).onComplete(ar -> existsLatch.countDown());
+        assertTrue(existsLatch.await(5, TimeUnit.SECONDS), "Message existence verification should complete");
     }
 }
 

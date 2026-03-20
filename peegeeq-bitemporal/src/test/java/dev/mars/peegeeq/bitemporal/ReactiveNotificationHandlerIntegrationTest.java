@@ -141,7 +141,7 @@ class ReactiveNotificationHandlerIntegrationTest {
         // Test invalid eventType with SQL injection attempt
         String maliciousEventType = "valid_type'; DROP TABLE events; --";
         
-        MessageHandler<BiTemporalEvent<String>> messageHandler = message -> java.util.concurrent.CompletableFuture.completedFuture(null);
+        MessageHandler<BiTemporalEvent<String>> messageHandler = message -> Future.<Void>succeededFuture();
         
         handler.subscribe(maliciousEventType, null, messageHandler)
             .onComplete(testContext.failing(error -> {
@@ -171,7 +171,7 @@ class ReactiveNotificationHandlerIntegrationTest {
         // Test valid eventType
         String validEventType = "user_created";
         
-        MessageHandler<BiTemporalEvent<String>> messageHandler = message -> java.util.concurrent.CompletableFuture.completedFuture(null);
+        MessageHandler<BiTemporalEvent<String>> messageHandler = message -> Future.<Void>succeededFuture();
         
         // Since handler is not started, should fail with state error, not validation error
         handler.subscribe(validEventType, null, messageHandler)
@@ -197,7 +197,7 @@ class ReactiveNotificationHandlerIntegrationTest {
             vertx, connectOptions, objectMapper, String.class, eventRetriever
         );
 
-        MessageHandler<BiTemporalEvent<String>> messageHandler = message -> java.util.concurrent.CompletableFuture.completedFuture(null);
+        MessageHandler<BiTemporalEvent<String>> messageHandler = message -> Future.<Void>succeededFuture();
         
         // Test null eventType (should be allowed for "all events" subscription)
         handler.subscribe(null, null, messageHandler)
@@ -264,7 +264,7 @@ class ReactiveNotificationHandlerIntegrationTest {
                     testContext.completeNow();
                 }
             });
-            return java.util.concurrent.CompletableFuture.completedFuture(null);
+            return Future.<Void>succeededFuture();
         };
 
         handler.start()
@@ -291,7 +291,7 @@ class ReactiveNotificationHandlerIntegrationTest {
                     testContext.completeNow();
                 }
             });
-            return java.util.concurrent.CompletableFuture.completedFuture(null);
+            return Future.<Void>succeededFuture();
         };
 
         handler.start()
@@ -310,7 +310,7 @@ class ReactiveNotificationHandlerIntegrationTest {
         AtomicBoolean received = new AtomicBoolean(false);
         MessageHandler<BiTemporalEvent<String>> messageHandler = message -> {
             received.set(true);
-            return java.util.concurrent.CompletableFuture.completedFuture(null);
+            return Future.<Void>succeededFuture();
         };
 
         handler.start()

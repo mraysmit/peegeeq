@@ -40,6 +40,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -47,7 +49,8 @@ import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -134,7 +137,9 @@ class ConsumerGroupExampleTest {
         logger.info("🧹 Cleaning up Consumer Group Example Test");
         
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+            closeLatch.await(10, TimeUnit.SECONDS);
         }
         
         // Clear system properties
@@ -271,12 +276,12 @@ class ConsumerGroupExampleTest {
                 region, event.getOrderId(), event.getAmount());
             
             // Simulate processing time with Vert.x timer
-            CompletableFuture<Void> future = new CompletableFuture<>();
+            Promise<Void> promise = Promise.promise();
             vertx.setTimer(100, id -> {
                 counter.incrementAndGet();
-                future.complete(null);
+                promise.complete();
             });
-            return future;
+            return promise.future();
         };
     }
     
@@ -290,12 +295,12 @@ class ConsumerGroupExampleTest {
             
             // High priority messages process faster
             int processingTime = "HIGH".equals(priority) ? 50 : 200;
-            CompletableFuture<Void> future = new CompletableFuture<>();
+            Promise<Void> promise = Promise.promise();
             vertx.setTimer(processingTime, id -> {
                 counter.incrementAndGet();
-                future.complete(null);
+                promise.complete();
             });
-            return future;
+            return promise.future();
         };
     }
     
@@ -308,12 +313,12 @@ class ConsumerGroupExampleTest {
                 type, event.getOrderId(), headers.get("type"), headers.get("region"));
 
             // Analytics processing with Vert.x timer
-            CompletableFuture<Void> future = new CompletableFuture<>();
+            Promise<Void> promise = Promise.promise();
             vertx.setTimer(25, id -> {
                 counter.incrementAndGet();
-                future.complete(null);
+                promise.complete();
             });
-            return future;
+            return promise.future();
         };
     }
 
@@ -354,9 +359,9 @@ class ConsumerGroupExampleTest {
             );
 
             producer.send(event, headers, "correlation-" + i, region + "-" + priority)
-                .whenComplete((result, error) -> {
-                    if (error != null) {
-                        logger.error("Failed to send message for order {}: {}", event.getOrderId(), error.getMessage());
+                .onComplete(ar -> {
+                    if (ar.failed()) {
+                        logger.error("Failed to send message for order {}: {}", event.getOrderId(), ar.cause().getMessage());
                     } else {
                         logger.debug("Sent message for order {} with headers: {}", event.getOrderId(), headers);
                     }

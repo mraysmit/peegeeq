@@ -6,6 +6,7 @@ import dev.mars.peegeeq.outbox.config.FilterErrorHandlingConfig;
 import dev.mars.peegeeq.outbox.resilience.AsyncFilterRetryManager;
 import dev.mars.peegeeq.outbox.resilience.FilterCircuitBreaker;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Future;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.DisplayName;
@@ -13,9 +14,11 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -76,11 +79,17 @@ public class AsyncRetryMechanismTest {
         
         // Execute async retry
         long startTime = System.currentTimeMillis();
-        CompletableFuture<AsyncFilterRetryManager.FilterResult> resultFuture = 
+        Future<AsyncFilterRetryManager.FilterResult> resultFuture = 
             retryManager.executeFilterWithRetry(message, transientFailingFilter, circuitBreaker);
         
         // Wait for result
-        AsyncFilterRetryManager.FilterResult result = resultFuture.get(10, TimeUnit.SECONDS);
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<AsyncFilterRetryManager.FilterResult> resultRef = new AtomicReference<>();
+        resultFuture.onSuccess(r -> { resultRef.set(r); latch.countDown(); })
+                    .onFailure(e -> latch.countDown());
+        assertTrue(latch.await(10, TimeUnit.SECONDS), "Should complete within timeout");
+        AsyncFilterRetryManager.FilterResult result = resultRef.get();
+        assertNotNull(result, "Result should not be null");
         long endTime = System.currentTimeMillis();
         
         // Verify results
@@ -144,11 +153,17 @@ public class AsyncRetryMechanismTest {
         
         // Execute async retry
         long startTime = System.currentTimeMillis();
-        CompletableFuture<AsyncFilterRetryManager.FilterResult> resultFuture = 
+        Future<AsyncFilterRetryManager.FilterResult> resultFuture = 
             retryManager.executeFilterWithRetry(message, permanentFailingFilter, circuitBreaker);
         
         // Wait for result
-        AsyncFilterRetryManager.FilterResult result = resultFuture.get(5, TimeUnit.SECONDS);
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<AsyncFilterRetryManager.FilterResult> resultRef = new AtomicReference<>();
+        resultFuture.onSuccess(r -> { resultRef.set(r); latch.countDown(); })
+                    .onFailure(e -> latch.countDown());
+        assertTrue(latch.await(5, TimeUnit.SECONDS), "Should complete within timeout");
+        AsyncFilterRetryManager.FilterResult result = resultRef.get();
+        assertNotNull(result, "Result should not be null");
         long endTime = System.currentTimeMillis();
         
         // Verify results
@@ -211,11 +226,17 @@ public class AsyncRetryMechanismTest {
         Message<TestMessage> message = new SimpleMessage<>("async-dlq-1", "test-topic", payload);
         
         // Execute async retry
-        CompletableFuture<AsyncFilterRetryManager.FilterResult> resultFuture = 
+        Future<AsyncFilterRetryManager.FilterResult> resultFuture = 
             retryManager.executeFilterWithRetry(message, alwaysFailingFilter, circuitBreaker);
         
         // Wait for result
-        AsyncFilterRetryManager.FilterResult result = resultFuture.get(10, TimeUnit.SECONDS);
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<AsyncFilterRetryManager.FilterResult> resultRef = new AtomicReference<>();
+        resultFuture.onSuccess(r -> { resultRef.set(r); latch.countDown(); })
+                    .onFailure(e -> latch.countDown());
+        assertTrue(latch.await(10, TimeUnit.SECONDS), "Should complete within timeout");
+        AsyncFilterRetryManager.FilterResult result = resultRef.get();
+        assertNotNull(result, "Result should not be null");
         
         // Verify results
         logger.info("🔄 ASYNC DEAD LETTER QUEUE RESULTS:");
@@ -279,26 +300,41 @@ public class AsyncRetryMechanismTest {
         TestMessage payload1 = new TestMessage("async-cb-1", "Circuit breaker test 1");
         Message<TestMessage> message1 = new SimpleMessage<>("async-cb-1", "test-topic", payload1);
         
-        CompletableFuture<AsyncFilterRetryManager.FilterResult> result1Future = 
+        Future<AsyncFilterRetryManager.FilterResult> result1Future = 
             retryManager.executeFilterWithRetry(message1, alwaysFailingFilter, circuitBreaker);
-        AsyncFilterRetryManager.FilterResult result1 = result1Future.get(5, TimeUnit.SECONDS);
+        CountDownLatch latch1 = new CountDownLatch(1);
+        AtomicReference<AsyncFilterRetryManager.FilterResult> result1Ref = new AtomicReference<>();
+        result1Future.onSuccess(r -> { result1Ref.set(r); latch1.countDown(); })
+                     .onFailure(e -> latch1.countDown());
+        assertTrue(latch1.await(5, TimeUnit.SECONDS));
+        AsyncFilterRetryManager.FilterResult result1 = result1Ref.get();
         
         // Second message - should fail and open circuit breaker
         TestMessage payload2 = new TestMessage("async-cb-2", "Circuit breaker test 2");
         Message<TestMessage> message2 = new SimpleMessage<>("async-cb-2", "test-topic", payload2);
         
-        CompletableFuture<AsyncFilterRetryManager.FilterResult> result2Future = 
+        Future<AsyncFilterRetryManager.FilterResult> result2Future = 
             retryManager.executeFilterWithRetry(message2, alwaysFailingFilter, circuitBreaker);
-        AsyncFilterRetryManager.FilterResult result2 = result2Future.get(5, TimeUnit.SECONDS);
+        CountDownLatch latch2 = new CountDownLatch(1);
+        AtomicReference<AsyncFilterRetryManager.FilterResult> result2Ref = new AtomicReference<>();
+        result2Future.onSuccess(r -> { result2Ref.set(r); latch2.countDown(); })
+                     .onFailure(e -> latch2.countDown());
+        assertTrue(latch2.await(5, TimeUnit.SECONDS));
+        AsyncFilterRetryManager.FilterResult result2 = result2Ref.get();
         
         // Third message - should be rejected by open circuit breaker
         TestMessage payload3 = new TestMessage("async-cb-3", "Circuit breaker test 3");
         Message<TestMessage> message3 = new SimpleMessage<>("async-cb-3", "test-topic", payload3);
         
         int attemptsBeforeCircuitBreaker = attemptCount.get();
-        CompletableFuture<AsyncFilterRetryManager.FilterResult> result3Future = 
+        Future<AsyncFilterRetryManager.FilterResult> result3Future = 
             retryManager.executeFilterWithRetry(message3, alwaysFailingFilter, circuitBreaker);
-        AsyncFilterRetryManager.FilterResult result3 = result3Future.get(5, TimeUnit.SECONDS);
+        CountDownLatch latch3 = new CountDownLatch(1);
+        AtomicReference<AsyncFilterRetryManager.FilterResult> result3Ref = new AtomicReference<>();
+        result3Future.onSuccess(r -> { result3Ref.set(r); latch3.countDown(); })
+                     .onFailure(e -> latch3.countDown());
+        assertTrue(latch3.await(5, TimeUnit.SECONDS));
+        AsyncFilterRetryManager.FilterResult result3 = result3Ref.get();
         int attemptsAfterCircuitBreaker = attemptCount.get();
         
         // Verify results

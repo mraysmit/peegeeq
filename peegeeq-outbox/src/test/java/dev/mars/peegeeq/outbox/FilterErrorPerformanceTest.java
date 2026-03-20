@@ -6,6 +6,8 @@ import dev.mars.peegeeq.api.messaging.SimpleMessage;
 import dev.mars.peegeeq.outbox.config.FilterErrorHandlingConfig;
 import dev.mars.peegeeq.outbox.resilience.FilterCircuitBreaker;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -19,7 +21,7 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -52,9 +54,9 @@ public class FilterErrorPerformanceTest {
         // Handler that tracks processing time
         MessageHandler<TestMessage> performanceHandler = message -> {
             long startTime = System.nanoTime();
-            CompletableFuture<Void> delay = new CompletableFuture<>();
-            vertx.setTimer(1, id -> delay.complete(null));
-            return delay.thenApply(v -> {
+            Promise<Void> promise = Promise.promise();
+            vertx.setTimer(1, id -> promise.complete());
+            return promise.future().map(v -> {
                 long endTime = System.nanoTime();
                 totalProcessingTime.addAndGet(endTime - startTime);
                 processedCount.incrementAndGet();
@@ -137,9 +139,9 @@ public class FilterErrorPerformanceTest {
         
         // Handler that tracks processing
         MessageHandler<TestMessage> performanceHandler = message -> {
-            CompletableFuture<Void> delay = new CompletableFuture<>();
-            vertx.setTimer(1, id -> delay.complete(null));
-            return delay.thenApply(v -> {
+            Promise<Void> promise = Promise.promise();
+            vertx.setTimer(1, id -> promise.complete());
+            return promise.future().map(v -> {
                 processedCount.incrementAndGet();
                 return null;
             });
@@ -166,7 +168,7 @@ public class FilterErrorPerformanceTest {
             
             boolean accepted = member.acceptsMessage(message);
             if (accepted) {
-                member.processMessage(message).whenComplete((result, throwable) -> {
+                member.processMessage(message).onComplete(ar -> {
                     completionCheckpoint.flag();
                 });
             } else {
@@ -236,10 +238,8 @@ public class FilterErrorPerformanceTest {
         };
         
         MessageHandler<TestMessage> performanceHandler = message -> {
-            return CompletableFuture.supplyAsync(() -> {
-                processedCount.incrementAndGet();
-                return null;
-            });
+            processedCount.incrementAndGet();
+            return Future.succeededFuture();
         };
         
         FilterErrorHandlingConfig config = FilterErrorHandlingConfig.builder()
@@ -270,7 +270,7 @@ public class FilterErrorPerformanceTest {
             
             boolean accepted = member.acceptsMessage(message);
             if (accepted) {
-                member.processMessage(message).whenComplete((result, throwable) -> {
+                member.processMessage(message).onComplete(ar -> {
                     completionCheckpoint.flag();
                 });
             } else {
@@ -343,10 +343,8 @@ public class FilterErrorPerformanceTest {
         };
 
         MessageHandler<TestMessage> performanceHandler = message -> {
-            return CompletableFuture.supplyAsync(() -> {
-                processedCount.incrementAndGet();
-                return null;
-            });
+            processedCount.incrementAndGet();
+            return Future.succeededFuture();
         };
 
         FilterErrorHandlingConfig config = FilterErrorHandlingConfig.builder()
@@ -373,7 +371,7 @@ public class FilterErrorPerformanceTest {
 
             boolean accepted = member.acceptsMessage(message);
             if (accepted) {
-                member.processMessage(message).whenComplete((result, throwable) -> {
+                member.processMessage(message).onComplete(ar -> {
                     completionCheckpoint.flag();
                 });
             } else {

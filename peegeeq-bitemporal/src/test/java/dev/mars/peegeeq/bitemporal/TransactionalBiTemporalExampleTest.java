@@ -40,9 +40,10 @@ import java.sql.DriverManager;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -219,14 +220,14 @@ public class TransactionalBiTemporalExampleTest {
         Instant validTime = Instant.now();
 
         // Store events in both event stores
-        CompletableFuture<BiTemporalEvent<OrderEvent>> orderFuture =
-            orderEventStore.appendBuilder().eventType("OrderCreated").payload(orderEvent).validTime(validTime).execute().toCompletionStage().toCompletableFuture();
+        var orderFuture =
+            orderEventStore.appendBuilder().eventType("OrderCreated").payload(orderEvent).validTime(validTime).execute();
 
-        CompletableFuture<BiTemporalEvent<PaymentEvent>> paymentFuture =
-            paymentEventStore.appendBuilder().eventType("PaymentAuthorized").payload(paymentEvent).validTime(validTime).execute().toCompletionStage().toCompletableFuture();
+        var paymentFuture =
+            paymentEventStore.appendBuilder().eventType("PaymentAuthorized").payload(paymentEvent).validTime(validTime).execute();
 
         // Wait for completion
-        CompletableFuture.allOf(orderFuture, paymentFuture).get(10, TimeUnit.SECONDS);
+        await(io.vertx.core.Future.all(orderFuture, paymentFuture), 10, TimeUnit.SECONDS);
 
         // Verify events are stored in event stores
         var orderEvents = await(orderEventStore.query(EventQuery.builder()
@@ -424,7 +425,7 @@ public class TransactionalBiTemporalExampleTest {
         long startTime = System.currentTimeMillis();
 
         // Create and store events in batch
-        CompletableFuture<?>[] futures = new CompletableFuture[numberOfEvents];
+        List<io.vertx.core.Future<?>> futures = new java.util.ArrayList<>();
         Instant baseTime = Instant.now();
 
         for (int i = 0; i < numberOfEvents; i++) {
@@ -436,11 +437,11 @@ public class TransactionalBiTemporalExampleTest {
             Instant eventTime = baseTime.plus(i * 10, ChronoUnit.MILLIS); // 10ms apart
             OrderEvent orderEvent = new OrderEvent(orderId, customerId, amount, status, eventTime);
 
-            futures[i] = orderEventStore.appendBuilder().eventType("OrderCreated").payload(orderEvent).validTime(eventTime).execute().toCompletionStage().toCompletableFuture();
+            futures.add(orderEventStore.appendBuilder().eventType("OrderCreated").payload(orderEvent).validTime(eventTime).execute());
         }
 
         // Wait for all events to be stored
-        CompletableFuture.allOf(futures).get(30, TimeUnit.SECONDS);
+        await(io.vertx.core.Future.all(futures), 30, TimeUnit.SECONDS);
 
         long endTime = System.currentTimeMillis();
         long duration = endTime - startTime;

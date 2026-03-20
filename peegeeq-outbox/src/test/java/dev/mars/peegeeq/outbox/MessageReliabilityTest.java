@@ -5,6 +5,7 @@ import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.api.messaging.SimpleMessage;
 import dev.mars.peegeeq.outbox.config.FilterErrorHandlingConfig;
 import dev.mars.peegeeq.outbox.resilience.FilterCircuitBreaker;
+import io.vertx.core.Future;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -13,7 +14,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.LockSupport;
@@ -58,7 +59,7 @@ public class MessageReliabilityTest {
         MessageHandler<TestMessage> trackingHandler = message -> {
             messagesProcessed.incrementAndGet();
             logger.debug("Processing message: {}", message.getId());
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         };
 
         // Configure to reject immediately on filter failures (no retries for this test)
@@ -84,7 +85,10 @@ public class MessageReliabilityTest {
             if (accepted) {
                 // If accepted, process the message synchronously for testing
                 try {
-                    member.processMessage(message).get(); // Wait for completion
+                    Future<Void> result = member.processMessage(message);
+                    if (result.failed()) {
+                        logger.error("Processing failed for message {}: {}", message.getId(), result.cause().getMessage());
+                    }
                 } catch (Exception e) {
                     logger.error("Processing failed for message {}: {}", message.getId(), e.getMessage());
                 }
@@ -138,7 +142,7 @@ public class MessageReliabilityTest {
 
         MessageHandler<TestMessage> handler = message -> {
             messagesProcessed.incrementAndGet();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         };
 
         // Configure circuit breaker with low threshold
@@ -236,7 +240,7 @@ public class MessageReliabilityTest {
             messagesProcessed.incrementAndGet();
             lastProcessedMessageId.set(message.getId());
             logger.debug("Processed message: {}", message.getId());
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         };
         
         // Configure for retry on transient errors
@@ -310,15 +314,15 @@ public class MessageReliabilityTest {
             try {
                 if (message == null || message.getPayload() == null) {
                     processingErrors.incrementAndGet();
-                    return CompletableFuture.failedFuture(
+                    return Future.failedFuture(
                         new IllegalArgumentException("Cannot process null message or payload"));
                 }
 
                 logger.debug("Processing valid message: {}", message.getId());
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             } catch (Exception e) {
                 processingErrors.incrementAndGet();
-                return CompletableFuture.failedFuture(e);
+                return Future.failedFuture(e);
             }
         };
 
@@ -392,7 +396,7 @@ public class MessageReliabilityTest {
             }
 
             logger.debug("Processed message {} (count: {})", messageId, count);
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         };
 
         FilterErrorHandlingConfig config = FilterErrorHandlingConfig.defaultConfig();

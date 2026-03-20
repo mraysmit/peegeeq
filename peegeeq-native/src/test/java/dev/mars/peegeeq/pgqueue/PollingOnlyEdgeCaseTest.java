@@ -13,6 +13,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -30,7 +31,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -108,7 +110,9 @@ class PollingOnlyEdgeCaseTest {
             factory.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+            closeLatch.await(10, TimeUnit.SECONDS);
         }
         logger.info("Test teardown completed");
     }
@@ -135,13 +139,15 @@ class PollingOnlyEdgeCaseTest {
             int count = messageCount.incrementAndGet();
             logger.info("📨 Received fast polling message {}: {}", count, message.getPayload());
             messagesReceived.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send messages rapidly
+        CountDownLatch fastSendLatch = new CountDownLatch(5);
         for (int i = 1; i <= 5; i++) {
-            producer.send("Fast polling message " + i).get(5, TimeUnit.SECONDS);
+            producer.send("Fast polling message " + i).onComplete(ar -> fastSendLatch.countDown());
         }
+        assertTrue(fastSendLatch.await(15, TimeUnit.SECONDS));
 
         // Wait for all messages to be processed
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive all 5 messages with fast polling");
@@ -174,12 +180,14 @@ class PollingOnlyEdgeCaseTest {
             int count = messageCount.incrementAndGet();
             logger.info("📨 Received slow polling message {}: {}", count, message.getPayload());
             messagesReceived.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send messages before polling kicks in
-        producer.send("Slow polling message 1").get(5, TimeUnit.SECONDS);
-        producer.send("Slow polling message 2").get(5, TimeUnit.SECONDS);
+        CountDownLatch slowSendLatch = new CountDownLatch(2);
+        producer.send("Slow polling message 1").onComplete(ar -> slowSendLatch.countDown());
+        producer.send("Slow polling message 2").onComplete(ar -> slowSendLatch.countDown());
+        assertTrue(slowSendLatch.await(10, TimeUnit.SECONDS));
 
         // Wait for polling to pick up messages (need to wait longer than polling interval)
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should receive all 2 messages with slow polling");
@@ -214,13 +222,15 @@ class PollingOnlyEdgeCaseTest {
             logger.info("📨 Received concurrent message {}: {} on thread {}",
                 count, message.getPayload(), Thread.currentThread().getName());
             messagesReceived.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send messages sequentially to avoid overwhelming the system
+        CountDownLatch concurrentSendLatch = new CountDownLatch(10);
         for (int i = 1; i <= 10; i++) {
-            producer.send("Concurrent message " + i).get(5, TimeUnit.SECONDS);
+            producer.send("Concurrent message " + i).onComplete(ar -> concurrentSendLatch.countDown());
         }
+        assertTrue(concurrentSendLatch.await(15, TimeUnit.SECONDS));
 
         // Wait for all messages to be processed
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should receive all 10 messages with high concurrency");
@@ -254,14 +264,16 @@ class PollingOnlyEdgeCaseTest {
             int count = messageCount.incrementAndGet();
             logger.info("📨 Processed batch message {}: {}", count, message.getPayload());
             messagesReceived.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send messages before consumer starts polling
         logger.info("Sending 10 messages for batch processing...");
+        CountDownLatch batchSendLatch = new CountDownLatch(10);
         for (int i = 1; i <= 10; i++) {
-            producer.send("Batch message " + i).get(5, TimeUnit.SECONDS);
+            producer.send("Batch message " + i).onComplete(ar -> batchSendLatch.countDown());
         }
+        assertTrue(batchSendLatch.await(15, TimeUnit.SECONDS));
 
         // Wait for all messages to be processed in batches
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should receive all 10 messages in batches");
@@ -295,7 +307,7 @@ class PollingOnlyEdgeCaseTest {
             lastMessage.set(message.getPayload());
             logger.info("📨 Received message: {}", message.getPayload());
             messageReceived.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Let it poll empty queue for a while, then send a message
@@ -309,7 +321,7 @@ class PollingOnlyEdgeCaseTest {
             // Now send a message and verify it gets processed
             try {
                 MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-                producer.send("Message after empty polling").get(5, TimeUnit.SECONDS);
+                producer.send("Message after empty polling").onFailure(testContext::failNow);
                 producer.close();
             } catch (Exception e) {
                 testContext.failNow(e);
@@ -346,13 +358,15 @@ class PollingOnlyEdgeCaseTest {
             int count = messageCount.incrementAndGet();
             logger.info("📨 Received resilient message {}: {}", count, message.getPayload());
             messagesReceived.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send messages sequentially
-        producer.send("Message 1 - resilience test").get(5, TimeUnit.SECONDS);
-        producer.send("Message 2 - resilience test").get(5, TimeUnit.SECONDS);
-        producer.send("Message 3 - resilience test").get(5, TimeUnit.SECONDS);
+        CountDownLatch resilSendLatch = new CountDownLatch(3);
+        producer.send("Message 1 - resilience test").onComplete(ar -> resilSendLatch.countDown());
+        producer.send("Message 2 - resilience test").onComplete(ar -> resilSendLatch.countDown());
+        producer.send("Message 3 - resilience test").onComplete(ar -> resilSendLatch.countDown());
+        assertTrue(resilSendLatch.await(10, TimeUnit.SECONDS));
 
         // Wait for messages to be processed (consumer should handle normal operations)
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive all messages in normal operation");

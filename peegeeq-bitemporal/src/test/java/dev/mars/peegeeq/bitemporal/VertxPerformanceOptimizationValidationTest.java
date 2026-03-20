@@ -37,7 +37,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -174,18 +174,17 @@ class VertxPerformanceOptimizationValidationTest {
         
         // Test concurrent operations to validate pool size and wait queue
         int concurrentOperations = 50;
-        List<CompletableFuture<BiTemporalEvent<TestEvent>>> futures = new ArrayList<>();
+        List<io.vertx.core.Future<?>> futures = new ArrayList<>();
         
         long startTime = System.currentTimeMillis();
         
         for (int i = 0; i < concurrentOperations; i++) {
             TestEvent event = new TestEvent("pool-test-" + i, "Testing pool configuration " + i);
-            futures.add(eventStore.appendBuilder().eventType("test.pool").payload(event).validTime(Instant.now()).execute().toCompletionStage().toCompletableFuture());
+            futures.add(eventStore.appendBuilder().eventType("test.pool").payload(event).validTime(Instant.now()).execute());
         }
         
         // All operations should complete without pool exhaustion
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-            .get(30, TimeUnit.SECONDS);
+        await(io.vertx.core.Future.all(futures), 30, TimeUnit.SECONDS);
         
         long duration = System.currentTimeMillis() - startTime;
         double throughput = concurrentOperations * 1000.0 / duration;
@@ -194,9 +193,9 @@ class VertxPerformanceOptimizationValidationTest {
                    concurrentOperations, duration, String.format("%.1f", throughput));
         
         // Validate all operations completed successfully
-        for (CompletableFuture<BiTemporalEvent<TestEvent>> future : futures) {
-            assertTrue(future.isDone());
-            assertFalse(future.isCompletedExceptionally());
+        for (io.vertx.core.Future<?> future : futures) {
+            assertTrue(future.isComplete());
+            assertFalse(future.failed());
         }
         
         // Throughput should be reasonable with optimized pool
@@ -219,8 +218,8 @@ class VertxPerformanceOptimizationValidationTest {
         }
         
         long startTime = System.currentTimeMillis();
-        List<BiTemporalEvent<TestEvent>> results = eventStore.appendBatch(batchEvents)
-            .get(30, TimeUnit.SECONDS);
+        List<BiTemporalEvent<TestEvent>> results = await(eventStore.appendBatch(batchEvents),
+            30, TimeUnit.SECONDS);
         long duration = System.currentTimeMillis() - startTime;
         
         double throughput = batchSize * 1000.0 / duration;
@@ -266,7 +265,9 @@ class VertxPerformanceOptimizationValidationTest {
 
     private void awaitAsyncDelay(long delayMs) throws Exception {
         CountDownLatch latch = new CountDownLatch(1);
-        CompletableFuture.delayedExecutor(delayMs, TimeUnit.MILLISECONDS).execute(latch::countDown);
+        new java.util.Timer().schedule(new java.util.TimerTask() {
+            @Override public void run() { latch.countDown(); }
+        }, delayMs);
         assertTrue(latch.await(delayMs + 2000, TimeUnit.MILLISECONDS),
             "Timed out waiting for async processing delay");
     }
@@ -306,14 +307,14 @@ class VertxPerformanceOptimizationValidationTest {
         
         // Run a comprehensive test to validate performance targets
         int totalEvents = 200;
-        List<CompletableFuture<BiTemporalEvent<TestEvent>>> futures = new ArrayList<>();
+        List<io.vertx.core.Future<?>> futures = new ArrayList<>();
         
         long startTime = System.currentTimeMillis();
         
         // Mix of individual and batch operations
         for (int i = 0; i < totalEvents / 2; i++) {
             TestEvent event = new TestEvent("perf-test-" + i, "Performance test " + i);
-            futures.add(eventStore.appendBuilder().eventType("test.performance").payload(event).validTime(Instant.now()).execute().toCompletionStage().toCompletableFuture());
+            futures.add(eventStore.appendBuilder().eventType("test.performance").payload(event).validTime(Instant.now()).execute());
         }
         
         // Add a batch operation
@@ -324,11 +325,11 @@ class VertxPerformanceOptimizationValidationTest {
                                                Map.of("batch", "true"), "perf-correlation", "perf-aggregate"));
         }
         
-        CompletableFuture<List<BiTemporalEvent<TestEvent>>> batchFuture = eventStore.appendBatch(batchEvents);
+        io.vertx.core.Future<List<BiTemporalEvent<TestEvent>>> batchFuture = eventStore.appendBatch(batchEvents);
         
         // Wait for all operations to complete
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).get(60, TimeUnit.SECONDS);
-        List<BiTemporalEvent<TestEvent>> batchResults = batchFuture.get(60, TimeUnit.SECONDS);
+        await(io.vertx.core.Future.all(futures), 60, TimeUnit.SECONDS);
+        List<BiTemporalEvent<TestEvent>> batchResults = await(batchFuture, 60, TimeUnit.SECONDS);
         
         long duration = System.currentTimeMillis() - startTime;
         double throughput = totalEvents * 1000.0 / duration;
@@ -341,9 +342,9 @@ class VertxPerformanceOptimizationValidationTest {
         assertEquals(totalEvents / 2, batchResults.size());
         
         // Validate all individual operations completed successfully
-        for (CompletableFuture<BiTemporalEvent<TestEvent>> future : futures) {
-            assertTrue(future.isDone());
-            assertFalse(future.isCompletedExceptionally());
+        for (io.vertx.core.Future<?> future : futures) {
+            assertTrue(future.isComplete());
+            assertFalse(future.failed());
         }
         
         logger.info("=== Vert.x 5.x Performance Optimization Validation Complete ===");
