@@ -54,9 +54,8 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.TimeUnit;
 
 /**
  * PostgreSQL-based implementation of the bi-temporal event store.
@@ -282,9 +281,9 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      * This method dramatically reduces database round-trips by batching multiple
      * events into a single operation.
      */
-    public CompletableFuture<List<BiTemporalEvent<T>>> appendBatch(List<BatchEventData<T>> events) {
+    public Future<List<BiTemporalEvent<T>>> appendBatch(List<BatchEventData<T>> events) {
         if (events == null || events.isEmpty()) {
-            return CompletableFuture.completedFuture(List.of());
+            return Future.succeededFuture(List.of());
         }
 
         logger.debug("BITEMPORAL-BATCH: Appending {} events in batch for maximum throughput", events.size());
@@ -292,17 +291,17 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         // Performance monitoring: Track batch operation timing
         var timing = performanceMonitor.startTiming();
 
-        return asCompletableFuture(appendBatchReactive(events))
-                .whenComplete((result, throwable) -> {
+        return appendBatchReactive(events)
+                .onSuccess(result -> {
                     timing.recordAsQuery();
-                    if (throwable != null) {
-                        logger.warn("Batch append operation ({} events) failed after {}ms: {}",
-                                events.size(), timing.getElapsed().toMillis(), throwable.getMessage());
-                    } else {
-                        logger.info("Batch append operation ({} events) completed in {}ms - throughput: {} events/sec",
-                                events.size(), timing.getElapsed().toMillis(),
-                                String.format("%.1f", events.size() * 1000.0 / timing.getElapsed().toMillis()));
-                    }
+                    logger.info("Batch append operation ({} events) completed in {}ms - throughput: {} events/sec",
+                            events.size(), timing.getElapsed().toMillis(),
+                            String.format("%.1f", events.size() * 1000.0 / timing.getElapsed().toMillis()));
+                })
+                .onFailure(throwable -> {
+                    timing.recordAsQuery();
+                    logger.warn("Batch append operation ({} events) failed after {}ms: {}",
+                            events.size(), timing.getElapsed().toMillis(), throwable.getMessage());
                 });
     }
 
@@ -397,7 +396,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      * @param validTime   The valid time for the event
      * @param propagation Transaction propagation behavior (e.g., CONTEXT for
      *                    sharing existing transactions)
-     * @return CompletableFuture that completes when the event is stored
+     * @return Future that completes when the event is stored
      */
     public Future<BiTemporalEvent<T>> appendWithTransaction(String eventType, T payload, Instant validTime,
             TransactionPropagation propagation) {
@@ -414,7 +413,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      * @param validTime   The valid time for the event
      * @param headers     Optional event headers
      * @param propagation Transaction propagation behavior
-     * @return CompletableFuture that completes when the event is stored
+     * @return Future that completes when the event is stored
      */
     public Future<BiTemporalEvent<T>> appendWithTransaction(String eventType, T payload, Instant validTime,
             Map<String, String> headers,
@@ -433,7 +432,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      * @param headers       Optional event headers
      * @param correlationId Optional correlation ID for event tracking
      * @param propagation   Transaction propagation behavior
-     * @return CompletableFuture that completes when the event is stored
+     * @return Future that completes when the event is stored
      */
     public Future<BiTemporalEvent<T>> appendWithTransaction(String eventType, T payload, Instant validTime,
             Map<String, String> headers, String correlationId,
@@ -454,7 +453,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      * @param causationId   Optional causation ID identifying which event caused this event
      * @param aggregateId   Optional aggregate ID for event grouping
      * @param propagation   Transaction propagation behavior
-     * @return CompletableFuture that completes when the event is stored
+     * @return Future that completes when the event is stored
      */
     public Future<BiTemporalEvent<T>> appendWithTransaction(String eventType, T payload, Instant validTime,
             Map<String, String> headers, String correlationId,
@@ -475,7 +474,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      * @param causationId   Optional causation ID identifying which event caused this event
      * @param aggregateId   Optional aggregate ID for event grouping
      * @param propagation   Transaction propagation behavior
-     * @return CompletableFuture that completes when the event is stored
+     * @return Future that completes when the event is stored
      */
     public Future<BiTemporalEvent<T>> appendWithTransaction(String eventType, T payload, Instant validTime,
             Map<String, String> headers, String correlationId,
@@ -501,7 +500,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      * @param aggregateId   Optional aggregate ID for event grouping
      * @param propagation   Optional transaction propagation behavior (null for
      *                      default)
-     * @return CompletableFuture that completes when the event is stored
+     * @return Future that completes when the event is stored
      */
     private Future<BiTemporalEvent<T>> appendWithTransactionInternal(String eventType, T payload,
             Instant validTime,
@@ -734,7 +733,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      * @param validTime  When the event actually happened (business time)
      * @param connection Existing Vert.x SqlConnection that has an active
      *                   transaction
-     * @return CompletableFuture that completes when the event is stored
+     * @return Future that completes when the event is stored
      */
     public Future<BiTemporalEvent<T>> appendInTransaction(String eventType, T payload, Instant validTime,
             io.vertx.sqlclient.SqlConnection connection) {
@@ -750,7 +749,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      * @param headers    Additional metadata for the event
      * @param connection Existing Vert.x SqlConnection that has an active
      *                   transaction
-     * @return CompletableFuture that completes when the event is stored
+     * @return Future that completes when the event is stored
      */
     public Future<BiTemporalEvent<T>> appendInTransaction(String eventType, T payload, Instant validTime,
             Map<String, String> headers,
@@ -768,7 +767,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      * @param correlationId Correlation ID for tracking related events
      * @param connection    Existing Vert.x SqlConnection that has an active
      *                      transaction
-     * @return CompletableFuture that completes when the event is stored
+     * @return Future that completes when the event is stored
      */
     public Future<BiTemporalEvent<T>> appendInTransaction(String eventType, T payload, Instant validTime,
             Map<String, String> headers, String correlationId,
@@ -789,7 +788,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      * @param aggregateId   Aggregate ID for grouping related events
      * @param connection    Existing Vert.x SqlConnection that has an active
      *                      transaction
-     * @return CompletableFuture that completes when the event is stored
+     * @return Future that completes when the event is stored
      */
     public Future<BiTemporalEvent<T>> appendInTransaction(String eventType, T payload, Instant validTime,
             Map<String, String> headers, String correlationId,
@@ -812,7 +811,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      * @param aggregateId   Aggregate ID for grouping related events
      * @param connection    Existing Vert.x SqlConnection that has an active
      *                      transaction
-     * @return CompletableFuture that completes when the event is stored
+     * @return Future that completes when the event is stored
      */
     public Future<BiTemporalEvent<T>> appendInTransaction(String eventType, T payload, Instant validTime,
             Map<String, String> headers, String correlationId,
@@ -1226,11 +1225,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
     @Override
     public void close() {
-        try {
-            closeFuture().toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
-        } catch (Exception e) {
-            logger.warn("Timed out or failed waiting for async close: {}", e.getMessage(), e);
-        }
+        closeFuture()
+                .onFailure(e -> logger.warn("Async close failed: {}", e.getMessage(), e));
     }
 
     /**
@@ -1713,79 +1709,6 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
         // Fallback to pool for compatibility
         return reactivePool;
-    }
-
-    /**
-     * High-performance append method that uses pipelining for maximum throughput.
-     * WARNING: This method bypasses transactions for performance. Use only when:
-     * 1. Individual SQL statements are atomic (which they are for single INSERTs)
-     * 2. Transaction boundaries are not required across multiple operations
-     * 3. Maximum throughput is more important than strict ACID guarantees
-     *
-     * This method is designed for performance benchmarks and high-throughput
-     * scenarios.
-     *
-     * @param eventType     The type of event
-     * @param payload       The event payload
-     * @param validTime     The valid time for the event
-     * @param headers       Optional event headers
-     * @param correlationId Optional correlation ID for event tracking
-     * @param aggregateId   Optional aggregate ID for event grouping
-     * @return CompletableFuture that completes when the event is stored
-     */
-    public CompletableFuture<BiTemporalEvent<T>> appendHighPerformance(String eventType, T payload, Instant validTime,
-            Map<String, String> headers, String correlationId,
-            String aggregateId) {
-        if (closed) {
-            return CompletableFuture.failedFuture(new IllegalStateException("Event store is closed"));
-        }
-
-        try {
-            // Generate event metadata
-            String eventId = UUID.randomUUID().toString();
-            JsonObject payloadJson = toJsonObject(payload);
-            JsonObject headersJson = headersToJsonObject(headers);
-            OffsetDateTime transactionTime = OffsetDateTime.now();
-            long version = 1; // For high-performance mode, we use version 1 (no corrections)
-            String finalCorrelationId = correlationId != null ? correlationId : UUID.randomUUID().toString();
-
-            logger.debug("Serialized payload JSON: {}", payloadJson);
-            logger.debug("Payload JSON type: {}", payloadJson.getClass().getSimpleName());
-
-            // Use high-performance pipelined client for maximum throughput
-            SqlClient client = getHighPerformanceWriteClient();
-            Vertx vertx = getOrCreateSharedVertx();
-
-            String sql = """
-                    INSERT INTO %s
-                    (event_id, event_type, valid_time, transaction_time, payload, headers,
-                     version, correlation_id, aggregate_id, is_correction, created_at)
-                    VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11)
-                    """.formatted(quotedTableName);
-
-            Tuple params = Tuple.of(
-                    eventId, eventType, validTime.atOffset(java.time.ZoneOffset.UTC), transactionTime, payloadJson,
-                    headersJson,
-                    version, finalCorrelationId, aggregateId, false, OffsetDateTime.now());
-
-            // Execute on Vert.x context with pipelined client for maximum performance
-            Future<BiTemporalEvent<T>> insertFuture = executeOnVertxContext(vertx, () -> client.preparedQuery(sql)
-                    .execute(params)
-                    .map(result -> {
-                        logger.debug("Successfully appended bi-temporal event: eventId={}, eventType={}, validTime={}",
-                                eventId, eventType, validTime);
-
-                        return new SimpleBiTemporalEvent<>(
-                                eventId, eventType, payload, validTime, transactionTime.toInstant(),
-                                headers != null ? headers : Map.of(), finalCorrelationId, null, aggregateId);
-                    }));
-
-                        return asCompletableFuture(insertFuture);
-
-        } catch (Exception e) {
-            logger.error("Failed to append high-performance bi-temporal event: {}", e.getMessage(), e);
-            return CompletableFuture.failedFuture(e);
-        }
     }
 
     /**
@@ -2339,10 +2262,6 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             });
             return promise.future();
         }
-    }
-
-    private static <T> CompletableFuture<T> asCompletableFuture(Future<T> future) {
-        return future.toCompletionStage().toCompletableFuture();
     }
 
     /**
