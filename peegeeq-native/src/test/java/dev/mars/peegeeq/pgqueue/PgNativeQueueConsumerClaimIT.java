@@ -21,9 +21,12 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import io.vertx.core.Future;
 
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile.BASIC;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent.*;
@@ -80,7 +83,11 @@ class PgNativeQueueConsumerClaimIT {
     @AfterEach
     void tearDown() {
         if (manager != null) {
-            try { manager.closeReactive().toCompletionStage().toCompletableFuture().join(); } catch (Exception ignore) {}
+            try {
+                CountDownLatch closeLatch = new CountDownLatch(1);
+                manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+                closeLatch.await(10, TimeUnit.SECONDS);
+            } catch (Exception ignore) {}
         }
     }
 
@@ -98,18 +105,18 @@ class PgNativeQueueConsumerClaimIT {
         );
 
         AtomicInteger processedCount = new AtomicInteger();
-        CompletableFuture<Void> firstReceived = new CompletableFuture<>();
+        CountDownLatch firstReceived = new CountDownLatch(1);
 
         consumer.subscribe(msg -> {
             int n = processedCount.incrementAndGet();
             if (n == 1) {
                 testContext.verify(() -> assertEquals("now-msg", msg.getPayload()));
-                firstReceived.complete(null);
+                firstReceived.countDown();
             } else if (n == 2) {
                 testContext.verify(() -> assertEquals("future-msg", msg.getPayload()));
                 testContext.completeNow();
             }
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Insert one message visible now
@@ -120,9 +127,11 @@ class PgNativeQueueConsumerClaimIT {
         """;
         JsonObject payloadNow = new JsonObject().put("value", "now-msg");
         JsonObject headers = new JsonObject();
+        CountDownLatch insertLatch1 = new CountDownLatch(1);
         pool.preparedQuery(insertNow)
             .execute(Tuple.of(TOPIC, payloadNow, headers, "c1"))
-            .toCompletionStage().toCompletableFuture().join();
+            .onComplete(ar -> insertLatch1.countDown());
+        assertTrue(insertLatch1.await(5, TimeUnit.SECONDS), "Insert should complete");
 
         // Insert one message visible in the future (10s)
         String insertFuture = """
@@ -131,25 +140,33 @@ class PgNativeQueueConsumerClaimIT {
             RETURNING id
         """;
         JsonObject payloadFuture = new JsonObject().put("value", "future-msg");
+        CountDownLatch insertLatch2 = new CountDownLatch(1);
         pool.preparedQuery(insertFuture)
             .execute(Tuple.of(TOPIC, payloadFuture, headers, "c2"))
-            .toCompletionStage().toCompletableFuture().join();
+            .onComplete(ar -> insertLatch2.countDown());
+        assertTrue(insertLatch2.await(5, TimeUnit.SECONDS), "Insert should complete");
 
         // Trigger consumer via NOTIFY
+        CountDownLatch notifyLatch1 = new CountDownLatch(1);
         pool.query("SELECT pg_notify('" + ("queue_" + TOPIC) + "', 'test')").execute()
-            .toCompletionStage().toCompletableFuture().join();
+            .onComplete(ar -> notifyLatch1.countDown());
+        assertTrue(notifyLatch1.await(5, TimeUnit.SECONDS), "Notify should complete");
 
         // Wait for first message to be processed
-        firstReceived.orTimeout(10, TimeUnit.SECONDS).join();
+        assertTrue(firstReceived.await(10, TimeUnit.SECONDS), "First message should be processed");
         assertEquals(1, processedCount.get(), "Only the visible-now message should be processed initially");
 
         // Update the future message to become visible now and notify again
         String makeVisibleNow = "UPDATE queue_messages SET visible_at = now() WHERE topic = $1 AND payload = $2::jsonb";
+        CountDownLatch updateLatch = new CountDownLatch(1);
         pool.preparedQuery(makeVisibleNow)
             .execute(Tuple.of(TOPIC, payloadFuture))
-            .toCompletionStage().toCompletableFuture().join();
+            .onComplete(ar -> updateLatch.countDown());
+        assertTrue(updateLatch.await(5, TimeUnit.SECONDS), "Update should complete");
+        CountDownLatch notifyLatch2 = new CountDownLatch(1);
         pool.query("SELECT pg_notify('" + ("queue_" + TOPIC) + "', 'test2')").execute()
-            .toCompletionStage().toCompletableFuture().join();
+            .onComplete(ar -> notifyLatch2.countDown());
+        assertTrue(notifyLatch2.await(5, TimeUnit.SECONDS), "Notify should complete");
 
         // Now the second should be processed
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));

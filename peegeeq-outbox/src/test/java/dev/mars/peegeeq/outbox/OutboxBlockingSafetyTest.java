@@ -3,11 +3,12 @@ package dev.mars.peegeeq.outbox;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
 
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -45,7 +46,9 @@ class OutboxBlockingSafetyTest {
             assertIllegalStateWithMessage(effectiveCloseError,
                     "Do not call blocking close() on event-loop thread");
         } finally {
-            vertx.close().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            vertx.close().onComplete(ar -> closeLatch.countDown());
+            closeLatch.await(10, TimeUnit.SECONDS);
         }
     }
 
@@ -70,12 +73,14 @@ class OutboxBlockingSafetyTest {
             assertIllegalStateWithMessage(thrown,
                     "Do not call blocking start(subscriptionOptions) on event-loop thread");
         } finally {
-            vertx.close().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            vertx.close().onComplete(ar -> closeLatch.countDown());
+            closeLatch.await(10, TimeUnit.SECONDS);
         }
     }
 
     private static <T> Throwable invokeOnEventLoop(Vertx vertx, java.util.concurrent.Callable<T> action) throws Exception {
-        CompletableFuture<Throwable> outcome = new CompletableFuture<>();
+        Promise<Throwable> outcome = Promise.promise();
         vertx.runOnContext(v -> {
             try {
                 action.call();
@@ -84,7 +89,14 @@ class OutboxBlockingSafetyTest {
                 outcome.complete(t);
             }
         });
-        return outcome.get(5, TimeUnit.SECONDS);
+        CountDownLatch latch = new CountDownLatch(1);
+        java.util.concurrent.atomic.AtomicReference<Throwable> result = new java.util.concurrent.atomic.AtomicReference<>();
+        outcome.future().onComplete(ar -> {
+            result.set(ar.result());
+            latch.countDown();
+        });
+        latch.await(5, TimeUnit.SECONDS);
+        return result.get();
     }
 
     private static void assertIllegalStateWithMessage(Throwable thrown, String expectedMessage) {

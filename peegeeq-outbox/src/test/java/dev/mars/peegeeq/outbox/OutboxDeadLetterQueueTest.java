@@ -44,8 +44,10 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
@@ -105,7 +107,9 @@ public class OutboxDeadLetterQueueTest {
         if (consumer != null) consumer.close();
         if (producer != null) producer.close();
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+            closeLatch.await(10, TimeUnit.SECONDS);
         }
     }
 
@@ -117,7 +121,9 @@ public class OutboxDeadLetterQueueTest {
         AtomicInteger attemptCount = new AtomicInteger(0);
         Checkpoint retryCheckpoint = testContext.checkpoint(4); // Initial + 3 retries
 
-        producer.send(testMessage).get(5, TimeUnit.SECONDS);
+        CountDownLatch sendLatch1 = new CountDownLatch(1);
+        producer.send(testMessage).onComplete(ar -> sendLatch1.countDown());
+        assertTrue(sendLatch1.await(5, TimeUnit.SECONDS), "Send should complete");
 
         // Set up consumer that always fails with direct exception
         consumer.subscribe(message -> {
@@ -135,12 +141,25 @@ public class OutboxDeadLetterQueueTest {
         assertEquals(4, attemptCount.get(), "Should have made exactly 4 processing attempts (1 initial + 3 retries)");
         
         // Wait for DLQ processing
-        vertx.timer(2000).toCompletionStage().toCompletableFuture().join();
+        CountDownLatch timerLatch1 = new CountDownLatch(1);
+        vertx.timer(2000).onComplete(ar -> timerLatch1.countDown());
+        assertTrue(timerLatch1.await(5, TimeUnit.SECONDS), "Timer should complete");
         
         // Verify message is in dead letter queue
-        List<DeadLetterMessageInfo> dlqMessages = manager.getDeadLetterQueueManager()
+        CountDownLatch dlqLatch1 = new CountDownLatch(1);
+        AtomicReference<List<DeadLetterMessageInfo>> dlqRef1 = new AtomicReference<>();
+        manager.getDeadLetterQueueManager()
             .getDeadLetterMessages("test-dlq-integration", 10, 0)
-            .join();
+            .onSuccess(msgs -> {
+                dlqRef1.set(msgs);
+                dlqLatch1.countDown();
+            })
+            .onFailure(t -> {
+                testContext.failNow(t);
+                dlqLatch1.countDown();
+            });
+        assertTrue(dlqLatch1.await(5, TimeUnit.SECONDS), "Should retrieve DLQ messages");
+        List<DeadLetterMessageInfo> dlqMessages = dlqRef1.get();
         
         assertFalse(dlqMessages.isEmpty(), "Should have at least one message in dead letter queue");
         
@@ -162,7 +181,9 @@ public class OutboxDeadLetterQueueTest {
         AtomicInteger attemptCount = new AtomicInteger(0);
         Checkpoint retryCheckpoint = testContext.checkpoint(3);
 
-        producer.send(testMessage).get(5, TimeUnit.SECONDS);
+        CountDownLatch sendLatch2 = new CountDownLatch(1);
+        producer.send(testMessage).onComplete(ar -> sendLatch2.countDown());
+        assertTrue(sendLatch2.await(5, TimeUnit.SECONDS), "Send should complete");
 
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
@@ -177,12 +198,25 @@ public class OutboxDeadLetterQueueTest {
             "Should complete all retry attempts");
         
         // Wait for DLQ processing
-        vertx.timer(2000).toCompletionStage().toCompletableFuture().join();
+        CountDownLatch timerLatch2 = new CountDownLatch(1);
+        vertx.timer(2000).onComplete(ar -> timerLatch2.countDown());
+        assertTrue(timerLatch2.await(5, TimeUnit.SECONDS), "Timer should complete");
         
         // Verify error information in DLQ
-        List<DeadLetterMessageInfo> dlqMessages = manager.getDeadLetterQueueManager()
+        CountDownLatch dlqLatch2 = new CountDownLatch(1);
+        AtomicReference<List<DeadLetterMessageInfo>> dlqRef2 = new AtomicReference<>();
+        manager.getDeadLetterQueueManager()
             .getDeadLetterMessages("test-dlq-integration", 10, 0)
-            .join();
+            .onSuccess(msgs -> {
+                dlqRef2.set(msgs);
+                dlqLatch2.countDown();
+            })
+            .onFailure(t -> {
+                testContext.failNow(t);
+                dlqLatch2.countDown();
+            });
+        assertTrue(dlqLatch2.await(5, TimeUnit.SECONDS), "Should retrieve DLQ messages");
+        List<DeadLetterMessageInfo> dlqMessages = dlqRef2.get();
         
         assertFalse(dlqMessages.isEmpty(), "Should have message in DLQ");
         

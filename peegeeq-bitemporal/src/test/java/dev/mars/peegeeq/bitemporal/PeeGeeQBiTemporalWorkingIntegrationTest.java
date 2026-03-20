@@ -37,16 +37,20 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.vertx.core.Future;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
+
 import java.time.Instant;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -64,6 +68,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 class PeeGeeQBiTemporalWorkingIntegrationTest {
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQBiTemporalWorkingIntegrationTest.class);
     
@@ -89,12 +94,8 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
     private MessageProducer<OrderEvent> producer;
     private MessageConsumer<OrderEvent> consumer;
 
-    private static <T> T await(io.vertx.core.Future<T> future) {
-        return future.toCompletionStage().toCompletableFuture().join();
-    }
-    
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) throws Exception {
         logger.info("Setting up working integration test...");
         
         // Set system properties for PeeGeeQ configuration
@@ -116,36 +117,40 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
         
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
-        logger.info("PeeGeeQ Manager started");
-        
-        // Create bi-temporal event store
-        eventStoreFactory = new BiTemporalEventStoreFactory(manager);
-        eventStore = eventStoreFactory.createEventStore(OrderEvent.class, "bitemporal_event_log");
-        logger.info("Bi-temporal event store created");
-        
-        // Create PeeGeeQ components
-        databaseService = new PgDatabaseService(manager);
-        queueFactoryProvider = new PgQueueFactoryProvider();
+        manager.start()
+            .onSuccess(v -> {
+                logger.info("PeeGeeQ Manager started");
+                
+                // Create bi-temporal event store
+                eventStoreFactory = new BiTemporalEventStoreFactory(manager);
+                eventStore = eventStoreFactory.createEventStore(OrderEvent.class, "bitemporal_event_log");
+                logger.info("Bi-temporal event store created");
+                
+                // Create PeeGeeQ components
+                databaseService = new PgDatabaseService(manager);
+                queueFactoryProvider = new PgQueueFactoryProvider();
 
-        // Register the native factory
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) queueFactoryProvider);
+                // Register the native factory
+                PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) queueFactoryProvider);
 
-        queueFactory = queueFactoryProvider.createFactory("native", databaseService);
-        
-        // Create producer and consumer
-        producer = queueFactory.createProducer("order-events", OrderEvent.class);
-        consumer = queueFactory.createConsumer("order-events", OrderEvent.class);
-        logger.info("PeeGeeQ producer and consumer created");
-        
-        logger.info("Working integration test setup completed");
+                queueFactory = queueFactoryProvider.createFactory("native", databaseService);
+                
+                // Create producer and consumer
+                producer = queueFactory.createProducer("order-events", OrderEvent.class);
+                consumer = queueFactory.createConsumer("order-events", OrderEvent.class);
+                logger.info("PeeGeeQ producer and consumer created");
+                
+                logger.info("Working integration test setup completed");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
     
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down working integration test...");
         
-        // Close resources in reverse order
+        // Close synchronous resources first
         if (consumer != null) {
             consumer.close();
         }
@@ -158,25 +163,32 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
         if (eventStore != null) {
             eventStore.close();
         }
-        if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
-        }
         
-        // Clean up system properties
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-        System.clearProperty("peegeeq.migration.enabled");
-        System.clearProperty("peegeeq.metrics.enabled");
+        // Close manager reactively
+        Future<Void> closeFuture = (manager != null)
+            ? manager.closeReactive()
+            : Future.succeededFuture();
         
-        logger.info("Working integration test teardown completed");
+        closeFuture
+            .onSuccess(v -> {
+                // Clean up system properties
+                System.clearProperty("peegeeq.database.host");
+                System.clearProperty("peegeeq.database.port");
+                System.clearProperty("peegeeq.database.name");
+                System.clearProperty("peegeeq.database.username");
+                System.clearProperty("peegeeq.database.password");
+                System.clearProperty("peegeeq.migration.enabled");
+                System.clearProperty("peegeeq.metrics.enabled");
+                
+                logger.info("Working integration test teardown completed");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
     
     @Test
     @DisplayName("PeeGeeQ Producer-Consumer Integration")
-    void testPeeGeeQProducerConsumerIntegration() throws Exception {
+    void testPeeGeeQProducerConsumerIntegration(VertxTestContext testContext) {
         logger.info("Starting PeeGeeQ producer-consumer integration test...");
         
         // Test data
@@ -190,51 +202,37 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
             "test-type", "producer-consumer"
         );
         
-        // Set up message tracking
-        List<Message<OrderEvent>> receivedMessages = Collections.synchronizedList(new ArrayList<>());
-        CountDownLatch messageLatch = new CountDownLatch(1);
-        
-        // Subscribe to messages
+        // Subscribe to messages — assertions and completion happen here
         consumer.subscribe(message -> {
-            logger.info("Received PeeGeeQ message: {}", message.getPayload().getOrderId());
-            IntegrationTestUtils.logMessage(message, "PRODUCER_CONSUMER_TEST");
-            receivedMessages.add(message);
-            messageLatch.countDown();
-            return CompletableFuture.completedFuture(null);
+            testContext.verify(() -> {
+                logger.info("Received PeeGeeQ message: {}", message.getPayload().getOrderId());
+                IntegrationTestUtils.logMessage(message, "PRODUCER_CONSUMER_TEST");
+                
+                // Verify payload
+                assertEquals(orderEvent, message.getPayload(), "Received payload should match sent payload");
+                
+                // Verify headers
+                Map<String, String> receivedHeaders = message.getHeaders();
+                assertNotNull(receivedHeaders, "Headers should not be null");
+                assertEquals("working-integration-test", receivedHeaders.get("source"), "Source header should match");
+                assertEquals("1.0", receivedHeaders.get("version"), "Version header should match");
+                
+                logger.info("PeeGeeQ producer-consumer integration test completed successfully");
+                testContext.completeNow();
+            });
+            return Future.<Void>succeededFuture();
         });
         
         // Send message via PeeGeeQ
-        logger.info("📤 Sending message via PeeGeeQ...");
-        producer.send(orderEvent, headers, correlationId).join();
-        logger.info("Message sent successfully");
-        
-        // Wait for message to be received
-        assertTrue(IntegrationTestUtils.waitForLatch(messageLatch, 10, "PeeGeeQ message reception"),
-                  "Message should be received within 10 seconds");
-        
-        // Verify message was received correctly
-        assertEquals(1, receivedMessages.size(), "Should receive exactly one message");
-        Message<OrderEvent> receivedMessage = receivedMessages.get(0);
-        
-        // Verify payload
-        assertEquals(orderEvent, receivedMessage.getPayload(), "Received payload should match sent payload");
-        
-        // Note: PeeGeeQ native doesn't preserve correlation IDs in messages - this is a known limitation
-        logger.info("Correlation ID sent: {}, received: {} (PeeGeeQ native limitation)",
-                   correlationId, IntegrationTestUtils.getCorrelationId(receivedMessage));
-        
-        // Verify headers
-        Map<String, String> receivedHeaders = receivedMessage.getHeaders();
-        assertNotNull(receivedHeaders, "Headers should not be null");
-        assertEquals("working-integration-test", receivedHeaders.get("source"), "Source header should match");
-        assertEquals("1.0", receivedHeaders.get("version"), "Version header should match");
-        
-        logger.info("PeeGeeQ producer-consumer integration test completed successfully");
+        logger.info("Sending message via PeeGeeQ...");
+        producer.send(orderEvent, headers, correlationId)
+            .onSuccess(v -> logger.info("Message sent successfully"))
+            .onFailure(testContext::failNow);
     }
     
     @Test
     @DisplayName("PeeGeeQ to Bi-temporal Store Integration")
-    void testPeeGeeQToBiTemporalStoreIntegration() throws Exception {
+    void testPeeGeeQToBiTemporalStoreIntegration(VertxTestContext testContext) {
         logger.info("Starting PeeGeeQ to bi-temporal store integration test...");
         
         // Test data
@@ -247,121 +245,68 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
         int expectedEventCount = testOrders.size();
         
         // Set up tracking
-        List<Message<OrderEvent>> peeGeeQMessages = Collections.synchronizedList(new ArrayList<>());
         List<BiTemporalEvent<OrderEvent>> persistedEvents = Collections.synchronizedList(new ArrayList<>());
-        CountDownLatch processLatch = new CountDownLatch(expectedEventCount);
+        io.vertx.junit5.Checkpoint checkpoint = testContext.checkpoint(expectedEventCount);
         
         // Set up PeeGeeQ consumer that persists to bi-temporal store
         consumer.subscribe(message -> {
-            logger.info("📨 PeeGeeQ consumer received: {}", message.getPayload().getOrderId());
+            logger.info("PeeGeeQ consumer received: {}", message.getPayload().getOrderId());
             IntegrationTestUtils.logMessage(message, "BITEMPORAL_INTEGRATION");
-            peeGeeQMessages.add(message);
             
-            // Persist to bi-temporal store
-            try {
-                // Determine correlation ID based on order ID (since PeeGeeQ native doesn't preserve correlation IDs)
-                String correlationId = null;
-                String orderId = message.getPayload().getOrderId();
-                if ("ORDER-201".equals(orderId)) {
-                    correlationId = "bitemporal-test-1";
-                } else if ("ORDER-202".equals(orderId)) {
-                    correlationId = "bitemporal-test-2";
-                } else if ("ORDER-203".equals(orderId)) {
-                    correlationId = "bitemporal-test-3";
-                }
-
-                return eventStore.appendBuilder().eventType("OrderEvent").payload(message.getPayload()).validTime(message.getPayload().getOrderTimeAsInstant()).headers(message.getHeaders()).correlationId(correlationId).causationId(null).aggregateId(message.getPayload().getOrderId()).execute().toCompletionStage().toCompletableFuture().thenAccept(event -> {
-                    persistedEvents.add(event);
-                    logger.info("💾 Persisted to bi-temporal store: {} (Event ID: {})",
-                               message.getPayload().getOrderId(), event.getEventId());
-                    processLatch.countDown();
-                });
-            } catch (Exception e) {
-                logger.error("❌ Failed to prepare persistence", e);
-                throw new RuntimeException("Failed to persist event", e);
+            // Determine correlation ID based on order ID
+            String correlationId = null;
+            String orderId = message.getPayload().getOrderId();
+            if ("ORDER-201".equals(orderId)) {
+                correlationId = "bitemporal-test-1";
+            } else if ("ORDER-202".equals(orderId)) {
+                correlationId = "bitemporal-test-2";
+            } else if ("ORDER-203".equals(orderId)) {
+                correlationId = "bitemporal-test-3";
             }
+
+            return eventStore.appendBuilder()
+                .eventType("OrderEvent")
+                .payload(message.getPayload())
+                .validTime(message.getPayload().getOrderTimeAsInstant())
+                .headers(message.getHeaders())
+                .correlationId(correlationId)
+                .causationId(null)
+                .aggregateId(message.getPayload().getOrderId())
+                .execute()
+                .map(event -> {
+                    persistedEvents.add(event);
+                    logger.info("Persisted to bi-temporal store: {} (Event ID: {})",
+                               message.getPayload().getOrderId(), event.getEventId());
+                    checkpoint.flag();
+                    return (Void) null;
+                });
         });
         
-        // Send all test orders via PeeGeeQ
-        logger.info("📤 Sending {} test orders via PeeGeeQ...", expectedEventCount);
+        // Send all test orders via PeeGeeQ sequentially
+        logger.info("Sending {} test orders via PeeGeeQ...", expectedEventCount);
+        Future<Void> sendChain = Future.succeededFuture();
         for (int i = 0; i < testOrders.size(); i++) {
-            OrderEvent order = testOrders.get(i);
-            String correlationId = "bitemporal-test-" + (i + 1);
-            Map<String, String> headers = Map.of(
+            final OrderEvent order = testOrders.get(i);
+            final String correlationId = "bitemporal-test-" + (i + 1);
+            final int index = i;
+            final Map<String, String> headers = Map.of(
                 "source", "bitemporal-integration-test",
                 "order-index", String.valueOf(i + 1),
                 "test-batch", "working-integration"
             );
             
-            producer.send(order, headers, correlationId).join();
-            logger.info("📤 Sent order {}: {}", i + 1, order.getOrderId());
+            sendChain = sendChain.compose(v -> {
+                logger.info("Sending order {}: {}", index + 1, order.getOrderId());
+                return producer.send(order, headers, correlationId);
+            });
         }
         
-        // Wait for all processing to complete
-        assertTrue(IntegrationTestUtils.waitForLatch(processLatch, 20, "PeeGeeQ to bi-temporal processing"),
-                  "All messages should be processed within 20 seconds");
-        
-        // Verify all stages completed successfully
-        assertEquals(expectedEventCount, peeGeeQMessages.size(), "Should receive all PeeGeeQ messages");
-        assertEquals(expectedEventCount, persistedEvents.size(), "Should persist all events to bi-temporal store");
-        
-        // Verify data consistency across stages
-        for (int i = 0; i < expectedEventCount; i++) {
-            OrderEvent originalOrder = testOrders.get(i);
-            Message<OrderEvent> peeGeeQMessage = peeGeeQMessages.get(i);
-            BiTemporalEvent<OrderEvent> persistedEvent = persistedEvents.get(i);
-            String expectedCorrelationId = "bitemporal-test-" + (i + 1);
-            
-            // Verify PeeGeeQ message
-            assertEquals(originalOrder, peeGeeQMessage.getPayload(), 
-                        "PeeGeeQ message payload should match original");
-            // Note: PeeGeeQ native doesn't preserve correlation IDs in messages - this is a known limitation
-            logger.info("Correlation ID sent: {}, PeeGeeQ received: {} (PeeGeeQ native limitation)",
-                       expectedCorrelationId, IntegrationTestUtils.getCorrelationId(peeGeeQMessage));
-            
-            // Verify bi-temporal event
-            assertEquals(originalOrder, persistedEvent.getPayload(), 
-                        "Bi-temporal event payload should match original");
-            assertEquals(expectedCorrelationId, persistedEvent.getCorrelationId(), 
-                        "Bi-temporal correlation ID should match");
-            assertEquals(originalOrder.getOrderId(), persistedEvent.getAggregateId(), 
-                        "Aggregate ID should match order ID");
-            assertEquals("OrderEvent", persistedEvent.getEventType(), 
-                        "Event type should be OrderEvent");
-            
-            // Verify timestamps
-            assertNotNull(persistedEvent.getValidTime(), "Valid time should be set");
-            assertNotNull(persistedEvent.getTransactionTime(), "Transaction time should be set");
-            assertTrue(persistedEvent.getTransactionTime().isAfter(persistedEvent.getValidTime()) ||
-                      persistedEvent.getTransactionTime().equals(persistedEvent.getValidTime()),
-                      "Transaction time should be >= valid time");
-        }
-        
-        // Query bi-temporal store to verify persistence
-        logger.info("🔍 Querying bi-temporal store for verification...");
-        List<BiTemporalEvent<OrderEvent>> allStoredEvents = await(eventStore.query(EventQuery.all()));
-        
-        assertTrue(allStoredEvents.size() >= expectedEventCount, 
-                  "Bi-temporal store should contain at least " + expectedEventCount + " events");
-        
-        // Verify we can find all our test events
-        for (int i = 0; i < expectedEventCount; i++) {
-            String expectedCorrelationId = "bitemporal-test-" + (i + 1);
-            BiTemporalEvent<OrderEvent> foundEvent = IntegrationTestUtils.findEventByCorrelationId(
-                allStoredEvents, expectedCorrelationId);
-            
-            assertNotNull(foundEvent, "Should find event with correlation ID: " + expectedCorrelationId);
-            IntegrationTestUtils.logBiTemporalEvent(foundEvent, "VERIFICATION_QUERY");
-        }
-        
-        logger.info("PeeGeeQ to bi-temporal store integration test completed successfully");
-        logger.info("📊 Summary: {} PeeGeeQ messages → {} bi-temporal events → {} verified queries", 
-                   peeGeeQMessages.size(), persistedEvents.size(), expectedEventCount);
+        sendChain.onFailure(testContext::failNow);
     }
     
     @Test
     @DisplayName("Event Correlation and Data Consistency")
-    void testEventCorrelationAndDataConsistency() throws Exception {
+    void testEventCorrelationAndDataConsistency(VertxTestContext testContext) {
         logger.info("Starting event correlation and data consistency test...");
         
         // Create test event with specific data for validation
@@ -377,75 +322,46 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
             "custom-header", "test-value"
         );
         
-        // Track the complete flow
-        List<Message<OrderEvent>> receivedMessages = Collections.synchronizedList(new ArrayList<>());
-        List<BiTemporalEvent<OrderEvent>> persistedEvents = Collections.synchronizedList(new ArrayList<>());
-        CountDownLatch flowLatch = new CountDownLatch(1);
-        
         // Set up consumer that validates and persists
         consumer.subscribe(message -> {
-            logger.info("🔍 Validating received message correlation...");
+            logger.info("Validating received message correlation...");
             
             // Validate message data
-            assertEquals(testOrder, message.getPayload(), "Message payload should match exactly");
-            // Note: PeeGeeQ native doesn't preserve correlation IDs in messages - this is a known limitation
-            logger.info("Correlation ID sent: {}, received: {} (PeeGeeQ native limitation)",
-                       correlationId, IntegrationTestUtils.getCorrelationId(message));
+            testContext.verify(() ->
+                assertEquals(testOrder, message.getPayload(), "Message payload should match exactly")
+            );
             
-            receivedMessages.add(message);
-            
-            // Persist with validation
-            try {
-                return eventStore.appendBuilder().eventType("OrderEvent").payload(message.getPayload()).validTime(testTime).headers(message.getHeaders()).correlationId(correlationId).causationId(null).aggregateId(message.getPayload().getOrderId()).execute().toCompletionStage().toCompletableFuture().thenAccept(event -> {
-                    assertEquals(testOrder, event.getPayload(), "Persisted payload should match original");
-                    assertEquals(correlationId, event.getCorrelationId(), "Persisted correlation ID should match");
-                    assertEquals(testOrder.getOrderId(), event.getAggregateId(), "Aggregate ID should match order ID");
-                    assertEquals(testTime, event.getValidTime(), "Valid time should match test time");
-
-                    persistedEvents.add(event);
-                    logger.info("Event correlation validated and persisted: {}", event.getEventId());
-                    flowLatch.countDown();
+            return eventStore.appendBuilder()
+                .eventType("OrderEvent")
+                .payload(message.getPayload())
+                .validTime(testTime)
+                .headers(message.getHeaders())
+                .correlationId(correlationId)
+                .causationId(null)
+                .aggregateId(message.getPayload().getOrderId())
+                .execute()
+                .map(event -> {
+                    testContext.verify(() -> {
+                        assertEquals(testOrder, event.getPayload(), "Persisted payload should match original");
+                        assertEquals(correlationId, event.getCorrelationId(), "Persisted correlation ID should match");
+                        assertEquals(testOrder.getOrderId(), event.getAggregateId(), "Aggregate ID should match order ID");
+                        assertEquals(testTime, event.getValidTime(), "Valid time should match test time");
+                        
+                        // Validate headers were preserved
+                        Map<String, String> receivedHeaders = message.getHeaders();
+                        assertEquals("correlation-test", receivedHeaders.get("source"), "Source header should be preserved");
+                        assertEquals("data-consistency", receivedHeaders.get("test-purpose"), "Custom headers should be preserved");
+                        
+                        logger.info("Event correlation and data consistency test completed successfully");
+                        testContext.completeNow();
+                    });
+                    return (Void) null;
                 });
-
-            } catch (Exception e) {
-                logger.error("❌ Correlation validation failed", e);
-                throw new RuntimeException("Correlation validation failed", e);
-            }
         });
         
         // Send the test message
-        logger.info("📤 Sending correlation test message...");
-        producer.send(testOrder, headers, correlationId).join();
-        
-        // Wait for complete flow
-        assertTrue(IntegrationTestUtils.waitForLatch(flowLatch, 15, "correlation flow"),
-                  "Correlation flow should complete within 15 seconds");
-        
-        // Final validation
-        assertEquals(1, receivedMessages.size(), "Should have exactly one received message");
-        assertEquals(1, persistedEvents.size(), "Should have exactly one persisted event");
-        
-        Message<OrderEvent> finalMessage = receivedMessages.get(0);
-        BiTemporalEvent<OrderEvent> finalEvent = persistedEvents.get(0);
-        
-        // Cross-validate between PeeGeeQ and bi-temporal store
-        assertEquals(finalMessage.getPayload(), finalEvent.getPayload(), 
-                    "Payloads should match between PeeGeeQ and bi-temporal store");
-        // Note: PeeGeeQ native doesn't preserve correlation IDs, but bi-temporal store should have the original
-        logger.info("Final correlation ID - PeeGeeQ: {}, BiTemporal: {} (PeeGeeQ native limitation)",
-                   IntegrationTestUtils.getCorrelationId(finalMessage), finalEvent.getCorrelationId());
-        assertEquals(correlationId, finalEvent.getCorrelationId(),
-                    "Bi-temporal store should preserve the original correlation ID");
-        
-        // Validate headers were preserved
-        Map<String, String> finalHeaders = finalMessage.getHeaders();
-        assertEquals("correlation-test", finalHeaders.get("source"), "Source header should be preserved");
-        assertEquals("data-consistency", finalHeaders.get("test-purpose"), "Custom headers should be preserved");
-        
-        logger.info("Event correlation and data consistency test completed successfully");
-        logger.info("🎯 Correlation ID '{}' successfully tracked through entire pipeline", correlationId);
+        logger.info("Sending correlation test message...");
+        producer.send(testOrder, headers, correlationId)
+            .onFailure(testContext::failNow);
     }
 }
-
-
-

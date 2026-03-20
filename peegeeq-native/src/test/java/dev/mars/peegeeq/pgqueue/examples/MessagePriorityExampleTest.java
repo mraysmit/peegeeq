@@ -47,9 +47,12 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import io.vertx.core.Future;
 
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -186,7 +189,9 @@ class MessagePriorityExampleTest {
         logger.info("🧹 Cleaning up Message Priority Example Test");
 
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+            closeLatch.await(10, TimeUnit.SECONDS);
         }
 
         // Clear system properties
@@ -228,7 +233,7 @@ class MessagePriorityExampleTest {
                 logger.info("Processed #{}: {} (Priority: {})",
                     order, payload.getContent(), payload.getPriorityLabel());
                 allDone.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Send messages in reverse priority order to demonstrate reordering
@@ -267,7 +272,7 @@ class MessagePriorityExampleTest {
                 logger.info("Processed #{}: [{}] {} - {}",
                     order, payload.getPriorityLabel(), payload.getMessageType(), payload.getContent());
                 allDone.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Send messages with different priority levels
@@ -306,7 +311,7 @@ class MessagePriorityExampleTest {
                 logger.info("Processing Order #{}: [{}] {} - {}",
                     order, payload.getPriorityLabel(), payload.getMessageType(), payload.getContent());
                 allDone.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Send e-commerce scenario messages
@@ -355,7 +360,7 @@ class MessagePriorityExampleTest {
                 logger.info("Processing Transaction #{}: [{}] {} - {}",
                     order, payload.getPriorityLabel(), payload.getMessageType(), payload.getContent());
                 allDone.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Send financial scenario messages
@@ -403,7 +408,7 @@ class MessagePriorityExampleTest {
                 logger.info("Processing Alert #{}: [{}] {} - {}",
                     order, payload.getPriorityLabel(), payload.getMessageType(), payload.getContent());
                 allDone.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Send monitoring scenario messages
@@ -454,7 +459,7 @@ class MessagePriorityExampleTest {
                         order, payload.getPriorityLabel(), payload.getMessageType());
                 }
                 allDone.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Send mixed priority messages for performance testing
@@ -496,7 +501,9 @@ class MessagePriorityExampleTest {
             "messageType", messageType
         );
 
-        producer.send(message, headers, messageId, String.valueOf(priority)).get(5, TimeUnit.SECONDS);
+        CountDownLatch sendLatch = new CountDownLatch(1);
+        producer.send(message, headers, messageId, String.valueOf(priority)).onComplete(ar -> sendLatch.countDown());
+        assertTrue(sendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
         logger.debug("Sent message: {} with priority {}", messageId, priority);
     }
 

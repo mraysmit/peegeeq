@@ -21,7 +21,6 @@ import dev.mars.peegeeq.db.SharedPostgresTestExtension;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.test.categories.TestCategories;
-import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.AfterEach;
@@ -33,8 +32,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.TimeUnit;
+
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -49,26 +49,25 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
-@ExtendWith(SharedPostgresTestExtension.class)
+@ExtendWith({SharedPostgresTestExtension.class, VertxExtension.class})
 public class PgConnectionManagerTest {
     private static final Logger logger = LoggerFactory.getLogger(PgConnectionManagerTest.class);
 
     private PgConnectionManager connectionManager;
-    private Vertx vertx;
 
     @BeforeEach
-    void setUp() {
-        vertx = Vertx.vertx();
+    void setUp(Vertx vertx) {
         connectionManager = new PgConnectionManager(vertx);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         if (connectionManager != null) {
-            connectionManager.close();
-        }
-        if (vertx != null) {
-            vertx.close();
+            connectionManager.closeAsync()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
     }
 
@@ -102,7 +101,7 @@ public class PgConnectionManagerTest {
     }
 
     @Test
-    void testGetReactiveConnection() throws Exception {
+    void testGetReactiveConnection(VertxTestContext testContext) {
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
         // Create connection config from TestContainer
@@ -125,37 +124,32 @@ public class PgConnectionManagerTest {
         // Get reactive connection and test it
         connectionManager.getReactiveConnection("test-service")
             .compose(connection -> {
-                // Execute a simple query using reactive patterns
                 return connection.query("SELECT 1").execute()
                     .compose(rowSet -> {
-                        // Verify result
-                        assertTrue(rowSet.iterator().hasNext());
-                        assertEquals(1, rowSet.iterator().next().getInteger(0));
+                        testContext.verify(() -> {
+                            assertTrue(rowSet.iterator().hasNext());
+                            assertEquals(1, rowSet.iterator().next().getInteger(0));
+                        });
                         return connection.close();
                     });
             })
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get(10, java.util.concurrent.TimeUnit.SECONDS);
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testGetReactiveConnectionThrowsExceptionForNonExistentService() throws Exception {
-        // Test that getting a reactive connection for non-existent service fails
-        try {
-            connectionManager.getReactiveConnection("non-existent-service")
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get(5, java.util.concurrent.TimeUnit.SECONDS);
-            fail("Expected exception for non-existent service");
-        } catch (Exception e) {
-            // Expected - should fail for non-existent service
-            assertTrue(e.getCause() instanceof IllegalStateException);
-        }
+    void testGetReactiveConnectionThrowsExceptionForNonExistentService(VertxTestContext testContext) {
+        connectionManager.getReactiveConnection("non-existent-service")
+            .onSuccess(conn -> testContext.failNow("Expected exception for non-existent service"))
+            .onFailure(err -> testContext.verify(() -> {
+                assertTrue(err instanceof IllegalStateException,
+                    "Expected IllegalStateException but got " + err.getClass().getName());
+                testContext.completeNow();
+            }));
     }
 
     @Test
-    void testHealthCheck() throws Exception {
+    void testHealthCheck(VertxTestContext testContext) {
         logger.info("TEST: Health check functionality with real database connectivity");
 
         String serviceId = "test-service";
@@ -180,19 +174,17 @@ public class PgConnectionManagerTest {
         assertNotNull(pool, "Pool should be created");
 
         // Test health check - should pass with real database
-        Future<Boolean> healthFuture = connectionManager.checkHealth(serviceId);
-        CompletableFuture<Boolean> completableFuture = healthFuture.toCompletionStage().toCompletableFuture();
-        Boolean isHealthy = completableFuture.get(10, TimeUnit.SECONDS);
-
-        assertTrue(isHealthy, "Health check should pass for valid pool with real database");
-
-        // Test health check for non-existent service
-        Future<Boolean> nonExistentHealthFuture = connectionManager.checkHealth("non-existent");
-        CompletableFuture<Boolean> nonExistentCompletableFuture = nonExistentHealthFuture.toCompletionStage().toCompletableFuture();
-        Boolean nonExistentHealthy = nonExistentCompletableFuture.get(10, TimeUnit.SECONDS);
-
-        assertFalse(nonExistentHealthy, "Health check should fail for non-existent service");
-
-        logger.info("✓ Health check test passed - database connectivity verified!");
+        connectionManager.checkHealth(serviceId)
+            .compose(isHealthy -> {
+                testContext.verify(() ->
+                    assertTrue(isHealthy, "Health check should pass for valid pool with real database"));
+                return connectionManager.checkHealth("non-existent");
+            })
+            .onSuccess(nonExistentHealthy -> testContext.verify(() -> {
+                assertFalse(nonExistentHealthy, "Health check should fail for non-existent service");
+                logger.info("Health check test passed - database connectivity verified");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 }

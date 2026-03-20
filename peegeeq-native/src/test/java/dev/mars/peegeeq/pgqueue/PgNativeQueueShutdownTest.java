@@ -42,9 +42,12 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.lang.reflect.Field;
 import java.util.Properties;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+
+import io.vertx.core.Future;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -119,7 +122,9 @@ class PgNativeQueueShutdownTest {
                 producer.close();
             }
             if (manager != null) {
-                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+                CountDownLatch closeLatch = new CountDownLatch(1);
+                manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+                closeLatch.await(10, TimeUnit.SECONDS);
             }
         } catch (Exception e) {
             // Ignore cleanup errors
@@ -142,7 +147,9 @@ class PgNativeQueueShutdownTest {
     void testBasicShutdownWithoutErrors(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Step 1: Send a simple message
         String testMessage = "Basic shutdown test";
-        producer.send(testMessage).get(5, TimeUnit.SECONDS);
+        CountDownLatch sendLatch1 = new CountDownLatch(1);
+        producer.send(testMessage).onComplete(ar -> sendLatch1.countDown());
+        assertTrue(sendLatch1.await(5, TimeUnit.SECONDS), "Send should complete");
 
         // Step 2: Process the message
         AtomicBoolean messageReceived = new AtomicBoolean(false);
@@ -150,7 +157,7 @@ class PgNativeQueueShutdownTest {
         consumer.subscribe(message -> {
             messageReceived.set(true);
             testContext.completeNow();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Step 3: Wait for processing
@@ -165,7 +172,9 @@ class PgNativeQueueShutdownTest {
     void testShutdownDuringMessageProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Step 1: Send a message
         String testMessage = "Shutdown during processing test";
-        producer.send(testMessage).get(5, TimeUnit.SECONDS);
+        CountDownLatch sendLatch2 = new CountDownLatch(1);
+        producer.send(testMessage).onComplete(ar -> sendLatch2.countDown());
+        assertTrue(sendLatch2.await(5, TimeUnit.SECONDS), "Send should complete");
 
         // Step 2: Set up consumer that will trigger shutdown during processing
         AtomicBoolean messageReceived = new AtomicBoolean(false);
@@ -183,7 +192,7 @@ class PgNativeQueueShutdownTest {
                 }
             });
 
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Step 3: Wait for shutdown
@@ -193,7 +202,7 @@ class PgNativeQueueShutdownTest {
 
     @Test
     void testFactoryCloseClosesCreatedConsumers(Vertx vertx, VertxTestContext testContext) throws Exception {
-        consumer.subscribe(message -> CompletableFuture.completedFuture(null));
+        consumer.subscribe(message -> Future.succeededFuture());
 
         PgNativeQueueConsumer<?> concrete = (PgNativeQueueConsumer<?>) consumer;
 

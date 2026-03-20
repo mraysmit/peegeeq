@@ -7,6 +7,7 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
@@ -24,7 +25,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -338,7 +339,7 @@ class WildcardPatternComprehensiveTest {
             BiTemporalEvent<Map<String, Object>> event = message.getPayload();
             received.set(event);
             latch.countDown();
-            return CompletableFuture.completedFuture(null);
+            return Future.<Void>succeededFuture();
         }), 10, TimeUnit.SECONDS);
 
         awaitAsyncDelay(300); // Allow subscription to stabilize

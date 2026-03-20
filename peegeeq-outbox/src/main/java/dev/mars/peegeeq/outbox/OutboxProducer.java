@@ -33,7 +33,7 @@ import org.slf4j.LoggerFactory;
 import java.time.OffsetDateTime;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
+
 
 /**
  * Outbox pattern message producer implementation.
@@ -111,7 +111,7 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      * non-blocking operations.
      *
      * @param payload The message payload to send
-     * @return CompletableFuture that completes when the message is stored in the
+     * @return Future that completes when the message is stored in the
      *         outbox
      */
     @Override
@@ -126,7 +126,7 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      *
      * @param payload The message payload to send
      * @param headers Optional message headers
-     * @return CompletableFuture that completes when the message is stored in the
+     * @return Future that completes when the message is stored in the
      *         outbox
      */
     @Override
@@ -142,7 +142,7 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      * @param payload       The message payload to send
      * @param headers       Optional message headers
      * @param correlationId Optional correlation ID for message tracking
-     * @return CompletableFuture that completes when the message is stored in the
+     * @return Future that completes when the message is stored in the
      *         outbox
      */
     @Override
@@ -159,7 +159,7 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      * @param headers       Optional message headers
      * @param correlationId Optional correlation ID for message tracking
      * @param messageGroup  Optional message group for ordering
-     * @return CompletableFuture that completes when the message is stored in the
+     * @return Future that completes when the message is stored in the
      *         outbox
      */
     @Override
@@ -174,10 +174,10 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      * This method provides non-blocking database operations for better performance.
      *
      * @param payload The message payload to send
-     * @return CompletableFuture that completes when the message is stored in the
+     * @return Future that completes when the message is stored in the
      *         outbox
      */
-    public CompletableFuture<Void> sendInternal(T payload) {
+    public Future<Void> sendInternal(T payload) {
         return sendInternal(payload, null, null, null);
     }
 
@@ -186,10 +186,10 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      *
      * @param payload The message payload to send
      * @param headers Optional message headers
-     * @return CompletableFuture that completes when the message is stored in the
+     * @return Future that completes when the message is stored in the
      *         outbox
      */
-    public CompletableFuture<Void> sendInternal(T payload, Map<String, String> headers) {
+    public Future<Void> sendInternal(T payload, Map<String, String> headers) {
         return sendInternal(payload, headers, null, null);
     }
 
@@ -199,10 +199,10 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      * @param payload       The message payload to send
      * @param headers       Optional message headers
      * @param correlationId Optional correlation ID for message tracking
-     * @return CompletableFuture that completes when the message is stored in the
+     * @return Future that completes when the message is stored in the
      *         outbox
      */
-    public CompletableFuture<Void> sendInternal(T payload, Map<String, String> headers, String correlationId) {
+    public Future<Void> sendInternal(T payload, Map<String, String> headers, String correlationId) {
         return sendInternal(payload, headers, correlationId, null);
     }
 
@@ -213,13 +213,12 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      * @param headers       Optional message headers
      * @param correlationId Optional correlation ID for message tracking
      * @param messageGroup  Optional message group for ordering
-     * @return CompletableFuture that completes when the message is stored in the
+     * @return Future that completes when the message is stored in the
      *         outbox
      */
-    public CompletableFuture<Void> sendInternal(T payload, Map<String, String> headers,
+    public Future<Void> sendInternal(T payload, Map<String, String> headers,
             String correlationId, String messageGroup) {
-        return sendInternalReactive(payload, headers, correlationId, messageGroup)
-                .toCompletionStage().toCompletableFuture();
+        return sendInternalReactive(payload, headers, correlationId, messageGroup);
     }
 
     /**
@@ -316,10 +315,10 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      * Uses default transaction propagation behavior.
      *
      * @param payload The message payload to send
-     * @return CompletableFuture that completes when the message is stored in the
+     * @return Future that completes when the message is stored in the
      *         outbox
      */
-    public CompletableFuture<Void> sendWithTransaction(T payload) {
+    public Future<Void> sendWithTransaction(T payload) {
         return sendWithTransactionInternal(payload, null, null, null, null);
     }
 
@@ -330,10 +329,10 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      *
      * @param payload The message payload to send
      * @param headers Optional message headers
-     * @return CompletableFuture that completes when the message is stored in the
+     * @return Future that completes when the message is stored in the
      *         outbox
      */
-    public CompletableFuture<Void> sendWithTransaction(T payload, Map<String, String> headers) {
+    public Future<Void> sendWithTransaction(T payload, Map<String, String> headers) {
         return sendWithTransactionInternal(payload, headers, null, null, null);
     }
 
@@ -345,10 +344,10 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      * @param payload       The message payload to send
      * @param headers       Optional message headers
      * @param correlationId Optional correlation ID for message tracking
-     * @return CompletableFuture that completes when the message is stored in the
+     * @return Future that completes when the message is stored in the
      *         outbox
      */
-    public CompletableFuture<Void> sendWithTransaction(T payload, Map<String, String> headers, String correlationId) {
+    public Future<Void> sendWithTransaction(T payload, Map<String, String> headers, String correlationId) {
         return sendWithTransactionInternal(payload, headers, correlationId, null, null);
     }
 
@@ -361,10 +360,10 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      * @param payload     The message payload to send
      * @param propagation Transaction propagation behavior (e.g., CONTEXT for
      *                    sharing existing transactions)
-     * @return CompletableFuture that completes when the message is stored in the
+     * @return Future that completes when the message is stored in the
      *         outbox
      */
-    public CompletableFuture<Void> sendWithTransaction(T payload, TransactionPropagation propagation) {
+    public Future<Void> sendWithTransaction(T payload, TransactionPropagation propagation) {
         return sendWithTransactionInternal(payload, null, null, null, propagation);
     }
 
@@ -375,10 +374,10 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      * @param payload     The message payload to send
      * @param headers     Optional message headers
      * @param propagation Transaction propagation behavior
-     * @return CompletableFuture that completes when the message is stored in the
+     * @return Future that completes when the message is stored in the
      *         outbox
      */
-    public CompletableFuture<Void> sendWithTransaction(T payload, Map<String, String> headers,
+    public Future<Void> sendWithTransaction(T payload, Map<String, String> headers,
             TransactionPropagation propagation) {
         return sendWithTransactionInternal(payload, headers, null, null, propagation);
     }
@@ -391,10 +390,10 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      * @param headers       Optional message headers
      * @param correlationId Optional correlation ID for message tracking
      * @param propagation   Transaction propagation behavior
-     * @return CompletableFuture that completes when the message is stored in the
+     * @return Future that completes when the message is stored in the
      *         outbox
      */
-    public CompletableFuture<Void> sendWithTransaction(T payload, Map<String, String> headers, String correlationId,
+    public Future<Void> sendWithTransaction(T payload, Map<String, String> headers, String correlationId,
             TransactionPropagation propagation) {
         return sendWithTransactionInternal(payload, headers, correlationId, null, propagation);
     }
@@ -408,10 +407,10 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      * @param correlationId Optional correlation ID for message tracking
      * @param messageGroup  Optional message group for ordering
      * @param propagation   Transaction propagation behavior
-     * @return CompletableFuture that completes when the message is stored in the
+     * @return Future that completes when the message is stored in the
      *         outbox
      */
-    public CompletableFuture<Void> sendWithTransaction(T payload, Map<String, String> headers,
+    public Future<Void> sendWithTransaction(T payload, Map<String, String> headers,
             String correlationId, String messageGroup,
             TransactionPropagation propagation) {
         return sendWithTransactionInternal(payload, headers, correlationId, messageGroup, propagation);
@@ -431,14 +430,13 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      * @param messageGroup  Optional message group for ordering
      * @param propagation   Optional transaction propagation behavior (null for
      *                      default)
-     * @return CompletableFuture that completes when the message is stored in the
+     * @return Future that completes when the message is stored in the
      *         outbox
      */
-    private CompletableFuture<Void> sendWithTransactionInternal(T payload, Map<String, String> headers,
+    private Future<Void> sendWithTransactionInternal(T payload, Map<String, String> headers,
             String correlationId, String messageGroup,
             TransactionPropagation propagation) {
-        return sendWithTransactionInternalReactive(payload, headers, correlationId, messageGroup, propagation)
-                .toCompletionStage().toCompletableFuture();
+        return sendWithTransactionInternalReactive(payload, headers, correlationId, messageGroup, propagation);
     }
 
     /**
@@ -556,10 +554,10 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      * @param payload    The message payload to send
      * @param connection Existing Vert.x SqlConnection that has an active
      *                   transaction
-     * @return CompletableFuture that completes when the message is stored in the
+     * @return Future that completes when the message is stored in the
      *         outbox
      */
-    public CompletableFuture<Void> sendInTransaction(T payload, io.vertx.sqlclient.SqlConnection connection) {
+    public Future<Void> sendInTransaction(T payload, io.vertx.sqlclient.SqlConnection connection) {
         return sendInTransaction(payload, null, null, null, connection);
     }
 
@@ -570,10 +568,10 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      * @param headers    Optional message headers
      * @param connection Existing Vert.x SqlConnection that has an active
      *                   transaction
-     * @return CompletableFuture that completes when the message is stored in the
+     * @return Future that completes when the message is stored in the
      *         outbox
      */
-    public CompletableFuture<Void> sendInTransaction(T payload, Map<String, String> headers,
+    public Future<Void> sendInTransaction(T payload, Map<String, String> headers,
             io.vertx.sqlclient.SqlConnection connection) {
         return sendInTransaction(payload, headers, null, null, connection);
     }
@@ -586,10 +584,10 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      * @param correlationId Optional correlation ID for message tracking
      * @param connection    Existing Vert.x SqlConnection that has an active
      *                      transaction
-     * @return CompletableFuture that completes when the message is stored in the
+     * @return Future that completes when the message is stored in the
      *         outbox
      */
-    public CompletableFuture<Void> sendInTransaction(T payload, Map<String, String> headers, String correlationId,
+    public Future<Void> sendInTransaction(T payload, Map<String, String> headers, String correlationId,
             io.vertx.sqlclient.SqlConnection connection) {
         return sendInTransaction(payload, headers, correlationId, null, connection);
     }
@@ -605,14 +603,13 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      * @param messageGroup  Optional message group for ordering
      * @param connection    Existing Vert.x SqlConnection that has an active
      *                      transaction
-     * @return CompletableFuture that completes when the message is stored in the
+     * @return Future that completes when the message is stored in the
      *         outbox
      */
-    public CompletableFuture<Void> sendInTransaction(T payload, Map<String, String> headers,
+    public Future<Void> sendInTransaction(T payload, Map<String, String> headers,
             String correlationId, String messageGroup,
             io.vertx.sqlclient.SqlConnection connection) {
-        return sendInTransactionReactive(payload, headers, correlationId, messageGroup, connection)
-                .toCompletionStage().toCompletableFuture();
+        return sendInTransactionReactive(payload, headers, correlationId, messageGroup, connection);
     }
 
     /**

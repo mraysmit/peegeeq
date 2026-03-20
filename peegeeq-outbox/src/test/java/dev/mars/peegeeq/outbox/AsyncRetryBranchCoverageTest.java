@@ -7,12 +7,16 @@ import dev.mars.peegeeq.outbox.deadletter.DeadLetterQueueManager;
 import dev.mars.peegeeq.outbox.resilience.AsyncFilterRetryManager;
 import dev.mars.peegeeq.outbox.resilience.FilterCircuitBreaker;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Future;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.time.Duration;
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Predicate;
@@ -20,11 +24,12 @@ import java.util.function.Predicate;
 import static org.junit.jupiter.api.Assertions.*;
 
 @Tag(TestCategories.CORE)
+@ExtendWith(VertxExtension.class)
 public class AsyncRetryBranchCoverageTest {
 
     @Test
     @DisplayName("BRANCH: DEAD_LETTER_IMMEDIATELY strategy")
-    void testDeadLetterImmediatelyStrategy() throws Exception {
+    void testDeadLetterImmediatelyStrategy(VertxTestContext testContext) throws Exception {
         // Filter that always fails
         Predicate<Message<TestMessage>> failingFilter = message -> {
             throw new RuntimeException("Immediate DLQ error");
@@ -44,19 +49,22 @@ public class AsyncRetryBranchCoverageTest {
 
         Message<TestMessage> message = new SimpleMessage<>("msg-1", "topic", new TestMessage("1", "payload"));
 
-        CompletableFuture<AsyncFilterRetryManager.FilterResult> future = 
+        Future<AsyncFilterRetryManager.FilterResult> future = 
             retryManager.executeFilterWithRetry(message, failingFilter, circuitBreaker);
 
-        AsyncFilterRetryManager.FilterResult result = future.get(5, TimeUnit.SECONDS);
+        future.onSuccess(result -> testContext.verify(() -> {
+            assertEquals(AsyncFilterRetryManager.FilterResult.Status.DEAD_LETTER, result.getStatus());
+            assertEquals(1, result.getAttempts());
+            assertTrue(fakeDlq.sendCalled);
+            testContext.completeNow();
+        })).onFailure(testContext::failNow);
 
-        assertEquals(AsyncFilterRetryManager.FilterResult.Status.DEAD_LETTER, result.getStatus());
-        assertEquals(1, result.getAttempts());
-        assertTrue(fakeDlq.sendCalled);
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
     }
 
     @Test
     @DisplayName("BRANCH: RETRY_THEN_REJECT exhaustion")
-    void testRetryThenRejectExhaustion() throws Exception {
+    void testRetryThenRejectExhaustion(VertxTestContext testContext) throws Exception {
         Predicate<Message<TestMessage>> failingFilter = message -> {
             throw new RuntimeException("Retry then reject error");
         };
@@ -72,18 +80,21 @@ public class AsyncRetryBranchCoverageTest {
 
         Message<TestMessage> message = new SimpleMessage<>("msg-2", "topic", new TestMessage("2", "payload"));
 
-        CompletableFuture<AsyncFilterRetryManager.FilterResult> future = 
+        Future<AsyncFilterRetryManager.FilterResult> future = 
             retryManager.executeFilterWithRetry(message, failingFilter, circuitBreaker);
 
-        AsyncFilterRetryManager.FilterResult result = future.get(5, TimeUnit.SECONDS);
+        future.onSuccess(result -> testContext.verify(() -> {
+            assertEquals(AsyncFilterRetryManager.FilterResult.Status.REJECTED, result.getStatus());
+            assertEquals(3, result.getAttempts()); // Initial + 2 retries
+            testContext.completeNow();
+        })).onFailure(testContext::failNow);
 
-        assertEquals(AsyncFilterRetryManager.FilterResult.Status.REJECTED, result.getStatus());
-        assertEquals(3, result.getAttempts()); // Initial + 2 retries
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
     }
 
     @Test
     @DisplayName("BRANCH: Max retry delay cap")
-    void testMaxRetryDelayCap() throws Exception {
+    void testMaxRetryDelayCap(VertxTestContext testContext) throws Exception {
         AtomicInteger attempts = new AtomicInteger(0);
         Predicate<Message<TestMessage>> failingFilter = message -> {
             attempts.incrementAndGet();
@@ -108,21 +119,26 @@ public class AsyncRetryBranchCoverageTest {
         Message<TestMessage> message = new SimpleMessage<>("msg-3", "topic", new TestMessage("3", "payload"));
 
         long start = System.currentTimeMillis();
-        CompletableFuture<AsyncFilterRetryManager.FilterResult> future = 
+        Future<AsyncFilterRetryManager.FilterResult> future = 
             retryManager.executeFilterWithRetry(message, failingFilter, circuitBreaker);
 
-        future.get(5, TimeUnit.SECONDS);
-        long duration = System.currentTimeMillis() - start;
+        future.onSuccess(result -> {
+            long duration = System.currentTimeMillis() - start;
+            testContext.verify(() -> {
+                // Expected duration: ~10ms (1st retry) + ~15ms (2nd retry) + execution overhead.
+                // If not capped, it would be 10ms + 100ms = 110ms.
+                // So if duration < 100ms, we know capping worked (allowing for system overhead).
+                assertTrue(duration < 100, "Duration " + duration + "ms suggests max delay cap was ignored");
+            });
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
 
-        // Expected duration: ~10ms (1st retry) + ~15ms (2nd retry) + execution overhead.
-        // If not capped, it would be 10ms + 100ms = 110ms.
-        // So if duration < 100ms, we know capping worked (allowing for system overhead).
-        assertTrue(duration < 100, "Duration " + duration + "ms suggests max delay cap was ignored");
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
     }
 
     @Test
     @DisplayName("BRANCH: DLQ Failure")
-    void testDeadLetterQueueFailure() throws Exception {
+    void testDeadLetterQueueFailure(VertxTestContext testContext) throws Exception {
         Predicate<Message<TestMessage>> failingFilter = message -> {
             throw new RuntimeException("DLQ failure error");
         };
@@ -135,8 +151,8 @@ public class AsyncRetryBranchCoverageTest {
         // Fake DLQ that fails
         FakeDeadLetterQueueManager failingDlq = new FakeDeadLetterQueueManager(config) {
             @Override
-            public <T> CompletableFuture<Void> sendToDeadLetter(Message<T> message, String filterId, String reason, int attempts, FilterErrorHandlingConfig.ErrorClassification classification, Exception originalException) {
-                return CompletableFuture.failedFuture(new RuntimeException("DLQ unavailable"));
+            public <T> Future<Void> sendToDeadLetter(Message<T> message, String filterId, String reason, int attempts, FilterErrorHandlingConfig.ErrorClassification classification, Exception originalException) {
+                return Future.failedFuture(new RuntimeException("DLQ unavailable"));
             }
         };
 
@@ -145,14 +161,17 @@ public class AsyncRetryBranchCoverageTest {
 
         Message<TestMessage> message = new SimpleMessage<>("msg-4", "topic", new TestMessage("4", "payload"));
 
-        CompletableFuture<AsyncFilterRetryManager.FilterResult> future = 
+        Future<AsyncFilterRetryManager.FilterResult> future = 
             retryManager.executeFilterWithRetry(message, failingFilter, circuitBreaker);
 
-        AsyncFilterRetryManager.FilterResult result = future.get(5, TimeUnit.SECONDS);
+        future.onSuccess(result -> testContext.verify(() -> {
+            // Should still be DEAD_LETTER status, but with error message in reason
+            assertEquals(AsyncFilterRetryManager.FilterResult.Status.DEAD_LETTER, result.getStatus());
+            assertTrue(result.getReason().contains("DLQ failed"));
+            testContext.completeNow();
+        })).onFailure(testContext::failNow);
 
-        // Should still be DEAD_LETTER status, but with error message in reason
-        assertEquals(AsyncFilterRetryManager.FilterResult.Status.DEAD_LETTER, result.getStatus());
-        assertTrue(result.getReason().contains("DLQ failed"));
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
     }
 
     // Helper class
@@ -164,9 +183,9 @@ public class AsyncRetryBranchCoverageTest {
         }
 
         @Override
-        public <T> CompletableFuture<Void> sendToDeadLetter(Message<T> message, String filterId, String reason, int attempts, FilterErrorHandlingConfig.ErrorClassification classification, Exception originalException) {
+        public <T> Future<Void> sendToDeadLetter(Message<T> message, String filterId, String reason, int attempts, FilterErrorHandlingConfig.ErrorClassification classification, Exception originalException) {
             sendCalled = true;
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         }
     }
 

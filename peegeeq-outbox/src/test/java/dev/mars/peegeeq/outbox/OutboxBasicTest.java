@@ -27,6 +27,7 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -44,7 +45,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -116,7 +118,9 @@ public class OutboxBasicTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+            closeLatch.await(10, TimeUnit.SECONDS);
         }
         
         // Clear system properties
@@ -140,12 +144,13 @@ public class OutboxBasicTest {
             receivedMessages.add(message.getPayload());
             receivedCount.incrementAndGet();
             messageReceived.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send a message
-        CompletableFuture<Void> sendFuture = producer.send(testMessage);
-        sendFuture.get(5, TimeUnit.SECONDS);
+        CountDownLatch sendLatch = new CountDownLatch(1);
+        producer.send(testMessage).onComplete(ar -> sendLatch.countDown());
+        assertTrue(sendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
 
         // Wait for message to be received
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received within timeout");
@@ -169,12 +174,13 @@ public class OutboxBasicTest {
         consumer.subscribe(message -> {
             receivedMessages.add(message);
             messageReceived.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send message with headers
-        CompletableFuture<Void> sendFuture = producer.send(testMessage, headers);
-        sendFuture.get(5, TimeUnit.SECONDS);
+        CountDownLatch sendLatch = new CountDownLatch(1);
+        producer.send(testMessage, headers).onComplete(ar -> sendLatch.countDown());
+        assertTrue(sendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
 
         // Wait for message and verify
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received within timeout");
@@ -199,19 +205,18 @@ public class OutboxBasicTest {
                 receivedMessages.add(message.getPayload());
             }
             messagesReceived.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send multiple messages
-        List<CompletableFuture<Void>> sendFutures = new ArrayList<>();
+        CountDownLatch sendLatch = new CountDownLatch(messageCount);
         for (int i = 0; i < messageCount; i++) {
             String message = "Basic Test Message " + i;
-            sendFutures.add(producer.send(message));
+            producer.send(message).onComplete(ar -> sendLatch.countDown());
         }
 
         // Wait for all sends to complete
-        CompletableFuture.allOf(sendFutures.toArray(new CompletableFuture[0]))
-            .get(10, TimeUnit.SECONDS);
+        assertTrue(sendLatch.await(10, TimeUnit.SECONDS), "All sends should complete");
 
         // Wait for all messages to be received
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "All messages should be received within timeout");
@@ -230,12 +235,13 @@ public class OutboxBasicTest {
         consumer.subscribe(message -> {
             receivedMessages.add(message);
             messageReceived.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send message with correlation ID
-        CompletableFuture<Void> sendFuture = producer.send(testMessage, Map.of(), correlationId);
-        sendFuture.get(5, TimeUnit.SECONDS);
+        CountDownLatch sendLatch = new CountDownLatch(1);
+        producer.send(testMessage, Map.of(), correlationId).onComplete(ar -> sendLatch.countDown());
+        assertTrue(sendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
 
         // Wait for message and verify correlation ID
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received within timeout");
@@ -264,12 +270,13 @@ public class OutboxBasicTest {
         consumer.subscribe(message -> {
             receivedMessages.add(message.getPayload());
             messageReceived.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send message with message group
-        CompletableFuture<Void> sendFuture = producer.send(testMessage, Map.of(), null, messageGroup);
-        sendFuture.get(5, TimeUnit.SECONDS);
+        CountDownLatch sendLatch = new CountDownLatch(1);
+        producer.send(testMessage, Map.of(), null, messageGroup).onComplete(ar -> sendLatch.countDown());
+        assertTrue(sendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
 
         // Wait for message
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received within timeout");

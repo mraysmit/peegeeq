@@ -44,7 +44,7 @@ import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.extension.ExtendWith;
 

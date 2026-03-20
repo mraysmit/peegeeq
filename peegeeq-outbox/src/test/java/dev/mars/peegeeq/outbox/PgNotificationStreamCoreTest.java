@@ -29,6 +29,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -190,7 +191,9 @@ public class PgNotificationStreamCoreTest {
         stream.handleNotification("Message while paused");
         
         // Wait a bit
-        vertx.timer(1000).toCompletionStage().toCompletableFuture().join();
+        CountDownLatch timerLatch = new CountDownLatch(1);
+        vertx.timer(1000).onComplete(ar -> timerLatch.countDown());
+        assertTrue(timerLatch.await(5, TimeUnit.SECONDS), "Timer should complete");
         
         // Should not have received the message
         assertEquals(0, messageCount.get(), "Should not receive messages while paused");

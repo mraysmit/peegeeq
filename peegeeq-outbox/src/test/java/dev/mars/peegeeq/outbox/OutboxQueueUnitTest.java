@@ -31,6 +31,7 @@ import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -76,7 +77,9 @@ class OutboxQueueUnitTest {
     void tearDown() throws Exception {
         if (queue != null) {
             try {
-                queue.close().toCompletionStage().toCompletableFuture().get(2, TimeUnit.SECONDS);
+                CountDownLatch queueCloseLatch = new CountDownLatch(1);
+                queue.close().onComplete(ar -> queueCloseLatch.countDown());
+                queueCloseLatch.await(2, TimeUnit.SECONDS);
             } catch (Exception e) {
                 logger.warn("Queue close failed in teardown, continuing", e);
             }
@@ -84,7 +87,9 @@ class OutboxQueueUnitTest {
         
         if (vertx != null) {
             try {
-                vertx.close().toCompletionStage().toCompletableFuture().get(2, TimeUnit.SECONDS);
+                CountDownLatch vertxCloseLatch = new CountDownLatch(1);
+                vertx.close().onComplete(ar -> vertxCloseLatch.countDown());
+                vertxCloseLatch.await(2, TimeUnit.SECONDS);
             } catch (Exception e) {
                 logger.warn("Vertx close failed in teardown, continuing", e);
             }
@@ -143,7 +148,6 @@ class OutboxQueueUnitTest {
         assertNotNull(future);
         
         // Wait for completion
-        future.toCompletionStage().toCompletableFuture().get(2, TimeUnit.SECONDS);
         assertTrue(future.succeeded());
     }
 
@@ -158,10 +162,6 @@ class OutboxQueueUnitTest {
         assertNotNull(future3);
         
         // All should complete successfully
-        future1.toCompletionStage().toCompletableFuture().get(2, TimeUnit.SECONDS);
-        future2.toCompletionStage().toCompletableFuture().get(2, TimeUnit.SECONDS);
-        future3.toCompletionStage().toCompletableFuture().get(2, TimeUnit.SECONDS);
-        
         assertTrue(future1.succeeded());
         assertTrue(future2.succeeded());
         assertTrue(future3.succeeded());
@@ -173,7 +173,6 @@ class OutboxQueueUnitTest {
         assertNotNull(future);
         
         // Should still complete (implementation doesn't validate)
-        future.toCompletionStage().toCompletableFuture().get(2, TimeUnit.SECONDS);
         assertTrue(future.succeeded());
     }
 
@@ -220,7 +219,6 @@ class OutboxQueueUnitTest {
         Future<Void> future = queue.acknowledge("msg-123");
         assertNotNull(future);
         
-        future.toCompletionStage().toCompletableFuture().get(2, TimeUnit.SECONDS);
         assertTrue(future.succeeded());
     }
 
@@ -234,10 +232,6 @@ class OutboxQueueUnitTest {
         assertNotNull(future2);
         assertNotNull(future3);
         
-        future1.toCompletionStage().toCompletableFuture().get(2, TimeUnit.SECONDS);
-        future2.toCompletionStage().toCompletableFuture().get(2, TimeUnit.SECONDS);
-        future3.toCompletionStage().toCompletableFuture().get(2, TimeUnit.SECONDS);
-        
         assertTrue(future1.succeeded());
         assertTrue(future2.succeeded());
         assertTrue(future3.succeeded());
@@ -249,7 +243,6 @@ class OutboxQueueUnitTest {
         assertNotNull(future);
         
         // Should still complete
-        future.toCompletionStage().toCompletableFuture().get(2, TimeUnit.SECONDS);
         assertTrue(future.succeeded());
     }
 
@@ -258,7 +251,6 @@ class OutboxQueueUnitTest {
         Future<Void> future = queue.acknowledge("");
         assertNotNull(future);
         
-        future.toCompletionStage().toCompletableFuture().get(2, TimeUnit.SECONDS);
         assertTrue(future.succeeded());
     }
 
@@ -275,7 +267,6 @@ class OutboxQueueUnitTest {
         Future<Void> future = queue.close();
         assertNotNull(future);
         
-        future.toCompletionStage().toCompletableFuture().get(2, TimeUnit.SECONDS);
         assertTrue(future.succeeded());
     }
 
@@ -283,7 +274,6 @@ class OutboxQueueUnitTest {
     void testClose_MultipleInvocations() throws Exception {
         Future<Void> future1 = queue.close();
         assertNotNull(future1);
-        future1.toCompletionStage().toCompletableFuture().get(2, TimeUnit.SECONDS);
         assertTrue(future1.succeeded());
         
         // Second close should also complete (pool already closed)
@@ -353,12 +343,10 @@ class OutboxQueueUnitTest {
     void testSendThenAcknowledge() throws Exception {
         // Send a message
         Future<Void> sendFuture = queue.send("test message");
-        sendFuture.toCompletionStage().toCompletableFuture().get(2, TimeUnit.SECONDS);
         assertTrue(sendFuture.succeeded());
         
         // Acknowledge it
         Future<Void> ackFuture = queue.acknowledge("msg-123");
-        ackFuture.toCompletionStage().toCompletableFuture().get(2, TimeUnit.SECONDS);
         assertTrue(ackFuture.succeeded());
     }
 
@@ -370,7 +358,6 @@ class OutboxQueueUnitTest {
         
         // Close queue
         Future<Void> closeFuture = queue.close();
-        closeFuture.toCompletionStage().toCompletableFuture().get(2, TimeUnit.SECONDS);
         assertTrue(closeFuture.succeeded());
     }
 
@@ -382,7 +369,6 @@ class OutboxQueueUnitTest {
         
         // Send the payload
         Future<Void> sendFuture = queue.send(message.getPayload());
-        sendFuture.toCompletionStage().toCompletableFuture().get(2, TimeUnit.SECONDS);
         assertTrue(sendFuture.succeeded());
     }
 

@@ -17,6 +17,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.vertx.core.Future;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -29,9 +30,9 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -92,7 +93,7 @@ class OutboxConsumerCoverageTest {
     }
 
     @AfterEach
-    void cleanup() throws Exception {
+    void cleanup(VertxTestContext tearDownContext) throws Exception {
         if (consumer != null) {
             consumer.close();
         }
@@ -103,7 +104,10 @@ class OutboxConsumerCoverageTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive().onComplete(ar -> tearDownContext.completeNow());
+            assertTrue(tearDownContext.awaitCompletion(10, TimeUnit.SECONDS));
+        } else {
+            tearDownContext.completeNow();
         }
     }
 
@@ -117,7 +121,7 @@ class OutboxConsumerCoverageTest {
             return null; // Return null to trigger error handling
         });
 
-        producer.send("test-null-return").get(5, TimeUnit.SECONDS);
+        producer.send("test-null-return").onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should attempt to process message");
     }
@@ -132,7 +136,7 @@ class OutboxConsumerCoverageTest {
             throw new RuntimeException("Direct exception");
         });
 
-        producer.send("test-exception").get(5, TimeUnit.SECONDS);
+        producer.send("test-exception").onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should attempt to process message");
     }
@@ -140,22 +144,22 @@ class OutboxConsumerCoverageTest {
     @Test
     void testMessageDeletedDuringProcessing(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
         consumer = outboxFactory.createConsumer(testTopic, String.class);
-        CompletableFuture<Void> startSignal = new CompletableFuture<>();
-        CompletableFuture<Void> continueGate = new CompletableFuture<>();
+        CountDownLatch startSignal = new CountDownLatch(1);
+        CountDownLatch continueGate = new CountDownLatch(1);
 
         consumer.subscribe(message -> {
-            startSignal.complete(null);
+            startSignal.countDown();
             try {
-                continueGate.get(5, TimeUnit.SECONDS);
+                continueGate.await(5, TimeUnit.SECONDS);
             } catch (Exception e) {
                 Thread.currentThread().interrupt();
             }
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
-        producer.send("test-delete").get(5, TimeUnit.SECONDS);
+        producer.send("test-delete").onFailure(testContext::failNow);
 
-        startSignal.get(5, TimeUnit.SECONDS);
+        assertTrue(startSignal.await(5, TimeUnit.SECONDS));
 
         // Query DB for ID
         long id;
@@ -174,7 +178,7 @@ class OutboxConsumerCoverageTest {
             stmt.executeUpdate();
         }
 
-        continueGate.complete(null); // Resume processing
+        continueGate.countDown(); // Resume processing
 
         testContext.completeNow();
     }
@@ -189,10 +193,10 @@ class OutboxConsumerCoverageTest {
         Checkpoint latch = testContext.checkpoint();
         consumer.subscribe(message -> {
             latch.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
-        producer.send("test-no-config").get(5, TimeUnit.SECONDS);
+        producer.send("test-no-config").onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should process message without config");
     }
@@ -206,14 +210,14 @@ class OutboxConsumerCoverageTest {
         complexConsumer.subscribe(message -> {
             received.set(message.getPayload());
             latch.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         ComplexPayload payload = new ComplexPayload("test", 123);
         
         // We need a producer for ComplexPayload
         MessageProducer<ComplexPayload> complexProducer = outboxFactory.createProducer(testTopic, ComplexPayload.class);
-        complexProducer.send(payload).get(5, TimeUnit.SECONDS);
+        complexProducer.send(payload).onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should process complex payload");
         assertEquals("test", received.get().getName());
@@ -225,8 +229,8 @@ class OutboxConsumerCoverageTest {
 
     @Test
     void testCompletionPersistenceBlocksNextMessageProcessing(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
-        producer.send("first-blocked").get(5, TimeUnit.SECONDS);
-        producer.send("second-waits").get(5, TimeUnit.SECONDS);
+        producer.send("first-blocked").onFailure(testContext::failNow);
+        producer.send("second-waits").onFailure(testContext::failNow);
 
         long firstMessageId;
         try (Connection conn = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(),
@@ -240,8 +244,8 @@ class OutboxConsumerCoverageTest {
             }
         }
 
-        CompletableFuture<Void> firstHandled = new CompletableFuture<>();
-        CompletableFuture<Void> bothHandled = new CompletableFuture<>();
+        CountDownLatch firstHandled = new CountDownLatch(1);
+        CountDownLatch bothHandled = new CountDownLatch(1);
         AtomicInteger handledCount = new AtomicInteger(0);
 
         OutboxConsumerConfig singleThreadConfig = OutboxConsumerConfig.builder()
@@ -258,27 +262,23 @@ class OutboxConsumerCoverageTest {
                 try (ResultSet ignored = lockStmt.executeQuery()) {
                     consumer.subscribe(message -> {
                         int count = handledCount.incrementAndGet();
-                        firstHandled.complete(null);
+                        firstHandled.countDown();
                         if (count >= 2) {
-                            bothHandled.complete(null);
+                            bothHandled.countDown();
                         }
-                        return CompletableFuture.completedFuture(null);
+                        return Future.succeededFuture();
                     });
 
-                    firstHandled.get(5, TimeUnit.SECONDS);
-                    try {
-                        bothHandled.get(800, TimeUnit.MILLISECONDS);
-                        fail("Second message must wait while first completion update is blocked");
-                    } catch (TimeoutException e) {
-                        // Expected - second message should not be processed yet
-                    }
+                    assertTrue(firstHandled.await(5, TimeUnit.SECONDS));
+                    assertFalse(bothHandled.await(800, TimeUnit.MILLISECONDS),
+                            "Second message must wait while first completion update is blocked");
                 }
             }
 
             lockConn.commit();
         }
 
-        bothHandled.get(5, TimeUnit.SECONDS);
+        assertTrue(bothHandled.await(5, TimeUnit.SECONDS));
         assertEquals(2, handledCount.get(), "Both messages should be processed eventually");
         testContext.completeNow();
     }
@@ -292,14 +292,14 @@ class OutboxConsumerCoverageTest {
         consumer.subscribe(message -> {
             receivedHeaders.set(message.getHeaders());
             latch.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         Map<String, String> headers = new HashMap<>();
         headers.put("key1", "value1");
         headers.put("key2", "value2");
         
-        producer.send("test-headers", headers).get(5, TimeUnit.SECONDS);
+        producer.send("test-headers", headers).onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should process message with headers");
         assertEquals("value1", receivedHeaders.get().get("key1"));

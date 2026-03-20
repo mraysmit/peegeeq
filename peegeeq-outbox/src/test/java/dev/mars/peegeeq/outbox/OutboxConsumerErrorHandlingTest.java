@@ -33,6 +33,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -40,11 +42,10 @@ import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-
-import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
@@ -113,7 +114,9 @@ public class OutboxConsumerErrorHandlingTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+            closeLatch.await(10, TimeUnit.SECONDS);
         }
 
         System.clearProperty("peegeeq.database.host");
@@ -136,7 +139,7 @@ public class OutboxConsumerErrorHandlingTest {
                 throw new RuntimeException("Simulated handler failure on attempt " + attempt);
             }
             // Third attempt succeeds
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         producer.send("test-message");
@@ -155,7 +158,7 @@ public class OutboxConsumerErrorHandlingTest {
         consumer.subscribe(message -> {
             attemptCount.incrementAndGet();
             checkpoint.flag();
-            return CompletableFuture.failedFuture(new RuntimeException("Always fails"));
+            return Future.failedFuture(new RuntimeException("Always fails"));
         });
 
         producer.send("failing-message");
@@ -172,12 +175,12 @@ public class OutboxConsumerErrorHandlingTest {
         consumer.subscribe(message -> {
             processingStarted.flag();
             // Simulate processing via non-blocking delay
-            CompletableFuture<Void> future = new CompletableFuture<>();
+            Promise<Void> promise = Promise.promise();
             vertx.setTimer(100, id -> {
                 processingCompleted.flag();
-                future.complete(null);
+                promise.complete();
             });
-            return future;
+            return promise.future();
         });
 
         producer.send("test-message");
@@ -199,9 +202,9 @@ public class OutboxConsumerErrorHandlingTest {
         consumer.subscribe(message -> {
             processingStarted.flag();
             // Simulate processing via non-blocking delay
-            CompletableFuture<Void> future = new CompletableFuture<>();
-            vertx.setTimer(100, id -> future.complete(null));
-            return future;
+            Promise<Void> promise = Promise.promise();
+            vertx.setTimer(100, id -> promise.complete());
+            return promise.future();
         });
 
         producer.send("test-message");
@@ -227,11 +230,11 @@ public class OutboxConsumerErrorHandlingTest {
     @Test
     void testMultipleSubscribeCallsLogsWarning() {
         // First subscription should succeed
-        consumer.subscribe(message -> CompletableFuture.completedFuture(null));
+        consumer.subscribe(message -> Future.succeededFuture());
 
         // Second subscription should not throw, just log warning and skip startPolling
         assertDoesNotThrow(
-            () -> consumer.subscribe(message -> CompletableFuture.completedFuture(null)),
+            () -> consumer.subscribe(message -> Future.succeededFuture()),
             "Second subscribe should not throw, just log warning");
     }    @Test
     void testUnsubscribeBeforeSubscribe() {
@@ -251,7 +254,7 @@ public class OutboxConsumerErrorHandlingTest {
         
         consumer.subscribe(message -> {
             checkpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
         producer.send("test-message");
         
@@ -273,7 +276,7 @@ public class OutboxConsumerErrorHandlingTest {
         consumer.subscribe(message -> {
             receivedCount.incrementAndGet();
             checkpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send null payload (if supported)
@@ -291,7 +294,7 @@ public class OutboxConsumerErrorHandlingTest {
             
             consumer.subscribe(message -> {
                 checkpoint.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
             producer.send("message-" + i);
             
@@ -308,7 +311,7 @@ public class OutboxConsumerErrorHandlingTest {
         consumer.subscribe(message -> {
             Thread.currentThread().interrupt();
             checkpoint.flag();
-            return CompletableFuture.failedFuture(new RuntimeException("Interrupted"));
+            return Future.failedFuture(new RuntimeException("Interrupted"));
         });
 
         producer.send("interrupt-test");
@@ -325,12 +328,12 @@ public class OutboxConsumerErrorHandlingTest {
         consumer.subscribe(message -> {
             processedCount.incrementAndGet();
             // Simulate processing via non-blocking delay
-            CompletableFuture<Void> future = new CompletableFuture<>();
+            Promise<Void> promise = Promise.promise();
             vertx.setTimer(50, id -> {
                 checkpoint.flag();
-                future.complete(null);
+                promise.complete();
             });
-            return future;
+            return promise.future();
         });
 
         // Send multiple messages

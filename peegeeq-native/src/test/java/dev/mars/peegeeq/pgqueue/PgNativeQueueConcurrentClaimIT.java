@@ -25,9 +25,12 @@ import java.time.Duration;
 import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import io.vertx.core.Future;
 
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile.BASIC;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent.*;
@@ -84,7 +87,11 @@ class PgNativeQueueConcurrentClaimIT {
     @AfterEach
     void tearDown() {
         if (manager != null) {
-            try { manager.closeReactive().toCompletionStage().toCompletableFuture().join(); } catch (Exception ignore) {}
+            try {
+                CountDownLatch closeLatch = new CountDownLatch(1);
+                manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+                closeLatch.await(10, TimeUnit.SECONDS);
+            } catch (Exception ignore) {}
         }
     }
 
@@ -95,12 +102,14 @@ class PgNativeQueueConcurrentClaimIT {
             INSERT INTO queue_messages (topic, payload, headers, correlation_id, status, created_at, visible_at, priority)
             VALUES ($1, $2::jsonb, $3::jsonb, $4, 'AVAILABLE', now(), now(), 1)
         """;
+        CountDownLatch insertLatch = new CountDownLatch(2);
         pool.preparedQuery(insertSql)
             .execute(Tuple.of(TOPIC, new JsonObject().put("value", "m1"), new JsonObject(), "c-1"))
-            .toCompletionStage().toCompletableFuture().join();
+            .onComplete(ar -> insertLatch.countDown());
         pool.preparedQuery(insertSql)
             .execute(Tuple.of(TOPIC, new JsonObject().put("value", "m2"), new JsonObject(), "c-2"))
-            .toCompletionStage().toCompletableFuture().join();
+            .onComplete(ar -> insertLatch.countDown());
+        assertTrue(insertLatch.await(5, TimeUnit.SECONDS), "Inserts should complete");
 
         ConsumerConfig cfg = ConsumerConfig.builder()
             .mode(ConsumerMode.POLLING_ONLY)
@@ -120,13 +129,13 @@ class PgNativeQueueConcurrentClaimIT {
             payloads.add(msg.getPayload());
             processed.incrementAndGet();
             bothDone.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
         c2.subscribe(msg -> {
             payloads.add(msg.getPayload());
             processed.incrementAndGet();
             bothDone.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Wait up to 10s for both messages to be processed exactly once

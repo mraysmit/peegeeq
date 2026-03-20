@@ -12,11 +12,15 @@ import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -25,8 +29,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -47,6 +52,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
+@ExtendWith(VertxExtension.class)
 public class BasicReactiveOperationsExampleTest {
 
     private static final Logger logger = LoggerFactory.getLogger(BasicReactiveOperationsExampleTest.class);
@@ -101,7 +107,7 @@ public class BasicReactiveOperationsExampleTest {
     }
     
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("Tearing down Basic Reactive Operations Example Test");
         
         try {
@@ -113,8 +119,11 @@ public class BasicReactiveOperationsExampleTest {
         }
         
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive().onComplete(ar -> testContext.completeNow());
+        } else {
+            testContext.completeNow();
         }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         
         // Clean up database tables
         logger.info("✓ Basic Reactive Operations Example Test teardown completed");
@@ -125,7 +134,7 @@ public class BasicReactiveOperationsExampleTest {
      * Validates basic sendReactive() functionality with Future<Void> return type
      */
     @Test
-    void testSimpleReactiveSend() throws Exception {
+    void testSimpleReactiveSend(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Simple Reactive Send ===");
         
         // Create test order
@@ -133,14 +142,16 @@ public class BasicReactiveOperationsExampleTest {
         logger.info("Created test order: {}", testOrder);
         
         // Send using reactive API
-        CompletableFuture<Void> future = orderProducer.sendReactive(testOrder).toCompletionStage().toCompletableFuture();
+        orderProducer.send(testOrder)
+            .onSuccess(v -> {
+                testContext.verify(() -> {
+                    logger.info("✓ Simple reactive send completed successfully");
+                    testContext.completeNow();
+                });
+            })
+            .onFailure(testContext::failNow);
         
-        // Validate successful completion
-        assertDoesNotThrow(() -> future.get(5, TimeUnit.SECONDS));
-        assertTrue(future.isDone());
-        assertFalse(future.isCompletedExceptionally());
-        
-        logger.info("✓ Simple reactive send completed successfully");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     /**
@@ -148,7 +159,7 @@ public class BasicReactiveOperationsExampleTest {
      * Validates sendReactive() with custom headers functionality
      */
     @Test
-    void testReactiveSendWithHeaders() throws Exception {
+    void testReactiveSendWithHeaders(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Reactive Send with Headers ===");
         
         // Create test order and headers
@@ -162,14 +173,16 @@ public class BasicReactiveOperationsExampleTest {
         logger.info("Headers: {}", headers);
         
         // Send using reactive API with headers
-        CompletableFuture<Void> future = orderProducer.sendReactive(testOrder, headers).toCompletionStage().toCompletableFuture();
+        orderProducer.send(testOrder, headers)
+            .onSuccess(v -> {
+                testContext.verify(() -> {
+                    logger.info("✓ Reactive send with headers completed successfully");
+                    testContext.completeNow();
+                });
+            })
+            .onFailure(testContext::failNow);
         
-        // Validate successful completion
-        assertDoesNotThrow(() -> future.get(5, TimeUnit.SECONDS));
-        assertTrue(future.isDone());
-        assertFalse(future.isCompletedExceptionally());
-        
-        logger.info("✓ Reactive send with headers completed successfully");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     /**
@@ -177,7 +190,7 @@ public class BasicReactiveOperationsExampleTest {
      * Validates sendReactive() with correlation ID for request tracking
      */
     @Test
-    void testReactiveSendWithCorrelationId() throws Exception {
+    void testReactiveSendWithCorrelationId(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Reactive Send with Correlation ID ===");
         
         // Create test order, headers, and correlation ID
@@ -190,14 +203,16 @@ public class BasicReactiveOperationsExampleTest {
         logger.info("Correlation ID: {}", correlationId);
         
         // Send using reactive API with correlation ID
-        CompletableFuture<Void> future = orderProducer.sendReactive(testOrder, headers, correlationId).toCompletionStage().toCompletableFuture();
+        orderProducer.send(testOrder, headers, correlationId)
+            .onSuccess(v -> {
+                testContext.verify(() -> {
+                    logger.info("✓ Reactive send with correlation ID completed successfully");
+                    testContext.completeNow();
+                });
+            })
+            .onFailure(testContext::failNow);
         
-        // Validate successful completion
-        assertDoesNotThrow(() -> future.get(5, TimeUnit.SECONDS));
-        assertTrue(future.isDone());
-        assertFalse(future.isCompletedExceptionally());
-        
-        logger.info("✓ Reactive send with correlation ID completed successfully");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     /**
@@ -205,7 +220,7 @@ public class BasicReactiveOperationsExampleTest {
      * Validates sendReactive() with all parameters: headers, correlation ID, and message group
      */
     @Test
-    void testFullParameterReactiveSend() throws Exception {
+    void testFullParameterReactiveSend(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Full Parameter Reactive Send ===");
         
         // Create test order with all parameters
@@ -223,14 +238,16 @@ public class BasicReactiveOperationsExampleTest {
         logger.info("Message Group: {}", messageGroup);
         
         // Send using reactive API with all parameters
-        CompletableFuture<Void> future = orderProducer.sendReactive(testOrder, headers, correlationId, messageGroup).toCompletionStage().toCompletableFuture();
+        orderProducer.send(testOrder, headers, correlationId, messageGroup)
+            .onSuccess(v -> {
+                testContext.verify(() -> {
+                    logger.info("✓ Full parameter reactive send completed successfully");
+                    testContext.completeNow();
+                });
+            })
+            .onFailure(testContext::failNow);
         
-        // Validate successful completion
-        assertDoesNotThrow(() -> future.get(5, TimeUnit.SECONDS));
-        assertTrue(future.isDone());
-        assertFalse(future.isCompletedExceptionally());
-        
-        logger.info("✓ Full parameter reactive send completed successfully");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     /**
@@ -238,14 +255,14 @@ public class BasicReactiveOperationsExampleTest {
      * Validates reactive operations performance and timing characteristics
      */
     @Test
-    void testPerformanceValidation() throws Exception {
+    void testPerformanceValidation(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Performance Validation ===");
         
         int messageCount = 10;
         long startTime = System.currentTimeMillis();
         
         // Send multiple messages to validate performance
-        CompletableFuture<Void>[] futures = new CompletableFuture[messageCount];
+        List<Future<Void>> sendFutures = new java.util.ArrayList<>(messageCount);
         
         for (int i = 0; i < messageCount; i++) {
             OrderEvent testOrder = new OrderEvent("PERF-ORDER-" + i, "Performance Test Product", 50.0 + i, LocalDateTime.now());
@@ -253,26 +270,30 @@ public class BasicReactiveOperationsExampleTest {
             headers.put("batch", "performance-test");
             headers.put("sequence", String.valueOf(i));
             
-            futures[i] = orderProducer.sendReactive(testOrder, headers).toCompletionStage().toCompletableFuture();
+            sendFutures.add(orderProducer.send(testOrder, headers));
         }
         
         // Wait for all operations to complete
-        CompletableFuture<Void> allFutures = CompletableFuture.allOf(futures);
-        assertDoesNotThrow(() -> allFutures.get(30, TimeUnit.SECONDS));
+        Future.all(sendFutures)
+            .onSuccess(v -> {
+                testContext.verify(() -> {
+                    long endTime = System.currentTimeMillis();
+                    long totalTime = endTime - startTime;
+                    double avgTimePerMessage = (double) totalTime / messageCount;
+                    
+                    // Validate performance characteristics
+                    assertTrue(totalTime < 30000, "Total time should be less than 30 seconds");
+                    assertTrue(avgTimePerMessage < 3000, "Average time per message should be less than 3 seconds");
+                    
+                    logger.info("✓ Performance validation completed successfully");
+                    logger.info("Total time: {}ms, Average per message: {}ms", totalTime, String.format("%.2f", avgTimePerMessage));
+                    logger.info("Messages processed: {}, Rate: {} msg/sec", messageCount, String.format("%.2f", (messageCount * 1000.0) / totalTime));
+                    testContext.completeNow();
+                });
+            })
+            .onFailure(testContext::failNow);
         
-        long endTime = System.currentTimeMillis();
-        long totalTime = endTime - startTime;
-        double avgTimePerMessage = (double) totalTime / messageCount;
-        
-        // Validate performance characteristics
-        assertTrue(allFutures.isDone());
-        assertFalse(allFutures.isCompletedExceptionally());
-        assertTrue(totalTime < 30000, "Total time should be less than 30 seconds");
-        assertTrue(avgTimePerMessage < 3000, "Average time per message should be less than 3 seconds");
-        
-        logger.info("✓ Performance validation completed successfully");
-        logger.info("Total time: {}ms, Average per message: {:.2f}ms", totalTime, avgTimePerMessage);
-        logger.info("Messages processed: {}, Rate: {:.2f} msg/sec", messageCount, (messageCount * 1000.0) / totalTime);
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**

@@ -34,9 +34,12 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+
+import io.vertx.core.Future;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -117,7 +120,9 @@ class ConsumerModeTypeSafetyTest {
             factory.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+            closeLatch.await(10, TimeUnit.SECONDS);
         }
         logger.info("Test teardown completed");
     }
@@ -302,12 +307,14 @@ class ConsumerModeTypeSafetyTest {
             receivedMessage.set(message.getPayload());
             logger.info("📨 Received message: {}", message.getPayload());
             nullCtx.completeNow();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         try {
             // Producer accepts null values (based on logs showing successful NOTIFY)
-            producer.send(null).get(5, TimeUnit.SECONDS);
+            CountDownLatch nullSendLatch = new CountDownLatch(1);
+            producer.send(null).onComplete(ar -> nullSendLatch.countDown());
+            nullSendLatch.await(5, TimeUnit.SECONDS);
             logger.info("Producer accepted null payload (will be rejected by consumer)");
 
             // Consumer should not receive the message (it gets moved to dead letter queue)
@@ -346,11 +353,13 @@ class ConsumerModeTypeSafetyTest {
             logger.info("📨 Received {} message in {} mode: {}",
                 payloadType.getSimpleName(), mode, message.getPayload());
             modeCtx.completeNow();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send test message
-        producer.send(expectedMessage).get(5, TimeUnit.SECONDS);
+        CountDownLatch modeSendLatch = new CountDownLatch(1);
+        producer.send(expectedMessage).onComplete(ar -> modeSendLatch.countDown());
+        assertTrue(modeSendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
 
         // Wait for message processing
         boolean received = modeCtx.awaitCompletion(10, TimeUnit.SECONDS);

@@ -10,6 +10,7 @@ import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.sqlclient.TransactionPropagation;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
@@ -18,9 +19,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
@@ -92,7 +91,9 @@ public class PerformanceBenchmarkTest {
     void tearDown() throws Exception {
         if (producer != null) producer.close();
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+            closeLatch.await(10, TimeUnit.SECONDS);
         }
         logger.info("Performance benchmark test cleanup completed");
     }
@@ -111,7 +112,9 @@ public class PerformanceBenchmarkTest {
         long jdbcStartTime = System.currentTimeMillis();
 
         for (int i = 0; i < messageCount; i++) {
-            producer.send(testPayload + i).get(1, TimeUnit.SECONDS);
+            CountDownLatch sendLatch = new CountDownLatch(1);
+            producer.send(testPayload + i).onComplete(ar -> sendLatch.countDown());
+            sendLatch.await(5, TimeUnit.SECONDS);
         }
 
         long jdbcEndTime = System.currentTimeMillis();
@@ -125,15 +128,14 @@ public class PerformanceBenchmarkTest {
         logger.info("🔄 Benchmarking Reactive approach with {} messages...", messageCount);
         long reactiveStartTime = System.currentTimeMillis();
 
-        MessageProducer<String> messageProducer = (MessageProducer<String>) producer;
-        List<CompletableFuture<Void>> futures = new ArrayList<>();
+        CountDownLatch reactiveLatch = new CountDownLatch(messageCount);
         for (int i = 0; i < messageCount; i++) {
-            futures.add(messageProducer.sendReactive(testPayload + "reactive-" + i).toCompletionStage().toCompletableFuture());
+            producer.send(testPayload + "reactive-" + i).onComplete(ar -> reactiveLatch.countDown());
         }
 
         // Wait for all reactive operations to complete
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
-                .get(30, TimeUnit.SECONDS);
+        Assertions.assertTrue(reactiveLatch.await(30, TimeUnit.SECONDS),
+                "All reactive sends should complete within timeout");
 
         long reactiveEndTime = System.currentTimeMillis();
         long reactiveDuration = reactiveEndTime - reactiveStartTime;
@@ -190,13 +192,14 @@ public class PerformanceBenchmarkTest {
         long basicStartTime = System.currentTimeMillis();
 
         OutboxProducer<String> outboxProducer = (OutboxProducer<String>) producer;
-        List<CompletableFuture<Void>> basicFutures = new ArrayList<>();
+        CountDownLatch basicLatch = new CountDownLatch(messageCount);
         for (int i = 0; i < messageCount; i++) {
-            basicFutures.add(outboxProducer.sendWithTransaction(testPayload + i));
+            outboxProducer.sendWithTransaction(testPayload + i)
+                .onComplete(ar -> basicLatch.countDown());
         }
 
-        CompletableFuture.allOf(basicFutures.toArray(new CompletableFuture[0]))
-                .get(30, TimeUnit.SECONDS);
+        Assertions.assertTrue(basicLatch.await(30, TimeUnit.SECONDS),
+                "All basic sends should complete within timeout");
 
         long basicEndTime = System.currentTimeMillis();
         long basicDuration = basicEndTime - basicStartTime;
@@ -206,22 +209,17 @@ public class PerformanceBenchmarkTest {
         logger.info("🔄 Benchmarking with TransactionPropagation.CONTEXT...");
         long contextStartTime = System.currentTimeMillis();
 
-        CompletableFuture<Void> contextPhase = new CompletableFuture<>();
+        CountDownLatch contextLatch = new CountDownLatch(messageCount);
         manager.getVertx().runOnContext(v -> {
-            List<CompletableFuture<Void>> contextFutures = new ArrayList<>();
             for (int i = 0; i < messageCount; i++) {
-                contextFutures.add(outboxProducer.sendWithTransaction(
+                outboxProducer.sendWithTransaction(
                     testPayload + "context-" + i,
                     TransactionPropagation.CONTEXT
-                ));
+                ).onComplete(ar -> contextLatch.countDown());
             }
-            CompletableFuture.allOf(contextFutures.toArray(new CompletableFuture[0]))
-                .whenComplete((r, t) -> {
-                    if (t != null) contextPhase.completeExceptionally(t);
-                    else contextPhase.complete(null);
-                });
         });
-        contextPhase.get(30, TimeUnit.SECONDS);
+        Assertions.assertTrue(contextLatch.await(30, TimeUnit.SECONDS),
+                "All context sends should complete within timeout");
 
         long contextEndTime = System.currentTimeMillis();
         long contextDuration = contextEndTime - contextStartTime;
@@ -258,8 +256,10 @@ public class PerformanceBenchmarkTest {
         OutboxProducer<String> outboxProducer = (OutboxProducer<String>) producer;
         for (int batch = 0; batch < batchCount; batch++) {
             for (int i = 0; i < batchSize; i++) {
+                CountDownLatch sendLatch = new CountDownLatch(1);
                 outboxProducer.sendWithTransaction(testPayload + batch + "-" + i)
-                        .get(5, TimeUnit.SECONDS);
+                        .onComplete(ar -> sendLatch.countDown());
+                sendLatch.await(5, TimeUnit.SECONDS);
             }
         }
 
@@ -272,24 +272,19 @@ public class PerformanceBenchmarkTest {
         logger.info("🔄 Benchmarking batch operations...");
         long batchStartTime = System.currentTimeMillis();
 
-        CompletableFuture<Void> batchPhase = new CompletableFuture<>();
+        CountDownLatch batchLatch = new CountDownLatch(totalMessages);
         manager.getVertx().runOnContext(v -> {
-            List<CompletableFuture<Void>> batchFutures = new ArrayList<>();
             for (int batch = 0; batch < batchCount; batch++) {
                 for (int i = 0; i < batchSize; i++) {
-                    batchFutures.add(outboxProducer.sendWithTransaction(
+                    outboxProducer.sendWithTransaction(
                         testPayload + "batch-" + batch + "-" + i,
                         TransactionPropagation.CONTEXT
-                    ));
+                    ).onComplete(ar -> batchLatch.countDown());
                 }
             }
-            CompletableFuture.allOf(batchFutures.toArray(new CompletableFuture[0]))
-                .whenComplete((r, t) -> {
-                    if (t != null) batchPhase.completeExceptionally(t);
-                    else batchPhase.complete(null);
-                });
         });
-        batchPhase.get(30, TimeUnit.SECONDS);
+        Assertions.assertTrue(batchLatch.await(30, TimeUnit.SECONDS),
+                "All batch sends should complete within timeout");
 
         long batchEndTime = System.currentTimeMillis();
         long batchDuration = batchEndTime - batchStartTime;

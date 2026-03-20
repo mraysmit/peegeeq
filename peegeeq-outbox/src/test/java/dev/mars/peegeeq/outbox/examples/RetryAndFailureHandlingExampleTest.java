@@ -30,11 +30,16 @@ import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -43,7 +48,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -102,6 +107,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  * @since 2025-09-14
  * @version 1.0
  */
+@ExtendWith(VertxExtension.class)
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
@@ -156,34 +162,38 @@ class RetryAndFailureHandlingExampleTest {
     }
     
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws InterruptedException {
         logger.info("🧹 Cleaning up Retry and Failure Handling Example Test");
         
         if (queueFactory != null) {
             queueFactory.close();
         }
         
-        if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
-        }
-        
-        // Clear system properties
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-        System.clearProperty("peegeeq.database.schema");
-        System.clearProperty("peegeeq.queue.max-retries");
-        System.clearProperty("peegeeq.queue.polling-interval");
-        System.clearProperty("peegeeq.consumer.threads");
-        System.clearProperty("peegeeq.queue.batch-size");
-        
-        logger.info("Retry and Failure Handling Example Test cleanup completed");
+        Future<Void> closeFuture = (manager != null)
+            ? manager.closeReactive()
+            : Future.succeededFuture();
+
+        closeFuture.onComplete(ar -> {
+            // Clear system properties
+            System.clearProperty("peegeeq.database.host");
+            System.clearProperty("peegeeq.database.port");
+            System.clearProperty("peegeeq.database.name");
+            System.clearProperty("peegeeq.database.username");
+            System.clearProperty("peegeeq.database.password");
+            System.clearProperty("peegeeq.database.schema");
+            System.clearProperty("peegeeq.queue.max-retries");
+            System.clearProperty("peegeeq.queue.polling-interval");
+            System.clearProperty("peegeeq.consumer.threads");
+            System.clearProperty("peegeeq.queue.batch-size");
+
+            logger.info("Retry and Failure Handling Example Test cleanup completed");
+            testContext.completeNow();
+        });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
     
     @Test
-    void testQuickFailureConfiguration() throws Exception {
+    void testQuickFailureConfiguration(VertxTestContext testContext) throws InterruptedException {
         logger.info("=== Testing Quick Failure Configuration (2 retries) ===");
         
         // Configure for quick failure
@@ -192,14 +202,17 @@ class RetryAndFailureHandlingExampleTest {
         System.setProperty("peegeeq.consumer.threads", "2");
         System.setProperty("peegeeq.queue.batch-size", "1");
         
-        boolean result = runFailureScenario("quick-failure", new AlwaysFailingProcessor(), 2);
-        
-        assertTrue(result, "Quick failure scenario should complete within timeout");
-        logger.info("Quick failure configuration test completed successfully!");
+        runFailureScenario("quick-failure", new AlwaysFailingProcessor(), 2)
+            .onSuccess(v -> {
+                logger.info("Quick failure configuration test completed successfully!");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
     }
     
     @Test
-    void testExtensiveRetriesConfiguration() throws Exception {
+    void testExtensiveRetriesConfiguration(VertxTestContext testContext) throws InterruptedException {
         logger.info("=== Testing Extensive Retries Configuration (8 retries) ===");
         
         // Configure for extensive retries
@@ -208,14 +221,17 @@ class RetryAndFailureHandlingExampleTest {
         System.setProperty("peegeeq.consumer.threads", "1");
         System.setProperty("peegeeq.queue.batch-size", "1");
         
-        boolean result = runFailureScenario("extensive-retries", new AlwaysFailingProcessor(), 8);
-        
-        assertTrue(result, "Extensive retries scenario should complete within timeout");
-        logger.info("Extensive retries configuration test completed successfully!");
+        runFailureScenario("extensive-retries", new AlwaysFailingProcessor(), 8)
+            .onSuccess(v -> {
+                logger.info("Extensive retries configuration test completed successfully!");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
     }
     
     @Test
-    void testSuccessfulRetryConfiguration() throws Exception {
+    void testSuccessfulRetryConfiguration(VertxTestContext testContext) throws InterruptedException {
         logger.info("=== Testing Successful Retry Configuration (5 retries) ===");
         
         // Configure for moderate retries
@@ -224,10 +240,13 @@ class RetryAndFailureHandlingExampleTest {
         System.setProperty("peegeeq.consumer.threads", "2");
         System.setProperty("peegeeq.queue.batch-size", "1");
         
-        boolean result = runFailureScenario("successful-retry", new EventuallySuccessfulProcessor(3), 5);
-        
-        assertTrue(result, "Successful retry scenario should complete within timeout");
-        logger.info("Successful retry configuration test completed successfully!");
+        runFailureScenario("successful-retry", new EventuallySuccessfulProcessor(3), 5)
+            .onSuccess(v -> {
+                logger.info("Successful retry configuration test completed successfully!");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
     }
 
     /**
@@ -238,7 +257,7 @@ class RetryAndFailureHandlingExampleTest {
      * @param expectedMaxRetries The expected maximum number of retries
      * @return true if the scenario completed within timeout, false otherwise
      */
-    private boolean runFailureScenario(String scenarioName, MessageProcessor processor, int expectedMaxRetries) throws Exception {
+    private Future<Void> runFailureScenario(String scenarioName, MessageProcessor processor, int expectedMaxRetries) {
         logger.info("🧪 INTENTIONAL FAILURE SCENARIO: {} - Max retries: {}", scenarioName, expectedMaxRetries);
 
         // Log current configuration
@@ -249,53 +268,43 @@ class RetryAndFailureHandlingExampleTest {
 
         String topic = "retry-demo-" + scenarioName;
 
-        try (MessageProducer<FailureTestMessage> producer = queueFactory.createProducer(topic, FailureTestMessage.class);
-             MessageConsumer<FailureTestMessage> consumer = queueFactory.createConsumer(topic, FailureTestMessage.class)) {
+        MessageProducer<FailureTestMessage> producer = queueFactory.createProducer(topic, FailureTestMessage.class);
+        MessageConsumer<FailureTestMessage> consumer = queueFactory.createConsumer(topic, FailureTestMessage.class);
 
-            CompletableFuture<Void> latch = new CompletableFuture<>();
+        Promise<Void> latch = Promise.promise();
 
-            // Set up consumer with failure-prone processor
-            consumer.subscribe(message -> {
-                try {
-                    return processor.process(message);
-                } catch (Exception e) {
-                    logger.error("🎯 INTENTIONAL TEST FAILURE: Processing failed for message {}: {}",
-                        message.getPayload().id, e.getMessage());
-                    logger.info("   📋 This failure demonstrates proper retry behavior in PeeGeeQ Outbox pattern");
-                    latch.complete(null);
-                    return CompletableFuture.failedFuture(e);
-                } finally {
-                    // Count down on success too (for eventually successful processor)
+        // Set up consumer with failure-prone processor
+        consumer.subscribe(message -> {
+            return processor.process(message)
+                .onComplete(ar -> {
+                    if (ar.failed()) {
+                        logger.error("🎯 INTENTIONAL TEST FAILURE: Processing failed for message {}: {}",
+                            message.getPayload().id, ar.cause().getMessage());
+                        logger.info("   📋 This failure demonstrates proper retry behavior in PeeGeeQ Outbox pattern");
+                        latch.tryComplete();
+                    }
                     if (processor instanceof EventuallySuccessfulProcessor &&
                         ((EventuallySuccessfulProcessor) processor).hasSucceeded()) {
-                        latch.complete(null);
+                        latch.tryComplete();
                     }
-                }
-            });
+                });
+        });
 
-            // Send a test message that will fail initially
-            FailureTestMessage message = new FailureTestMessage(
-                "failure-test-" + System.currentTimeMillis(),
-                "This message will fail initially",
-                scenarioName
-            );
+        // Send a test message that will fail initially
+        FailureTestMessage message = new FailureTestMessage(
+            "failure-test-" + System.currentTimeMillis(),
+            "This message will fail initially",
+            scenarioName
+        );
 
-            Map<String, String> headers = new HashMap<>();
-            headers.put("scenario", scenarioName);
-            headers.put("expectedRetries", String.valueOf(expectedMaxRetries));
+        Map<String, String> headers = new HashMap<>();
+        headers.put("scenario", scenarioName);
+        headers.put("expectedRetries", String.valueOf(expectedMaxRetries));
 
-            logger.info("📤 Sending message that will fail initially: {}", message.id);
-            producer.send(message, headers).join();
-
-            // Wait for processing to complete (success or final failure)
-            boolean completed;
-            try {
-                latch.get(60, TimeUnit.SECONDS);
-                completed = true;
-            } catch (java.util.concurrent.TimeoutException e) {
-                completed = false;
-            }
-            if (completed) {
+        logger.info("📤 Sending message that will fail initially: {}", message.id);
+        return producer.send(message, headers)
+            .compose(v -> latch.future())
+            .onComplete(ar -> {
                 if (processor instanceof EventuallySuccessfulProcessor &&
                     ((EventuallySuccessfulProcessor) processor).hasSucceeded()) {
                     logger.info("EXPECTED SUCCESS: Message eventually processed successfully after {} attempts",
@@ -303,19 +312,16 @@ class RetryAndFailureHandlingExampleTest {
                 } else {
                     logger.info("EXPECTED FAILURE: Message failed after maximum retries and moved to dead letter queue");
                 }
-            } else {
-                logger.warn("⚠️ Scenario timed out - this may indicate a configuration issue");
-            }
-
-            return completed;
-        }
+                try { producer.close(); } catch (Exception ignored) {}
+                try { consumer.close(); } catch (Exception ignored) {}
+            });
     }
 
     /**
      * Interface for different message processing strategies.
      */
     interface MessageProcessor {
-        CompletableFuture<Void> process(Message<FailureTestMessage> message) throws Exception;
+        Future<Void> process(Message<FailureTestMessage> message);
     }
 
     /**
@@ -326,12 +332,12 @@ class RetryAndFailureHandlingExampleTest {
         private final AtomicInteger attemptCount = new AtomicInteger(0);
 
         @Override
-        public CompletableFuture<Void> process(Message<FailureTestMessage> message) throws Exception {
+        public Future<Void> process(Message<FailureTestMessage> message) {
             int attempt = attemptCount.incrementAndGet();
             logger.warn("🎯 INTENTIONAL TEST FAILURE: Attempt {} - Simulated failure for message: {}",
                 attempt, message.getPayload().id);
             logger.info("   📋 This failure demonstrates retry mechanism and dead letter queue behavior");
-            throw new RuntimeException("Simulated processing failure (attempt " + attempt + ")");
+            return Future.failedFuture(new RuntimeException("Simulated processing failure (attempt " + attempt + ")"));
         }
     }
 
@@ -349,19 +355,19 @@ class RetryAndFailureHandlingExampleTest {
         }
 
         @Override
-        public CompletableFuture<Void> process(Message<FailureTestMessage> message) throws Exception {
+        public Future<Void> process(Message<FailureTestMessage> message) {
             int attempt = attemptCount.incrementAndGet();
 
             if (attempt <= failuresBeforeSuccess) {
                 logger.warn("🎯 INTENTIONAL TEST FAILURE: Attempt {} - Simulated failure for message: {} (will succeed on attempt {})",
                     attempt, message.getPayload().id, failuresBeforeSuccess + 1);
                 logger.info("   📋 This failure demonstrates eventual success after configured failures");
-                throw new RuntimeException("Simulated processing failure (attempt " + attempt + ")");
+                return Future.failedFuture(new RuntimeException("Simulated processing failure (attempt " + attempt + ")"));
             } else {
                 logger.info("EXPECTED SUCCESS: Attempt {} - Successfully processed message: {}",
                     attempt, message.getPayload().id);
                 succeeded = true;
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             }
         }
 

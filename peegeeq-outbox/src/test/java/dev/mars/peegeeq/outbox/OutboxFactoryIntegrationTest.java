@@ -33,6 +33,9 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -99,7 +102,9 @@ class OutboxFactoryIntegrationTest {
     void tearDown() throws Exception {
         if (manager != null) {
             try {
-                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+                CountDownLatch closeLatch = new CountDownLatch(1);
+                manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+                closeLatch.await(10, TimeUnit.SECONDS);
             } catch (Exception e) {
                 logger.warn("Error stopping manager: {}", e.getMessage());
             }

@@ -25,10 +25,14 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -36,7 +40,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -48,6 +53,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 public class OutboxProducerCoreTest {
 
     @Container
@@ -99,7 +105,7 @@ public class OutboxProducerCoreTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext tearDownContext) throws Exception {
         System.err.println("=== OutboxProducerCoreTest TEARDOWN STARTED ===");
         System.err.flush();
 
@@ -110,7 +116,10 @@ public class OutboxProducerCoreTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive().onComplete(ar -> tearDownContext.completeNow());
+            assertTrue(tearDownContext.awaitCompletion(10, TimeUnit.SECONDS));
+        } else {
+            tearDownContext.completeNow();
         }
 
         // Clear system properties
@@ -142,11 +151,13 @@ public class OutboxProducerCoreTest {
 
         String testMessage = "Hello, OutboxProducer Test!";
 
-        CompletableFuture<Void> sendFuture = producer.send(testMessage);
+        Future<Void> sendFuture = producer.send(testMessage);
         assertNotNull(sendFuture, "Send should return a future");
 
         // Wait for send to complete
-        sendFuture.get(5, TimeUnit.SECONDS);
+        CountDownLatch latch = new CountDownLatch(1);
+        sendFuture.onComplete(ar -> latch.countDown());
+        assertTrue(latch.await(5, TimeUnit.SECONDS));
 
         System.err.println("=== TEST: testSendBasicMessage COMPLETED ===");
         System.err.flush();
@@ -162,11 +173,13 @@ public class OutboxProducerCoreTest {
         headers.put("content-type", "text/plain");
         headers.put("source", "producer-test");
 
-        CompletableFuture<Void> sendFuture = producer.send(testMessage, headers);
+        Future<Void> sendFuture = producer.send(testMessage, headers);
         assertNotNull(sendFuture, "Send should return a future");
 
         // Wait for send to complete
-        sendFuture.get(5, TimeUnit.SECONDS);
+        CountDownLatch latch = new CountDownLatch(1);
+        sendFuture.onComplete(ar -> latch.countDown());
+        assertTrue(latch.await(5, TimeUnit.SECONDS));
 
         System.err.println("=== TEST: testSendMessageWithHeaders COMPLETED ===");
         System.err.flush();
@@ -182,11 +195,13 @@ public class OutboxProducerCoreTest {
         headers.put("test-header", "test-value");
         String correlationId = UUID.randomUUID().toString();
 
-        CompletableFuture<Void> sendFuture = producer.send(testMessage, headers, correlationId);
+        Future<Void> sendFuture = producer.send(testMessage, headers, correlationId);
         assertNotNull(sendFuture, "Send should return a future");
 
         // Wait for send to complete
-        sendFuture.get(5, TimeUnit.SECONDS);
+        CountDownLatch latch = new CountDownLatch(1);
+        sendFuture.onComplete(ar -> latch.countDown());
+        assertTrue(latch.await(5, TimeUnit.SECONDS));
 
         System.err.println("=== TEST: testSendMessageWithCorrelationId COMPLETED ===");
         System.err.flush();
@@ -203,11 +218,13 @@ public class OutboxProducerCoreTest {
         String correlationId = UUID.randomUUID().toString();
         String messageGroup = "test-group";
 
-        CompletableFuture<Void> sendFuture = producer.send(testMessage, headers, correlationId, messageGroup);
+        Future<Void> sendFuture = producer.send(testMessage, headers, correlationId, messageGroup);
         assertNotNull(sendFuture, "Send should return a future");
 
         // Wait for send to complete
-        sendFuture.get(5, TimeUnit.SECONDS);
+        CountDownLatch latch = new CountDownLatch(1);
+        sendFuture.onComplete(ar -> latch.countDown());
+        assertTrue(latch.await(5, TimeUnit.SECONDS));
 
         System.err.println("=== TEST: testSendMessageWithAllParameters COMPLETED ===");
         System.err.flush();
@@ -219,15 +236,15 @@ public class OutboxProducerCoreTest {
         System.err.flush();
 
         int messageCount = 10;
-        CompletableFuture<?>[] futures = new CompletableFuture[messageCount];
+        CountDownLatch allLatch = new CountDownLatch(messageCount);
 
         for (int i = 0; i < messageCount; i++) {
             String message = "Message " + i;
-            futures[i] = producer.send(message);
+            producer.send(message).onComplete(ar -> allLatch.countDown());
         }
 
         // Wait for all sends to complete
-        CompletableFuture.allOf(futures).get(10, TimeUnit.SECONDS);
+        assertTrue(allLatch.await(10, TimeUnit.SECONDS));
 
         System.err.println("=== TEST: testSendMultipleMessages COMPLETED ===");
         System.err.flush();
@@ -239,7 +256,9 @@ public class OutboxProducerCoreTest {
         System.err.flush();
 
         // Send a message first
-        producer.send("test message").get(5, TimeUnit.SECONDS);
+        CountDownLatch latch = new CountDownLatch(1);
+        producer.send("test message").onComplete(ar -> latch.countDown());
+        assertTrue(latch.await(5, TimeUnit.SECONDS));
 
         // Close producer
         producer.close();

@@ -19,8 +19,11 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+
+import io.vertx.core.Future;
 
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile.BASIC;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent.*;
@@ -76,7 +79,11 @@ class PgNativeQueueConsumerListenIT {
     @AfterEach
     void tearDown() {
         if (manager != null) {
-            try { manager.closeReactive().toCompletionStage().toCompletableFuture().join(); } catch (Exception ignore) {}
+            try {
+                CountDownLatch closeLatch = new CountDownLatch(1);
+                manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+                closeLatch.await(10, TimeUnit.SECONDS);
+            } catch (Exception ignore) {}
         }
     }
 
@@ -97,14 +104,14 @@ class PgNativeQueueConsumerListenIT {
         consumer.subscribe(msg -> {
             testContext.verify(() -> assertEquals("hello", msg.getPayload()));
             testContext.completeNow();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Act: send a message
         PgNativeQueueProducer<String> producer = new PgNativeQueueProducer<>(
             adapter, mapper, TOPIC, String.class, null
         );
-        producer.send("hello", Map.of()).join();
+        producer.send("hello", Map.of());
 
         // Assert: message is received within timeout
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));

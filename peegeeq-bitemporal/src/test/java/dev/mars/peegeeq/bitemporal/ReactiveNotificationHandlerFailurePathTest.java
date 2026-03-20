@@ -27,7 +27,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -159,7 +159,7 @@ class ReactiveNotificationHandlerFailurePathTest {
                     closeCalled);
 
             handler.start().toCompletionStage().toCompletableFuture().join();
-            handler.subscribe("test.event", null, message -> CompletableFuture.completedFuture(null))
+            handler.subscribe("test.event", null, message -> Future.<Void>succeededFuture())
                     .toCompletionStage()
                     .toCompletableFuture()
                     .join();
@@ -223,7 +223,7 @@ class ReactiveNotificationHandlerFailurePathTest {
             handler.start().toCompletionStage().toCompletableFuture().join();
 
             CompletionException thrown = assertThrows(CompletionException.class,
-                    () -> handler.subscribe("test.event", null, message -> CompletableFuture.completedFuture(null))
+                    () -> handler.subscribe("test.event", null, message -> Future.<Void>succeededFuture())
                             .toCompletionStage()
                             .toCompletableFuture()
                             .join());
@@ -250,7 +250,7 @@ class ReactiveNotificationHandlerFailurePathTest {
                     eventId -> Future.succeededFuture(null));
 
             Throwable thrown = assertThrows(CompletionException.class,
-                    () -> handler.subscribe("order*created", null, message -> CompletableFuture.completedFuture(null))
+                    () -> handler.subscribe("order*created", null, message -> Future.<Void>succeededFuture())
                             .toCompletionStage()
                             .toCompletableFuture()
                             .join());

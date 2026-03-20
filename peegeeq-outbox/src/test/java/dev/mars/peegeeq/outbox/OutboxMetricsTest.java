@@ -26,6 +26,8 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -40,8 +42,9 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.LockSupport;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -100,7 +103,7 @@ public class OutboxMetricsTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         if (consumer != null) {
             consumer.close();
         }
@@ -110,9 +113,6 @@ public class OutboxMetricsTest {
         if (outboxFactory != null) {
             outboxFactory.close();
         }
-        if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
-        }
         
         // Clear system properties
         System.clearProperty("peegeeq.database.host");
@@ -120,6 +120,13 @@ public class OutboxMetricsTest {
         System.clearProperty("peegeeq.database.name");
         System.clearProperty("peegeeq.database.username");
         System.clearProperty("peegeeq.database.password");
+
+        if (manager != null) {
+            manager.closeReactive().onComplete(ar -> testContext.completeNow());
+        } else {
+            testContext.completeNow();
+        }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test
@@ -138,54 +145,54 @@ public class OutboxMetricsTest {
         System.out.println("  - Messages processed: " + initialProcessed);
 
         // Set up consumer
-        Checkpoint messageProcessed = testContext.checkpoint();
+        Promise<Void> messageProcessed = Promise.promise();
         consumer.subscribe(message -> {
             System.out.println("Processing message for metrics test: " + message.getPayload());
-            messageProcessed.flag();
-            return CompletableFuture.completedFuture(null);
+            messageProcessed.tryComplete();
+            return Future.succeededFuture();
         });
 
-        // Send a message
-        producer.send(testMessage).get(5, TimeUnit.SECONDS);
-        System.out.println("Message sent, waiting for processing...");
-
-        // Wait for processing
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), 
-            "Message should be processed within timeout");
-
-        // Wait for metrics to be updated (poll in executeBlocking)
-        vertx.executeBlocking(() -> {
-            long deadline = System.currentTimeMillis() + 10_000;
-            while (System.currentTimeMillis() < deadline) {
-                var m = manager.getMetrics().getSummary();
-                if (m.getMessagesSent() > initialSent
-                    && m.getMessagesReceived() > initialReceived
-                    && m.getMessagesProcessed() > initialProcessed) {
-                    return null;
+        // Send a message, wait for processing, then poll metrics in executeBlocking
+        producer.send(testMessage)
+            .compose(v -> {
+                System.out.println("Message sent, waiting for processing...");
+                return messageProcessed.future();
+            })
+            .compose(v -> vertx.executeBlocking(() -> {
+                long deadline = System.currentTimeMillis() + 10_000;
+                while (System.currentTimeMillis() < deadline) {
+                    var m = manager.getMetrics().getSummary();
+                    if (m.getMessagesSent() > initialSent
+                        && m.getMessagesReceived() > initialReceived
+                        && m.getMessagesProcessed() > initialProcessed) {
+                        return null;
+                    }
+                    LockSupport.parkNanos(100_000_000L);
                 }
-                LockSupport.parkNanos(100_000_000L);
-            }
-            throw new AssertionError("Metrics were not updated within 10 seconds");
-        }).toCompletionStage().toCompletableFuture().join();
+                throw new AssertionError("Metrics were not updated within 10 seconds");
+            }))
+            .onSuccess(v -> testContext.verify(() -> {
+                var finalMetrics = manager.getMetrics().getSummary();
+                double finalSent = finalMetrics.getMessagesSent();
+                double finalReceived = finalMetrics.getMessagesReceived();
+                double finalProcessed = finalMetrics.getMessagesProcessed();
 
-        // Verify metrics were recorded
-        var finalMetrics = manager.getMetrics().getSummary();
-        double finalSent = finalMetrics.getMessagesSent();
-        double finalReceived = finalMetrics.getMessagesReceived();
-        double finalProcessed = finalMetrics.getMessagesProcessed();
+                System.out.println("Final metrics:");
+                System.out.println("  - Messages sent: " + finalSent);
+                System.out.println("  - Messages received: " + finalReceived);
+                System.out.println("  - Messages processed: " + finalProcessed);
 
-        System.out.println("Final metrics:");
-        System.out.println("  - Messages sent: " + finalSent);
-        System.out.println("  - Messages received: " + finalReceived);
-        System.out.println("  - Messages processed: " + finalProcessed);
+                assertTrue(finalSent > initialSent, 
+                    "Messages sent count should increase (was " + initialSent + ", now " + finalSent + ")");
+                assertTrue(finalReceived > initialReceived, 
+                    "Messages received count should increase (was " + initialReceived + ", now " + finalReceived + ")");
+                assertTrue(finalProcessed > initialProcessed, 
+                    "Messages processed count should increase (was " + initialProcessed + ", now " + finalProcessed + ")");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        // Verify metrics increased
-        assertTrue(finalSent > initialSent, 
-            "Messages sent count should increase (was " + initialSent + ", now " + finalSent + ")");
-        assertTrue(finalReceived > initialReceived, 
-            "Messages received count should increase (was " + initialReceived + ", now " + finalReceived + ")");
-        assertTrue(finalProcessed > initialProcessed, 
-            "Messages processed count should increase (was " + initialProcessed + ", now " + finalProcessed + ")");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
@@ -252,55 +259,61 @@ public class OutboxMetricsTest {
         double initialProcessed = initialMetrics.getMessagesProcessed();
 
         // Set up consumer
-        Checkpoint messagesProcessed = testContext.checkpoint(messageCount);
+        Promise<Void> allProcessed = Promise.promise();
+        AtomicInteger processedCount = new AtomicInteger(0);
         consumer.subscribe(message -> {
             System.out.println("Processing message: " + message.getPayload());
-            messagesProcessed.flag();
-            return CompletableFuture.completedFuture(null);
+            if (processedCount.incrementAndGet() >= messageCount) {
+                allProcessed.tryComplete();
+            }
+            return Future.succeededFuture();
         });
 
         // Send multiple messages
+        Future<Void> sendChain = Future.succeededFuture();
         for (int i = 0; i < messageCount; i++) {
-            producer.send("Metrics test message " + i).get(5, TimeUnit.SECONDS);
+            final int idx = i;
+            sendChain = sendChain.compose(v -> producer.send("Metrics test message " + idx));
         }
 
-        // Wait for all messages to be processed
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), 
-            "All messages should be processed within timeout");
-
-        // Wait for metrics to be updated (poll in executeBlocking)
-        vertx.executeBlocking(() -> {
-            long deadline = System.currentTimeMillis() + 10_000;
-            while (System.currentTimeMillis() < deadline) {
-                var m = manager.getMetrics().getSummary();
-                if (m.getMessagesSent() >= initialSent + messageCount
-                    && m.getMessagesReceived() >= initialReceived + messageCount
-                    && m.getMessagesProcessed() >= initialProcessed + messageCount) {
-                    return null;
+        // Wait for all messages processed, then poll metrics in executeBlocking
+        sendChain
+            .compose(v -> allProcessed.future())
+            .compose(v -> vertx.executeBlocking(() -> {
+                long deadline = System.currentTimeMillis() + 10_000;
+                while (System.currentTimeMillis() < deadline) {
+                    var m = manager.getMetrics().getSummary();
+                    if (m.getMessagesSent() >= initialSent + messageCount
+                        && m.getMessagesReceived() >= initialReceived + messageCount
+                        && m.getMessagesProcessed() >= initialProcessed + messageCount) {
+                        return null;
+                    }
+                    LockSupport.parkNanos(100_000_000L);
                 }
-                LockSupport.parkNanos(100_000_000L);
-            }
-            throw new AssertionError("Metrics were not updated within 10 seconds");
-        }).toCompletionStage().toCompletableFuture().join();
+                throw new AssertionError("Metrics were not updated within 10 seconds");
+            }))
+            .onSuccess(v -> testContext.verify(() -> {
+                var finalMetrics = manager.getMetrics().getSummary();
+                double finalSent = finalMetrics.getMessagesSent();
+                double finalReceived = finalMetrics.getMessagesReceived();
+                double finalProcessed = finalMetrics.getMessagesProcessed();
 
-        // Verify metrics
-        var finalMetrics = manager.getMetrics().getSummary();
-        double finalSent = finalMetrics.getMessagesSent();
-        double finalReceived = finalMetrics.getMessagesReceived();
-        double finalProcessed = finalMetrics.getMessagesProcessed();
+                System.out.println("Multiple message metrics:");
+                System.out.println("  - Initial sent: " + initialSent + ", Final sent: " + finalSent);
+                System.out.println("  - Initial received: " + initialReceived + ", Final received: " + finalReceived);
+                System.out.println("  - Initial processed: " + initialProcessed + ", Final processed: " + finalProcessed);
 
-        System.out.println("Multiple message metrics:");
-        System.out.println("  - Initial sent: " + initialSent + ", Final sent: " + finalSent);
-        System.out.println("  - Initial received: " + initialReceived + ", Final received: " + finalReceived);
-        System.out.println("  - Initial processed: " + initialProcessed + ", Final processed: " + finalProcessed);
+                assertTrue(finalSent >= initialSent + messageCount, 
+                    "Messages sent should increase by at least " + messageCount);
+                assertTrue(finalReceived >= initialReceived + messageCount, 
+                    "Messages received should increase by at least " + messageCount);
+                assertTrue(finalProcessed >= initialProcessed + messageCount, 
+                    "Messages processed should increase by at least " + messageCount);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        // Verify metrics increased by at least the number of messages sent
-        assertTrue(finalSent >= initialSent + messageCount, 
-            "Messages sent should increase by at least " + messageCount);
-        assertTrue(finalReceived >= initialReceived + messageCount, 
-            "Messages received should increase by at least " + messageCount);
-        assertTrue(finalProcessed >= initialProcessed + messageCount, 
-            "Messages processed should increase by at least " + messageCount);
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
@@ -314,40 +327,39 @@ public class OutboxMetricsTest {
         System.out.println("Initial error count: " + initialErrors);
 
         // Set up consumer that always fails
-        Checkpoint errorOccurred = testContext.checkpoint();
+        Promise<Void> errorOccurred = Promise.promise();
         consumer.subscribe(message -> {
             System.out.println("INTENTIONAL FAILURE: Processing message that will fail");
-            errorOccurred.flag();
+            errorOccurred.tryComplete();
             throw new RuntimeException("Intentional error for metrics testing");
         });
 
-        // Send message
-        producer.send(testMessage).get(5, TimeUnit.SECONDS);
-
-        // Wait for error to occur
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), 
-            "Error should occur within timeout");
-
-        // Wait for error metrics to be updated (poll in executeBlocking)
-        vertx.executeBlocking(() -> {
-            long deadline = System.currentTimeMillis() + 10_000;
-            while (System.currentTimeMillis() < deadline) {
-                if (manager.getMetrics().getSummary().getMessagesFailed() > initialErrors) {
-                    return null;
+        // Send message, wait for error, then poll metrics in executeBlocking
+        producer.send(testMessage)
+            .compose(v -> errorOccurred.future())
+            .compose(v -> vertx.executeBlocking(() -> {
+                long deadline = System.currentTimeMillis() + 10_000;
+                while (System.currentTimeMillis() < deadline) {
+                    if (manager.getMetrics().getSummary().getMessagesFailed() > initialErrors) {
+                        return null;
+                    }
+                    LockSupport.parkNanos(100_000_000L);
                 }
-                LockSupport.parkNanos(100_000_000L);
-            }
-            throw new AssertionError("Error metrics were not updated within 10 seconds");
-        }).toCompletionStage().toCompletableFuture().join();
+                throw new AssertionError("Error metrics were not updated within 10 seconds");
+            }))
+            .onSuccess(v -> testContext.verify(() -> {
+                var finalMetrics = manager.getMetrics().getSummary();
+                double finalErrors = finalMetrics.getMessagesFailed();
 
-        // Verify error metrics increased
-        var finalMetrics = manager.getMetrics().getSummary();
-        double finalErrors = finalMetrics.getMessagesFailed();
+                System.out.println("Final error count: " + finalErrors);
 
-        System.out.println("Final error count: " + finalErrors);
+                assertTrue(finalErrors > initialErrors, 
+                    "Error count should increase (was " + initialErrors + ", now " + finalErrors + ")");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        assertTrue(finalErrors > initialErrors, 
-            "Error count should increase (was " + initialErrors + ", now " + finalErrors + ")");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 }
 

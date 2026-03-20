@@ -21,12 +21,13 @@ import dev.mars.peegeeq.api.database.MetricsProvider;
 import dev.mars.peegeeq.api.messaging.ConsumerGroup;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Future;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
 import java.lang.reflect.Field;
-import java.util.concurrent.CompletableFuture;
+
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -99,7 +100,7 @@ class OutboxConsumerGroupClientIdPropagationTest {
         setPrivateField(group, "clientId", expectedClientId);
 
         // Add a member so start() has something to work with
-        group.addConsumer("member-1", message -> CompletableFuture.completedFuture(null));
+        group.addConsumer("member-1", message -> Future.succeededFuture());
 
         // When: we start the group (creates the underlying OutboxConsumer)
         // This will fail without a real DB, but we can still inspect the state
@@ -214,16 +215,16 @@ class OutboxConsumerGroupClientIdPropagationTest {
      * Minimal DatabaseService stub for unit tests — no real database needed.
      */
     private static class StubDatabaseService implements DatabaseService {
-        @Override public CompletableFuture<Void> initialize() { return CompletableFuture.completedFuture(null); }
-        @Override public CompletableFuture<Void> start() { return CompletableFuture.completedFuture(null); }
-        @Override public CompletableFuture<Void> stop() { return CompletableFuture.completedFuture(null); }
+        @Override public io.vertx.core.Future<Void> initialize() { return io.vertx.core.Future.succeededFuture(); }
+        @Override public io.vertx.core.Future<Void> start() { return io.vertx.core.Future.succeededFuture(); }
+        @Override public io.vertx.core.Future<Void> stop() { return io.vertx.core.Future.succeededFuture(); }
         @Override public boolean isRunning() { return true; }
         @Override public boolean isHealthy() { return true; }
         @Override public dev.mars.peegeeq.api.database.ConnectionProvider getConnectionProvider() { return null; }
         @Override public MetricsProvider getMetricsProvider() { return null; }
         @Override public dev.mars.peegeeq.api.subscription.SubscriptionService getSubscriptionService() { return null; }
-        @Override public CompletableFuture<Void> runMigrations() { return CompletableFuture.completedFuture(null); }
-        @Override public CompletableFuture<Boolean> performHealthCheck() { return CompletableFuture.completedFuture(true); }
+        @Override public io.vertx.core.Future<Void> runMigrations() { return io.vertx.core.Future.succeededFuture(); }
+        @Override public io.vertx.core.Future<Boolean> performHealthCheck() { return io.vertx.core.Future.succeededFuture(true); }
         @Override public io.vertx.core.Vertx getVertx() { return null; }
         @Override public io.vertx.sqlclient.Pool getPool() { return null; }
         @Override public io.vertx.pgclient.PgConnectOptions getConnectOptions() { return null; }

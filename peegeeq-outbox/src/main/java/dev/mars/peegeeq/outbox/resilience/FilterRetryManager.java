@@ -3,12 +3,14 @@ package dev.mars.peegeeq.outbox.resilience;
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.outbox.config.FilterErrorHandlingConfig;
 import dev.mars.peegeeq.outbox.deadletter.DeadLetterQueueManager;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Predicate;
@@ -28,7 +30,7 @@ import java.util.function.Predicate;
  *   <li><b>Framework Agnostic:</b> By accepting a {@code ScheduledExecutorService},
  *       this class can be used in pure Java, Spring, or Vert.x contexts without modification.</li>
  *   <li><b>API Boundary:</b> This class operates at the boundary where Vert.x internals
- *       are bridged to standard Java {@link CompletableFuture} APIs. It doesn't directly
+ *       are bridged to standard Java scheduling APIs. It doesn't directly
  *       manipulate Vert.x-managed resources requiring event loop affinity.</li>
  *   <li><b>Testability:</b> Injecting the scheduler enables easy mocking and testing
  *       without requiring a full Vert.x context.</li>
@@ -36,8 +38,8 @@ import java.util.function.Predicate;
  *       "owning" event loop context to preserve.</li>
  * </ul>
  * <p>
- * Thread safety is maintained through {@code CompletableFuture.whenComplete()} which
- * properly handles thread handoff. For code inside Verticles or manipulating
+ * Thread safety is maintained through {@code Future.onComplete()} which
+ * properly handles completion. For code inside Verticles or manipulating
  * Vert.x-managed state (e.g., {@code SqlConnection}, {@code TransactionPropagation.CONTEXT}),
  * use {@code vertx.setTimer()} instead.
  * </p>
@@ -85,7 +87,7 @@ public class FilterRetryManager {
     /**
      * Executes a filter operation with retry logic based on error classification
      */
-    public <T> CompletableFuture<Boolean> executeWithRetry(
+    public <T> Future<Boolean> executeWithRetry(
             Message<T> message,
             Predicate<Message<T>> filter,
             FilterCircuitBreaker circuitBreaker) {
@@ -93,7 +95,7 @@ public class FilterRetryManager {
         return executeWithRetry(message, filter, circuitBreaker, 0, config.getInitialRetryDelay());
     }
     
-    private <T> CompletableFuture<Boolean> executeWithRetry(
+    private <T> Future<Boolean> executeWithRetry(
             Message<T> message,
             Predicate<Message<T>> filter,
             FilterCircuitBreaker circuitBreaker,
@@ -104,7 +106,7 @@ public class FilterRetryManager {
         if (!circuitBreaker.allowRequest()) {
             logger.debug("Filter circuit breaker '{}' is open, rejecting message {}", 
                 filterId, message.getId());
-            return CompletableFuture.completedFuture(false);
+            return Future.succeededFuture(false);
         }
         
         try {
@@ -117,7 +119,7 @@ public class FilterRetryManager {
             logger.debug("Filter '{}' accepted message {} on attempt {}", 
                 filterId, message.getId(), attemptNumber + 1);
             
-            return CompletableFuture.completedFuture(result);
+            return Future.succeededFuture(result);
             
         } catch (Exception e) {
             // Record failure
@@ -136,7 +138,7 @@ public class FilterRetryManager {
         }
     }
     
-    private <T> CompletableFuture<Boolean> handleFilterError(
+    private <T> Future<Boolean> handleFilterError(
             Message<T> message,
             Predicate<Message<T>> filter,
             FilterCircuitBreaker circuitBreaker,
@@ -150,13 +152,13 @@ public class FilterRetryManager {
             case REJECT_IMMEDIATELY:
                 logger.info("Filter '{}' rejecting message {} immediately due to {} error: {}", 
                     filterId, message.getId(), classification.name().toLowerCase(), error.getMessage());
-                return CompletableFuture.completedFuture(false);
+                return Future.succeededFuture(false);
                 
             case RETRY_THEN_REJECT:
                 if (attemptNumber >= config.getMaxRetries()) {
                     logger.info("Filter '{}' rejecting message {} after {} attempts. Final error: {}", 
                         filterId, message.getId(), attemptNumber + 1, error.getMessage());
-                    return CompletableFuture.completedFuture(false);
+                    return Future.succeededFuture(false);
                 } else {
                     return scheduleRetry(message, filter, circuitBreaker, attemptNumber, currentDelay);
                 }
@@ -177,18 +179,18 @@ public class FilterRetryManager {
                 
             default:
                 logger.warn("Unknown filter error strategy: {}. Rejecting message {}", strategy, message.getId());
-                return CompletableFuture.completedFuture(false);
+                return Future.succeededFuture(false);
         }
     }
     
-    private <T> CompletableFuture<Boolean> scheduleRetry(
+    private <T> Future<Boolean> scheduleRetry(
             Message<T> message,
             Predicate<Message<T>> filter,
             FilterCircuitBreaker circuitBreaker,
             int attemptNumber,
             Duration currentDelay) {
         
-        CompletableFuture<Boolean> future = new CompletableFuture<>();
+        Promise<Boolean> promise = Promise.promise();
         
         logger.debug("Filter '{}' scheduling retry {} for message {} after delay of {}", 
             filterId, attemptNumber + 2, message.getId(), currentDelay);
@@ -199,19 +201,14 @@ public class FilterRetryManager {
                 Duration nextDelay = calculateNextDelay(currentDelay);
                 
                 executeWithRetry(message, filter, circuitBreaker, attemptNumber + 1, nextDelay)
-                    .whenComplete((result, throwable) -> {
-                        if (throwable != null) {
-                            future.completeExceptionally(throwable);
-                        } else {
-                            future.complete(result);
-                        }
-                    });
+                    .onSuccess(promise::complete)
+                    .onFailure(promise::fail);
             } catch (Exception e) {
-                future.completeExceptionally(e);
+                promise.fail(e);
             }
         }, currentDelay.toMillis(), TimeUnit.MILLISECONDS);
         
-        return future;
+        return promise.future();
     }
     
     private Duration calculateNextDelay(Duration currentDelay) {
@@ -226,7 +223,7 @@ public class FilterRetryManager {
         return nextDelay;
     }
     
-    private <T> CompletableFuture<Boolean> sendToDeadLetterQueue(
+    private <T> Future<Boolean> sendToDeadLetterQueue(
             Message<T> message,
             Exception error,
             int attempts,
@@ -234,13 +231,13 @@ public class FilterRetryManager {
 
         if (!config.isDeadLetterQueueEnabled()) {
             logger.warn("Dead letter queue is disabled, rejecting message {} instead", message.getId());
-            return CompletableFuture.completedFuture(false);
+            return Future.succeededFuture(false);
         }
 
         if (deadLetterQueueManager == null) {
             logger.warn("Dead letter queue manager not configured, rejecting message {} instead. " +
                 "Use the constructor with DeadLetterQueueManager to enable DLQ support.", message.getId());
-            return CompletableFuture.completedFuture(false);
+            return Future.succeededFuture(false);
         }
 
         String reason = String.format("Filter '%s' failed after %d attempts: %s",
@@ -253,12 +250,12 @@ public class FilterRetryManager {
                 attempts,
                 classification,
                 error)
-            .thenApply(v -> {
+            .map(v -> {
                 // Return false to indicate the message was rejected (but handled via DLQ)
                 logger.debug("Message {} successfully sent to dead letter queue", message.getId());
                 return false;
             })
-            .exceptionally(throwable -> {
+            .otherwise(throwable -> {
                 logger.error("Failed to send message {} to dead letter queue: {}. Rejecting message.",
                     message.getId(), throwable.getMessage());
                 return false;

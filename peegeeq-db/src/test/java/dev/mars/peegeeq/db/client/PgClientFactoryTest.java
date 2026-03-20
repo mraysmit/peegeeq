@@ -34,8 +34,10 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.util.Optional;
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.TimeUnit;
+
+import io.vertx.junit5.VertxTestContext;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -85,15 +87,11 @@ public class PgClientFactoryTest {
             factory.close();
         }
         if (vertx != null) {
-            CompletableFuture<Void> future = new CompletableFuture<>();
-            vertx.close().onComplete(ar -> {
-                if (ar.succeeded()) {
-                    future.complete(null);
-                } else {
-                    future.completeExceptionally(ar.cause());
-                }
-            });
-            future.get(10, TimeUnit.SECONDS);
+            VertxTestContext ctx = new VertxTestContext();
+            vertx.close()
+                .onSuccess(v -> ctx.completeNow())
+                .onFailure(ctx::failNow);
+            ctx.awaitCompletion(10, TimeUnit.SECONDS);
         }
     }
 
@@ -221,26 +219,30 @@ public class PgClientFactoryTest {
         assertNotNull(client2, "Second client should be created");
         assertEquals(2, factory.getAvailableClients().size(), "Should have 2 clients");
         
-        // Remove first client asynchronously
-        CompletableFuture<Void> removeResult = factory.removeClientAsync(client1Id)
-            .toCompletionStage().toCompletableFuture();
-        removeResult.get(10, TimeUnit.SECONDS);
+        VertxTestContext testContext = new VertxTestContext();
         
-        // Verify first client is removed
-        assertEquals(1, factory.getAvailableClients().size(), "Should have 1 client after removal");
-        assertFalse(factory.getClient(client1Id).isPresent(), "Removed client should not be found");
-        assertTrue(factory.getClient(client2Id).isPresent(), "Remaining client should still be found");
+        factory.removeClientAsync(client1Id)
+            .compose(v -> {
+                testContext.verify(() -> {
+                    assertEquals(1, factory.getAvailableClients().size(), "Should have 1 client after removal");
+                    assertFalse(factory.getClient(client1Id).isPresent(), "Removed client should not be found");
+                    assertTrue(factory.getClient(client2Id).isPresent(), "Remaining client should still be found");
+                });
+                return factory.closeAsync();
+            })
+            .onSuccess(v -> testContext.verify(() -> {
+                assertTrue(factory.getAvailableClients().isEmpty(), "All clients should be closed");
+                assertFalse(factory.getClient(client2Id).isPresent(), "No clients should remain after closeAsync");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
         
-        // Close all remaining clients asynchronously
-        CompletableFuture<Void> closeResult = factory.closeAsync()
-            .toCompletionStage().toCompletableFuture();
-        closeResult.get(10, TimeUnit.SECONDS);
-        
-        // Verify all clients are closed
-        assertTrue(factory.getAvailableClients().isEmpty(), "All clients should be closed");
-        assertFalse(factory.getClient(client2Id).isPresent(), "No clients should remain after closeAsync");
-        
-        logger.info("✓ Async lifecycle management test passed");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            Throwable cause = testContext.causeOfFailure();
+            if (cause instanceof Exception ex) throw ex;
+            throw new RuntimeException(cause);
+        }
     }
 
     @Test

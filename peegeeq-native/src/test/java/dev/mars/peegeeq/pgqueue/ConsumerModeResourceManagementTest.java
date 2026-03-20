@@ -32,9 +32,12 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import io.vertx.core.Future;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -114,7 +117,9 @@ class ConsumerModeResourceManagementTest {
             factory.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+            closeLatch.await(10, TimeUnit.SECONDS);
         }
         logger.info("Test teardown completed");
     }
@@ -152,19 +157,18 @@ class ConsumerModeResourceManagementTest {
                     messageCount.incrementAndGet();
                     logger.info("📨 Consumer {} received message: {}", index, message.getPayload());
                     messagesReceived.flag();
-                    return CompletableFuture.completedFuture(null);
+                    return Future.succeededFuture();
                 });
             }
 
             // Wait for consumer setup, then send
             vertx.setTimer(1000, id -> {
-                try {
-                    for (int i = 0; i < producers.size(); i++) {
-                        producers.get(i).send("Test message " + i).get(5, TimeUnit.SECONDS);
-                    }
-                } catch (Exception e) {
-                    testContext.failNow(e);
+                io.vertx.core.Future<Void> chain = Future.succeededFuture();
+                for (int i = 0; i < producers.size(); i++) {
+                    final int idx = i;
+                    chain = chain.compose(v -> producers.get(idx).send("Test message " + idx));
                 }
+                chain.onFailure(testContext::failNow);
             });
 
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive all messages across different consumer modes");
@@ -211,7 +215,7 @@ class ConsumerModeResourceManagementTest {
                 consumers.get(i).subscribe(message -> {
                     subscriptionCount.incrementAndGet();
                     logger.info("📨 Consumer {} received message: {}", index, message.getPayload());
-                    return CompletableFuture.completedFuture(null);
+                    return Future.succeededFuture();
                 });
             }
 
@@ -256,28 +260,25 @@ class ConsumerModeResourceManagementTest {
                     messageCount.incrementAndGet();
                     logger.info("📨 Polling consumer {} received message: {}", index, message.getPayload());
                     messagesReceived.flag();
-                    return CompletableFuture.completedFuture(null);
+                    return Future.succeededFuture();
                 });
             }
 
             // Wait for polling setup, then send
             vertx.setTimer(1000, id -> {
-                try {
-                    MessageProducer<String> producer = factory.createProducer(topicName + "-0", String.class);
-                    producer.send("Test polling message 1").get(5, TimeUnit.SECONDS);
+                MessageProducer<String> producer = factory.createProducer(topicName + "-0", String.class);
+                MessageProducer<String> producer2 = factory.createProducer(topicName + "-1", String.class);
+                MessageProducer<String> producer3 = factory.createProducer(topicName + "-2", String.class);
 
-                    MessageProducer<String> producer2 = factory.createProducer(topicName + "-1", String.class);
-                    producer2.send("Test polling message 2").get(5, TimeUnit.SECONDS);
-
-                    MessageProducer<String> producer3 = factory.createProducer(topicName + "-2", String.class);
-                    producer3.send("Test polling message 3").get(5, TimeUnit.SECONDS);
-
-                    producer.close();
-                    producer2.close();
-                    producer3.close();
-                } catch (Exception e) {
-                    testContext.failNow(e);
-                }
+                producer.send("Test polling message 1")
+                    .compose(v -> producer2.send("Test polling message 2"))
+                    .compose(v -> producer3.send("Test polling message 3"))
+                    .onSuccess(v -> {
+                        producer.close();
+                        producer2.close();
+                        producer3.close();
+                    })
+                    .onFailure(testContext::failNow);
             });
 
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive messages via polling mechanism");
@@ -313,18 +314,17 @@ class ConsumerModeResourceManagementTest {
                 processedCount.incrementAndGet();
                 logger.debug("📨 Processed message: {}", message.getPayload());
                 messagesReceived.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Wait for consumer setup, then send
             vertx.setTimer(500, id -> {
-                try {
-                    for (int i = 0; i < 10; i++) {
-                        producer.send("Memory test message " + i).get(5, TimeUnit.SECONDS);
-                    }
-                } catch (Exception e) {
-                    testContext.failNow(e);
+                io.vertx.core.Future<Void> chain = Future.succeededFuture();
+                for (int i = 0; i < 10; i++) {
+                    final int msgNum = i;
+                    chain = chain.compose(v -> producer.send("Memory test message " + msgNum));
                 }
+                chain.onFailure(testContext::failNow);
             });
 
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should process all messages without memory issues");
@@ -357,17 +357,14 @@ class ConsumerModeResourceManagementTest {
             processedCount.incrementAndGet();
             logger.info("📨 Processing message during shutdown test: {}", message.getPayload());
             messagesProcessed.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Wait for consumer setup, then send
         vertx.setTimer(500, id -> {
-            try {
-                producer.send("Shutdown test message 1").get(5, TimeUnit.SECONDS);
-                producer.send("Shutdown test message 2").get(5, TimeUnit.SECONDS);
-            } catch (Exception e) {
-                testContext.failNow(e);
-            }
+            producer.send("Shutdown test message 1")
+                .compose(v -> producer.send("Shutdown test message 2"))
+                .onFailure(testContext::failNow);
         });
 
         // Wait for messages to be processed

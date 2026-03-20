@@ -30,11 +30,16 @@ import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.outbox.OutboxProducer;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.TransactionPropagation;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -42,7 +47,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -75,7 +80,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  * <h2>Key Features Tested</h2>
  * <ul>
  *   <li>Business logic validation with automatic rollback</li>
- *   <li>CompletableFuture.failedFuture() usage for transaction rollback</li>
+ *   <li>Future.failedFuture() usage for transaction rollback</li>
  *   <li>Multi-stage operations with rollback on any failure</li>
  *   <li>Exception propagation and error handling</li>
  *   <li>Transaction consistency guarantees</li>
@@ -103,6 +108,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  * @since 2025-09-14
  * @version 1.0
  */
+@ExtendWith(VertxExtension.class)
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 public class ErrorHandlingRollbackExampleTest {
@@ -164,7 +170,7 @@ public class ErrorHandlingRollbackExampleTest {
     }
     
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws InterruptedException {
         logger.info("Cleaning up resources...");
         
         if (orderProducer != null) {
@@ -177,12 +183,18 @@ public class ErrorHandlingRollbackExampleTest {
             logger.info("✓ Processing producer closed");
         }
         
-        if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
-            logger.info("✓ PeeGeeQ Manager stopped");
-        }
-        
-        logger.info("✓ Cleanup completed");
+        Future<Void> closeFuture = (manager != null)
+            ? manager.closeReactive()
+            : Future.succeededFuture();
+
+        closeFuture.onComplete(ar -> {
+            if (ar.succeeded()) {
+                logger.info("✓ PeeGeeQ Manager stopped");
+            }
+            logger.info("✓ Cleanup completed");
+            testContext.completeNow();
+        });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
     
     /**
@@ -192,46 +204,52 @@ public class ErrorHandlingRollbackExampleTest {
      * "processOrderWithErrorHandling" - automatic rollback on failure
      */
     @Test
-    void testBasicErrorHandlingWithRollback() throws Exception {
+    void testBasicErrorHandlingWithRollback(VertxTestContext testContext) throws InterruptedException {
         logger.info("--- Testing Pattern 1: Basic Error Handling with Automatic Rollback ---");
 
         // Test successful order processing
         OrderEvent successOrder = new OrderEvent("ERROR-SUCCESS-001", "CUSTOMER-GOOD", BigDecimal.valueOf(5000.00));
         logger.info("Testing successful order: {}", successOrder);
 
-        CompletableFuture<String> successResult = processOrderWithErrorHandling(successOrder);
-        try {
-            String result = successResult.get(10, TimeUnit.SECONDS);
-            logger.info("✓ Successful order processed: {}", result);
-            assertNotNull(result);
-            assertTrue(result.contains("ERROR-SUCCESS-001"));
-        } catch (Exception e) {
-            fail("Unexpected failure for successful order: " + e.getMessage());
-        }
+        processOrderWithErrorHandling(successOrder)
+            .compose(result -> {
+                testContext.verify(() -> {
+                    logger.info("✓ Successful order processed: {}", result);
+                    assertNotNull(result);
+                    assertTrue(result.contains("ERROR-SUCCESS-001"));
+                });
 
-        // Test order that exceeds limit (should fail and rollback)
-        OrderEvent failOrder = new OrderEvent("ERROR-FAIL-001", "CUSTOMER-BAD", BigDecimal.valueOf(15000.00));
-        logger.info("Testing order that exceeds limit: {}", failOrder);
+                // Test order that exceeds limit (should fail and rollback)
+                OrderEvent failOrder = new OrderEvent("ERROR-FAIL-001", "CUSTOMER-BAD", BigDecimal.valueOf(15000.00));
+                logger.info("Testing order that exceeds limit: {}", failOrder);
 
-        CompletableFuture<String> failResult = processOrderWithErrorHandling(failOrder);
-        try {
-            String result = failResult.get(10, TimeUnit.SECONDS);
-            fail("Order should have failed but succeeded: " + result);
-        } catch (Exception e) {
-            logger.info("INTENTIONAL FAILURE: Order correctly failed and rolled back as expected");
-            logger.info("   📋 Error details: {}", e.getMessage());
-            logger.info("   🎯 This failure demonstrates proper business rule validation and automatic rollback");
+                return processOrderWithErrorHandling(failOrder)
+                    .map(r -> {
+                        testContext.failNow("Order should have failed but succeeded: " + r);
+                        return r;
+                    })
+                    .recover(error -> {
+                        logger.info("INTENTIONAL FAILURE: Order correctly failed and rolled back as expected");
+                        logger.info("   📋 Error details: {}", error.getMessage());
+                        logger.info("   🎯 This failure demonstrates proper business rule validation and automatic rollback");
 
-            // Check if the error message contains the expected text (may be wrapped in RuntimeException)
-            String errorMessage = e.getMessage();
-            String causeMessage = e.getCause() != null ? e.getCause().getMessage() : "";
-            assertTrue(errorMessage.contains("Order amount exceeds limit") ||
-                      causeMessage.contains("Order amount exceeds limit") ||
-                      errorMessage.contains("Order processing failed"),
-                      "Expected error message about order amount limit, but got: " + errorMessage);
-        }
-
-        logger.info("✓ Basic error handling with automatic rollback tested successfully");
+                        testContext.verify(() -> {
+                            String errorMessage = error.getMessage();
+                            String causeMessage = error.getCause() != null ? error.getCause().getMessage() : "";
+                            assertTrue(errorMessage.contains("Order amount exceeds limit") ||
+                                      causeMessage.contains("Order amount exceeds limit") ||
+                                      errorMessage.contains("Order processing failed"),
+                                      "Expected error message about order amount limit, but got: " + errorMessage);
+                        });
+                        return Future.succeededFuture("expected-failure");
+                    });
+            })
+            .onSuccess(v -> {
+                logger.info("✓ Basic error handling with automatic rollback tested successfully");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
     }
     
     /**
@@ -240,16 +258,20 @@ public class ErrorHandlingRollbackExampleTest {
      * This tests various business validation scenarios that trigger rollback
      */
     @Test
-    void testBusinessLogicValidationFailures() throws Exception {
+    void testBusinessLogicValidationFailures(VertxTestContext testContext) throws InterruptedException {
         logger.info("--- Testing Pattern 2: Business Logic Validation Failures ---");
 
         // Test different validation failure scenarios
-        testValidationFailure("INVALID-CUSTOMER-001", "INVALID-CUSTOMER", BigDecimal.valueOf(1000.00), "Invalid customer ID");
-        testValidationFailure("NEGATIVE-AMOUNT-001", "CUSTOMER-VALID", BigDecimal.valueOf(-100.00), "Amount must be positive");
-        testValidationFailure("ZERO-AMOUNT-001", "CUSTOMER-VALID", BigDecimal.ZERO, "Amount must be positive");
-        testValidationFailure("DUPLICATE-ORDER-001", "CUSTOMER-VALID", BigDecimal.valueOf(500.00), "Duplicate order ID");
-
-        logger.info("✓ Business logic validation failures tested successfully");
+        testValidationFailure("INVALID-CUSTOMER-001", "INVALID-CUSTOMER", BigDecimal.valueOf(1000.00), "Invalid customer ID")
+            .compose(v -> testValidationFailure("NEGATIVE-AMOUNT-001", "CUSTOMER-VALID", BigDecimal.valueOf(-100.00), "Amount must be positive"))
+            .compose(v -> testValidationFailure("ZERO-AMOUNT-001", "CUSTOMER-VALID", BigDecimal.ZERO, "Amount must be positive"))
+            .compose(v -> testValidationFailure("DUPLICATE-ORDER-001", "CUSTOMER-VALID", BigDecimal.valueOf(500.00), "Duplicate order ID"))
+            .onSuccess(v -> {
+                logger.info("✓ Business logic validation failures tested successfully");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
     }
 
     /**
@@ -258,79 +280,82 @@ public class ErrorHandlingRollbackExampleTest {
      * This tests complex operations with multiple stages that can fail at any point
      */
     @Test
-    void testMultiStageOperationsWithRollback() throws Exception {
+    void testMultiStageOperationsWithRollback(VertxTestContext testContext) throws InterruptedException {
         logger.info("--- Testing Pattern 3: Multi-Stage Operations with Rollback ---");
 
         // Test successful multi-stage operation
         OrderEvent successOrder = new OrderEvent("MULTI-SUCCESS-001", "CUSTOMER-MULTI", BigDecimal.valueOf(2500.00));
         logger.info("Testing successful multi-stage operation: {}", successOrder);
 
-        CompletableFuture<String> successResult = processMultiStageOrder(successOrder, false);
-        try {
-            String result = successResult.get(15, TimeUnit.SECONDS);
-            logger.info("✓ Multi-stage operation completed successfully: {}", result);
-            assertNotNull(result);
-            assertTrue(result.contains("MULTI-SUCCESS-001"));
-        } catch (Exception e) {
-            fail("Multi-stage operation failed unexpectedly: " + e.getMessage());
-        }
+        processMultiStageOrder(successOrder, false)
+            .compose(result -> {
+                testContext.verify(() -> {
+                    logger.info("✓ Multi-stage operation completed successfully: {}", result);
+                    assertNotNull(result);
+                    assertTrue(result.contains("MULTI-SUCCESS-001"));
+                });
 
-        // Test multi-stage operation that fails in stage 2
-        OrderEvent failOrder = new OrderEvent("MULTI-FAIL-001", "CUSTOMER-MULTI", BigDecimal.valueOf(3500.00));
-        logger.info("Testing multi-stage operation that fails in stage 2: {}", failOrder);
+                // Test multi-stage operation that fails in stage 2
+                OrderEvent failOrder = new OrderEvent("MULTI-FAIL-001", "CUSTOMER-MULTI", BigDecimal.valueOf(3500.00));
+                logger.info("Testing multi-stage operation that fails in stage 2: {}", failOrder);
 
-        CompletableFuture<String> failResult = processMultiStageOrder(failOrder, true);
-        try {
-            String result = failResult.get(15, TimeUnit.SECONDS);
-            fail("Multi-stage operation should have failed but succeeded: " + result);
-        } catch (Exception e) {
-            logger.info("INTENTIONAL FAILURE: Multi-stage operation correctly failed and rolled back as expected");
-            logger.info("   📋 Error details: {}", e.getMessage());
-            logger.info("   🎯 This failure demonstrates proper multi-stage rollback when any stage fails");
+                return processMultiStageOrder(failOrder, true)
+                    .map(r -> {
+                        testContext.failNow("Multi-stage operation should have failed but succeeded: " + r);
+                        return r;
+                    })
+                    .recover(error -> {
+                        logger.info("INTENTIONAL FAILURE: Multi-stage operation correctly failed and rolled back as expected");
+                        logger.info("   📋 Error details: {}", error.getMessage());
+                        logger.info("   🎯 This failure demonstrates proper multi-stage rollback when any stage fails");
 
-            // Check if the error message contains the expected text (may be wrapped in RuntimeException)
-            String errorMessage = e.getMessage();
-            String causeMessage = e.getCause() != null ? e.getCause().getMessage() : "";
-            assertTrue(errorMessage.contains("Insufficient inventory") ||
-                      causeMessage.contains("Insufficient inventory") ||
-                      errorMessage.contains("Multi-stage processing failed"),
-                      "Expected error message about insufficient inventory, but got: " + errorMessage);
-        }
-
-        logger.info("✓ Multi-stage operations with rollback tested successfully");
+                        testContext.verify(() -> {
+                            String errorMessage = error.getMessage();
+                            String causeMessage = error.getCause() != null ? error.getCause().getMessage() : "";
+                            assertTrue(errorMessage.contains("Insufficient inventory") ||
+                                      causeMessage.contains("Insufficient inventory") ||
+                                      errorMessage.contains("Multi-stage processing failed"),
+                                      "Expected error message about insufficient inventory, but got: " + errorMessage);
+                        });
+                        return Future.succeededFuture("expected-failure");
+                    });
+            })
+            .onSuccess(v -> {
+                logger.info("✓ Multi-stage operations with rollback tested successfully");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
     }
 
     /**
      * Process order with error handling following the exact pattern from the guide
      */
-    private CompletableFuture<String> processOrderWithErrorHandling(OrderEvent order) {
-        CompletableFuture<String> overall = new CompletableFuture<>();
+    private Future<String> processOrderWithErrorHandling(OrderEvent order) {
+        Promise<String> promise = Promise.promise();
         manager.getVertx().runOnContext(v -> {
             processingProducer.sendWithTransaction(
                 new OrderProcessingStartedEvent(order),
                 TransactionPropagation.CONTEXT
             )
-            .thenCompose(x -> {
+            .compose(x -> {
                 if (order.getAmount().compareTo(BigDecimal.valueOf(10000)) > 0) {
-                    return CompletableFuture.failedFuture(new BusinessException("Order amount exceeds limit"));
+                    return Future.failedFuture(new BusinessException("Order amount exceeds limit"));
                 }
                 return businessService.processOrder(order);
             })
-            .thenCompose(result -> processingProducer
+            .compose(result -> processingProducer
                 .sendWithTransaction(new OrderProcessedEvent(order, result), TransactionPropagation.CONTEXT)
-                .thenApply(ignored -> result)
+                .map(ignored -> result)
             )
-            .exceptionally(error -> {
+            .recover(error -> {
                 logger.error("🎯 INTENTIONAL TEST FAILURE: Order processing failed, all events rolled back: {}", error.getMessage());
                 logger.info("   📋 This error demonstrates proper automatic rollback behavior in PeeGeeQ Outbox pattern");
-                throw new RuntimeException("Order processing failed", error);
+                return Future.failedFuture(new RuntimeException("Order processing failed", error));
             })
-            .whenComplete((res, err) -> {
-                if (err != null) overall.completeExceptionally(err);
-                else overall.complete(res);
-            });
+            .onComplete(promise);
         });
-        return overall;
+        return promise.future();
     }
 
     /**
@@ -341,129 +366,123 @@ public class ErrorHandlingRollbackExampleTest {
      * @param amount The order amount to test
      * @param expectedError The expected error message (for documentation)
      */
-    private void testValidationFailure(String orderId, String customerId, BigDecimal amount, String expectedError) {
+    private Future<Void> testValidationFailure(String orderId, String customerId, BigDecimal amount, String expectedError) {
         logger.info("🧪 Testing INTENTIONAL validation failure: {} - Expected: {}", orderId, expectedError);
 
         OrderEvent order = new OrderEvent(orderId, customerId, amount);
-        CompletableFuture<String> result = processOrderWithBusinessValidation(order);
-
-        try {
-            String success = result.get(5, TimeUnit.SECONDS);
-            fail("❌ UNEXPECTED SUCCESS: Order should have failed but succeeded: " + success);
-        } catch (Exception e) {
-            if (e.getMessage().contains(expectedError) ||
-                (e.getCause() != null && e.getCause().getMessage().contains(expectedError))) {
-                logger.info("INTENTIONAL FAILURE: Validation correctly failed as expected: {}", expectedError);
-            } else {
-                logger.info("INTENTIONAL FAILURE: Validation failed with wrapped error (still expected)");
-                logger.info("   📋 Actual error: {}", e.getMessage());
-                logger.info("   🎯 This demonstrates proper error handling and rollback behavior");
-                // Still pass the test as long as it failed (which is expected)
-            }
-        }
+        return processOrderWithBusinessValidation(order)
+            .map(success -> {
+                fail("❌ UNEXPECTED SUCCESS: Order should have failed but succeeded: " + success);
+                return (Void) null;
+            })
+            .recover(e -> {
+                if (e.getMessage().contains(expectedError) ||
+                    (e.getCause() != null && e.getCause().getMessage().contains(expectedError))) {
+                    logger.info("INTENTIONAL FAILURE: Validation correctly failed as expected: {}", expectedError);
+                } else {
+                    logger.info("INTENTIONAL FAILURE: Validation failed with wrapped error (still expected)");
+                    logger.info("   📋 Actual error: {}", e.getMessage());
+                    logger.info("   🎯 This demonstrates proper error handling and rollback behavior");
+                }
+                return Future.succeededFuture();
+            });
     }
 
     /**
      * Process order with comprehensive business validation
      */
-    private CompletableFuture<String> processOrderWithBusinessValidation(OrderEvent order) {
-        CompletableFuture<String> overall = new CompletableFuture<>();
+    private Future<String> processOrderWithBusinessValidation(OrderEvent order) {
+        Promise<String> promise = Promise.promise();
         manager.getVertx().runOnContext(v -> {
             processingProducer.sendWithTransaction(
                 new ValidationStartedEvent(order.getOrderId()),
                 TransactionPropagation.CONTEXT
             )
-            .thenCompose(x -> {
+            .compose(x -> {
                 if (order.getCustomerId().startsWith("INVALID")) {
-                    return CompletableFuture.failedFuture(new BusinessException("Invalid customer ID"));
+                    return Future.failedFuture(new BusinessException("Invalid customer ID"));
                 }
                 if (order.getAmount().compareTo(BigDecimal.ZERO) <= 0) {
-                    return CompletableFuture.failedFuture(new BusinessException("Amount must be positive"));
+                    return Future.failedFuture(new BusinessException("Amount must be positive"));
                 }
                 if (order.getOrderId().startsWith("DUPLICATE")) {
-                    return CompletableFuture.failedFuture(new BusinessException("Duplicate order ID"));
+                    return Future.failedFuture(new BusinessException("Duplicate order ID"));
                 }
                 return businessService.processOrder(order);
             })
-            .thenCompose(result -> processingProducer
+            .compose(result -> processingProducer
                 .sendWithTransaction(new ValidationCompletedEvent(order.getOrderId(), "PASSED"), TransactionPropagation.CONTEXT)
-                .thenApply(ignored -> result)
+                .map(ignored -> result)
             )
-            .exceptionally(error -> {
+            .recover(error -> {
                 logger.error("🎯 INTENTIONAL TEST FAILURE: Business validation failed, all events rolled back: {}", error.getMessage());
                 logger.info("   📋 This error demonstrates proper validation failure handling and automatic rollback");
-                throw new RuntimeException("Business validation failed", error);
+                return Future.failedFuture(new RuntimeException("Business validation failed", error));
             })
-            .whenComplete((res, err) -> {
-                if (err != null) overall.completeExceptionally(err);
-                else overall.complete(res);
-            });
+            .onComplete(promise);
         });
-        return overall;
+        return promise.future();
     }
 
     /**
      * Process order with multiple stages that can fail at any point
      */
-    private CompletableFuture<String> processMultiStageOrder(OrderEvent order, boolean failInStage2) {
-        CompletableFuture<String> overall = new CompletableFuture<>();
+    private Future<String> processMultiStageOrder(OrderEvent order, boolean failInStage2) {
+        Promise<String> promise = Promise.promise();
         manager.getVertx().runOnContext(v -> {
             processingProducer.sendWithTransaction(
                 new MultiStageStartedEvent(order.getOrderId(), "STAGE_1"),
                 TransactionPropagation.CONTEXT
             )
-            .thenCompose(x -> {
+            .compose(x -> {
                 logger.info("Stage 1: Initial validation for order {}", order.getOrderId());
                 return businessService.validateOrder(order);
             })
-            .thenCompose(validationResult -> {
+            .compose(validationResult -> {
                 logger.info("Stage 2: Inventory check for order {}", order.getOrderId());
                 if (failInStage2) {
-                    return CompletableFuture.failedFuture(new BusinessException("Insufficient inventory in stage 2"));
+                    return Future.failedFuture(new BusinessException("Insufficient inventory in stage 2"));
                 }
                 return processingProducer
                     .sendWithTransaction(new MultiStageProgressEvent(order.getOrderId(), "STAGE_2", "INVENTORY_CHECKED"), TransactionPropagation.CONTEXT)
-                    .thenApply(ignored -> "inventory-checked");
+                    .map(ignored -> "inventory-checked");
             })
-            .thenCompose(inventoryResult -> {
+            .compose(inventoryResult -> {
                 logger.info("Stage 3: Payment processing for order {}", order.getOrderId());
                 return processingProducer
                     .sendWithTransaction(new MultiStageProgressEvent(order.getOrderId(), "STAGE_3", "PAYMENT_PROCESSED"), TransactionPropagation.CONTEXT)
-                    .thenApply(ignored -> "payment-processed");
+                    .map(ignored -> "payment-processed");
             })
-            .thenCompose(paymentResult -> {
+            .compose(paymentResult -> {
                 logger.info("Stage 4: Final completion for order {}", order.getOrderId());
                 return processingProducer
                     .sendWithTransaction(new MultiStageCompletedEvent(order.getOrderId(), "ALL_STAGES_COMPLETED"), TransactionPropagation.CONTEXT)
-                    .thenApply(ignored -> "Multi-stage processing completed for order " + order.getOrderId());
+                    .map(ignored -> "Multi-stage processing completed for order " + order.getOrderId());
             })
-            .exceptionally(error -> {
+            .recover(error -> {
                 logger.error("🎯 INTENTIONAL TEST FAILURE: Multi-stage processing failed, all stages rolled back: {}", error.getMessage());
                 logger.info("   📋 This error demonstrates proper multi-stage rollback when any stage fails");
-                throw new RuntimeException("Multi-stage processing failed", error);
+                return Future.failedFuture(new RuntimeException("Multi-stage processing failed", error));
             })
-            .whenComplete((res, err) -> {
-                if (err != null) overall.completeExceptionally(err);
-                else overall.complete(res);
-            });
+            .onComplete(promise);
         });
-        return overall;
+        return promise.future();
     }
 
     // Business service for processing orders
     private static class BusinessService {
         private static final Logger logger = LoggerFactory.getLogger(BusinessService.class);
 
-        public CompletableFuture<String> processOrder(OrderEvent order) {
+        public Future<String> processOrder(OrderEvent order) {
             logger.info("Processing order: {}", order.getOrderId());
             // Simulate business processing
-            return CompletableFuture.completedFuture("Order " + order.getOrderId() + " processed successfully");
+            return Future.succeededFuture("Order " + order.getOrderId() + " processed successfully");
         }
 
-        public CompletableFuture<String> validateOrder(OrderEvent order) {
+        public Future<String> validateOrder(OrderEvent order) {
             logger.info("Validating order: {}", order.getOrderId());
             // Simulate validation
-            return CompletableFuture.completedFuture("Order " + order.getOrderId() + " validated");
+            return Future.succeededFuture("Order " + order.getOrderId() + " validated");
         }
     }
 

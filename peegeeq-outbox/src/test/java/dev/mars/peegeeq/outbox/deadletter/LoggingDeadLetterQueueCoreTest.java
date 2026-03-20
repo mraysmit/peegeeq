@@ -2,6 +2,7 @@ package dev.mars.peegeeq.outbox.deadletter;
 
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Future;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -9,7 +10,7 @@ import org.junit.jupiter.api.Test;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -47,11 +48,11 @@ class LoggingDeadLetterQueueCoreTest {
         Map<String, String> metadata = new HashMap<>();
         metadata.put("key1", "value1");
 
-        CompletableFuture<Void> future = deadLetterQueue.sendToDeadLetter(
+        Future<Void> future = deadLetterQueue.sendToDeadLetter(
             message, reason, attempts, metadata);
 
         assertNotNull(future);
-        future.get(5, TimeUnit.SECONDS); // Should complete successfully
+        assertTrue(future.succeeded()); // Should complete successfully
 
         // Verify metrics updated
         DeadLetterQueue.DeadLetterMetrics metrics = deadLetterQueue.getMetrics();
@@ -65,9 +66,9 @@ class LoggingDeadLetterQueueCoreTest {
     void testSendToDeadLetter_MultipleSends() throws Exception {
         for (int i = 0; i < 5; i++) {
             Message<String> message = createTestMessage("test-id-" + i, "payload " + i);
-            CompletableFuture<Void> future = deadLetterQueue.sendToDeadLetter(
+            Future<Void> future = deadLetterQueue.sendToDeadLetter(
                 message, "Reason " + i, i, new HashMap<>());
-            future.get(5, TimeUnit.SECONDS);
+            assertTrue(future.succeeded());
         }
 
         DeadLetterQueue.DeadLetterMetrics metrics = deadLetterQueue.getMetrics();
@@ -79,11 +80,11 @@ class LoggingDeadLetterQueueCoreTest {
     void testSendToDeadLetter_WithNullMetadata() throws Exception {
         Message<String> message = createTestMessage("test-id-null", "test payload");
         
-        CompletableFuture<Void> future = deadLetterQueue.sendToDeadLetter(
+        Future<Void> future = deadLetterQueue.sendToDeadLetter(
             message, "Test reason", 1, null);
 
         assertNotNull(future);
-        future.get(5, TimeUnit.SECONDS);
+        assertTrue(future.succeeded());
 
         DeadLetterQueue.DeadLetterMetrics metrics = deadLetterQueue.getMetrics();
         assertEquals(1, metrics.getTotalSent());
@@ -94,11 +95,11 @@ class LoggingDeadLetterQueueCoreTest {
         Message<String> message = createTestMessage("test-id-intentional", "test payload");
         String reason = "INTENTIONAL TEST FAILURE - this should be logged differently";
         
-        CompletableFuture<Void> future = deadLetterQueue.sendToDeadLetter(
+        Future<Void> future = deadLetterQueue.sendToDeadLetter(
             message, reason, 3, new HashMap<>());
 
         assertNotNull(future);
-        future.get(5, TimeUnit.SECONDS);
+        assertTrue(future.succeeded());
 
         DeadLetterQueue.DeadLetterMetrics metrics = deadLetterQueue.getMetrics();
         assertEquals(1, metrics.getTotalSent());
@@ -124,8 +125,8 @@ class LoggingDeadLetterQueueCoreTest {
     @Test
     void testClose_AfterSends() throws Exception {
         Message<String> message = createTestMessage("test-id", "payload");
-        deadLetterQueue.sendToDeadLetter(message, "reason", 1, new HashMap<>())
-            .get(5, TimeUnit.SECONDS);
+        Future<Void> closeResult = deadLetterQueue.sendToDeadLetter(message, "reason", 1, new HashMap<>());
+        assertTrue(closeResult.succeeded());
 
         assertDoesNotThrow(() -> deadLetterQueue.close());
     }
@@ -135,8 +136,8 @@ class LoggingDeadLetterQueueCoreTest {
         // Send 3 successful messages
         for (int i = 0; i < 3; i++) {
             Message<String> message = createTestMessage("msg-" + i, "payload");
-            deadLetterQueue.sendToDeadLetter(message, "reason", 1, new HashMap<>())
-                .get(5, TimeUnit.SECONDS);
+            Future<Void> rateResult = deadLetterQueue.sendToDeadLetter(message, "reason", 1, new HashMap<>());
+            assertTrue(rateResult.succeeded());
         }
 
         DeadLetterQueue.DeadLetterMetrics metrics = deadLetterQueue.getMetrics();
@@ -149,8 +150,8 @@ class LoggingDeadLetterQueueCoreTest {
     @Test
     void testMetrics_AllGetters() throws Exception {
         Message<String> message = createTestMessage("msg-1", "payload");
-        deadLetterQueue.sendToDeadLetter(message, "reason", 1, new HashMap<>())
-            .get(5, TimeUnit.SECONDS);
+        Future<Void> getterResult = deadLetterQueue.sendToDeadLetter(message, "reason", 1, new HashMap<>());
+        assertTrue(getterResult.succeeded());
 
         DeadLetterQueue.DeadLetterMetrics metrics = deadLetterQueue.getMetrics();
 

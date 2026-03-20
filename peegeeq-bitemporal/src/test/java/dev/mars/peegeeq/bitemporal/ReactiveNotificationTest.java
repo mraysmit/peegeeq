@@ -35,10 +35,12 @@ import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.Pool;
 import java.time.Instant;
+import io.vertx.core.Future;
+
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -183,7 +185,7 @@ class ReactiveNotificationTest {
         MessageHandler<BiTemporalEvent<TestEvent>> handler = message -> {
             receivedEvent.set(message.getPayload());
             notificationLatch.countDown();
-            return CompletableFuture.completedFuture(null);
+            return Future.<Void>succeededFuture();
         };
         
         // Subscribe to notifications
@@ -233,7 +235,7 @@ class ReactiveNotificationTest {
         MessageHandler<BiTemporalEvent<TestEvent>> handler = message -> {
             receivedEvent.set(message.getPayload());
             notificationLatch.countDown();
-            return CompletableFuture.completedFuture(null);
+            return Future.<Void>succeededFuture();
         };
         
         await(eventStore.subscribe("TestEvent", handler), 5, TimeUnit.SECONDS);

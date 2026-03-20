@@ -31,6 +31,7 @@ import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -50,7 +51,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -135,7 +137,9 @@ public class MessagePriorityExampleTest {
         logger.info("Tearing down Message Priority Example Test");
         
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+            closeLatch.await(10, TimeUnit.SECONDS);
         }
         
         logger.info("✓ Message Priority Example Test teardown completed");
@@ -164,7 +168,7 @@ public class MessagePriorityExampleTest {
             logger.info("Processed #{}: {} (Priority: {})",
                 order, payload.getContent(), payload.getPriorityLabel());
             latch.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
         
         // Send messages in reverse priority order to demonstrate reordering
@@ -216,7 +220,7 @@ public class MessagePriorityExampleTest {
                 "Priority label should be valid");
             
             latch.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
         
         // Send messages with different priority levels
@@ -271,7 +275,7 @@ public class MessagePriorityExampleTest {
                 payload.getMessageType(), payload.getPriority());
             
             latch.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
         
         // Send messages with metadata
@@ -299,13 +303,17 @@ public class MessagePriorityExampleTest {
     // Helper methods
     private void sendPriorityMessage(MessageProducer<PriorityMessage> producer, String id, String type, String content, int priority) throws Exception {
         PriorityMessage message = new PriorityMessage(id, type, content, priority, "2025-01-01T00:00:00Z", new HashMap<>());
-        producer.send(message).join();
+        CountDownLatch latch = new CountDownLatch(1);
+        producer.send(message).onComplete(ar -> latch.countDown());
+        assertTrue(latch.await(5, TimeUnit.SECONDS));
         logger.info("Sent: {} (Priority: {})", content, message.getPriorityLabel());
     }
 
     private void sendPriorityMessageWithMetadata(MessageProducer<PriorityMessage> producer, String id, String type, String content, int priority, Map<String, String> metadata) throws Exception {
         PriorityMessage message = new PriorityMessage(id, type, content, priority, "2025-01-01T00:00:00Z", metadata);
-        producer.send(message).join();
+        CountDownLatch latch = new CountDownLatch(1);
+        producer.send(message).onComplete(ar -> latch.countDown());
+        assertTrue(latch.await(5, TimeUnit.SECONDS));
         logger.info("Sent: {} (Priority: {}, Metadata: {})", content, message.getPriorityLabel(), metadata.size());
     }
 

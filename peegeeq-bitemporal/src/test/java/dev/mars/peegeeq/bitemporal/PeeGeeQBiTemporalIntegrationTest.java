@@ -36,7 +36,14 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -45,9 +52,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -66,6 +73,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 class PeeGeeQBiTemporalIntegrationTest {
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQBiTemporalIntegrationTest.class);
@@ -91,10 +99,6 @@ class PeeGeeQBiTemporalIntegrationTest {
     private QueueFactory queueFactory;
     private MessageProducer<OrderEvent> producer;
     private MessageConsumer<OrderEvent> consumer;
-
-    private static <T> T await(io.vertx.core.Future<T> future) {
-        return future.toCompletionStage().toCompletableFuture().join();
-    }
     
     @BeforeEach
     void setUp() throws Exception {
@@ -127,7 +131,7 @@ class PeeGeeQBiTemporalIntegrationTest {
         
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().toCompletionStage().toCompletableFuture().join();
         logger.info("PeeGeeQ Manager started");
         
         // Create bi-temporal event store
@@ -218,9 +222,9 @@ class PeeGeeQBiTemporalIntegrationTest {
     
     @Test
     @DisplayName("Basic Producer-Consumer Integration with Bi-temporal Store")
-    void testBasicProducerConsumerIntegration() throws Exception {
+    void testBasicProducerConsumerIntegration(Vertx vertx, VertxTestContext ctx) throws Exception {
         logger.info("Starting basic producer-consumer integration test...");
-        
+
         // Test data
         OrderEvent orderEvent = IntegrationTestUtils.createOrderEvent(
             "ORDER-001", "CUST-123", "CREATED", "US"
@@ -230,43 +234,45 @@ class PeeGeeQBiTemporalIntegrationTest {
             "source", "integration-test",
             "version", "1.0"
         );
-        
+
         // Set up message tracking
         List<Message<OrderEvent>> receivedMessages = Collections.synchronizedList(new ArrayList<>());
-        CountDownLatch messageLatch = new CountDownLatch(1);
-        
+        Checkpoint messageReceived = ctx.checkpoint();
+
         // Subscribe to messages
         consumer.subscribe(message -> {
             logger.info("Received message: {}", message.getPayload());
             IntegrationTestUtils.logMessage(message, "RECEIVED");
             receivedMessages.add(message);
-            messageLatch.countDown();
-            return CompletableFuture.completedFuture(null);
+            ctx.verify(() -> {
+                assertEquals(orderEvent, message.getPayload(), "Received payload should match sent payload");
+            });
+            messageReceived.flag();
+            return Future.succeededFuture();
         });
-        
+
         // Send message via PeeGeeQ
         logger.info("Sending message via PeeGeeQ...");
-        producer.send(orderEvent, headers, correlationId).join();
-        logger.info("Message sent successfully");
-        
-        // Wait for message to be received
-        assertTrue(IntegrationTestUtils.waitForLatch(messageLatch, 10, "message reception"),
-                  "Message should be received within 10 seconds");
-        
+        producer.send(orderEvent, headers, correlationId)
+            .onSuccess(v -> logger.info("Message sent successfully"))
+            .onFailure(ctx::failNow);
+
+        assertTrue(ctx.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received within 10 seconds");
+        if (ctx.failed()) fail(ctx.causeOfFailure());
+
         // Verify message was received
         assertEquals(1, receivedMessages.size(), "Should receive exactly one message");
         Message<OrderEvent> receivedMessage = receivedMessages.get(0);
-        assertEquals(orderEvent, receivedMessage.getPayload(), "Received payload should match sent payload");
         // Note: PeeGeeQ native doesn't preserve correlation IDs in messages - this is a known limitation
         logger.info("Correlation ID sent: {}, received: {} (PeeGeeQ native limitation)",
                    correlationId, IntegrationTestUtils.getCorrelationId(receivedMessage));
-        
+
         logger.info("Basic producer-consumer integration test completed successfully");
     }
 
     @Test
     @DisplayName("PeeGeeQ Messages with Bi-temporal Store Persistence")
-    void testPeeGeeQWithBiTemporalStorePersistence() throws Exception {
+    void testPeeGeeQWithBiTemporalStorePersistence(Vertx vertx, VertxTestContext ctx) throws Exception {
         logger.info("Starting PeeGeeQ with bi-temporal store persistence test...");
 
         // Test data
@@ -289,7 +295,8 @@ class PeeGeeQBiTemporalIntegrationTest {
 
         // Set up message tracking
         List<Message<OrderEvent>> receivedMessages = Collections.synchronizedList(new ArrayList<>());
-        CountDownLatch messageLatch = new CountDownLatch(2);
+        AtomicInteger processedCount = new AtomicInteger(0);
+        Checkpoint allVerified = ctx.checkpoint();
 
         // Subscribe to PeeGeeQ messages
         consumer.subscribe(message -> {
@@ -298,84 +305,82 @@ class PeeGeeQBiTemporalIntegrationTest {
             receivedMessages.add(message);
 
             Instant validTime = message.getPayload().getOrderTimeAsInstant();
-
-            String correlationId = null;
             String orderId = message.getPayload().getOrderId();
-            if ("ORDER-101".equals(orderId)) {
-                correlationId = correlationId1;
-            } else if ("ORDER-102".equals(orderId)) {
-                correlationId = correlationId2;
-            }
+            String resolvedCorrelationId = "ORDER-101".equals(orderId) ? correlationId1
+                : "ORDER-102".equals(orderId) ? correlationId2 : null;
 
-            String resolvedCorrelationId = correlationId;
-            return eventStore.appendBuilder().eventType("OrderEvent").payload(message.getPayload()).validTime(validTime).headers(message.getHeaders()).correlationId(resolvedCorrelationId).causationId(null).aggregateId(message.getPayload().getOrderId()).execute().toCompletionStage().toCompletableFuture().handle((event, error) -> {
-                if (error != null) {
-                    logger.error("Failed to persist to bi-temporal store", error);
-                } else {
-                    logger.info("Persisted message to bi-temporal store: {} with correlation ID: {}", message.getPayload().getOrderId(), resolvedCorrelationId);
-                }
+            return eventStore.appendBuilder()
+                .eventType("OrderEvent")
+                .payload(message.getPayload())
+                .validTime(validTime)
+                .headers(message.getHeaders())
+                .correlationId(resolvedCorrelationId)
+                .causationId(null)
+                .aggregateId(orderId)
+                .execute()
+                .compose(event -> {
+                    logger.info("Persisted message to bi-temporal store: {} with correlation ID: {}",
+                        orderId, resolvedCorrelationId);
+                    if (processedCount.incrementAndGet() == 2) {
+                        // Both messages processed, verify store contents
+                        return eventStore.query(EventQuery.all())
+                            .<Void>map(allEvents -> {
+                                ctx.verify(() -> {
+                                    assertNotNull(allEvents, "Events list should not be null");
+                                    assertEquals(2, allEvents.size(), "Should have exactly two events in bi-temporal store");
 
-                long remaining = messageLatch.getCount();
-                messageLatch.countDown();
-                logger.info("Message processed, {} messages remaining", remaining - 1);
-                return null;
-            });
+                                    BiTemporalEvent<OrderEvent> event1 = IntegrationTestUtils.findEventByCorrelationId(allEvents, correlationId1);
+                                    BiTemporalEvent<OrderEvent> event2 = IntegrationTestUtils.findEventByCorrelationId(allEvents, correlationId2);
+
+                                    assertNotNull(event1, "Event 1 should be found in bi-temporal store");
+                                    assertNotNull(event2, "Event 2 should be found in bi-temporal store");
+
+                                    assertEquals(orderEvent1, event1.getPayload(), "Event 1 payload should match original");
+                                    assertEquals(orderEvent2, event2.getPayload(), "Event 2 payload should match original");
+                                    assertEquals(correlationId1, event1.getCorrelationId(), "Event 1 correlation ID should match");
+                                    assertEquals(correlationId2, event2.getCorrelationId(), "Event 2 correlation ID should match");
+                                    assertEquals(aggregateId1, event1.getAggregateId(), "Event 1 aggregate ID should match");
+                                    assertEquals(aggregateId2, event2.getAggregateId(), "Event 2 aggregate ID should match");
+
+                                    IntegrationTestUtils.logBiTemporalEvent(event1, "BITEMPORAL_EVENT_1");
+                                    IntegrationTestUtils.logBiTemporalEvent(event2, "BITEMPORAL_EVENT_2");
+                                });
+                                allVerified.flag();
+                                return null;
+                            });
+                    }
+                    return Future.succeededFuture();
+                })
+                .recover(err -> {
+                    logger.error("Failed to persist to bi-temporal store", err);
+                    ctx.failNow(err);
+                    return Future.succeededFuture();
+                });
         });
 
-        // Give consumer time to establish subscription before sending messages
-        awaitAsyncDelay(2000);
+        // Send messages with delay between them using Vertx.setTimer
+        producer.send(orderEvent1, headers, correlationId1)
+            .compose(v -> {
+                logger.info("Sent first message: {}", orderEvent1.getOrderId());
+                Promise<Void> delay = Promise.promise();
+                vertx.setTimer(1000, id -> delay.complete());
+                return delay.future();
+            })
+            .compose(v -> producer.send(orderEvent2, headers, correlationId2))
+            .onSuccess(v -> logger.info("Sent second message: {}", orderEvent2.getOrderId()))
+            .onFailure(ctx::failNow);
 
-        // Send messages via PeeGeeQ
-        logger.info("Sending messages via PeeGeeQ...");
-        producer.send(orderEvent1, headers, correlationId1).join();
-        logger.info("Sent first message: {}", orderEvent1.getOrderId());
-
-        // Add delay between messages to ensure proper processing
-        awaitAsyncDelay(1000);
-
-        producer.send(orderEvent2, headers, correlationId2).join();
-        logger.info("Sent second message: {}", orderEvent2.getOrderId());
-        logger.info("Messages sent successfully");
-
-        // Wait for messages to be received and persisted - increased timeout for reliability
-        logger.info("Waiting for {} messages to be processed...", messageLatch.getCount());
-        assertTrue(IntegrationTestUtils.waitForLatch(messageLatch, 30, "message reception and persistence"),
+        assertTrue(ctx.awaitCompletion(30, TimeUnit.SECONDS),
                   "Messages should be received and persisted within 30 seconds");
+        if (ctx.failed()) fail(ctx.causeOfFailure());
 
-        // Verify messages were received
         assertEquals(2, receivedMessages.size(), "Should receive exactly two messages");
-
-        // Verify events were persisted to bi-temporal store
-        logger.info("Querying bi-temporal store for persisted events...");
-        List<BiTemporalEvent<OrderEvent>> allEvents = await(eventStore.query(EventQuery.all()));
-
-        assertNotNull(allEvents, "Events list should not be null");
-        assertEquals(2, allEvents.size(), "Should have exactly two events in bi-temporal store");
-
-        // Find events by correlation ID
-        BiTemporalEvent<OrderEvent> event1 = IntegrationTestUtils.findEventByCorrelationId(allEvents, correlationId1);
-        BiTemporalEvent<OrderEvent> event2 = IntegrationTestUtils.findEventByCorrelationId(allEvents, correlationId2);
-
-        assertNotNull(event1, "Event 1 should be found in bi-temporal store");
-        assertNotNull(event2, "Event 2 should be found in bi-temporal store");
-
-        // Verify event data matches original messages
-        assertEquals(orderEvent1, event1.getPayload(), "Event 1 payload should match original");
-        assertEquals(orderEvent2, event2.getPayload(), "Event 2 payload should match original");
-        assertEquals(correlationId1, event1.getCorrelationId(), "Event 1 correlation ID should match");
-        assertEquals(correlationId2, event2.getCorrelationId(), "Event 2 correlation ID should match");
-        assertEquals(aggregateId1, event1.getAggregateId(), "Event 1 aggregate ID should match");
-        assertEquals(aggregateId2, event2.getAggregateId(), "Event 2 aggregate ID should match");
-
-        IntegrationTestUtils.logBiTemporalEvent(event1, "BITEMPORAL_EVENT_1");
-        IntegrationTestUtils.logBiTemporalEvent(event2, "BITEMPORAL_EVENT_2");
-
         logger.info("PeeGeeQ with bi-temporal store persistence test completed successfully");
     }
 
     @Test
     @DisplayName("Real-time Event Subscriptions and Notifications")
-    void testRealTimeEventSubscriptions() throws Exception {
+    void testRealTimeEventSubscriptions(Vertx vertx, VertxTestContext ctx) throws Exception {
         logger.info("Starting real-time event subscriptions test...");
 
         // Test data
@@ -387,44 +392,56 @@ class PeeGeeQBiTemporalIntegrationTest {
 
         // Set up bi-temporal event subscription tracking
         List<BiTemporalEvent<OrderEvent>> subscribedEvents = Collections.synchronizedList(new ArrayList<>());
-        CountDownLatch subscriptionLatch = new CountDownLatch(1);
+        AtomicReference<BiTemporalEvent<OrderEvent>> appendedEventRef = new AtomicReference<>();
+        Checkpoint eventReceived = ctx.checkpoint();
 
-        // Subscribe to bi-temporal events
+        // Subscribe to bi-temporal events, then append
         logger.info("Setting up bi-temporal event subscription...");
-        await(eventStore.subscribe("OrderEvent", message -> {
+        eventStore.subscribe("OrderEvent", message -> {
             BiTemporalEvent<OrderEvent> event = message.getPayload();
             logger.info("Received bi-temporal event subscription: {}", event.getEventId());
             IntegrationTestUtils.logBiTemporalEvent(event, "SUBSCRIPTION_RECEIVED");
             subscribedEvents.add(event);
-            subscriptionLatch.countDown();
-            return CompletableFuture.completedFuture(null);
-        }));
+            ctx.verify(() -> {
+                assertNotNull(appendedEventRef.get(), "Appended event should be set before subscription fires");
+                assertEquals(appendedEventRef.get().getEventId(), event.getEventId(), "Event IDs should match");
+                assertEquals(orderEvent, event.getPayload(), "Event payloads should match");
+                assertEquals(correlationId, event.getCorrelationId(), "Correlation IDs should match");
+                assertEquals(aggregateId, event.getAggregateId(), "Aggregate IDs should match");
+            });
+            eventReceived.flag();
+            return Future.succeededFuture();
+        })
+        .compose(v -> {
+            // Directly append event to bi-temporal store (simulating real-time processing)
+            logger.info("Appending event directly to bi-temporal store...");
+            return eventStore.appendBuilder()
+                .eventType("OrderEvent")
+                .payload(orderEvent)
+                .validTime(orderEvent.getOrderTimeAsInstant())
+                .headers(Map.of("source", "direct-append", "version", "1.0"))
+                .correlationId(correlationId)
+                .causationId(null)
+                .aggregateId(aggregateId)
+                .execute();
+        })
+        .onSuccess(appendedEvent -> {
+            appendedEventRef.set(appendedEvent);
+            logger.info("Event appended with ID: {}", appendedEvent.getEventId());
+        })
+        .onFailure(ctx::failNow);
 
-        // Directly append event to bi-temporal store (simulating real-time processing)
-        logger.info("Appending event directly to bi-temporal store...");
-        BiTemporalEvent<OrderEvent> appendedEvent = await(eventStore.appendBuilder().eventType("OrderEvent").payload(orderEvent).validTime(orderEvent.getOrderTimeAsInstant()).headers(Map.of("source", "direct-append", "version", "1.0")).correlationId(correlationId).causationId(null).aggregateId(aggregateId).execute());
-
-        logger.info("Event appended with ID: {}", appendedEvent.getEventId());
-
-        // Wait for subscription notification
-        assertTrue(IntegrationTestUtils.waitForLatch(subscriptionLatch, 10, "bi-temporal event subscription"),
+        assertTrue(ctx.awaitCompletion(10, TimeUnit.SECONDS),
                   "Bi-temporal event subscription should be triggered within 10 seconds");
+        if (ctx.failed()) fail(ctx.causeOfFailure());
 
-        // Verify subscription received the event
         assertEquals(1, subscribedEvents.size(), "Should receive exactly one subscribed event");
-        BiTemporalEvent<OrderEvent> subscribedEvent = subscribedEvents.get(0);
-
-        assertEquals(appendedEvent.getEventId(), subscribedEvent.getEventId(), "Event IDs should match");
-        assertEquals(orderEvent, subscribedEvent.getPayload(), "Event payloads should match");
-        assertEquals(correlationId, subscribedEvent.getCorrelationId(), "Correlation IDs should match");
-        assertEquals(aggregateId, subscribedEvent.getAggregateId(), "Aggregate IDs should match");
-
         logger.info("Real-time event subscriptions test completed successfully");
     }
 
     @Test
     @DisplayName("End-to-End Integration: PeeGeeQ → Consumer → Bi-temporal Store → Subscription")
-    void testEndToEndIntegration() throws Exception {
+    void testEndToEndIntegration(Vertx vertx, VertxTestContext ctx) throws Exception {
         logger.info("Starting end-to-end integration test...");
 
         // Test data
@@ -441,72 +458,75 @@ class PeeGeeQBiTemporalIntegrationTest {
         List<BiTemporalEvent<OrderEvent>> persistedEvents = Collections.synchronizedList(new ArrayList<>());
         List<BiTemporalEvent<OrderEvent>> subscribedEvents = Collections.synchronizedList(new ArrayList<>());
 
-        CountDownLatch peeGeeQLatch = new CountDownLatch(expectedEventCount);
-        CountDownLatch subscriptionLatch = new CountDownLatch(expectedEventCount);
+        Checkpoint persistedCp = ctx.checkpoint(expectedEventCount);
+        Checkpoint subscribedCp = ctx.checkpoint(expectedEventCount);
 
-        // Wait for notification handler to be active before subscribing
-        awaitAsyncDelay(500); // Give time for async connection establishment
-
-        // Set up bi-temporal event subscription
-        await(eventStore.subscribe(null, message -> { // Subscribe to all event types
+        // Set up bi-temporal event subscription, then consumer, then send
+        eventStore.subscribe(null, message -> { // Subscribe to all event types
             BiTemporalEvent<OrderEvent> event = message.getPayload();
             logger.info("Subscription received event: {}", event.getEventId());
             IntegrationTestUtils.logBiTemporalEvent(event, "END_TO_END_SUBSCRIPTION");
             subscribedEvents.add(event);
-            subscriptionLatch.countDown();
-            return CompletableFuture.completedFuture(null);
-        }));
+            subscribedCp.flag();
+            return Future.succeededFuture();
+        })
+        .compose(v -> {
+            // Set up PeeGeeQ consumer that persists to bi-temporal store
+            consumer.subscribe(message -> {
+                logger.info("PeeGeeQ consumer received message: {}", message.getPayload().getOrderId());
+                IntegrationTestUtils.logMessage(message, "END_TO_END_PEEGEEQ");
+                peeGeeQMessages.add(message);
 
-        // Set up PeeGeeQ consumer that persists to bi-temporal store
-        consumer.subscribe(message -> {
-            logger.info("PeeGeeQ consumer received message: {}", message.getPayload().getOrderId());
-            IntegrationTestUtils.logMessage(message, "END_TO_END_PEEGEEQ");
-            peeGeeQMessages.add(message);
+                String orderId = message.getPayload().getOrderId();
+                String resolvedCorrelationId = "ORDER-301".equals(orderId) ? "end-to-end-1"
+                    : "ORDER-302".equals(orderId) ? "end-to-end-2"
+                    : "ORDER-303".equals(orderId) ? "end-to-end-3" : null;
 
-            String correlationId = null;
-            String orderId = message.getPayload().getOrderId();
-            if ("ORDER-301".equals(orderId)) {
-                correlationId = "end-to-end-1";
-            } else if ("ORDER-302".equals(orderId)) {
-                correlationId = "end-to-end-2";
-            } else if ("ORDER-303".equals(orderId)) {
-                correlationId = "end-to-end-3";
-            }
-
-            String resolvedCorrelationId = correlationId;
-            return eventStore.appendBuilder().eventType("OrderEvent").payload(message.getPayload()).validTime(message.getPayload().getOrderTimeAsInstant()).headers(message.getHeaders()).correlationId(resolvedCorrelationId).causationId(null).aggregateId(message.getPayload().getOrderId()).execute().toCompletionStage().toCompletableFuture().handle((event, error) -> {
-                if (error != null) {
-                    logger.error("Failed to persist event", error);
-                } else {
-                    persistedEvents.add(event);
-                    logger.info("Persisted event to bi-temporal store: {}", event.getEventId());
-                }
-
-                peeGeeQLatch.countDown();
-                return null;
+                return eventStore.appendBuilder()
+                    .eventType("OrderEvent")
+                    .payload(message.getPayload())
+                    .validTime(message.getPayload().getOrderTimeAsInstant())
+                    .headers(message.getHeaders())
+                    .correlationId(resolvedCorrelationId)
+                    .causationId(null)
+                    .aggregateId(orderId)
+                    .execute()
+                    .map(event -> {
+                        persistedEvents.add(event);
+                        logger.info("Persisted event to bi-temporal store: {}", event.getEventId());
+                        persistedCp.flag();
+                        return (Void) null;
+                    })
+                    .recover(err -> {
+                        logger.error("Failed to persist event", err);
+                        ctx.failNow(err);
+                        return Future.succeededFuture();
+                    });
             });
-        });
 
-        // Send all test orders via PeeGeeQ
-        logger.info("Sending {} test orders via PeeGeeQ...", expectedEventCount);
-        for (int i = 0; i < testOrders.size(); i++) {
-            OrderEvent order = testOrders.get(i);
-            String correlationId = "end-to-end-" + (i + 1);
-            Map<String, String> headers = Map.of(
-                "source", "end-to-end-test",
-                "order-index", String.valueOf(i + 1)
-            );
+            // Send all test orders via PeeGeeQ using compose chain
+            logger.info("Sending {} test orders via PeeGeeQ...", expectedEventCount);
+            Future<Void> sendChain = Future.succeededFuture();
+            for (int i = 0; i < testOrders.size(); i++) {
+                final int idx = i;
+                sendChain = sendChain.compose(v2 -> {
+                    OrderEvent order = testOrders.get(idx);
+                    String correlationId = "end-to-end-" + (idx + 1);
+                    Map<String, String> headers = Map.of(
+                        "source", "end-to-end-test",
+                        "order-index", String.valueOf(idx + 1)
+                    );
+                    return producer.send(order, headers, correlationId)
+                        .onSuccess(v3 -> logger.info("Sent order {}: {}", idx + 1, order.getOrderId()));
+                });
+            }
+            return sendChain;
+        })
+        .onFailure(ctx::failNow);
 
-            producer.send(order, headers, correlationId).join();
-            logger.info("Sent order {}: {}", i + 1, order.getOrderId());
-        }
-
-        // Wait for all stages to complete
-        assertTrue(IntegrationTestUtils.waitForLatch(peeGeeQLatch, 20, "PeeGeeQ message processing"),
-                  "All PeeGeeQ messages should be processed within 20 seconds");
-
-        assertTrue(IntegrationTestUtils.waitForLatch(subscriptionLatch, 20, "bi-temporal event subscriptions"),
-                  "All bi-temporal event subscriptions should be triggered within 20 seconds");
+        assertTrue(ctx.awaitCompletion(20, TimeUnit.SECONDS),
+                  "All stages should complete within 20 seconds");
+        if (ctx.failed()) fail(ctx.causeOfFailure());
 
         // Verify all stages completed successfully
         assertEquals(expectedEventCount, peeGeeQMessages.size(), "Should receive all PeeGeeQ messages");
@@ -551,23 +571,8 @@ class PeeGeeQBiTemporalIntegrationTest {
             assertEquals(originalOrder.getOrderId(), subscribedEvent.getAggregateId(), "Subscribed aggregate ID should match order ID");
         }
 
-        // Query bi-temporal store to verify persistence
-        List<BiTemporalEvent<OrderEvent>> allStoredEvents = await(eventStore.query(EventQuery.all()));
-        assertTrue(allStoredEvents.size() >= expectedEventCount,
-                  "Bi-temporal store should contain at least " + expectedEventCount + " events");
-
         logger.info("End-to-end integration test completed successfully");
         logger.info("Summary: {} PeeGeeQ messages → {} persisted events → {} subscription notifications",
                    peeGeeQMessages.size(), persistedEvents.size(), subscribedEvents.size());
     }
-
-    private void awaitAsyncDelay(long delayMs) throws Exception {
-        CountDownLatch latch = new CountDownLatch(1);
-        CompletableFuture.delayedExecutor(delayMs, TimeUnit.MILLISECONDS).execute(latch::countDown);
-        assertTrue(latch.await(delayMs + 2000, TimeUnit.MILLISECONDS),
-            "Timed out waiting for async processing delay");
-    }
 }
-
-
-

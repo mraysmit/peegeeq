@@ -16,6 +16,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -23,7 +25,7 @@ import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -88,7 +90,7 @@ public class OutboxConsumerErrorPathsCoverageTest {
     }
 
     @AfterEach
-    void teardown() throws Exception {
+    void teardown(VertxTestContext testContext) throws Exception {
         if (consumer != null) {
             consumer.close();
         }
@@ -99,8 +101,13 @@ public class OutboxConsumerErrorPathsCoverageTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test
@@ -135,15 +142,15 @@ public class OutboxConsumerErrorPathsCoverageTest {
         AtomicReference<Throwable> capturedError = new AtomicReference<>();
         
         MessageHandler<TestMessage> asyncFailingHandler = message -> {
-            CompletableFuture<Void> future = new CompletableFuture<>();
+            Promise<Void> promise = Promise.promise();
             
             // Simulate async processing that fails immediately
             RuntimeException error = new RuntimeException("Async processing failed");
             capturedError.set(error);
-            future.completeExceptionally(error);
+            promise.fail(error);
             messageCheckpoint.flag();
             
-            return future;
+            return promise.future();
         };
         
         consumer.subscribe(asyncFailingHandler);
@@ -192,7 +199,7 @@ public class OutboxConsumerErrorPathsCoverageTest {
             // Simulate NPE
             String nullString = null;
             nullString.length(); // Will throw NPE
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         };
         
         consumer.subscribe(nullPointerHandler);
@@ -279,10 +286,10 @@ public class OutboxConsumerErrorPathsCoverageTest {
         MessageHandler<TestMessage> slowFailHandler = message -> {
             startCheckpoint.flag();
             // Simulate slow processing then fail using non-blocking timer
-            CompletableFuture<Void> future = new CompletableFuture<>();
+            Promise<Void> promise = Promise.promise();
             vertx.setTimer(500, timerId ->
-                future.completeExceptionally(new RuntimeException("Timeout simulation failure")));
-            return future;
+                promise.fail(new RuntimeException("Timeout simulation failure")));
+            return promise.future();
         };
         
         consumer.subscribe(slowFailHandler);
@@ -304,12 +311,12 @@ public class OutboxConsumerErrorPathsCoverageTest {
             
             consumer.subscribe(message -> {
                 receivedCheckpoint.flag();
-                return CompletableFuture.failedFuture(new RuntimeException("Consumer 1 failure"));
+                return Future.failedFuture(new RuntimeException("Consumer 1 failure"));
             });
             
             consumer2.subscribe(message -> {
                 receivedCheckpoint.flag();
-                return CompletableFuture.failedFuture(new RuntimeException("Consumer 2 failure"));
+                return Future.failedFuture(new RuntimeException("Consumer 2 failure"));
             });
             
             TestMessage testMsg = new TestMessage("multi-consumer", "Multiple consumer test");
@@ -337,7 +344,7 @@ public class OutboxConsumerErrorPathsCoverageTest {
             }
             // Second attempt succeeds
             successCheckpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         };
         
         consumer.subscribe(intermittentHandler);

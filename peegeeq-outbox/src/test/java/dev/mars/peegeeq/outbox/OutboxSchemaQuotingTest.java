@@ -24,6 +24,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -67,11 +68,14 @@ class OutboxSchemaQuotingTest {
     private OutboxFactory factory;
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         if (factory != null) factory.close();
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive().onComplete(ar -> testContext.completeNow());
+        } else {
+            testContext.completeNow();
         }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     /**
@@ -149,16 +153,17 @@ class OutboxSchemaQuotingTest {
         factory = new OutboxFactory(new PgDatabaseService(manager), config);
 
         var producer = factory.createProducer("test-topic", String.class);
-        producer.send("hello").get(5, TimeUnit.SECONDS);
+        producer.send("hello")
+            .compose(v -> factory.getStatsAsync("test-topic"))
+            .onSuccess(stats -> testContext.verify(() -> {
+                assertEquals(1, stats.getPendingMessages(),
+                    "Stats query with simple schema name should work");
+                producer.close();
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        var stats = factory.getStatsAsync("test-topic")
-                .toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
-
-        assertEquals(1, stats.getPendingMessages(),
-                "Stats query with simple schema name should work");
-
-        producer.close();
-        testContext.completeNow();
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     // ========================================================================
@@ -184,22 +189,21 @@ class OutboxSchemaQuotingTest {
         factory = new OutboxFactory(new PgDatabaseService(manager), config);
 
         var producer = factory.createProducer("stats-topic", String.class);
-        producer.send("hello").get(5, TimeUnit.SECONDS);
+        producer.send("hello")
+            .compose(v -> factory.getStatsAsync("stats-topic"))
+            .onSuccess(stats -> testContext.verify(() -> {
+                // With the bug: recover() swallows the SQL error and returns 0.
+                // With the fix: query succeeds and returns 1.
+                // Either way, getting 0 when we inserted 1 is evidence of the bug.
+                assertEquals(1, stats.getPendingMessages(),
+                    "getStatsAsync with reserved-word schema 'order' should return 1 pending message. " +
+                    "Got 0 because unquoted 'FROM order.outbox' is a SQL syntax error and .recover() silently swallowed it.");
+                producer.close();
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        // getStatsAsync currently generates: FROM order.outbox — syntax error
-        // It has .recover() so it swallows the error and returns 0 pending
-        var stats = factory.getStatsAsync("stats-topic")
-                .toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
-
-        // With the bug: recover() swallows the SQL error and returns 0.
-        // With the fix: query succeeds and returns 1.
-        // Either way, getting 0 when we inserted 1 is evidence of the bug.
-        assertEquals(1, stats.getPendingMessages(),
-                "getStatsAsync with reserved-word schema 'order' should return 1 pending message. " +
-                "Got 0 because unquoted 'FROM order.outbox' is a SQL syntax error and .recover() silently swallowed it.");
-
-        producer.close();
-        testContext.completeNow();
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test
@@ -218,19 +222,18 @@ class OutboxSchemaQuotingTest {
         factory = new OutboxFactory(new PgDatabaseService(manager), config);
 
         var producer = factory.createProducer("count-topic", String.class);
-        producer.send("hello").get(5, TimeUnit.SECONDS);
+        producer.send("hello")
+            .compose(v -> factory.countMessagesAsync("count-topic"))
+            .onSuccess(count -> testContext.verify(() -> {
+                assertEquals(1L, count,
+                    "countMessagesAsync with schema 'order' should return 1. " +
+                    "Unquoted 'FROM order.outbox' is a SQL syntax error.");
+                producer.close();
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        // countMessagesAsync does NOT have .recover() — error propagates
-        // SQL: SELECT COUNT(*) AS total FROM order.outbox WHERE topic = $1  — syntax error
-        var count = factory.countMessagesAsync("count-topic")
-                .toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
-
-        assertEquals(1L, count,
-                "countMessagesAsync with schema 'order' should return 1. " +
-                "Unquoted 'FROM order.outbox' is a SQL syntax error.");
-
-        producer.close();
-        testContext.completeNow();
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test
@@ -249,19 +252,18 @@ class OutboxSchemaQuotingTest {
         factory = new OutboxFactory(new PgDatabaseService(manager), config);
 
         var producer = factory.createProducer("purge-topic", String.class);
-        producer.send("to-be-purged").get(5, TimeUnit.SECONDS);
+        producer.send("to-be-purged")
+            .compose(v -> factory.purgeMessagesAsync("purge-topic"))
+            .onSuccess(purged -> testContext.verify(() -> {
+                assertEquals(1, purged,
+                    "purgeMessagesAsync with schema 'order' should purge 1 message. " +
+                    "Unquoted 'DELETE FROM order.outbox' is a SQL syntax error.");
+                producer.close();
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        // purgeMessagesAsync does NOT have .recover() — error propagates
-        // SQL: DELETE FROM order.outbox WHERE topic = $1  — syntax error
-        var purged = factory.purgeMessagesAsync("purge-topic")
-                .toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
-
-        assertEquals(1, purged,
-                "purgeMessagesAsync with schema 'order' should purge 1 message. " +
-                "Unquoted 'DELETE FROM order.outbox' is a SQL syntax error.");
-
-        producer.close();
-        testContext.completeNow();
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test
@@ -281,16 +283,17 @@ class OutboxSchemaQuotingTest {
         factory = new OutboxFactory(new PgDatabaseService(manager), config);
 
         var producer = factory.createProducer("select-topic", String.class);
-        producer.send("hello").get(5, TimeUnit.SECONDS);
+        producer.send("hello")
+            .compose(v -> factory.countMessagesAsync("select-topic"))
+            .onSuccess(count -> testContext.verify(() -> {
+                assertEquals(1L, count,
+                    "countMessagesAsync with schema 'select' should return 1. " +
+                    "Unquoted 'FROM select.outbox' is a SQL syntax error.");
+                producer.close();
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        var count = factory.countMessagesAsync("select-topic")
-                .toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
-
-        assertEquals(1L, count,
-                "countMessagesAsync with schema 'select' should return 1. " +
-                "Unquoted 'FROM select.outbox' is a SQL syntax error.");
-
-        producer.close();
-        testContext.completeNow();
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 }

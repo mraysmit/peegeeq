@@ -21,7 +21,9 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
@@ -119,14 +121,18 @@ public class ReactiveOutboxProducerTest {
     void tearDown() throws Exception {
         if (producer != null) producer.close();
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+            closeLatch.await(10, TimeUnit.SECONDS);
         }
         if (connectionManager != null) connectionManager.close();
 
         // Close the test-specific Vert.x instance to prevent resource leaks
         if (testVertx != null) {
             try {
-                testVertx.close().toCompletionStage().toCompletableFuture().get(10, java.util.concurrent.TimeUnit.SECONDS);
+                CountDownLatch vertxLatch = new CountDownLatch(1);
+                testVertx.close().onComplete(ar -> vertxLatch.countDown());
+                vertxLatch.await(10, TimeUnit.SECONDS);
                 logger.info("Test Vert.x instance closed successfully");
             } catch (Exception e) {
                 logger.warn("Error closing test Vert.x instance: {}", e.getMessage());
@@ -143,15 +149,17 @@ public class ReactiveOutboxProducerTest {
         
         String testMessage = "baseline-test-message-" + System.currentTimeMillis();
         
-        // Send message using current JDBC implementation
-        producer.send(testMessage).get(5, TimeUnit.SECONDS);
+        // Send message using current implementation
+        CountDownLatch sendLatch = new CountDownLatch(1);
+        producer.send(testMessage).onComplete(ar -> sendLatch.countDown());
+        assertTrue(sendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
         logger.info("Message sent via JDBC: {}", testMessage);
         
         // Verify message exists in outbox table
         boolean messageExists = verifyOutboxMessageExists(testMessage);
         Assertions.assertTrue(messageExists, "Message should exist in outbox table");
         
-        logger.info("BASELINE TEST PASSED: Current JDBC behavior works correctly");
+        logger.info("BASELINE TEST PASSED: Current behavior works correctly");
     }
 
     @Test
@@ -160,14 +168,21 @@ public class ReactiveOutboxProducerTest {
         logger.info("--- Testing infrastructure setup ---");
 
         // Test reactive database connection and outbox table
-        Integer count = testReactivePool.withConnection(connection -> {
+        CountDownLatch infraLatch = new CountDownLatch(1);
+        AtomicReference<Integer> countRef = new AtomicReference<>();
+        testReactivePool.withConnection(connection -> {
             return connection.query("SELECT COUNT(*) FROM outbox")
                 .execute()
                 .map(rowSet -> {
                     io.vertx.sqlclient.Row row = rowSet.iterator().next();
                     return row.getInteger(0);
                 });
-        }).toCompletionStage().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
+        }).onSuccess(count -> {
+            countRef.set(count);
+            infraLatch.countDown();
+        }).onFailure(t -> infraLatch.countDown());
+        assertTrue(infraLatch.await(5, TimeUnit.SECONDS), "Infrastructure query should complete");
+        Integer count = countRef.get();
 
         logger.info("Reactive database connection successful");
         logger.info("Outbox table accessible, current message count: {}", count);
@@ -184,8 +199,10 @@ public class ReactiveOutboxProducerTest {
         // Cast to MessageProducer to access reactive methods
         MessageProducer<String> messageProducer = (MessageProducer<String>) producer;
 
-        // Send message using new reactive implementation
-        messageProducer.sendReactive(testMessage).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
+        // Send message using reactive implementation
+        CountDownLatch reactiveSendLatch = new CountDownLatch(1);
+        messageProducer.send(testMessage).onComplete(ar -> reactiveSendLatch.countDown());
+        assertTrue(reactiveSendLatch.await(5, TimeUnit.SECONDS), "Reactive send should complete");
         logger.info("Message sent via reactive method: {}", testMessage);
 
         // Verify message exists in outbox table
@@ -205,17 +222,21 @@ public class ReactiveOutboxProducerTest {
 
         MessageProducer<String> messageProducer = (MessageProducer<String>) producer;
 
-        // Send via JDBC (existing method)
+        // Send first message
         long jdbcStart = System.currentTimeMillis();
-        producer.send(jdbcMessage).get(5, TimeUnit.SECONDS);
+        CountDownLatch sendLatch1 = new CountDownLatch(1);
+        producer.send(jdbcMessage).onComplete(ar -> sendLatch1.countDown());
+        assertTrue(sendLatch1.await(5, TimeUnit.SECONDS), "First send should complete");
         long jdbcTime = System.currentTimeMillis() - jdbcStart;
-        logger.info("JDBC message sent in {}ms: {}", jdbcTime, jdbcMessage);
+        logger.info("First message sent in {}ms: {}", jdbcTime, jdbcMessage);
 
-        // Send via reactive (new method)
+        // Send second message
         long reactiveStart = System.currentTimeMillis();
-        messageProducer.sendReactive(reactiveMessage).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
+        CountDownLatch sendLatch2 = new CountDownLatch(1);
+        messageProducer.send(reactiveMessage).onComplete(ar -> sendLatch2.countDown());
+        assertTrue(sendLatch2.await(5, TimeUnit.SECONDS), "Second send should complete");
         long reactiveTime = System.currentTimeMillis() - reactiveStart;
-        logger.info("Reactive message sent in {}ms: {}", reactiveTime, reactiveMessage);
+        logger.info("Second message sent in {}ms: {}", reactiveTime, reactiveMessage);
 
         // Verify both messages exist
         Assertions.assertTrue(verifyOutboxMessageExists(jdbcMessage), "JDBC message should exist");
@@ -237,12 +258,23 @@ public class ReactiveOutboxProducerTest {
         // The actual transaction functionality will be tested when we implement the transaction manager
 
         try {
-            outboxProducer.sendInTransaction("test", (io.vertx.sqlclient.SqlConnection) null).get(1, TimeUnit.SECONDS);
-        } catch (Exception e) {
+            CountDownLatch txLatch = new CountDownLatch(1);
+            AtomicReference<Throwable> txError = new AtomicReference<>();
+            outboxProducer.sendInTransaction("test", (io.vertx.sqlclient.SqlConnection) null)
+                .onSuccess(v -> txLatch.countDown())
+                .onFailure(t -> {
+                    txError.set(t);
+                    txLatch.countDown();
+                });
+            assertTrue(txLatch.await(5, TimeUnit.SECONDS), "sendInTransaction should complete");
+            Throwable e = txError.get();
+            assertNotNull(e, "Should fail with null connection");
             // Expected to fail with null connection - this validates the method signature exists
             logger.info("sendInTransaction method exists and validates null connection: {}", e.getMessage());
             Assertions.assertTrue(e.getMessage().contains("connection cannot be null") ||
-                                e.getCause() instanceof IllegalArgumentException);
+                                e instanceof IllegalArgumentException);
+        } catch (Exception e) {
+            logger.info("sendInTransaction method validation: {}", e.getMessage());
         }
 
         logger.info("PHASE 1 STEP 2 PASSED: Transactional method signatures are correct");
@@ -258,7 +290,9 @@ public class ReactiveOutboxProducerTest {
         OutboxProducer<String> outboxProducer = (OutboxProducer<String>) producer;
 
         // Send message using production-grade transactional method
-        outboxProducer.sendWithTransaction(testMessage).get(10, TimeUnit.SECONDS);
+        CountDownLatch txSendLatch = new CountDownLatch(1);
+        outboxProducer.sendWithTransaction(testMessage).onComplete(ar -> txSendLatch.countDown());
+        assertTrue(txSendLatch.await(10, TimeUnit.SECONDS), "sendWithTransaction should complete");
         logger.info("Message sent via production-grade transaction: {}", testMessage);
 
         // Verify message exists in outbox table
@@ -281,8 +315,10 @@ public class ReactiveOutboxProducerTest {
         // Note: We'll test the method signature and basic functionality
         try {
             // Try to use TransactionPropagation - this will test if the API is available
+            CountDownLatch propLatch = new CountDownLatch(1);
             outboxProducer.sendWithTransaction(testMessage, io.vertx.sqlclient.TransactionPropagation.CONTEXT)
-                .get(10, TimeUnit.SECONDS);
+                .onComplete(ar -> propLatch.countDown());
+            assertTrue(propLatch.await(10, TimeUnit.SECONDS), "sendWithTransaction with propagation should complete");
             logger.info("Message sent with TransactionPropagation.CONTEXT: {}", testMessage);
 
             // Verify message exists in outbox table
@@ -296,7 +332,9 @@ public class ReactiveOutboxProducerTest {
             logger.warn("TransactionPropagation test failed (may not be available in this Vert.x version): {}", e.getMessage());
 
             // Fall back to testing without propagation
-            outboxProducer.sendWithTransaction(testMessage + "-fallback").get(10, TimeUnit.SECONDS);
+            CountDownLatch fallbackLatch = new CountDownLatch(1);
+            outboxProducer.sendWithTransaction(testMessage + "-fallback").onComplete(ar -> fallbackLatch.countDown());
+            assertTrue(fallbackLatch.await(10, TimeUnit.SECONDS), "Fallback send should complete");
             boolean fallbackExists = verifyOutboxMessageExists(testMessage + "-fallback");
             Assertions.assertTrue(fallbackExists, "Fallback message should exist");
 
@@ -309,16 +347,23 @@ public class ReactiveOutboxProducerTest {
      * This method will be used to validate both JDBC and reactive implementations.
      */
     private boolean verifyOutboxMessageExists(String message) throws Exception {
-        Integer count = testReactivePool.withConnection(connection -> {
+        CountDownLatch verifyLatch = new CountDownLatch(1);
+        AtomicReference<Integer> countRef = new AtomicReference<>();
+        testReactivePool.withConnection(connection -> {
             return connection.preparedQuery("SELECT COUNT(*) FROM outbox WHERE payload::text LIKE $1")
                 .execute(io.vertx.sqlclient.Tuple.of("%" + message + "%"))
                 .map(rowSet -> {
                     io.vertx.sqlclient.Row row = rowSet.iterator().next();
                     return row.getInteger(0);
                 });
-        }).toCompletionStage().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
+        }).onSuccess(count -> {
+            countRef.set(count);
+            verifyLatch.countDown();
+        }).onFailure(t -> verifyLatch.countDown());
+        assertTrue(verifyLatch.await(5, TimeUnit.SECONDS), "Verify query should complete");
+        Integer count = countRef.get();
 
-        boolean exists = count > 0;
+        boolean exists = count != null && count > 0;
         logger.info("Message '{}' exists in outbox: {} (count: {})", message, exists, count);
         return exists;
     }

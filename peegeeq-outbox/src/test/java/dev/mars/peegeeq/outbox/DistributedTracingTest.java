@@ -10,6 +10,7 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -26,7 +27,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -124,7 +126,9 @@ class DistributedTracingTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+            closeLatch.await(10, TimeUnit.SECONDS);
         }
         System.clearProperty("peegeeq.database.host");
         System.clearProperty("peegeeq.database.port");
@@ -184,13 +188,15 @@ class DistributedTracingTest {
             logger.info("Message processing complete!");
 
             messageReceived.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send message with trace context
         // Use the 3-parameter send method to explicitly set correlation ID
         System.out.println("\n📤 Sending message with trace context...");
-        producer.send("test-payload-with-tracing", headers, correlationId).get(5, TimeUnit.SECONDS);
+        CountDownLatch traceSendLatch = new CountDownLatch(1);
+        producer.send("test-payload-with-tracing", headers, correlationId).onComplete(ar -> traceSendLatch.countDown());
+        assertTrue(traceSendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
         System.out.println("Message sent successfully");
 
         // Wait for consumer to process
@@ -198,7 +204,9 @@ class DistributedTracingTest {
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Consumer should receive message");
 
         // Give a moment for all logs to flush
-        vertx.timer(500).toCompletionStage().toCompletableFuture().join();
+        CountDownLatch flushLatch = new CountDownLatch(1);
+        vertx.timer(500).onComplete(ar -> flushLatch.countDown());
+        assertTrue(flushLatch.await(5, TimeUnit.SECONDS), "Flush timer should complete");
 
         // Verify trace context was propagated
         System.out.println("\n🔍 Verifying trace context propagation:");
@@ -242,12 +250,14 @@ class DistributedTracingTest {
             logger.info("Processing message with auto-generated trace context");
 
             messageReceived.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send message WITHOUT ANY TRACE HEADERS
         System.out.println("\n📤 Sending message with NO trace context...");
-        producer.send("payload-with-no-headers").get(5, TimeUnit.SECONDS);
+        CountDownLatch noTraceSendLatch = new CountDownLatch(1);
+        producer.send("payload-with-no-headers").onComplete(ar -> noTraceSendLatch.countDown());
+        assertTrue(noTraceSendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
 
         // Wait for consumer
         System.out.println("\n⏳ Waiting for consumer...");

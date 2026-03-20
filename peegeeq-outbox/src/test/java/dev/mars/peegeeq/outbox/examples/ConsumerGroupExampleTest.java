@@ -13,6 +13,7 @@ import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -35,7 +36,7 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import java.math.BigDecimal;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -110,14 +111,20 @@ public class ConsumerGroupExampleTest {
     }
     
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws InterruptedException {
         logger.info("Tearing down Consumer Group Example Test");
         
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive()
+                .onComplete(ar -> {
+                    logger.info("✓ Consumer Group Example Test teardown completed");
+                    testContext.completeNow();
+                });
+        } else {
+            logger.info("✓ Consumer Group Example Test teardown completed");
+            testContext.completeNow();
         }
-        
-        logger.info("✓ Consumer Group Example Test teardown completed");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -145,13 +152,14 @@ public class ConsumerGroupExampleTest {
             logger.info("Processed order: {} (amount: ${})",
                 event.getOrderId(), event.getAmount());
 
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send test messages
-        producer.send(new OrderEvent("ORDER-001", "customer-1", new BigDecimal("100.00"), "PENDING")).join();
-        producer.send(new OrderEvent("ORDER-002", "customer-2", new BigDecimal("150.00"), "CONFIRMED")).join();
-        producer.send(new OrderEvent("ORDER-003", "customer-3", new BigDecimal("200.00"), "SHIPPED")).join();
+        producer.send(new OrderEvent("ORDER-001", "customer-1", new BigDecimal("100.00"), "PENDING"))
+            .compose(v -> producer.send(new OrderEvent("ORDER-002", "customer-2", new BigDecimal("150.00"), "CONFIRMED")))
+            .compose(v -> producer.send(new OrderEvent("ORDER-003", "customer-3", new BigDecimal("200.00"), "SHIPPED")))
+            .onFailure(testContext::failNow);
 
         // Wait for all messages to be processed
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "All messages should be processed within 10 seconds");
@@ -196,14 +204,15 @@ public class ConsumerGroupExampleTest {
             assertNotNull(headers, "Headers should not be null");
             assertTrue(headers.containsKey("priority"), "Should have priority header");
 
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send messages with headers
         producer.send(new OrderEvent("PAY-001", "customer-1", new BigDecimal("1000.00"), "PENDING"),
-            Map.of("priority", "HIGH")).join();
-        producer.send(new OrderEvent("PAY-002", "customer-2", new BigDecimal("100.00"), "PENDING"),
-            Map.of("priority", "NORMAL")).join();
+            Map.of("priority", "HIGH"))
+            .compose(v -> producer.send(new OrderEvent("PAY-002", "customer-2", new BigDecimal("100.00"), "PENDING"),
+                Map.of("priority", "NORMAL")))
+            .onFailure(testContext::failNow);
 
         // Wait for all messages to be processed
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "All messages should be processed within 10 seconds");
@@ -249,12 +258,13 @@ public class ConsumerGroupExampleTest {
             assertNotNull(event.getAmount(), "Amount should not be null");
             assertNotNull(event.getStatus(), "Status should not be null");
 
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send complex messages with various data types
-        producer.send(new OrderEvent("ANA-001", "premium-customer-1", new BigDecimal("999.99"), "PROCESSING")).join();
-        producer.send(new OrderEvent("ANA-002", "standard-customer-2", new BigDecimal("0.01"), "COMPLETED")).join();
+        producer.send(new OrderEvent("ANA-001", "premium-customer-1", new BigDecimal("999.99"), "PROCESSING"))
+            .compose(v -> producer.send(new OrderEvent("ANA-002", "standard-customer-2", new BigDecimal("0.01"), "COMPLETED")))
+            .onFailure(testContext::failNow);
 
         // Wait for all messages to be processed
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "All messages should be processed within 10 seconds");

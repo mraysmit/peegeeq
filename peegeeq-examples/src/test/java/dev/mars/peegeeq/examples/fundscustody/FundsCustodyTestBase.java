@@ -29,7 +29,7 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.TimeUnit;
 
 /**

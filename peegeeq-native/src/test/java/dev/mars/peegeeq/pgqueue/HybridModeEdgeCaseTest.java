@@ -30,10 +30,13 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+
+import io.vertx.core.Future;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -108,7 +111,9 @@ class HybridModeEdgeCaseTest {
             factory.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+            closeLatch.await(10, TimeUnit.SECONDS);
         }
         logger.info("Test teardown completed");
     }
@@ -134,18 +139,15 @@ class HybridModeEdgeCaseTest {
             int count = messageCount.incrementAndGet();
             logger.info("📨 Received HYBRID message {}: {}", count, message.getPayload());
             messagesReceived.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Wait for LISTEN/NOTIFY setup, then send
         vertx.setTimer(500, id -> {
-            try {
-                producer.send("HYBRID message 1").get(5, TimeUnit.SECONDS);
-                producer.send("HYBRID message 2").get(5, TimeUnit.SECONDS);
-                producer.send("HYBRID message 3").get(5, TimeUnit.SECONDS);
-            } catch (Exception e) {
-                testContext.failNow(e);
-            }
+            producer.send("HYBRID message 1")
+                .compose(v -> producer.send("HYBRID message 2"))
+                .compose(v -> producer.send("HYBRID message 3"))
+                .onFailure(testContext::failNow);
         });
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive all 3 messages quickly via LISTEN/NOTIFY");
@@ -164,8 +166,10 @@ class HybridModeEdgeCaseTest {
 
         // Send messages BEFORE creating consumer (to test polling fallback)
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-        producer.send("Existing message 1").get(5, TimeUnit.SECONDS);
-        producer.send("Existing message 2").get(5, TimeUnit.SECONDS);
+        CountDownLatch sendLatch1 = new CountDownLatch(2);
+        producer.send("Existing message 1").onComplete(ar -> sendLatch1.countDown());
+        producer.send("Existing message 2").onComplete(ar -> sendLatch1.countDown());
+        assertTrue(sendLatch1.await(5, TimeUnit.SECONDS), "Sends should complete");
 
         ConsumerConfig config = ConsumerConfig.builder()
                 .mode(ConsumerMode.HYBRID)
@@ -181,7 +185,7 @@ class HybridModeEdgeCaseTest {
             int count = messageCount.incrementAndGet();
             logger.info("📨 Received existing message {}: {}", count, message.getPayload());
             messagesReceived.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive existing messages via polling fallback");
@@ -200,8 +204,10 @@ class HybridModeEdgeCaseTest {
 
         // Send some messages BEFORE consumer starts
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-        producer.send("Pre-existing message 1").get(5, TimeUnit.SECONDS);
-        producer.send("Pre-existing message 2").get(5, TimeUnit.SECONDS);
+        CountDownLatch sendLatch2 = new CountDownLatch(2);
+        producer.send("Pre-existing message 1").onComplete(ar -> sendLatch2.countDown());
+        producer.send("Pre-existing message 2").onComplete(ar -> sendLatch2.countDown());
+        assertTrue(sendLatch2.await(5, TimeUnit.SECONDS), "Sends should complete");
 
         ConsumerConfig config = ConsumerConfig.builder()
                 .mode(ConsumerMode.HYBRID)
@@ -217,18 +223,15 @@ class HybridModeEdgeCaseTest {
             int count = messageCount.incrementAndGet();
             logger.info("📨 Received hybrid message {}: {}", count, message.getPayload());
             allMessages.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Wait for existing messages to be polled, then send new messages via LISTEN/NOTIFY
         vertx.setTimer(5000, id -> {
-            try {
-                producer.send("New message 1").get(5, TimeUnit.SECONDS);
-                producer.send("New message 2").get(5, TimeUnit.SECONDS);
-                producer.send("New message 3").get(5, TimeUnit.SECONDS);
-            } catch (Exception e) {
-                testContext.failNow(e);
-            }
+            producer.send("New message 1")
+                .compose(v -> producer.send("New message 2"))
+                .compose(v -> producer.send("New message 3"))
+                .onFailure(testContext::failNow);
         });
 
         assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Should receive all 5 messages via both mechanisms");
@@ -262,11 +265,11 @@ class HybridModeEdgeCaseTest {
             lastMessage.set(message.getPayload());
             logger.info("📨 Received cleanup test message: {}", message.getPayload());
             messageReceived.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send a message to verify consumer is working
-        producer.send("Cleanup test message").get(5, TimeUnit.SECONDS);
+        producer.send("Cleanup test message");
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
 
@@ -301,13 +304,15 @@ class HybridModeEdgeCaseTest {
             int count = messageCount.incrementAndGet();
             logger.info("📨 Received ordered message {}: {}", count, message.getPayload());
             messagesReceived.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send messages in sequence
+        CountDownLatch sendLatch3 = new CountDownLatch(6);
         for (int i = 1; i <= 6; i++) {
-            producer.send("Message " + i).get(5, TimeUnit.SECONDS);
+            producer.send("Message " + i).onComplete(ar -> sendLatch3.countDown());
         }
+        assertTrue(sendLatch3.await(10, TimeUnit.SECONDS), "All sends should complete");
 
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should receive all 6 messages");
         assertEquals(6, messageCount.get(), "Should have processed exactly 6 messages");
@@ -341,13 +346,15 @@ class HybridModeEdgeCaseTest {
                 logger.info("📨 Processed {} messages so far", count);
             }
             messagesReceived.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send messages
+        CountDownLatch sendLatch4 = new CountDownLatch(15);
         for (int i = 1; i <= 15; i++) {
-            producer.send("Performance test message " + i).get(5, TimeUnit.SECONDS);
+            producer.send("Performance test message " + i).onComplete(ar -> sendLatch4.countDown());
         }
+        assertTrue(sendLatch4.await(10, TimeUnit.SECONDS), "All sends should complete");
 
         assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Should handle moderate load efficiently");
         assertEquals(15, messageCount.get(), "Should have processed exactly 15 messages");

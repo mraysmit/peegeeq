@@ -25,8 +25,10 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -56,14 +58,6 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 class AppendBatchIntegrationTest {
-
-    private static <T> T await(io.vertx.core.Future<T> future, long timeout, TimeUnit unit) throws Exception {
-        return future.toCompletionStage().toCompletableFuture().get(timeout, unit);
-    }
-
-    private static <T> T await(java.util.concurrent.CompletionStage<T> stage, long timeout, TimeUnit unit) throws Exception {
-        return stage.toCompletableFuture().get(timeout, unit);
-    }
 
     @Container
     @SuppressWarnings("resource") // Managed by Testcontainers framework
@@ -112,40 +106,32 @@ class AppendBatchIntegrationTest {
         }
     }
 
-    private void cleanupDatabase() {
-        try {
-            PgConnectOptions connectOptions = new PgConnectOptions()
-                .setHost(postgres.getHost())
-                .setPort(postgres.getFirstMappedPort())
-                .setDatabase(postgres.getDatabaseName())
-                .setUser(postgres.getUsername())
-                .setPassword(postgres.getPassword());
+    private Future<Void> cleanupDatabase() {
+        PgConnectOptions connectOptions = new PgConnectOptions()
+            .setHost(postgres.getHost())
+            .setPort(postgres.getFirstMappedPort())
+            .setDatabase(postgres.getDatabaseName())
+            .setUser(postgres.getUsername())
+            .setPassword(postgres.getPassword());
 
-            Pool cleanupPool = PgBuilder.pool()
-                .connectingTo(connectOptions)
-                .build();
+        Pool cleanupPool = PgBuilder.pool()
+            .connectingTo(connectOptions)
+            .build();
 
-            cleanupPool.withConnection(conn ->
-                conn.query("SELECT to_regclass('public.bitemporal_event_log') AS table_name").execute()
-                    .compose(rows -> {
-                        if (!rows.iterator().hasNext() || rows.iterator().next().getValue("table_name") == null) {
-                            return io.vertx.core.Future.succeededFuture();
-                        }
-                        return conn.query("TRUNCATE TABLE bitemporal_event_log").execute().mapEmpty();
-                    })
-            ).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-
-            cleanupPool.close().toCompletionStage().toCompletableFuture().get(3, TimeUnit.SECONDS);
-            awaitAsyncDelay(200);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to cleanup test database", e);
-        }
+        return cleanupPool.withConnection(conn ->
+            conn.query("SELECT to_regclass('public.bitemporal_event_log') AS table_name").execute()
+                .compose(rows -> {
+                    if (!rows.iterator().hasNext() || rows.iterator().next().getValue("table_name") == null) {
+                        return Future.succeededFuture();
+                    }
+                    return conn.query("TRUNCATE TABLE bitemporal_event_log").execute().mapEmpty();
+                })
+        ).compose(v -> cleanupPool.close());
     }
 
     @BeforeEach
-    void setUp(Vertx vertx) throws Exception {
+    void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
         this.vertx = vertx;
-        cleanupDatabase();
 
         setTestProperty("peegeeq.database.host", postgres.getHost());
         setTestProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
@@ -158,26 +144,43 @@ class AppendBatchIntegrationTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration();
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
 
-        factory = new BiTemporalEventStoreFactory(manager);
-        eventStore = (PgBiTemporalEventStore<TestEvent>) factory.createEventStore(TestEvent.class, "bitemporal_event_log");
+        cleanupDatabase()
+            .compose(v -> manager.start())
+            .compose(v -> {
+                factory = new BiTemporalEventStoreFactory(manager);
+                eventStore = (PgBiTemporalEventStore<TestEvent>) factory.createEventStore(TestEvent.class, "bitemporal_event_log");
+                return Future.succeededFuture();
+            })
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
+        awaitSuccess(testContext, 30);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
+        Future<Void> closeFuture = Future.succeededFuture();
         if (eventStore != null) {
-            eventStore.close();
-            awaitAsyncDelay(100);
+            closeFuture = eventStore.closeFuture();
             eventStore = null;
         }
-        if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
-            awaitAsyncDelay(200);
-            manager = null;
-        }
-        cleanupDatabase();
-        restoreTestProperties();
+        closeFuture
+            .compose(v -> {
+                if (manager != null) {
+                    PeeGeeQManager m = manager;
+                    manager = null;
+                    return m.closeReactive();
+                }
+                return Future.succeededFuture();
+            })
+            .recover(t -> Future.succeededFuture())
+            .compose(v -> cleanupDatabase())
+            .onSuccess(v -> {
+                restoreTestProperties();
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
+        awaitSuccess(testContext, 30);
     }
 
     private void setTestProperty(String key, String value) {
@@ -200,14 +203,10 @@ class AppendBatchIntegrationTest {
         originalProperties.clear();
     }
 
-    private void awaitAsyncDelay(long delayMs) throws Exception {
-        vertx.timer(delayMs).toCompletionStage().toCompletableFuture().get(delayMs + 5000, TimeUnit.MILLISECONDS);
-    }
 
     @Test
     @DisplayName("appendBatch - successfully appends multiple events in a single batch")
-    void testAppendBatch_Success() throws Exception {
-        // Given
+    void testAppendBatch_Success(VertxTestContext testContext) throws Exception {
         List<PgBiTemporalEventStore.BatchEventData<TestEvent>> events = new ArrayList<>();
         Instant validTime = Instant.now();
 
@@ -222,59 +221,59 @@ class AppendBatchIntegrationTest {
             ));
         }
 
-        // When
-        List<BiTemporalEvent<TestEvent>> results = await(eventStore.appendBatch(events),
-            10, TimeUnit.SECONDS);
-
-        // Then
-        assertNotNull(results);
-        assertEquals(5, results.size());
-
-        for (int i = 0; i < 5; i++) {
-            BiTemporalEvent<TestEvent> event = results.get(i);
-            assertNotNull(event.getEventId());
-            assertEquals("test.event", event.getEventType());
-            assertEquals("id-" + i, event.getPayload().getId());
-            assertEquals("data-" + i, event.getPayload().getData());
-            assertEquals(i, event.getPayload().getValue());
-            assertEquals("correlation-" + i, event.getCorrelationId());
-            assertEquals("aggregate-" + i, event.getAggregateId());
-            assertEquals(1L, event.getVersion());
-            assertFalse(event.isCorrection());
-        }
+        eventStore.appendBatch(events)
+            .onSuccess(results -> testContext.verify(() -> {
+                assertNotNull(results);
+                assertEquals(5, results.size());
+                for (int i = 0; i < 5; i++) {
+                    BiTemporalEvent<TestEvent> event = results.get(i);
+                    assertNotNull(event.getEventId());
+                    assertEquals("test.event", event.getEventType());
+                    assertEquals("id-" + i, event.getPayload().getId());
+                    assertEquals("data-" + i, event.getPayload().getData());
+                    assertEquals(i, event.getPayload().getValue());
+                    assertEquals("correlation-" + i, event.getCorrelationId());
+                    assertEquals("aggregate-" + i, event.getAggregateId());
+                    assertEquals(1L, event.getVersion());
+                    assertFalse(event.isCorrection());
+                }
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+        awaitSuccess(testContext, 10);
     }
 
     @Test
     @DisplayName("appendBatch - returns empty list for empty input")
-    void testAppendBatch_EmptyList() throws Exception {
-        // Given
+    void testAppendBatch_EmptyList(VertxTestContext testContext) throws Exception {
         List<PgBiTemporalEventStore.BatchEventData<TestEvent>> events = new ArrayList<>();
 
-        // When
-        List<BiTemporalEvent<TestEvent>> results = await(eventStore.appendBatch(events),
-            10, TimeUnit.SECONDS);
-
-        // Then
-        assertNotNull(results);
-        assertTrue(results.isEmpty());
+        eventStore.appendBatch(events)
+            .onSuccess(results -> testContext.verify(() -> {
+                assertNotNull(results);
+                assertTrue(results.isEmpty());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+        awaitSuccess(testContext, 10);
     }
 
     @Test
     @DisplayName("appendBatch - returns empty list for null input")
-    void testAppendBatch_NullList() throws Exception {
-        // When
-        List<BiTemporalEvent<TestEvent>> results = await(eventStore.appendBatch(null),
-            10, TimeUnit.SECONDS);
-
-        // Then
-        assertNotNull(results);
-        assertTrue(results.isEmpty());
+    void testAppendBatch_NullList(VertxTestContext testContext) throws Exception {
+        eventStore.appendBatch(null)
+            .onSuccess(results -> testContext.verify(() -> {
+                assertNotNull(results);
+                assertTrue(results.isEmpty());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+        awaitSuccess(testContext, 10);
     }
 
     @Test
     @DisplayName("appendBatch - handles single event batch")
-    void testAppendBatch_SingleEvent() throws Exception {
-        // Given
+    void testAppendBatch_SingleEvent(VertxTestContext testContext) throws Exception {
         List<PgBiTemporalEventStore.BatchEventData<TestEvent>> events = List.of(
             new PgBiTemporalEventStore.BatchEventData<>(
                 "single.event",
@@ -286,21 +285,21 @@ class AppendBatchIntegrationTest {
             )
         );
 
-        // When
-        List<BiTemporalEvent<TestEvent>> results = await(eventStore.appendBatch(events),
-            10, TimeUnit.SECONDS);
-
-        // Then
-        assertNotNull(results);
-        assertEquals(1, results.size());
-        assertEquals("single.event", results.get(0).getEventType());
-        assertEquals("single-id", results.get(0).getPayload().getId());
+        eventStore.appendBatch(events)
+            .onSuccess(results -> testContext.verify(() -> {
+                assertNotNull(results);
+                assertEquals(1, results.size());
+                assertEquals("single.event", results.get(0).getEventType());
+                assertEquals("single-id", results.get(0).getPayload().getId());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+        awaitSuccess(testContext, 10);
     }
 
     @Test
     @DisplayName("appendBatch - handles large batch for throughput")
-    void testAppendBatch_LargeBatch() throws Exception {
-        // Given - create a larger batch to test throughput
+    void testAppendBatch_LargeBatch(VertxTestContext testContext) throws Exception {
         int batchSize = 100;
         List<PgBiTemporalEventStore.BatchEventData<TestEvent>> events = new ArrayList<>();
         Instant validTime = Instant.now();
@@ -316,29 +315,27 @@ class AppendBatchIntegrationTest {
             ));
         }
 
-        // When
         long startTime = System.currentTimeMillis();
-        List<BiTemporalEvent<TestEvent>> results = await(eventStore.appendBatch(events),
-            30, TimeUnit.SECONDS);
-        long duration = System.currentTimeMillis() - startTime;
-
-        // Then
-        assertNotNull(results);
-        assertEquals(batchSize, results.size());
-        System.out.println("Batch of " + batchSize + " events inserted in " + duration + "ms");
-
-        // Verify all events have unique IDs
-        long uniqueIds = results.stream()
-            .map(BiTemporalEvent::getEventId)
-            .distinct()
-            .count();
-        assertEquals(batchSize, uniqueIds);
+        eventStore.appendBatch(events)
+            .onSuccess(results -> testContext.verify(() -> {
+                long duration = System.currentTimeMillis() - startTime;
+                assertNotNull(results);
+                assertEquals(batchSize, results.size());
+                System.out.println("Batch of " + batchSize + " events inserted in " + duration + "ms");
+                long uniqueIds = results.stream()
+                    .map(BiTemporalEvent::getEventId)
+                    .distinct()
+                    .count();
+                assertEquals(batchSize, uniqueIds);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+        awaitSuccess(testContext, 30);
     }
 
     @Test
     @DisplayName("appendBatch - events can be queried after batch insert")
-    void testAppendBatch_EventsQueryable() throws Exception {
-        // Given
+    void testAppendBatch_EventsQueryable(VertxTestContext testContext) throws Exception {
         List<PgBiTemporalEventStore.BatchEventData<TestEvent>> events = List.of(
             new PgBiTemporalEventStore.BatchEventData<>(
                 "queryable.event",
@@ -358,16 +355,19 @@ class AppendBatchIntegrationTest {
             )
         );
 
-        // When - insert batch
-        await(eventStore.appendBatch(events), 10, TimeUnit.SECONDS);
-
-        // Then - query and verify
-        EventQuery query = EventQuery.builder()
-            .eventType("queryable.event")
-            .build();
-        List<BiTemporalEvent<TestEvent>> queried = await(eventStore.query(query), 10, TimeUnit.SECONDS);
-
-        assertEquals(2, queried.size());
+        eventStore.appendBatch(events)
+            .compose(inserted -> {
+                EventQuery query = EventQuery.builder()
+                    .eventType("queryable.event")
+                    .build();
+                return eventStore.query(query);
+            })
+            .onSuccess(queried -> testContext.verify(() -> {
+                assertEquals(2, queried.size());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+        awaitSuccess(testContext, 10);
     }
 
     @Test
@@ -414,6 +414,20 @@ class AppendBatchIntegrationTest {
         assertNull(batchData.headers());
         assertNull(batchData.correlationId());
         assertNull(batchData.aggregateId());
+    }
+
+    private void awaitSuccess(VertxTestContext testContext, long timeoutSeconds) {
+        boolean completed;
+        try {
+            completed = testContext.awaitCompletion(timeoutSeconds, TimeUnit.SECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new AssertionError("Interrupted while awaiting asynchronous test completion", e);
+        }
+        assertTrue(completed, "Test timed out after " + timeoutSeconds + " seconds");
+        if (testContext.failed()) {
+            throw new AssertionError("Asynchronous test flow failed", testContext.causeOfFailure());
+        }
     }
 }
 

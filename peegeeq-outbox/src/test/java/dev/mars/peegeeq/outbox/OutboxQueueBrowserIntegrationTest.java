@@ -26,7 +26,11 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -49,6 +53,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 public class OutboxQueueBrowserIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxQueueBrowserIntegrationTest.class);
@@ -115,7 +120,7 @@ public class OutboxQueueBrowserIntegrationTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws InterruptedException {
         if (producer != null) {
             try {
                 producer.close();
@@ -131,166 +136,211 @@ public class OutboxQueueBrowserIntegrationTest {
             }
         }
         if (manager != null) {
-            try {
-                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
-            } catch (Exception e) {
-                logger.warn("Error stopping manager: {}", e.getMessage());
-            }
+            manager.closeReactive()
+                .onComplete(ar -> {
+                    if (ar.failed()) {
+                        logger.warn("Error stopping manager: {}", ar.cause().getMessage());
+                    }
+                    logger.info("OutboxQueueBrowser integration test teardown completed");
+                    testContext.completeNow();
+                });
+        } else {
+            logger.info("OutboxQueueBrowser integration test teardown completed");
+            testContext.completeNow();
         }
-        logger.info("OutboxQueueBrowser integration test teardown completed");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
 
         // Clear trace context
         MDC.clear();
     }
 
     @Test
-    void testBrowseEmptyQueue() throws Exception {
+    void testBrowseEmptyQueue(VertxTestContext testContext) throws InterruptedException {
         // When - browse empty queue
-        List<Message<String>> messages = browser.browse(10, 0).get(5, TimeUnit.SECONDS);
-
-        // Then
-        assertNotNull(messages);
-        assertTrue(messages.isEmpty());
+        browser.browse(10, 0)
+            .onSuccess(messages -> testContext.verify(() -> {
+                // Then
+                assertNotNull(messages);
+                assertTrue(messages.isEmpty());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testBrowseMessages() throws Exception {
+    void testBrowseMessages(VertxTestContext testContext) throws InterruptedException {
         // Given - produce 3 messages
-        producer.send("message-1").get(5, TimeUnit.SECONDS);
-        producer.send("message-2").get(5, TimeUnit.SECONDS);
-        producer.send("message-3").get(5, TimeUnit.SECONDS);
-
-        // When - browse messages
-        List<Message<String>> messages = browser.browse(10, 0).get(5, TimeUnit.SECONDS);
-
-        // Then
-        assertNotNull(messages);
-        assertEquals(3, messages.size());
-        
-        // Messages returned in DESC order (newest first by default)
-        assertEquals("message-3", messages.get(0).getPayload());
-        assertEquals("message-2", messages.get(1).getPayload());
-        assertEquals("message-1", messages.get(2).getPayload());
+        producer.send("message-1")
+            .compose(v -> producer.send("message-2"))
+            .compose(v -> producer.send("message-3"))
+            // When - browse messages
+            .compose(v -> browser.browse(10, 0))
+            .onSuccess(messages -> testContext.verify(() -> {
+                // Then
+                assertNotNull(messages);
+                assertEquals(3, messages.size());
+                
+                // Messages returned in DESC order (newest first by default)
+                assertEquals("message-3", messages.get(0).getPayload());
+                assertEquals("message-2", messages.get(1).getPayload());
+                assertEquals("message-1", messages.get(2).getPayload());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testBrowseWithLimit() throws Exception {
+    void testBrowseWithLimit(VertxTestContext testContext) throws InterruptedException {
         // Given - produce 5 messages
+        Future<Void> chain = Future.succeededFuture();
         for (int i = 1; i <= 5; i++) {
-            producer.send("message-" + i).get(5, TimeUnit.SECONDS);
+            final int idx = i;
+            chain = chain.compose(v -> producer.send("message-" + idx));
         }
 
         // When - browse with limit of 2
-        List<Message<String>> messages = browser.browse(2, 0).get(5, TimeUnit.SECONDS);
-
-        // Then - should only return 2 messages (newest first)
-        assertEquals(2, messages.size());
-        assertEquals("message-5", messages.get(0).getPayload());
-        assertEquals("message-4", messages.get(1).getPayload());
+        chain.compose(v -> browser.browse(2, 0))
+            .onSuccess(messages -> testContext.verify(() -> {
+                // Then - should only return 2 messages (newest first)
+                assertEquals(2, messages.size());
+                assertEquals("message-5", messages.get(0).getPayload());
+                assertEquals("message-4", messages.get(1).getPayload());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testBrowseWithOffset() throws Exception {
+    void testBrowseWithOffset(VertxTestContext testContext) throws InterruptedException {
         // Given - produce 5 messages
+        Future<Void> chain = Future.succeededFuture();
         for (int i = 1; i <= 5; i++) {
-            producer.send("message-" + i).get(5, TimeUnit.SECONDS);
+            final int idx = i;
+            chain = chain.compose(v -> producer.send("message-" + idx));
         }
 
         // When - browse with offset of 2
-        List<Message<String>> messages = browser.browse(10, 2).get(5, TimeUnit.SECONDS);
-
-        // Then - should skip first 2 messages
-        assertEquals(3, messages.size());
-        assertEquals("message-3", messages.get(0).getPayload());
-        assertEquals("message-2", messages.get(1).getPayload());
-        assertEquals("message-1", messages.get(2).getPayload());
+        chain.compose(v -> browser.browse(10, 2))
+            .onSuccess(messages -> testContext.verify(() -> {
+                // Then - should skip first 2 messages
+                assertEquals(3, messages.size());
+                assertEquals("message-3", messages.get(0).getPayload());
+                assertEquals("message-2", messages.get(1).getPayload());
+                assertEquals("message-1", messages.get(2).getPayload());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testBrowsePagination() throws Exception {
+    void testBrowsePagination(VertxTestContext testContext) throws InterruptedException {
         // Given - produce 5 messages
+        Future<Void> chain = Future.succeededFuture();
         for (int i = 1; i <= 5; i++) {
-            producer.send("message-" + i).get(5, TimeUnit.SECONDS);
+            final int idx = i;
+            chain = chain.compose(v -> producer.send("message-" + idx));
         }
 
-        // When - browse first page (limit 2, offset 0)
-        List<Message<String>> page1 = browser.browse(2, 0).get(5, TimeUnit.SECONDS);
-
-        // Then - verify first page
-        assertEquals(2, page1.size());
-        assertEquals("message-5", page1.get(0).getPayload());
-        assertEquals("message-4", page1.get(1).getPayload());
-
-        // When - browse second page (limit 2, offset 2)
-        List<Message<String>> page2 = browser.browse(2, 2).get(5, TimeUnit.SECONDS);
-
-        // Then - verify second page
-        assertEquals(2, page2.size());
-        assertEquals("message-3", page2.get(0).getPayload());
-        assertEquals("message-2", page2.get(1).getPayload());
-
-        // When - browse third page (limit 2, offset 4)
-        List<Message<String>> page3 = browser.browse(2, 4).get(5, TimeUnit.SECONDS);
-
-        // Then - verify last page
-        assertEquals(1, page3.size());
-        assertEquals("message-1", page3.get(0).getPayload());
+        // When/Then - browse pages
+        chain.compose(v -> browser.browse(2, 0))
+            .compose(page1 -> {
+                // Verify first page
+                testContext.verify(() -> {
+                    assertEquals(2, page1.size());
+                    assertEquals("message-5", page1.get(0).getPayload());
+                    assertEquals("message-4", page1.get(1).getPayload());
+                });
+                return browser.browse(2, 2);
+            })
+            .compose(page2 -> {
+                // Verify second page
+                testContext.verify(() -> {
+                    assertEquals(2, page2.size());
+                    assertEquals("message-3", page2.get(0).getPayload());
+                    assertEquals("message-2", page2.get(1).getPayload());
+                });
+                return browser.browse(2, 4);
+            })
+            .onSuccess(page3 -> testContext.verify(() -> {
+                // Verify last page
+                assertEquals(1, page3.size());
+                assertEquals("message-1", page3.get(0).getPayload());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testBrowseWithHeaders() throws Exception {
+    void testBrowseWithHeaders(VertxTestContext testContext) throws InterruptedException {
         // Given - produce message with headers
         Map<String, String> headers = new HashMap<>();
         headers.put("source", "test");
         headers.put("type", "integration-test");
         headers.put("version", "1.0");
         
-        producer.send("test-payload", headers).get(5, TimeUnit.SECONDS);
-
-        // When - browse messages
-        List<Message<String>> messages = browser.browse(10, 0).get(5, TimeUnit.SECONDS);
-
-        // Then
-        assertEquals(1, messages.size());
-        Message<String> msg = messages.get(0);
-        assertEquals("test-payload", msg.getPayload());
-        
-        Map<String, String> retrievedHeaders = msg.getHeaders();
-        assertNotNull(retrievedHeaders);
-        assertEquals("test", retrievedHeaders.get("source"));
-        assertEquals("integration-test", retrievedHeaders.get("type"));
-        assertEquals("1.0", retrievedHeaders.get("version"));
+        producer.send("test-payload", headers)
+            // When - browse messages
+            .compose(v -> browser.browse(10, 0))
+            .onSuccess(messages -> testContext.verify(() -> {
+                // Then
+                assertEquals(1, messages.size());
+                Message<String> msg = messages.get(0);
+                assertEquals("test-payload", msg.getPayload());
+                
+                Map<String, String> retrievedHeaders = msg.getHeaders();
+                assertNotNull(retrievedHeaders);
+                assertEquals("test", retrievedHeaders.get("source"));
+                assertEquals("integration-test", retrievedHeaders.get("type"));
+                assertEquals("1.0", retrievedHeaders.get("version"));
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testBrowseWithCorrelationId() throws Exception {
+    void testBrowseWithCorrelationId(VertxTestContext testContext) throws InterruptedException {
         // Given - produce message with correlation ID
         String correlationId = "correlation-123-456";
-        producer.send("test-payload", null, correlationId).get(5, TimeUnit.SECONDS);
-
-        // When - browse messages
-        List<Message<String>> messages = browser.browse(10, 0).get(5, TimeUnit.SECONDS);
-
-        // Then
-        assertEquals(1, messages.size());
-        Message<String> msg = messages.get(0);
-        assertTrue(msg instanceof OutboxMessage, "Message should be an instance of OutboxMessage");
-        assertEquals(correlationId, ((OutboxMessage<String>) msg).getCorrelationId());
+        producer.send("test-payload", null, correlationId)
+            // When - browse messages
+            .compose(v -> browser.browse(10, 0))
+            .onSuccess(messages -> testContext.verify(() -> {
+                // Then
+                assertEquals(1, messages.size());
+                Message<String> msg = messages.get(0);
+                assertTrue(msg instanceof OutboxMessage, "Message should be an instance of OutboxMessage");
+                assertEquals(correlationId, ((OutboxMessage<String>) msg).getCorrelationId());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testBrowseAfterClose() {
+    void testBrowseAfterClose(VertxTestContext testContext) throws InterruptedException {
         // Given
         browser.close();
 
         // When/Then - browsing after close should fail
-        assertThrows(Exception.class, () -> {
-            browser.browse(10, 0).get(5, TimeUnit.SECONDS);
-        });
+        try {
+            browser.browse(10, 0)
+                .onFailure(err -> testContext.completeNow())
+                .onSuccess(result -> testContext.failNow("Expected failure after close"));
+        } catch (Exception e) {
+            // browse() threw synchronously after close
+            testContext.completeNow();
+        }
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testBrowseWithDifferentPayloadType() throws Exception {
+    void testBrowseWithDifferentPayloadType(VertxTestContext testContext) throws InterruptedException {
         // Given - create browser and producer for Integer type
         String intTopic = "int-topic";
         OutboxQueueBrowser<Integer> intBrowser = new OutboxQueueBrowser<>(
@@ -300,58 +350,71 @@ public class OutboxQueueBrowserIntegrationTest {
             clientFactory, objectMapper, intTopic, Integer.class, null
         );
 
-        try {
-            // Produce integer messages
-            intProducer.send(42).get(5, TimeUnit.SECONDS);
-            intProducer.send(100).get(5, TimeUnit.SECONDS);
-
+        // Produce integer messages
+        intProducer.send(42)
+            .compose(v -> intProducer.send(100))
             // When - browse messages
-            List<Message<Integer>> messages = intBrowser.browse(10, 0).get(5, TimeUnit.SECONDS);
-
-            // Then
-            assertEquals(2, messages.size());
-            assertEquals(100, messages.get(0).getPayload());
-            assertEquals(42, messages.get(1).getPayload());
-        } finally {
-            intProducer.close();
-            intBrowser.close();
-        }
+            .compose(v -> intBrowser.browse(10, 0))
+            .onComplete(ar -> {
+                intProducer.close();
+                intBrowser.close();
+                if (ar.succeeded()) {
+                    testContext.verify(() -> {
+                        List<Message<Integer>> messages = ar.result();
+                        assertEquals(2, messages.size());
+                        assertEquals(100, messages.get(0).getPayload());
+                        assertEquals(42, messages.get(1).getPayload());
+                        testContext.completeNow();
+                    });
+                } else {
+                    testContext.failNow(ar.cause());
+                }
+            });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testBrowseMetadata() throws Exception {
+    void testBrowseMetadata(VertxTestContext testContext) throws InterruptedException {
         // Given - produce a message
-        producer.send("test-message").get(5, TimeUnit.SECONDS);
-
-        // When - browse messages
-        List<Message<String>> messages = browser.browse(10, 0).get(5, TimeUnit.SECONDS);
-
-        // Then - verify message metadata
-        assertEquals(1, messages.size());
-        Message<String> msg = messages.get(0);
-        
-        assertNotNull(msg.getId(), "Message ID should not be null");
-        assertNotNull(msg.getCreatedAt(), "Created timestamp should not be null");
-        
-        assertTrue(msg instanceof OutboxMessage, "Message should be an instance of OutboxMessage");
-        assertEquals("test-message", msg.getPayload(), "Payload should match");
+        producer.send("test-message")
+            // When - browse messages
+            .compose(v -> browser.browse(10, 0))
+            .onSuccess(messages -> testContext.verify(() -> {
+                // Then - verify message metadata
+                assertEquals(1, messages.size());
+                Message<String> msg = messages.get(0);
+                
+                assertNotNull(msg.getId(), "Message ID should not be null");
+                assertNotNull(msg.getCreatedAt(), "Created timestamp should not be null");
+                
+                assertTrue(msg instanceof OutboxMessage, "Message should be an instance of OutboxMessage");
+                assertEquals("test-message", msg.getPayload(), "Payload should match");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testBrowseDoesNotConsumeMessages() throws Exception {
+    void testBrowseDoesNotConsumeMessages(VertxTestContext testContext) throws InterruptedException {
         // Given - produce 2 messages
-        producer.send("message-1").get(5, TimeUnit.SECONDS);
-        producer.send("message-2").get(5, TimeUnit.SECONDS);
-
-        // When - browse messages multiple times
-        List<Message<String>> firstBrowse = browser.browse(10, 0).get(5, TimeUnit.SECONDS);
-        List<Message<String>> secondBrowse = browser.browse(10, 0).get(5, TimeUnit.SECONDS);
-
-        // Then - both browses should return same messages
-        assertEquals(2, firstBrowse.size());
-        assertEquals(2, secondBrowse.size());
-        assertEquals(firstBrowse.get(0).getPayload(), secondBrowse.get(0).getPayload());
-        assertEquals(firstBrowse.get(1).getPayload(), secondBrowse.get(1).getPayload());
+        producer.send("message-1")
+            .compose(v -> producer.send("message-2"))
+            // When - browse messages multiple times
+            .compose(v -> browser.browse(10, 0))
+            .compose(firstBrowse -> browser.browse(10, 0).map(secondBrowse -> {
+                // Then - both browses should return same messages
+                testContext.verify(() -> {
+                    assertEquals(2, firstBrowse.size());
+                    assertEquals(2, secondBrowse.size());
+                    assertEquals(firstBrowse.get(0).getPayload(), secondBrowse.get(0).getPayload());
+                    assertEquals(firstBrowse.get(1).getPayload(), secondBrowse.get(1).getPayload());
+                });
+                return null;
+            }))
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test

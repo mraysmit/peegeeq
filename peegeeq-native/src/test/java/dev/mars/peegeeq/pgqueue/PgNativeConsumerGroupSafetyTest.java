@@ -20,7 +20,7 @@ import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import io.vertx.core.Vertx;
 import org.junit.jupiter.api.Test;
 
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;

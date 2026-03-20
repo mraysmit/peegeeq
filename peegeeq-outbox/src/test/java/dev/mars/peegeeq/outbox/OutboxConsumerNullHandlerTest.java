@@ -19,7 +19,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -84,24 +85,28 @@ public class OutboxConsumerNullHandlerTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+            closeLatch.await(10, TimeUnit.SECONDS);
         }
     }
 
     @Test
     void testNullHandlerReturn() throws Exception {
-        CompletableFuture<Void> handlerCalled = new CompletableFuture<>();
+        CountDownLatch handlerCalled = new CountDownLatch(1);
         AtomicBoolean invoked = new AtomicBoolean(false);
         
         consumer.subscribe(message -> {
             invoked.set(true);
-            handlerCalled.complete(null);
+            handlerCalled.countDown();
             return null; // This should trigger null check at lines 426-430
         });
         
-        producer.send("Test null return").get(5, TimeUnit.SECONDS);
+        CountDownLatch sendLatch = new CountDownLatch(1);
+        producer.send("Test null return").onComplete(ar -> sendLatch.countDown());
+        assertTrue(sendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
         
-        handlerCalled.get(10, TimeUnit.SECONDS); // Handler should be called
+        assertTrue(handlerCalled.await(10, TimeUnit.SECONDS), "Handler should be called");
         assertTrue(invoked.get(), "Handler should have been invoked");
     }
 }

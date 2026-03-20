@@ -24,10 +24,12 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import io.vertx.core.Future;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -109,7 +111,9 @@ class PeeGeeQConfigurationConsumerModeTest {
         logger.info("Tearing down PeeGeeQConfiguration consumer mode integration test");
 
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+            closeLatch.await(10, TimeUnit.SECONDS);
         }
 
         // Clear system properties to avoid test interference
@@ -159,7 +163,7 @@ class PeeGeeQConfigurationConsumerModeTest {
             int count = processedCount.incrementAndGet();
             logger.info("\ud83d\udce8 Processed message {} with batch size configuration: {}", count, message.getPayload());
             allDone.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send messages to test batch processing
@@ -210,7 +214,7 @@ class PeeGeeQConfigurationConsumerModeTest {
             int count = processedCount.incrementAndGet();
             logger.info("\ud83d\udce8 Processed message {} with polling interval configuration: {}", count, message.getPayload());
             allDone.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send messages to test polling behavior
@@ -259,7 +263,7 @@ class PeeGeeQConfigurationConsumerModeTest {
             int count = processedCount.incrementAndGet();
             logger.info("\ud83d\udce8 Processed message {} with visibility timeout configuration: {}", count, message.getPayload());
             allDone.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send messages to test visibility timeout behavior
@@ -311,7 +315,7 @@ class PeeGeeQConfigurationConsumerModeTest {
             logger.info("\ud83d\udce8 Processed message {} with consumer threads configuration: {} (Thread: {})", 
                 count, message.getPayload(), Thread.currentThread().getName());
             allDone.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send messages to test multi-threaded processing
@@ -375,7 +379,7 @@ class PeeGeeQConfigurationConsumerModeTest {
             logger.info("\ud83d\udce8 Processed message {} with multiple configuration properties: {} (Thread: {})",
                 count, message.getPayload(), Thread.currentThread().getName());
             allDone.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send messages to test all configuration properties working together
@@ -438,7 +442,7 @@ class PeeGeeQConfigurationConsumerModeTest {
             int count = processedCount.incrementAndGet();
             logger.info("\ud83d\udce8 Processed message {} with default configuration values: {}", count, message.getPayload());
             allDone.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send messages to test default configuration behavior

@@ -10,8 +10,12 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.sqlclient.TransactionPropagation;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -21,6 +25,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
 /**
@@ -29,6 +34,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 public class OutboxProducerTransactionTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxProducerTransactionTest.class);
@@ -75,152 +81,194 @@ public class OutboxProducerTransactionTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         if (producer != null) {
             producer.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive().onComplete(ar -> testContext.completeNow());
+            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        } else {
+            testContext.completeNow();
         }
     }
 
     @Test
     @DisplayName("Test sendWithTransaction(payload)")
-    void testSendWithTransactionPayloadOnly() throws Exception {
+    void testSendWithTransactionPayloadOnly(VertxTestContext testContext) throws Exception {
         String payload = "tx-payload-" + System.currentTimeMillis();
         
-        producer.sendWithTransaction(payload).get(5, TimeUnit.SECONDS);
+        producer.sendWithTransaction(payload)
+            .onSuccess(v -> {
+                logger.info("Successfully sent message with transaction (payload only): {}", payload);
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
         
-        logger.info("Successfully sent message with transaction (payload only): {}", payload);
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
     }
 
     @Test
     @DisplayName("Test sendWithTransaction(payload, headers)")
-    void testSendWithTransactionPayloadAndHeaders() throws Exception {
+    void testSendWithTransactionPayloadAndHeaders(VertxTestContext testContext) throws Exception {
         String payload = "tx-headers-" + System.currentTimeMillis();
         Map<String, String> headers = new HashMap<>();
         headers.put("test-header", "test-value");
         headers.put("priority", "high");
         
-        producer.sendWithTransaction(payload, headers).get(5, TimeUnit.SECONDS);
+        producer.sendWithTransaction(payload, headers)
+            .onSuccess(v -> {
+                logger.info("Successfully sent message with transaction (payload + headers)");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
         
-        logger.info("Successfully sent message with transaction (payload + headers)");
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
     }
 
     @Test
     @DisplayName("Test sendWithTransaction(payload, headers, correlationId)")
-    void testSendWithTransactionWithCorrelationId() throws Exception {
+    void testSendWithTransactionWithCorrelationId(VertxTestContext testContext) throws Exception {
         String payload = "tx-correlation-" + System.currentTimeMillis();
         Map<String, String> headers = new HashMap<>();
         headers.put("test", "value");
         String correlationId = "corr-" + System.currentTimeMillis();
         
-        producer.sendWithTransaction(payload, headers, correlationId).get(5, TimeUnit.SECONDS);
+        producer.sendWithTransaction(payload, headers, correlationId)
+            .onSuccess(v -> {
+                logger.info("Successfully sent message with transaction (payload + headers + correlationId)");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
         
-        logger.info("Successfully sent message with transaction (payload + headers + correlationId)");
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
     }
 
     @Test
     @DisplayName("Test sendWithTransaction(payload, propagation)")
-    void testSendWithTransactionPropagation() throws Exception {
+    void testSendWithTransactionPropagation(VertxTestContext testContext) throws Exception {
         String payload = "tx-propagation-" + System.currentTimeMillis();
         
-        try {
-            producer.sendWithTransaction(payload, TransactionPropagation.CONTEXT).get(5, TimeUnit.SECONDS);
-            logger.info("Successfully sent message with TransactionPropagation.CONTEXT");
-        } catch (Exception e) {
-            // TransactionPropagation may fail without active transaction context
-            logger.info("TransactionPropagation test completed (expected failure without context): {}", e.getMessage());
-        }
+        producer.sendWithTransaction(payload, TransactionPropagation.CONTEXT)
+            .onSuccess(v -> {
+                logger.info("Successfully sent message with TransactionPropagation.CONTEXT");
+                testContext.completeNow();
+            })
+            .onFailure(e -> {
+                // TransactionPropagation may fail without active transaction context
+                logger.info("TransactionPropagation test completed (expected failure without context): {}", e.getMessage());
+                testContext.completeNow();
+            });
+        
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
     }
 
     @Test
     @DisplayName("Test sendWithTransaction(payload, headers, propagation)")
-    void testSendWithTransactionHeadersAndPropagation() throws Exception {
+    void testSendWithTransactionHeadersAndPropagation(VertxTestContext testContext) throws Exception {
         String payload = "tx-headers-prop-" + System.currentTimeMillis();
         Map<String, String> headers = new HashMap<>();
         headers.put("type", "test");
         
-        try {
-            producer.sendWithTransaction(payload, headers, TransactionPropagation.CONTEXT).get(5, TimeUnit.SECONDS);
-            logger.info("Successfully sent message with headers and propagation");
-        } catch (Exception e) {
-            logger.info("Headers + propagation test completed: {}", e.getMessage());
-        }
+        producer.sendWithTransaction(payload, headers, TransactionPropagation.CONTEXT)
+            .onSuccess(v -> {
+                logger.info("Successfully sent message with headers and propagation");
+                testContext.completeNow();
+            })
+            .onFailure(e -> {
+                logger.info("Headers + propagation test completed: {}", e.getMessage());
+                testContext.completeNow();
+            });
+        
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
     }
 
     @Test
     @DisplayName("Test sendWithTransaction(payload, headers, correlationId, propagation)")
-    void testSendWithTransactionFullParameters() throws Exception {
+    void testSendWithTransactionFullParameters(VertxTestContext testContext) throws Exception {
         String payload = "tx-full-" + System.currentTimeMillis();
         Map<String, String> headers = new HashMap<>();
         headers.put("full", "test");
         String correlationId = "full-corr-" + System.currentTimeMillis();
         
-        try {
-            producer.sendWithTransaction(payload, headers, correlationId, TransactionPropagation.CONTEXT)
-                    .get(5, TimeUnit.SECONDS);
-            logger.info("Successfully sent message with all parameters");
-        } catch (Exception e) {
-            logger.info("Full parameters test completed: {}", e.getMessage());
-        }
+        producer.sendWithTransaction(payload, headers, correlationId, TransactionPropagation.CONTEXT)
+            .onSuccess(v -> {
+                logger.info("Successfully sent message with all parameters");
+                testContext.completeNow();
+            })
+            .onFailure(e -> {
+                logger.info("Full parameters test completed: {}", e.getMessage());
+                testContext.completeNow();
+            });
+        
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
     }
 
     @Test
     @DisplayName("Test sendWithTransaction when producer is closed")
-    void testSendWithTransactionWhenClosed() {
+    void testSendWithTransactionWhenClosed(VertxTestContext testContext) throws Exception {
         String payload = "tx-closed-" + System.currentTimeMillis();
         
-        try {
-            producer.close();
-            producer.sendWithTransaction(payload).get(2, TimeUnit.SECONDS);
-            Assertions.fail("Should have thrown exception when sending with closed producer");
-        } catch (Exception e) {
-            logger.info("Correctly rejected transaction on closed producer: {}", e.getMessage());
-            Assertions.assertTrue(e.getMessage() != null && e.getMessage().contains("closed"));
-        }
+        producer.close();
+        producer.sendWithTransaction(payload)
+            .onSuccess(v -> testContext.failNow("Should have thrown exception when sending with closed producer"))
+            .onFailure(e -> testContext.verify(() -> {
+                logger.info("Correctly rejected transaction on closed producer: {}", e.getMessage());
+                assertTrue(e.getMessage() != null && e.getMessage().contains("closed"));
+                testContext.completeNow();
+            }));
+        
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
     }
 
     @Test
     @DisplayName("Test sendWithTransaction with null payload")
-    void testSendWithTransactionNullPayload() {
-        try {
-            producer.sendWithTransaction(null).get(2, TimeUnit.SECONDS);
-            Assertions.fail("Should have thrown exception for null payload");
-        } catch (Exception e) {
-            logger.info("Correctly rejected null payload: {}", e.getMessage());
-        }
+    void testSendWithTransactionNullPayload(VertxTestContext testContext) throws Exception {
+        producer.sendWithTransaction(null)
+            .onSuccess(v -> testContext.failNow("Should have thrown exception for null payload"))
+            .onFailure(e -> {
+                logger.info("Correctly rejected null payload: {}", e.getMessage());
+                testContext.completeNow();
+            });
+        
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
     }
 
     @Test
     @DisplayName("Test sendInTransaction with null connection")
-    void testSendInTransactionNullConnection() {
-        try {
-            producer.sendInTransaction("test", (io.vertx.sqlclient.SqlConnection) null)
-                    .get(1, TimeUnit.SECONDS);
-            Assertions.fail("Should have thrown exception for null connection");
-        } catch (Exception e) {
-            logger.info("Correctly rejected null connection: {}", e.getMessage());
-            Assertions.assertTrue(e.getMessage() != null && 
-                (e.getMessage().contains("connection cannot be null") || 
-                 e.getCause() instanceof IllegalArgumentException));
-        }
+    void testSendInTransactionNullConnection(VertxTestContext testContext) throws Exception {
+        producer.sendInTransaction("test", (io.vertx.sqlclient.SqlConnection) null)
+            .onSuccess(v -> testContext.failNow("Should have thrown exception for null connection"))
+            .onFailure(e -> testContext.verify(() -> {
+                logger.info("Correctly rejected null connection: {}", e.getMessage());
+                assertTrue(e.getMessage() != null &&
+                    (e.getMessage().contains("connection cannot be null") ||
+                     e.getCause() instanceof IllegalArgumentException));
+                testContext.completeNow();
+            }));
+        
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
     }
 
     @Test
     @DisplayName("Test sendWithTransaction with empty headers")
-    void testSendWithTransactionEmptyHeaders() throws Exception {
+    void testSendWithTransactionEmptyHeaders(VertxTestContext testContext) throws Exception {
         String payload = "tx-empty-headers-" + System.currentTimeMillis();
         Map<String, String> emptyHeaders = new HashMap<>();
         
-        producer.sendWithTransaction(payload, emptyHeaders).get(5, TimeUnit.SECONDS);
+        producer.sendWithTransaction(payload, emptyHeaders)
+            .onSuccess(v -> {
+                logger.info("Successfully sent message with empty headers map");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
         
-        logger.info("Successfully sent message with empty headers map");
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
     }
 
     @Test
     @DisplayName("Test sendWithTransaction with multiple headers")
-    void testSendWithTransactionMultipleHeaders() throws Exception {
+    void testSendWithTransactionMultipleHeaders(VertxTestContext testContext) throws Exception {
         String payload = "tx-multi-headers-" + System.currentTimeMillis();
         Map<String, String> headers = new HashMap<>();
         headers.put("header1", "value1");
@@ -229,9 +277,14 @@ public class OutboxProducerTransactionTest {
         headers.put("timestamp", String.valueOf(System.currentTimeMillis()));
         headers.put("source", "test");
         
-        producer.sendWithTransaction(payload, headers).get(5, TimeUnit.SECONDS);
+        producer.sendWithTransaction(payload, headers)
+            .onSuccess(v -> {
+                logger.info("Successfully sent message with multiple headers");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
         
-        logger.info("Successfully sent message with multiple headers");
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
     }
 }
 

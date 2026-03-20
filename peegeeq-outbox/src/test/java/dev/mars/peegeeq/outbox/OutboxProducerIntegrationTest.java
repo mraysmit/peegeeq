@@ -27,7 +27,10 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -36,6 +39,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import java.util.concurrent.TimeUnit;
+
 /**
  * Integration tests for OutboxProducer.
  * Tests producer lifecycle and validation logic with real database connectivity.
@@ -43,6 +48,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 public class OutboxProducerIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxProducerIntegrationTest.class);
@@ -97,14 +103,13 @@ public class OutboxProducerIntegrationTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         if (manager != null) {
-            try {
-                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
-            } catch (Exception e) {
-                logger.warn("Error stopping manager: {}", e.getMessage());
-            }
+            manager.closeReactive().onComplete(ar -> testContext.completeNow());
+        } else {
+            testContext.completeNow();
         }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         logger.info("OutboxProducer integration test teardown completed");
     }
 
@@ -176,15 +181,7 @@ public class OutboxProducerIntegrationTest {
 
         // Attempting to send after close should fail
         var future = producer.send("test-message");
-
-        assertThrows(Exception.class, () -> {
-            try {
-                future.get(1, java.util.concurrent.TimeUnit.SECONDS);
-            } catch (java.util.concurrent.ExecutionException e) {
-                // Unwrap and rethrow the cause
-                throw e.getCause();
-            }
-        });
+        assertTrue(future.failed(), "Send after close should fail");
     }
 
     @Test
@@ -199,15 +196,7 @@ public class OutboxProducerIntegrationTest {
 
         // Attempting to send null payload should fail
         var future = producer.send(null);
-
-        assertThrows(Exception.class, () -> {
-            try {
-                future.get(1, java.util.concurrent.TimeUnit.SECONDS);
-            } catch (java.util.concurrent.ExecutionException e) {
-                // Unwrap and rethrow the cause
-                throw e.getCause();
-            }
-        });
+        assertTrue(future.failed(), "Send with null payload should fail");
     }
 
     @Test
@@ -222,15 +211,7 @@ public class OutboxProducerIntegrationTest {
 
         // Attempting to send null payload should fail
         var future = producer.sendWithTransaction(null);
-
-        assertThrows(Exception.class, () -> {
-            try {
-                future.get(1, java.util.concurrent.TimeUnit.SECONDS);
-            } catch (java.util.concurrent.ExecutionException e) {
-                // Unwrap and rethrow the cause
-                throw e.getCause();
-            }
-        });
+        assertTrue(future.failed(), "SendWithTransaction with null payload should fail");
     }
 
     @Test
@@ -245,15 +226,7 @@ public class OutboxProducerIntegrationTest {
 
         // Attempting to send with null connection should fail
         var future = producer.sendInTransaction("test-message", null);
-
-        assertThrows(Exception.class, () -> {
-            try {
-                future.get(1, java.util.concurrent.TimeUnit.SECONDS);
-            } catch (java.util.concurrent.ExecutionException e) {
-                // Unwrap and rethrow the cause
-                throw e.getCause();
-            }
-        });
+        assertTrue(future.failed(), "SendInTransaction with null connection should fail");
     }
 
     @Test
@@ -268,15 +241,7 @@ public class OutboxProducerIntegrationTest {
 
         // Attempting to send with null payload and connection should fail
         var future = producer.sendInTransaction(null, null);
-
-        assertThrows(Exception.class, () -> {
-            try {
-                future.get(1, java.util.concurrent.TimeUnit.SECONDS);
-            } catch (java.util.concurrent.ExecutionException e) {
-                // Unwrap and rethrow the cause
-                throw e.getCause();
-            }
-        });
+        assertTrue(future.failed(), "SendInTransaction with null args should fail");
     }
 
     @Test
@@ -340,13 +305,13 @@ public class OutboxProducerIntegrationTest {
 
         // Test send methods return failed Future with IllegalStateException when closed
         var future1 = producer.send("test");
-        assertThrows(Exception.class, future1::get);
+        assertTrue(future1.failed(), "Send after close should fail");
 
         var future2 = producer.send("test", null);
-        assertThrows(Exception.class, future2::get);
+        assertTrue(future2.failed(), "Send with headers after close should fail");
 
         var future3 = producer.send("test", null, "corr-id");
-        assertThrows(Exception.class, future3::get);
+        assertTrue(future3.failed(), "Send with correlation-id after close should fail");
     }
 
     @Test
@@ -360,7 +325,7 @@ public class OutboxProducerIntegrationTest {
         );
 
         // All sendWithTransaction overloads should validate payload
-        assertThrows(Exception.class, () -> producer.sendWithTransaction(null).get());
+        assertTrue(producer.sendWithTransaction(null).failed(), "SendWithTransaction with null should fail");
     }
 
     @Test
@@ -374,7 +339,7 @@ public class OutboxProducerIntegrationTest {
         );
 
         // sendInTransaction validates both payload and connection
-        assertThrows(Exception.class, () -> producer.sendInTransaction("test", null).get());
+        assertTrue(producer.sendInTransaction("test", null).failed(), "SendInTransaction with null connection should fail");
     }
 
     @Test
@@ -492,7 +457,7 @@ public class OutboxProducerIntegrationTest {
 
         // Operations after close should return failed Future
         var future = producer.send("test");
-        assertThrows(Exception.class, future::get);
+        assertTrue(future.failed(), "Send after close should fail");
     }
 
     @Test

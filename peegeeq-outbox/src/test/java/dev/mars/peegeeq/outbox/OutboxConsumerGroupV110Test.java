@@ -28,6 +28,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -115,7 +116,7 @@ class OutboxConsumerGroupV110Test {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws Exception {
         if (producer != null) {
             producer.close();
         }
@@ -123,8 +124,11 @@ class OutboxConsumerGroupV110Test {
             factory.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive().onComplete(ar -> testContext.completeNow());
+        } else {
+            testContext.completeNow();
         }
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     // ========================================================================
@@ -144,7 +148,7 @@ class OutboxConsumerGroupV110Test {
             Checkpoint messageCheckpoint = testContext.checkpoint();
             group.addConsumer("consumer-1", msg -> {
                 messageCheckpoint.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             SubscriptionOptions options = SubscriptionOptions.builder()
@@ -156,7 +160,7 @@ class OutboxConsumerGroupV110Test {
             assertTrue(group.isActive());
             assertEquals(1, group.getActiveConsumerCount());
 
-            producer.send("Message 1").join();
+            producer.send("Message 1").onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
             group.close();
@@ -167,9 +171,11 @@ class OutboxConsumerGroupV110Test {
         void testStartWithOptions_FromBeginning(Vertx vertx, VertxTestContext testContext) throws Exception {
             // Send historical messages
             for (int i = 0; i < 5; i++) {
-                producer.send("Historical-" + i).join();
+                producer.send("Historical-" + i).onFailure(testContext::failNow);
             }
-            vertx.timer(1000).toCompletionStage().toCompletableFuture().join();
+            java.util.concurrent.CountDownLatch histLatch = new java.util.concurrent.CountDownLatch(1);
+            vertx.timer(1000).onComplete(ar -> histLatch.countDown());
+            histLatch.await(5, TimeUnit.SECONDS);
 
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
@@ -177,7 +183,7 @@ class OutboxConsumerGroupV110Test {
             Checkpoint messageCheckpoint = testContext.checkpoint(3);
             group.addConsumer("consumer-1", msg -> {
                 messageCheckpoint.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             SubscriptionOptions options = SubscriptionOptions.builder()
@@ -195,21 +201,29 @@ class OutboxConsumerGroupV110Test {
         @DisplayName("should start with FROM_TIMESTAMP position")
         void testStartWithOptions_FromTimestamp(Vertx vertx, VertxTestContext testContext) throws Exception {
             Instant beforeTimestamp = Instant.now();
-            vertx.timer(100).toCompletionStage().toCompletableFuture().join();
+            java.util.concurrent.CountDownLatch t1 = new java.util.concurrent.CountDownLatch(1);
+            vertx.timer(100).onComplete(ar -> t1.countDown());
+            t1.await(5, TimeUnit.SECONDS);
 
             for (int i = 0; i < 3; i++) {
-                producer.send("Before-" + i).join();
+                producer.send("Before-" + i).onFailure(testContext::failNow);
             }
 
-            vertx.timer(100).toCompletionStage().toCompletableFuture().join();
+            java.util.concurrent.CountDownLatch t2 = new java.util.concurrent.CountDownLatch(1);
+            vertx.timer(100).onComplete(ar -> t2.countDown());
+            t2.await(5, TimeUnit.SECONDS);
             Instant cutoffTimestamp = Instant.now();
-            vertx.timer(100).toCompletionStage().toCompletableFuture().join();
+            java.util.concurrent.CountDownLatch t3 = new java.util.concurrent.CountDownLatch(1);
+            vertx.timer(100).onComplete(ar -> t3.countDown());
+            t3.await(5, TimeUnit.SECONDS);
 
             for (int i = 0; i < 3; i++) {
-                producer.send("After-" + i).join();
+                producer.send("After-" + i).onFailure(testContext::failNow);
             }
 
-            vertx.timer(1000).toCompletionStage().toCompletableFuture().join();
+            java.util.concurrent.CountDownLatch t4 = new java.util.concurrent.CountDownLatch(1);
+            vertx.timer(1000).onComplete(ar -> t4.countDown());
+            t4.await(5, TimeUnit.SECONDS);
 
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
@@ -217,7 +231,7 @@ class OutboxConsumerGroupV110Test {
             Checkpoint messageCheckpoint = testContext.checkpoint();
             group.addConsumer("consumer-1", msg -> {
                 messageCheckpoint.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             SubscriptionOptions options = SubscriptionOptions.builder()
@@ -238,7 +252,7 @@ class OutboxConsumerGroupV110Test {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
-            group.addConsumer("consumer-1", msg -> CompletableFuture.completedFuture(null));
+            group.addConsumer("consumer-1", msg -> Future.succeededFuture());
 
             assertThrows(IllegalArgumentException.class, () -> group.start(null));
             group.close();
@@ -250,7 +264,7 @@ class OutboxConsumerGroupV110Test {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
-            group.addConsumer("consumer-1", msg -> CompletableFuture.completedFuture(null));
+            group.addConsumer("consumer-1", msg -> Future.succeededFuture());
 
             SubscriptionOptions options = SubscriptionOptions.defaults();
             group.start(options);
@@ -265,7 +279,7 @@ class OutboxConsumerGroupV110Test {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
-            group.addConsumer("consumer-1", msg -> CompletableFuture.completedFuture(null));
+            group.addConsumer("consumer-1", msg -> Future.succeededFuture());
             group.close();
 
             SubscriptionOptions options = SubscriptionOptions.defaults();
@@ -282,7 +296,7 @@ class OutboxConsumerGroupV110Test {
             Checkpoint messageCheckpoint = testContext.checkpoint();
             group.addConsumer("consumer-1", msg -> {
                 messageCheckpoint.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             SubscriptionOptions options = SubscriptionOptions.defaults();
@@ -291,7 +305,7 @@ class OutboxConsumerGroupV110Test {
             assertTrue(group.isActive());
             assertEquals(1, group.getActiveConsumerCount());
 
-            producer.send("Test").join();
+            producer.send("Test").onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
             group.close();
@@ -303,7 +317,7 @@ class OutboxConsumerGroupV110Test {
             // FROM_NOW
             ConsumerGroup<String> group1 = factory.createConsumerGroup(
                 "group-from-now", "test-topic", String.class);
-            group1.addConsumer("c1", msg -> CompletableFuture.completedFuture(null));
+            group1.addConsumer("c1", msg -> Future.succeededFuture());
             group1.start(SubscriptionOptions.builder()
                 .startPosition(StartPosition.FROM_NOW).build());
             assertTrue(group1.isActive());
@@ -312,7 +326,7 @@ class OutboxConsumerGroupV110Test {
             // FROM_BEGINNING
             ConsumerGroup<String> group2 = factory.createConsumerGroup(
                 "group-from-beginning", "test-topic", String.class);
-            group2.addConsumer("c2", msg -> CompletableFuture.completedFuture(null));
+            group2.addConsumer("c2", msg -> Future.succeededFuture());
             group2.start(SubscriptionOptions.builder()
                 .startPosition(StartPosition.FROM_BEGINNING).build());
             assertTrue(group2.isActive());
@@ -321,7 +335,7 @@ class OutboxConsumerGroupV110Test {
             // Defaults
             ConsumerGroup<String> group3 = factory.createConsumerGroup(
                 "group-defaults", "test-topic", String.class);
-            group3.addConsumer("c3", msg -> CompletableFuture.completedFuture(null));
+            group3.addConsumer("c3", msg -> Future.succeededFuture());
             group3.start(SubscriptionOptions.defaults());
             assertTrue(group3.isActive());
             group3.close();
@@ -343,7 +357,7 @@ class OutboxConsumerGroupV110Test {
                 "test-group", "test-topic", String.class);
 
             ConsumerGroupMember<String> member = group.setMessageHandler(
-                msg -> CompletableFuture.completedFuture(null));
+                msg -> Future.succeededFuture());
 
             assertNotNull(member);
             assertEquals("test-group-default-consumer", member.getConsumerId());
@@ -360,7 +374,7 @@ class OutboxConsumerGroupV110Test {
                 "test-group", "test-topic", String.class);
 
             ConsumerGroupMember<String> member = group.setMessageHandler(
-                msg -> CompletableFuture.completedFuture(null));
+                msg -> Future.succeededFuture());
 
             assertNotNull(member);
             assertTrue(member instanceof ConsumerGroupMember);
@@ -380,14 +394,14 @@ class OutboxConsumerGroupV110Test {
 
             group.setMessageHandler(msg -> {
                 messageCheckpoint.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             group.start();
 
-            producer.send("Message-1").join();
-            producer.send("Message-2").join();
-            producer.send("Message-3").join();
+            producer.send("Message-1").onFailure(testContext::failNow);
+            producer.send("Message-2").onFailure(testContext::failNow);
+            producer.send("Message-3").onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
 
@@ -400,10 +414,10 @@ class OutboxConsumerGroupV110Test {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
-            group.setMessageHandler(msg -> CompletableFuture.completedFuture(null));
+            group.setMessageHandler(msg -> Future.succeededFuture());
 
             assertThrows(IllegalStateException.class,
-                () -> group.setMessageHandler(msg -> CompletableFuture.completedFuture(null)));
+                () -> group.setMessageHandler(msg -> Future.succeededFuture()));
 
             group.close();
         }
@@ -429,7 +443,7 @@ class OutboxConsumerGroupV110Test {
             group.close();
 
             assertThrows(IllegalStateException.class,
-                () -> group.setMessageHandler(msg -> CompletableFuture.completedFuture(null)));
+                () -> group.setMessageHandler(msg -> Future.succeededFuture()));
         }
 
         @Test
@@ -441,13 +455,13 @@ class OutboxConsumerGroupV110Test {
             Checkpoint messageCheckpoint = testContext.checkpoint();
             group.setMessageHandler(msg -> {
                 messageCheckpoint.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             group.start();
 
-            producer.send("Test-1").join();
-            producer.send("Test-2").join();
+            producer.send("Test-1").onFailure(testContext::failNow);
+            producer.send("Test-2").onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
             assertTrue(group.isActive());
@@ -460,9 +474,11 @@ class OutboxConsumerGroupV110Test {
         void testSetMessageHandler_IntegrationWithStartOptions(Vertx vertx, VertxTestContext testContext) throws Exception {
             // Send historical messages
             for (int i = 0; i < 3; i++) {
-                producer.send("Historical-" + i).join();
+                producer.send("Historical-" + i).onFailure(testContext::failNow);
             }
-            vertx.timer(1000).toCompletionStage().toCompletableFuture().join();
+            java.util.concurrent.CountDownLatch histLatch2 = new java.util.concurrent.CountDownLatch(1);
+            vertx.timer(1000).onComplete(ar -> histLatch2.countDown());
+            histLatch2.await(5, TimeUnit.SECONDS);
 
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
@@ -470,7 +486,7 @@ class OutboxConsumerGroupV110Test {
             Checkpoint messageCheckpoint = testContext.checkpoint(2);
             group.setMessageHandler(msg -> {
                 messageCheckpoint.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             SubscriptionOptions options = SubscriptionOptions.builder()
@@ -494,13 +510,13 @@ class OutboxConsumerGroupV110Test {
             Checkpoint messageCheckpoint = testContext.checkpoint(5);
             ConsumerGroupMember<String> member = group.setMessageHandler(msg -> {
                 messageCheckpoint.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             group.start();
 
             for (int i = 0; i < 5; i++) {
-                producer.send("Message-" + i).join();
+                producer.send("Message-" + i).onFailure(testContext::failNow);
             }
 
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
@@ -525,18 +541,18 @@ class OutboxConsumerGroupV110Test {
                 "test-group", "test-topic", String.class);
 
             ExecutorService executor = Executors.newFixedThreadPool(5);
-            CompletableFuture<Void> startSignal = new CompletableFuture<>();
+            CountDownLatch startSignal = new CountDownLatch(1);
 
             AtomicInteger successCount = new AtomicInteger(0);
             AtomicInteger failureCount = new AtomicInteger(0);
             List<Exception> exceptions = Collections.synchronizedList(new ArrayList<>());
 
-            List<Future<?>> futures = new ArrayList<>();
+            List<java.util.concurrent.Future<?>> futures = new ArrayList<>();
             for (int i = 0; i < 5; i++) {
                 futures.add(executor.submit(() -> {
                     try {
-                        startSignal.join();
-                        group.setMessageHandler(msg -> CompletableFuture.completedFuture(null));
+                        startSignal.await();
+                        group.setMessageHandler(msg -> Future.succeededFuture());
                         successCount.incrementAndGet();
                     } catch (IllegalStateException e) {
                         failureCount.incrementAndGet();
@@ -547,9 +563,9 @@ class OutboxConsumerGroupV110Test {
                 }));
             }
 
-            startSignal.complete(null);
+            startSignal.countDown();
 
-            for (Future<?> future : futures) {
+            for (java.util.concurrent.Future<?> future : futures) {
                 future.get(5, TimeUnit.SECONDS);
             }
 

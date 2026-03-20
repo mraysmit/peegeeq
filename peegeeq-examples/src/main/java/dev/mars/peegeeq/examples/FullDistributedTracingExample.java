@@ -23,7 +23,7 @@ import org.slf4j.MDC;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
+
 
 /**
  * Demonstrates FULL distributed tracing flow across HTTP → Queue → Consumer → External Service.

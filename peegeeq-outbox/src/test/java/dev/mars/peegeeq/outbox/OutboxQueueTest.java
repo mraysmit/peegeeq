@@ -41,6 +41,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -102,7 +103,9 @@ public class OutboxQueueTest {
         // Simplified cleanup - don't fail tests due to resource cleanup issues
         try {
             if (queue != null) {
-                queue.close().toCompletionStage().toCompletableFuture().get(2, TimeUnit.SECONDS);
+                CountDownLatch closeLatch = new CountDownLatch(1);
+                queue.close().onComplete(ar -> closeLatch.countDown());
+                closeLatch.await(2, TimeUnit.SECONDS);
             }
         } catch (Exception e) {
             logger.warn("Queue cleanup failed, continuing", e);

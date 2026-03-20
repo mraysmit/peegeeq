@@ -24,6 +24,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Future;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -40,7 +41,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -104,7 +106,7 @@ public class OutboxConsumerGroupTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext tearDownContext) throws Exception {
         if (consumerGroup != null) {
             consumerGroup.close();
         }
@@ -115,7 +117,10 @@ public class OutboxConsumerGroupTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive().onComplete(ar -> tearDownContext.completeNow());
+            assertTrue(tearDownContext.awaitCompletion(10, TimeUnit.SECONDS));
+        } else {
+            tearDownContext.completeNow();
         }
         
         // Clear system properties
@@ -139,7 +144,7 @@ public class OutboxConsumerGroupTest {
             int count = processedCount.incrementAndGet();
             System.out.println("Consumer-1 processed message " + count + ": " + message.getPayload());
             messageCheckpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         consumerGroup.addConsumer("consumer-2", message -> {
@@ -147,7 +152,7 @@ public class OutboxConsumerGroupTest {
             int count = processedCount.incrementAndGet();
             System.out.println("Consumer-2 processed message " + count + ": " + message.getPayload());
             messageCheckpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         consumerGroup.addConsumer("consumer-3", message -> {
@@ -155,7 +160,7 @@ public class OutboxConsumerGroupTest {
             int count = processedCount.incrementAndGet();
             System.out.println("Consumer-3 processed message " + count + ": " + message.getPayload());
             messageCheckpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Start the consumer group
@@ -163,7 +168,7 @@ public class OutboxConsumerGroupTest {
 
         // Send messages
         for (int i = 0; i < messageCount; i++) {
-            producer.send("Group test message " + i).get(5, TimeUnit.SECONDS);
+            producer.send("Group test message " + i).onFailure(testContext::failNow);
             System.out.println("Sent message " + i);
         }
 
@@ -195,7 +200,7 @@ public class OutboxConsumerGroupTest {
                 int count = usProcessedCount.incrementAndGet();
                 System.out.println("US Consumer processed message " + count + ": " + message.getPayload());
                 messageCheckpoint.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             },
             message -> "US".equals(message.getHeaders().get("region"))
         );
@@ -205,7 +210,7 @@ public class OutboxConsumerGroupTest {
                 int count = euProcessedCount.incrementAndGet();
                 System.out.println("EU Consumer processed message " + count + ": " + message.getPayload());
                 messageCheckpoint.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             },
             message -> "EU".equals(message.getHeaders().get("region"))
         );
@@ -218,8 +223,8 @@ public class OutboxConsumerGroupTest {
         Map<String, String> euHeaders = Map.of("region", "EU");
 
         for (int i = 0; i < 3; i++) {
-            producer.send("US message " + i, usHeaders).get(5, TimeUnit.SECONDS);
-            producer.send("EU message " + i, euHeaders).get(5, TimeUnit.SECONDS);
+            producer.send("US message " + i, usHeaders).onFailure(testContext::failNow);
+            producer.send("EU message " + i, euHeaders).onFailure(testContext::failNow);
         }
 
         // Wait for all messages to be processed
@@ -251,21 +256,21 @@ public class OutboxConsumerGroupTest {
             int count = consumerCounts.get("consumer-1").incrementAndGet();
             System.out.println("Consumer-1 processed message " + count + ": " + message.getPayload());
             messageCheckpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         consumerGroup.addConsumer("consumer-2", message -> {
             int count = consumerCounts.get("consumer-2").incrementAndGet();
             System.out.println("Consumer-2 processed message " + count + ": " + message.getPayload());
             messageCheckpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         consumerGroup.addConsumer("consumer-3", message -> {
             int count = consumerCounts.get("consumer-3").incrementAndGet();
             System.out.println("Consumer-3 processed message " + count + ": " + message.getPayload());
             messageCheckpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Start the consumer group
@@ -273,7 +278,7 @@ public class OutboxConsumerGroupTest {
 
         // Send messages
         for (int i = 0; i < messageCount; i++) {
-            producer.send("Load balance test message " + i).get(5, TimeUnit.SECONDS);
+            producer.send("Load balance test message " + i).onFailure(testContext::failNow);
         }
 
         // Wait for all messages to be processed
@@ -303,7 +308,7 @@ public class OutboxConsumerGroupTest {
     void testConsumerGroupDynamicScaling(VertxTestContext testContext) throws Exception {
         int initialMessageCount = 3;
         int additionalMessageCount = 6;
-        CompletableFuture<Void> initialPhaseDone = new CompletableFuture<>();
+        CountDownLatch initialPhaseDone = new CountDownLatch(1);
         AtomicInteger initialReceived = new AtomicInteger(0);
         Checkpoint totalCheckpoint = testContext.checkpoint(initialMessageCount + additionalMessageCount);
         AtomicInteger processedCount = new AtomicInteger(0);
@@ -313,21 +318,21 @@ public class OutboxConsumerGroupTest {
             int count = processedCount.incrementAndGet();
             System.out.println("Initial consumer processed message " + count + ": " + message.getPayload());
             totalCheckpoint.flag();
-            if (initialReceived.incrementAndGet() >= initialMessageCount && !initialPhaseDone.isDone()) {
-                initialPhaseDone.complete(null);
+            if (initialReceived.incrementAndGet() >= initialMessageCount) {
+                initialPhaseDone.countDown();
             }
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         consumerGroup.start();
 
         // Send initial messages
         for (int i = 0; i < initialMessageCount; i++) {
-            producer.send("Initial message " + i).get(5, TimeUnit.SECONDS);
+            producer.send("Initial message " + i).onFailure(testContext::failNow);
         }
 
         // Wait for initial processing
-        initialPhaseDone.get(15, TimeUnit.SECONDS);
+        assertTrue(initialPhaseDone.await(15, TimeUnit.SECONDS), "Initial phase should complete");
 
         // Add more consumers dynamically
         Set<String> activeConsumers = ConcurrentHashMap.newKeySet();
@@ -337,7 +342,7 @@ public class OutboxConsumerGroupTest {
             int count = processedCount.incrementAndGet();
             System.out.println("Additional consumer 1 processed message " + count + ": " + message.getPayload());
             totalCheckpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         consumerGroup.addConsumer("additional-consumer-2", message -> {
@@ -345,12 +350,12 @@ public class OutboxConsumerGroupTest {
             int count = processedCount.incrementAndGet();
             System.out.println("Additional consumer 2 processed message " + count + ": " + message.getPayload());
             totalCheckpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send additional messages
         for (int i = 0; i < additionalMessageCount; i++) {
-            producer.send("Additional message " + i).get(5, TimeUnit.SECONDS);
+            producer.send("Additional message " + i).onFailure(testContext::failNow);
         }
 
         // Wait for all processing

@@ -43,12 +43,14 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import io.vertx.core.Future;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -124,7 +126,9 @@ class ConsumerGroupV110Test {
             factory.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+            closeLatch.await(10, TimeUnit.SECONDS);
         }
     }
 
@@ -149,7 +153,7 @@ class ConsumerGroupV110Test {
             group.addConsumer("consumer-1", msg -> {
                 count.incrementAndGet();
                 messageReceived.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             SubscriptionOptions options = SubscriptionOptions.builder()
@@ -164,7 +168,7 @@ class ConsumerGroupV110Test {
             assertEquals(1, group.getActiveConsumerCount());
 
             // Send message after start
-            producer.send("Message 1").join();
+            producer.send("Message 1");
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
 
             assertTrue(count.get() >= 1, "Should process messages sent after start");
@@ -181,7 +185,7 @@ class ConsumerGroupV110Test {
             List<String> sentMessages = new ArrayList<>();
             for (int i = 0; i < 5; i++) {
                 String msg = "Historical-" + i;
-                producer.send(msg).join();
+                producer.send(msg);
                 sentMessages.add(msg);
             }
 
@@ -193,7 +197,7 @@ class ConsumerGroupV110Test {
             group.addConsumer("consumer-1", msg -> {
                 receivedMessages.add(msg.getPayload());
                 messagesReceived.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             SubscriptionOptions options = SubscriptionOptions.builder()
@@ -225,13 +229,13 @@ class ConsumerGroupV110Test {
             Instant beforeTimestamp = Instant.now();
 
             for (int i = 0; i < 3; i++) {
-                producer.send("Before-" + i).join();
+                producer.send("Before-" + i);
             }
 
             Instant cutoffTimestamp = Instant.now();
 
             for (int i = 0; i < 3; i++) {
-                producer.send("After-" + i).join();
+                producer.send("After-" + i);
             }
 
             ConsumerGroup<String> group = factory.createConsumerGroup(
@@ -242,7 +246,7 @@ class ConsumerGroupV110Test {
             group.addConsumer("consumer-1", msg -> {
                 receivedMessages.add(msg.getPayload());
                 messageReceived.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             SubscriptionOptions options = SubscriptionOptions.builder()
@@ -274,7 +278,7 @@ class ConsumerGroupV110Test {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
-            group.addConsumer("consumer-1", msg -> CompletableFuture.completedFuture(null));
+            group.addConsumer("consumer-1", msg -> Future.succeededFuture());
 
             // Act & Assert
             assertThrows(IllegalArgumentException.class, () -> group.start(null),
@@ -291,7 +295,7 @@ class ConsumerGroupV110Test {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
-            group.addConsumer("consumer-1", msg -> CompletableFuture.completedFuture(null));
+            group.addConsumer("consumer-1", msg -> Future.succeededFuture());
 
             SubscriptionOptions options = SubscriptionOptions.defaults();
             group.start(options);
@@ -314,7 +318,7 @@ class ConsumerGroupV110Test {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
-            group.addConsumer("consumer-1", msg -> CompletableFuture.completedFuture(null));
+            group.addConsumer("consumer-1", msg -> Future.succeededFuture());
             group.close();
 
             SubscriptionOptions options = SubscriptionOptions.defaults();
@@ -337,7 +341,7 @@ class ConsumerGroupV110Test {
             group.addConsumer("consumer-1", msg -> {
                 count.incrementAndGet();
                 messageReceived.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             SubscriptionOptions options = SubscriptionOptions.defaults();
@@ -350,7 +354,7 @@ class ConsumerGroupV110Test {
             assertEquals(1, group.getActiveConsumerCount());
 
             // Send message
-            producer.send("Test").join();
+            producer.send("Test");
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
 
             assertTrue(count.get() >= 1);
@@ -365,7 +369,7 @@ class ConsumerGroupV110Test {
             // Test FROM_NOW
             ConsumerGroup<String> group1 = factory.createConsumerGroup(
                 "group-from-now", "test-topic", String.class);
-            group1.addConsumer("c1", msg -> CompletableFuture.completedFuture(null));
+            group1.addConsumer("c1", msg -> Future.succeededFuture());
             group1.start(SubscriptionOptions.builder()
                 .startPosition(StartPosition.FROM_NOW)
                 .build());
@@ -375,7 +379,7 @@ class ConsumerGroupV110Test {
             // Test FROM_BEGINNING
             ConsumerGroup<String> group2 = factory.createConsumerGroup(
                 "group-from-beginning", "test-topic", String.class);
-            group2.addConsumer("c2", msg -> CompletableFuture.completedFuture(null));
+            group2.addConsumer("c2", msg -> Future.succeededFuture());
             group2.start(SubscriptionOptions.builder()
                 .startPosition(StartPosition.FROM_BEGINNING)
                 .build());
@@ -385,7 +389,7 @@ class ConsumerGroupV110Test {
             // Test defaults (implicitly FROM_NOW)
             ConsumerGroup<String> group3 = factory.createConsumerGroup(
                 "group-defaults", "test-topic", String.class);
-            group3.addConsumer("c3", msg -> CompletableFuture.completedFuture(null));
+            group3.addConsumer("c3", msg -> Future.succeededFuture());
             group3.start(SubscriptionOptions.defaults());
             assertTrue(group3.isActive());
             group3.close();
@@ -409,7 +413,7 @@ class ConsumerGroupV110Test {
 
             // Act
             ConsumerGroupMember<String> member = group.setMessageHandler(
-                msg -> CompletableFuture.completedFuture(null));
+                msg -> Future.succeededFuture());
 
             // Assert
             assertNotNull(member, "Should return ConsumerGroupMember");
@@ -433,7 +437,7 @@ class ConsumerGroupV110Test {
 
             // Act
             ConsumerGroupMember<String> member = group.setMessageHandler(
-                msg -> CompletableFuture.completedFuture(null));
+                msg -> Future.succeededFuture());
 
             // Assert
             assertNotNull(member);
@@ -460,16 +464,16 @@ class ConsumerGroupV110Test {
                 count.incrementAndGet();
                 receivedMessages.add(msg.getPayload());
                 messagesReceived.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Act
             group.start();
 
             // Send messages
-            producer.send("Message-1").join();
-            producer.send("Message-2").join();
-            producer.send("Message-3").join();
+            producer.send("Message-1");
+            producer.send("Message-2");
+            producer.send("Message-3");
 
             // Wait for processing
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
@@ -491,11 +495,11 @@ class ConsumerGroupV110Test {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
-            group.setMessageHandler(msg -> CompletableFuture.completedFuture(null));
+            group.setMessageHandler(msg -> Future.succeededFuture());
 
             // Act & Assert
             assertThrows(IllegalStateException.class,
-                () -> group.setMessageHandler(msg -> CompletableFuture.completedFuture(null)),
+                () -> group.setMessageHandler(msg -> Future.succeededFuture()),
                 "Should throw IllegalStateException when called twice");
 
             // Cleanup
@@ -529,7 +533,7 @@ class ConsumerGroupV110Test {
 
             // Act & Assert
             assertThrows(IllegalStateException.class,
-                () -> group.setMessageHandler(msg -> CompletableFuture.completedFuture(null)),
+                () -> group.setMessageHandler(msg -> Future.succeededFuture()),
                 "Should throw IllegalStateException when called on closed group");
         }
 
@@ -545,15 +549,15 @@ class ConsumerGroupV110Test {
             group.setMessageHandler(msg -> {
                 count.incrementAndGet();
                 messageReceived.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Act
             group.start();
 
             // Send messages
-            producer.send("Test-1").join();
-            producer.send("Test-2").join();
+            producer.send("Test-1");
+            producer.send("Test-2");
 
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
 
@@ -572,7 +576,7 @@ class ConsumerGroupV110Test {
         void testSetMessageHandler_IntegrationWithStartOptions(Vertx vertx, VertxTestContext testContext) throws Exception {
             // Arrange: Send historical messages
             for (int i = 0; i < 3; i++) {
-                producer.send("Historical-" + i).join();
+                producer.send("Historical-" + i);
             }
 
             ConsumerGroup<String> group = factory.createConsumerGroup(
@@ -583,7 +587,7 @@ class ConsumerGroupV110Test {
             group.setMessageHandler(msg -> {
                 count.incrementAndGet();
                 messagesReceived.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             SubscriptionOptions options = SubscriptionOptions.builder()
@@ -619,14 +623,14 @@ class ConsumerGroupV110Test {
             ConsumerGroupMember<String> member = group.setMessageHandler(msg -> {
                 count.incrementAndGet();
                 messagesReceived.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             group.start();
 
             // Send messages
             for (int i = 0; i < 5; i++) {
-                producer.send("Message-" + i).join();
+                producer.send("Message-" + i);
             }
 
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
@@ -655,19 +659,19 @@ class ConsumerGroupV110Test {
                 "test-group", "test-topic", String.class);
 
             ExecutorService executor = Executors.newFixedThreadPool(5);
-            CompletableFuture<Void> startSignal = new CompletableFuture<>();
+            CountDownLatch startSignal = new CountDownLatch(1);
 
             AtomicInteger successCount = new AtomicInteger(0);
             AtomicInteger failureCount = new AtomicInteger(0);
             List<Exception> exceptions = Collections.synchronizedList(new ArrayList<>());
 
             // Act: 5 threads try to set handler simultaneously
-            List<Future<?>> futures = new ArrayList<>();
+            List<java.util.concurrent.Future<?>> futures = new ArrayList<>();
             for (int i = 0; i < 5; i++) {
                 futures.add(executor.submit(() -> {
                     try {
-                        startSignal.join();
-                        group.setMessageHandler(msg -> CompletableFuture.completedFuture(null));
+                        startSignal.await();
+                        group.setMessageHandler(msg -> Future.succeededFuture());
                         successCount.incrementAndGet();
                     } catch (IllegalStateException e) {
                         failureCount.incrementAndGet();
@@ -679,10 +683,10 @@ class ConsumerGroupV110Test {
             }
 
             // Release all threads simultaneously
-            startSignal.complete(null);
+            startSignal.countDown();
 
             // Wait for completion
-            for (Future<?> future : futures) {
+            for (java.util.concurrent.Future<?> future : futures) {
                 future.get(5, TimeUnit.SECONDS);
             }
 

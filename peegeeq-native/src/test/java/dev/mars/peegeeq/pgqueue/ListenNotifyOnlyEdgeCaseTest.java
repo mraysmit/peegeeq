@@ -29,11 +29,15 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -107,7 +111,9 @@ class ListenNotifyOnlyEdgeCaseTest {
             factory.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+            closeLatch.await(10, TimeUnit.SECONDS);
         }
         logger.info("Test teardown completed");
     }
@@ -121,9 +127,11 @@ class ListenNotifyOnlyEdgeCaseTest {
         // First, send messages BEFORE setting up the consumer
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        producer.send("Message 1 - Before Consumer").get(5, TimeUnit.SECONDS);
-        producer.send("Message 2 - Before Consumer").get(5, TimeUnit.SECONDS);
-        producer.send("Message 3 - Before Consumer").get(5, TimeUnit.SECONDS);
+        CountDownLatch preSendLatch = new CountDownLatch(3);
+        producer.send("Message 1 - Before Consumer").onComplete(ar -> preSendLatch.countDown());
+        producer.send("Message 2 - Before Consumer").onComplete(ar -> preSendLatch.countDown());
+        producer.send("Message 3 - Before Consumer").onComplete(ar -> preSendLatch.countDown());
+        assertTrue(preSendLatch.await(5, TimeUnit.SECONDS), "Pre-consumer sends should complete");
 
         logger.info("Sent 3 messages before consumer setup");
 
@@ -141,7 +149,7 @@ class ListenNotifyOnlyEdgeCaseTest {
             int count = messageCount.incrementAndGet();
             logger.info("📨 Received existing message {}: {}", count, message.getPayload());
             atLeastOneReceived.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS),
@@ -173,7 +181,7 @@ class ListenNotifyOnlyEdgeCaseTest {
         consumer.subscribe(message -> {
             receivedMessage.set(message.getPayload());
             messageReceived.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Wait for LISTEN setup, then send
@@ -216,7 +224,7 @@ class ListenNotifyOnlyEdgeCaseTest {
         consumer.subscribe(message -> {
             receivedMessage.set(message.getPayload());
             messageReceived.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Wait for LISTEN setup, then send
@@ -252,23 +260,22 @@ class ListenNotifyOnlyEdgeCaseTest {
             int count = messageCount.incrementAndGet();
             logger.info("📨 Received concurrent message {}: {}", count, message.getPayload());
             messagesReceived.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Wait for LISTEN setup, then launch concurrent producers
         vertx.setTimer(1000, id -> {
             for (int i = 0; i < 5; i++) {
                 final int producerId = i;
-                CompletableFuture.runAsync(() -> {
-                    try {
-                        MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-                        producer.send("Message from producer " + producerId + " - msg 1").get(5, TimeUnit.SECONDS);
-                        producer.send("Message from producer " + producerId + " - msg 2").get(5, TimeUnit.SECONDS);
-                        producer.close();
-                    } catch (Exception e) {
-                        testContext.failNow(e);
-                    }
-                });
+                vertx.executeBlocking(() -> {
+                    MessageProducer<String> producer = factory.createProducer(topicName, String.class);
+                    CountDownLatch sendLatch = new CountDownLatch(2);
+                    producer.send("Message from producer " + producerId + " - msg 1").onComplete(ar -> sendLatch.countDown());
+                    producer.send("Message from producer " + producerId + " - msg 2").onComplete(ar -> sendLatch.countDown());
+                    sendLatch.await(5, TimeUnit.SECONDS);
+                    producer.close();
+                    return null;
+                }).onFailure(testContext::failNow);
             }
         });
 
@@ -300,13 +307,13 @@ class ListenNotifyOnlyEdgeCaseTest {
         consumer.subscribe(message -> {
             processingStarted.set(true);
             // Simulate slow message processing via timer
-            CompletableFuture<Void> future = new CompletableFuture<>();
+            Promise<Void> promise = Promise.promise();
             vertx.setTimer(2000, tid -> {
                 processedCount.incrementAndGet();
                 logger.info("📨 Processed message: {}", message.getPayload());
-                future.complete(null);
+                promise.complete();
             });
-            return future;
+            return promise.future();
         });
 
         // Wait for LISTEN setup, send message, then close during processing

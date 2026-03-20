@@ -26,6 +26,7 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -42,7 +43,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -106,11 +107,14 @@ public class OutboxCompletableFutureExceptionTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext tearDownContext) throws Exception {
         if (consumer != null) consumer.close();
         if (producer != null) producer.close();
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive().onComplete(ar -> tearDownContext.completeNow());
+            assertTrue(tearDownContext.awaitCompletion(10, TimeUnit.SECONDS));
+        } else {
+            tearDownContext.completeNow();
         }
     }
 
@@ -122,16 +126,16 @@ public class OutboxCompletableFutureExceptionTest {
         AtomicInteger attemptCount = new AtomicInteger(0);
         Checkpoint retryCheckpoint = testContext.checkpoint(3);
 
-        producer.send(testMessage).get(5, TimeUnit.SECONDS);
+        producer.send(testMessage).onFailure(testContext::failNow);
 
-        // Set up consumer that returns failed CompletableFuture
+        // Set up consumer that returns failed Future
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
             logger.info("INTENTIONAL FAILURE: Processing attempt {} for failed future", attempt);
             retryCheckpoint.flag();
             
-            // Return failed CompletableFuture - should be handled correctly
-            return CompletableFuture.failedFuture(
+            // Return failed Future - should be handled correctly
+            return Future.failedFuture(
                 new RuntimeException("INTENTIONAL FAILURE: Failed future from handler, attempt " + attempt)
             );
         });
@@ -139,7 +143,7 @@ public class OutboxCompletableFutureExceptionTest {
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times for failed future");
         assertEquals(3, attemptCount.get(), "Should have made exactly 3 processing attempts");
         
-        logger.info("Failed CompletableFuture handling test completed successfully");
+        logger.info("Failed future handling test completed successfully");
     }
 
     @Test
@@ -150,7 +154,7 @@ public class OutboxCompletableFutureExceptionTest {
         AtomicInteger attemptCount = new AtomicInteger(0);
         Checkpoint retryCheckpoint = testContext.checkpoint(3);
 
-        producer.send(testMessage).get(5, TimeUnit.SECONDS);
+        producer.send(testMessage).onFailure(testContext::failNow);
 
         // Set up consumer that fails asynchronously
         consumer.subscribe(message -> {
@@ -159,12 +163,12 @@ public class OutboxCompletableFutureExceptionTest {
             retryCheckpoint.flag();
             
             // Return future that fails asynchronously after a delay
-            CompletableFuture<Void> delayed = new CompletableFuture<>();
+            io.vertx.core.Promise<Void> delayed = io.vertx.core.Promise.promise();
             vertx.setTimer(50, id -> {
-                delayed.completeExceptionally(
+                delayed.fail(
                     new RuntimeException("INTENTIONAL FAILURE: Async failure, attempt " + attempt));
             });
-            return delayed;
+            return delayed.future();
         });
 
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times for async failure");
@@ -174,14 +178,14 @@ public class OutboxCompletableFutureExceptionTest {
     }
 
     @Test
-    void testTimeoutExceptionHandling(VertxTestContext testContext) throws Exception {
+    void testTimeoutExceptionHandling(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Timeout Exception Handling ===");
         
         String testMessage = "Message that times out";
         AtomicInteger attemptCount = new AtomicInteger(0);
         Checkpoint retryCheckpoint = testContext.checkpoint(3);
 
-        producer.send(testMessage).get(5, TimeUnit.SECONDS);
+        producer.send(testMessage).onFailure(testContext::failNow);
 
         // Set up consumer that times out
         consumer.subscribe(message -> {
@@ -190,16 +194,16 @@ public class OutboxCompletableFutureExceptionTest {
             retryCheckpoint.flag();
             
             // Return future that times out
-            CompletableFuture<Void> future = new CompletableFuture<>();
+            io.vertx.core.Promise<Void> promise = io.vertx.core.Promise.promise();
             
-            // Schedule timeout failure
-            CompletableFuture.delayedExecutor(100, TimeUnit.MILLISECONDS).execute(() -> {
-                future.completeExceptionally(
+            // Schedule timeout failure using Vert.x timer
+            vertx.setTimer(100, timerId -> {
+                promise.fail(
                     new RuntimeException("INTENTIONAL FAILURE: Timeout exception, attempt " + attempt)
                 );
             });
             
-            return future;
+            return promise.future();
         });
 
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times for timeout");
@@ -216,7 +220,7 @@ public class OutboxCompletableFutureExceptionTest {
         AtomicInteger attemptCount = new AtomicInteger(0);
         Checkpoint errorCheckpoint = testContext.checkpoint();
 
-        producer.send(testMessage).get(5, TimeUnit.SECONDS);
+        producer.send(testMessage).onFailure(testContext::failNow);
 
         // Set up consumer that returns null (should cause NPE)
         consumer.subscribe(message -> {

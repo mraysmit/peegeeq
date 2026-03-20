@@ -27,6 +27,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -41,7 +42,8 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
+
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -111,7 +113,9 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+            closeLatch.await(10, TimeUnit.SECONDS);
         }
     }
 
@@ -129,13 +133,13 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
 
         consumerGroup.addConsumer("member-1", message -> {
             processedCount.incrementAndGet();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         consumerGroup.start();
 
         // Send a message that passes the filter
-        producer.send("Accept-this-message").get(5, TimeUnit.SECONDS);
+        producer.send("Accept-this-message").onFailure(testContext::failNow);
 
         // Wait for processing
         waitForCondition(() -> processedCount.get() >= 1, 10_000,
@@ -167,13 +171,13 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
 
         consumerGroup.addConsumer("member-1", message -> {
             processedCount.incrementAndGet();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         consumerGroup.start();
 
         // Send a message that will be REJECTED by the group filter
-        producer.send("Reject-this-message").get(5, TimeUnit.SECONDS);
+        producer.send("Reject-this-message").onFailure(testContext::failNow);
 
         // Wait for the polling cycle to pick up and filter the message
         waitForCondition(
@@ -214,13 +218,13 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
         // Member only accepts messages with payload "A"
         consumerGroup.addConsumer("member-A", message -> {
             processedCount.incrementAndGet();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         }, msg -> msg.getPayload().equals("A"));
 
         consumerGroup.start();
 
         // Send a message that no consumer will accept ("B" doesn't match "A" filter)
-        producer.send("B").get(5, TimeUnit.SECONDS);
+        producer.send("B").onFailure(testContext::failNow);
 
         // Wait for the polling cycle to process and filter
         waitForCondition(
@@ -255,7 +259,7 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
         consumerGroup.setGroupFilter(msg -> msg.getPayload().startsWith("TypeA"));
         consumerGroup.addConsumer("member-1", message -> {
             group1Processed.incrementAndGet();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Group 2: accepts "TypeB" messages — the ones group 1 rejected
@@ -264,14 +268,14 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
         consumerGroup2.setGroupFilter(msg -> msg.getPayload().startsWith("TypeB"));
         consumerGroup2.addConsumer("member-2", message -> {
             group2Processed.incrementAndGet();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         consumerGroup.start();
         consumerGroup2.start();
 
         // Send a TypeB message — group 1 should filter it, group 2 should process it
-        producer.send("TypeB-important-event").get(5, TimeUnit.SECONDS);
+        producer.send("TypeB-important-event").onFailure(testContext::failNow);
 
         // Wait for group 2 to process
         waitForCondition(() -> group2Processed.get() >= 1, 10_000,

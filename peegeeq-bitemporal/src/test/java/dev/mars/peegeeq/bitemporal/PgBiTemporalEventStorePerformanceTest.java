@@ -7,6 +7,7 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -24,10 +25,11 @@ import java.util.HashMap;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CopyOnWriteArrayList;
+
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
+
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -129,10 +131,9 @@ class PgBiTemporalEventStorePerformanceTest {
     }
 
     private void awaitAsyncDelay(long delayMs) throws Exception {
-        CountDownLatch latch = new CountDownLatch(1);
-        PgBiTemporalEventStore.getOrCreateSharedVertx().setTimer(delayMs, id -> latch.countDown());
-        assertTrue(latch.await(delayMs + 2000, TimeUnit.MILLISECONDS),
-            "Timed out waiting for async processing delay");
+        io.vertx.core.Promise<Void> promise = io.vertx.core.Promise.promise();
+        PgBiTemporalEventStore.getOrCreateSharedVertx().setTimer(delayMs, id -> promise.complete());
+        await(promise.future(), delayMs + 2000, TimeUnit.MILLISECONDS);
     }
 
     private void createTestEventsTable() throws Exception {
@@ -273,18 +274,18 @@ class PgBiTemporalEventStorePerformanceTest {
                 receivedEvents.add(event);
             }
             receivedLatch.countDown();
-            return CompletableFuture.completedFuture(null);
+            return io.vertx.core.Future.<Void>succeededFuture();
         }), 10, TimeUnit.SECONDS);
 
         awaitAsyncDelay(500); // Allow subscription to stabilize
 
         // Rapid-fire publish events
         long publishStart = System.currentTimeMillis();
-        List<CompletableFuture<BiTemporalEvent<Map<String, Object>>>> futures = new ArrayList<>();
+        List<Future<BiTemporalEvent<Map<String, Object>>>> futures = new ArrayList<>();
         for (int i = 0; i < eventCount; i++) {
-            futures.add(eventStore.appendBuilder().eventType("throughput.test").payload(Map.of("index", i)).validTime(Instant.now()).execute().toCompletionStage().toCompletableFuture());
+            futures.add(eventStore.appendBuilder().eventType("throughput.test").payload(Map.of("index", i)).validTime(Instant.now()).execute());
         }
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).get(30, TimeUnit.SECONDS);
+        Future.all(new ArrayList<>(futures)).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
         long publishDuration = System.currentTimeMillis() - publishStart;
 
         // Wait for all notifications
@@ -310,7 +311,7 @@ class PgBiTemporalEventStorePerformanceTest {
         logger.info("=== Test: Concurrent Append Throughput ===");
 
         int totalEvents = CONCURRENT_THREADS * EVENTS_PER_THREAD;
-        List<CompletableFuture<BiTemporalEvent<Map<String, Object>>>> allFutures = new CopyOnWriteArrayList<>();
+        List<Future<BiTemporalEvent<Map<String, Object>>>> allFutures = new CopyOnWriteArrayList<>();
         CountDownLatch startLatch = new CountDownLatch(1);
         CountDownLatch completeLatch = new CountDownLatch(CONCURRENT_THREADS);
 
@@ -321,8 +322,8 @@ class PgBiTemporalEventStorePerformanceTest {
                 try {
                     startLatch.await(); // Wait for signal to start
                     for (int i = 0; i < EVENTS_PER_THREAD; i++) {
-                        CompletableFuture<BiTemporalEvent<Map<String, Object>>> future =
-                            eventStore.appendBuilder().eventType("concurrent.event").payload(Map.of("thread", threadId, "index", i)).validTime(Instant.now()).execute().toCompletionStage().toCompletableFuture();
+                        var future =
+                            eventStore.appendBuilder().eventType("concurrent.event").payload(Map.of("thread", threadId, "index", i)).validTime(Instant.now()).execute();
                         allFutures.add(future);
                     }
                 } catch (Exception e) {
@@ -341,7 +342,7 @@ class PgBiTemporalEventStorePerformanceTest {
         completeLatch.await(10, TimeUnit.SECONDS);
 
         // Wait for all futures to complete
-        CompletableFuture.allOf(allFutures.toArray(new CompletableFuture[0])).get(60, TimeUnit.SECONDS);
+        Future.all(new ArrayList<>(allFutures)).toCompletionStage().toCompletableFuture().get(60, TimeUnit.SECONDS);
         long duration = System.currentTimeMillis() - start;
 
         double throughput = totalEvents * 1000.0 / duration;
@@ -350,7 +351,7 @@ class PgBiTemporalEventStorePerformanceTest {
         logger.info("  Completed in {}ms = {:.1f} events/sec", duration, throughput);
 
         assertEquals(totalEvents, allFutures.size(), "All events should be submitted");
-        long successCount = allFutures.stream().filter(f -> !f.isCompletedExceptionally()).count();
+        long successCount = allFutures.stream().filter(f -> !f.failed()).count();
         assertEquals(totalEvents, successCount, "All events should complete successfully");
     }
 
@@ -371,7 +372,7 @@ class PgBiTemporalEventStorePerformanceTest {
         await(eventStore.subscribe("perf.exact.event", message -> {
             exactLatencies.add(System.currentTimeMillis());
             exactLatch.countDown();
-            return CompletableFuture.completedFuture(null);
+            return Future.<Void>succeededFuture();
         }), 10, TimeUnit.SECONDS);
 
         awaitAsyncDelay(500);
@@ -390,7 +391,7 @@ class PgBiTemporalEventStorePerformanceTest {
         await(eventStore.subscribe("perf.wildcard.*", message -> {
             wildcardLatencies.add(System.currentTimeMillis());
             wildcardLatch.countDown();
-            return CompletableFuture.completedFuture(null);
+            return Future.<Void>succeededFuture();
         }), 10, TimeUnit.SECONDS);
 
         awaitAsyncDelay(500);

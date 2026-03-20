@@ -3,6 +3,7 @@ package dev.mars.peegeeq.outbox.deadletter;
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.outbox.config.FilterErrorHandlingConfig;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Future;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -11,7 +12,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -70,11 +71,11 @@ class DeadLetterQueueManagerCoreTest {
             FilterErrorHandlingConfig.ErrorClassification.PERMANENT;
         Exception exception = new RuntimeException("Test exception");
 
-        CompletableFuture<Void> future = manager.sendToDeadLetter(
+        Future<Void> future = manager.sendToDeadLetter(
             message, filterId, reason, attempts, classification, exception);
 
         assertNotNull(future);
-        future.get(5, TimeUnit.SECONDS);
+        assertTrue(future.succeeded());
 
         DeadLetterQueueManager.DeadLetterManagerMetrics metrics = manager.getMetrics();
         assertEquals(1, metrics.getTotalMessages());
@@ -89,13 +90,13 @@ class DeadLetterQueueManagerCoreTest {
         DeadLetterQueueManager disabledManager = new DeadLetterQueueManager(disabledConfig);
         
         Message<String> message = createTestMessage("msg-1", "payload");
-        CompletableFuture<Void> future = disabledManager.sendToDeadLetter(
+        Future<Void> future = disabledManager.sendToDeadLetter(
             message, "filter", "reason", 1, 
             FilterErrorHandlingConfig.ErrorClassification.UNKNOWN,
             new RuntimeException("test"));
 
         assertNotNull(future);
-        assertTrue(future.isCompletedExceptionally());
+        assertTrue(future.failed());
     }
 
     @Test
@@ -106,13 +107,13 @@ class DeadLetterQueueManagerCoreTest {
 
         DeadLetterQueueManager disabledManager = new DeadLetterQueueManager(disabledConfig);
 
-        CompletableFuture<Void> future = disabledManager.sendToDeadLetter(
+        Future<Void> future = disabledManager.sendToDeadLetter(
             null, "filter", "reason", 1,
             FilterErrorHandlingConfig.ErrorClassification.UNKNOWN,
             new RuntimeException("test"));
 
         assertNotNull(future);
-        assertTrue(future.isCompletedExceptionally());
+        assertTrue(future.failed());
     }
 
     @Test
@@ -163,11 +164,11 @@ class DeadLetterQueueManagerCoreTest {
     void testSendToDeadLetter_MultipleDifferentTopics() throws Exception {
         for (int i = 0; i < 3; i++) {
             Message<String> message = createTestMessage("msg-" + i, "payload " + i);
-            manager.sendToDeadLetter(
+            Future<Void> result = manager.sendToDeadLetter(
                 message, "filter-" + i, "reason " + i, i,
                 FilterErrorHandlingConfig.ErrorClassification.TRANSIENT,
-                new RuntimeException("exception " + i))
-                .get(5, TimeUnit.SECONDS);
+                new RuntimeException("exception " + i));
+            assertTrue(result.succeeded());
         }
 
         DeadLetterQueueManager.DeadLetterManagerMetrics metrics = manager.getMetrics();
@@ -181,12 +182,12 @@ class DeadLetterQueueManagerCoreTest {
         Message<String> message = createTestMessage("msg-intentional", "payload");
         String reason = "INTENTIONAL TEST FAILURE - should be logged differently";
         
-        CompletableFuture<Void> future = manager.sendToDeadLetter(
+        Future<Void> future = manager.sendToDeadLetter(
             message, "filter", reason, 3,
             FilterErrorHandlingConfig.ErrorClassification.PERMANENT,
             new RuntimeException("test"));
 
-        future.get(5, TimeUnit.SECONDS);
+        assertTrue(future.succeeded());
 
         DeadLetterQueueManager.DeadLetterManagerMetrics metrics = manager.getMetrics();
         assertEquals(1, metrics.getTotalMessages());
@@ -213,11 +214,11 @@ class DeadLetterQueueManagerCoreTest {
     @Test
     void testClose_AfterSends() throws Exception {
         Message<String> message = createTestMessage("msg-1", "payload");
-        manager.sendToDeadLetter(
+        Future<Void> closeResult = manager.sendToDeadLetter(
             message, "filter", "reason", 1,
             FilterErrorHandlingConfig.ErrorClassification.UNKNOWN,
-            new RuntimeException("test"))
-            .get(5, TimeUnit.SECONDS);
+            new RuntimeException("test"));
+        assertTrue(closeResult.succeeded());
 
         assertDoesNotThrow(() -> manager.close());
     }
@@ -227,11 +228,11 @@ class DeadLetterQueueManagerCoreTest {
         // Send 4 successful messages
         for (int i = 0; i < 4; i++) {
             Message<String> message = createTestMessage("msg-" + i, "payload");
-            manager.sendToDeadLetter(
+            Future<Void> metricResult = manager.sendToDeadLetter(
                 message, "filter", "reason", 1,
                 FilterErrorHandlingConfig.ErrorClassification.PERMANENT,
-                new RuntimeException("test"))
-                .get(5, TimeUnit.SECONDS);
+                new RuntimeException("test"));
+            assertTrue(metricResult.succeeded());
         }
 
         DeadLetterQueueManager.DeadLetterManagerMetrics metrics = manager.getMetrics();
@@ -243,11 +244,11 @@ class DeadLetterQueueManagerCoreTest {
     @Test
     void testMetrics_AllGetters() throws Exception {
         Message<String> message = createTestMessage("msg-1", "payload");
-        manager.sendToDeadLetter(
+        Future<Void> allGettersResult = manager.sendToDeadLetter(
             message, "filter", "reason", 1,
             FilterErrorHandlingConfig.ErrorClassification.TRANSIENT,
-            new RuntimeException("test"))
-            .get(5, TimeUnit.SECONDS);
+            new RuntimeException("test"));
+        assertTrue(allGettersResult.succeeded());
 
         DeadLetterQueueManager.DeadLetterManagerMetrics metrics = manager.getMetrics();
 
