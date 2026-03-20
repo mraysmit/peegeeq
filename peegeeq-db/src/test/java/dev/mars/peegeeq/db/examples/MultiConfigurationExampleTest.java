@@ -6,8 +6,10 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -21,6 +23,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import java.time.Duration;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -79,7 +82,7 @@ public class MultiConfigurationExampleTest {
         logger.info("Tearing down Multi Configuration Example Test");
 
         if (configManager != null) {
-            configManager.close();
+            awaitFuture(configManager.closeReactive());
         }
 
         // Clean up system properties
@@ -100,15 +103,15 @@ public class MultiConfigurationExampleTest {
         // Register different configurations for different use cases with small delays to prevent race conditions
         logger.info("Registering high-throughput configuration...");
         configManager.registerConfiguration("high-throughput", "test");
-        vertx.timer(100).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
+        awaitFuture(vertx.timer(100).mapEmpty());
 
         logger.info("Registering low-latency configuration...");
         configManager.registerConfiguration("low-latency", "test");
-        vertx.timer(100).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
+        awaitFuture(vertx.timer(100).mapEmpty());
 
         logger.info("Registering reliable configuration...");
         configManager.registerConfiguration("reliable", "test");
-        vertx.timer(100).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
+        awaitFuture(vertx.timer(100).mapEmpty());
 
         logger.info("Registering development configuration...");
         configManager.registerConfiguration("development", "test");
@@ -137,7 +140,7 @@ public class MultiConfigurationExampleTest {
         configManager.registerConfiguration("config2", "test");
         
         // Start all configurations
-        assertDoesNotThrow(() -> configManager.start());
+        assertDoesNotThrow(() -> awaitFuture(configManager.startReactive()));
         assertTrue(configManager.isStarted());
         
         // Validate configurations are accessible
@@ -159,7 +162,7 @@ public class MultiConfigurationExampleTest {
         
         // Register and start high-throughput configuration
         configManager.registerConfiguration("high-throughput", "test");
-        configManager.start();
+        awaitFuture(configManager.startReactive());
         
         // Get database service for high-throughput configuration
         DatabaseService databaseService = configManager.getDatabaseService("high-throughput");
@@ -189,7 +192,7 @@ public class MultiConfigurationExampleTest {
         
         // Register and start low-latency configuration
         configManager.registerConfiguration("low-latency", "test");
-        configManager.start();
+        awaitFuture(configManager.startReactive());
         
         // Get database service for low-latency configuration
         DatabaseService databaseService = configManager.getDatabaseService("low-latency");
@@ -218,7 +221,7 @@ public class MultiConfigurationExampleTest {
         
         // Register and start reliable configuration
         configManager.registerConfiguration("reliable", "test");
-        configManager.start();
+        awaitFuture(configManager.startReactive());
         
         // Get database service for reliable configuration
         DatabaseService databaseService = configManager.getDatabaseService("reliable");
@@ -247,7 +250,7 @@ public class MultiConfigurationExampleTest {
         
         // Register and start development configuration
         configManager.registerConfiguration("development", "test");
-        configManager.start();
+        awaitFuture(configManager.startReactive());
         
         // Get database service for custom configuration
         DatabaseService databaseService = configManager.getDatabaseService("development");
@@ -302,5 +305,31 @@ public class MultiConfigurationExampleTest {
         });
         
         logger.info("✓ Configuration error handling validated successfully");
+    }
+
+    private <T> T awaitFuture(Future<T> future) {
+        VertxTestContext testContext = new VertxTestContext();
+        AtomicReference<T> result = new AtomicReference<>();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+
+        future
+            .onSuccess(result::set)
+            .onFailure(failure::set)
+            .eventually(() -> {
+                testContext.completeNow();
+                return Future.succeededFuture();
+            });
+
+        try {
+            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Timed out waiting for Future completion");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted while waiting for Future completion", e);
+        }
+
+        if (failure.get() != null) {
+            throw new RuntimeException(failure.get());
+        }
+        return result.get();
     }
 }

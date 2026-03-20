@@ -22,9 +22,7 @@ import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.TimeUnit;
 import io.vertx.core.Future;
-import io.vertx.core.Vertx;
 
 /**
  * Manager for handling multiple PeeGeeQ configurations within the same application.
@@ -35,10 +33,7 @@ import io.vertx.core.Vertx;
  * @since 2025-07-17
  * @version 1.0
  */
-public class MultiConfigurationManager implements AutoCloseable {
-
-    private static final long START_TIMEOUT_SECONDS = 30;
-    private static final long CLOSE_TIMEOUT_SECONDS = 30;
+public class MultiConfigurationManager {
 
     /**
      * Lifecycle states for the manager.
@@ -144,26 +139,6 @@ public class MultiConfigurationManager implements AutoCloseable {
         registerConfiguration(name, new PeeGeeQConfiguration(profile));
     }
     
-    /**
-     * Starts all registered configurations.
-     * 
-     * @throws RuntimeException if any configuration fails to start
-     */
-    public synchronized void start() {
-        if (Vertx.currentContext() != null && Vertx.currentContext().isEventLoopContext()) {
-            throw new IllegalStateException("Do not call blocking start() on event-loop thread - use startReactive() instead");
-        }
-
-        try {
-            startReactive()
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get(START_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to start MultiConfigurationManager", e);
-        }
-    }
-
     /**
      * Starts all registered configurations reactively.
      *
@@ -331,25 +306,6 @@ public class MultiConfigurationManager implements AutoCloseable {
         return state.get() == State.STARTED;
     }
     
-    /**
-     * Stops all configurations and releases resources.
-     */
-    @Override
-    public void close() {
-        if (Vertx.currentContext() != null && Vertx.currentContext().isEventLoopContext()) {
-            throw new IllegalStateException("Do not call blocking close() on event-loop thread - use closeReactive() instead");
-        }
-
-        try {
-            closeReactive()
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get(CLOSE_TIMEOUT_SECONDS, TimeUnit.SECONDS);
-        } catch (Exception e) {
-            logger.error("Failed to close MultiConfigurationManager", e);
-        }
-    }
-
     /**
      * Stops all configurations and releases resources reactively.
      *

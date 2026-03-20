@@ -98,7 +98,7 @@ public class DatabaseTemplateManager {
                         });
                 });
         })
-        .onComplete(ar -> adminPool.close());
+                .eventually(adminPool::close);
     }
 
     /**
@@ -175,7 +175,7 @@ public class DatabaseTemplateManager {
         return adminPool.withConnection(connection -> {
             return dropDatabase(connection, databaseName);
         })
-        .onComplete(ar -> adminPool.close());
+        .eventually(adminPool::close);
     }
 
     private String buildCreateDatabaseSql(String dbName, String template,
