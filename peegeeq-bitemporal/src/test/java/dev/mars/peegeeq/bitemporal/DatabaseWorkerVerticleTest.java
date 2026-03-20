@@ -26,7 +26,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -129,12 +129,8 @@ class DatabaseWorkerVerticleTest {
         String tableName = "bitemporal_event_log";
         
         // Deploy the worker verticle
-        CompletableFuture<String> deploymentFuture = new CompletableFuture<>();
         PgBiTemporalEventStore.deployDatabaseWorkerVerticles(1, tableName)
-            .onSuccess(deploymentFuture::complete)
-            .onFailure(deploymentFuture::completeExceptionally);
-            
-        deploymentFuture.get(10, TimeUnit.SECONDS);
+            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
         
         // Prepare append operation message
         JsonObject payload = new JsonObject()
@@ -153,13 +149,11 @@ class DatabaseWorkerVerticleTest {
             .put("aggregateId", "agg-1");
 
         // When
-        CompletableFuture<JsonObject> resultFuture = new CompletableFuture<>();
-        vertx.eventBus().<JsonObject>request(PgBiTemporalEventStore.databaseOperationAddress(tableName), message)
-            .onSuccess(msg -> resultFuture.complete(msg.body()))
-            .onFailure(resultFuture::completeExceptionally);
+        JsonObject result = vertx.eventBus().<JsonObject>request(PgBiTemporalEventStore.databaseOperationAddress(tableName), message)
+            .map(msg -> msg.body())
+            .toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
 
         // Then
-        JsonObject result = resultFuture.get(5, TimeUnit.SECONDS);
         assertNotNull(result);
         assertNotNull(result.getString("id"));
         assertEquals("test.event", result.getString("eventType"));
@@ -171,12 +165,8 @@ class DatabaseWorkerVerticleTest {
         // Given
         String tableName = "bitemporal_event_log";
 
-        CompletableFuture<String> deploymentFuture = new CompletableFuture<>();
         PgBiTemporalEventStore.deployDatabaseWorkerVerticles(1, tableName)
-            .onSuccess(deploymentFuture::complete)
-            .onFailure(deploymentFuture::completeExceptionally);
-
-        deploymentFuture.get(10, TimeUnit.SECONDS);
+            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
 
         JsonObject payload = new JsonObject()
             .put("id", "test-id-unknown")
@@ -194,12 +184,10 @@ class DatabaseWorkerVerticleTest {
             .put("aggregateId", "agg-unknown")
             .put("clientKey", "does-not-exist");
 
-        CompletableFuture<JsonObject> resultFuture = new CompletableFuture<>();
-        vertx.eventBus().<JsonObject>request(PgBiTemporalEventStore.databaseOperationAddress(tableName), message)
-            .onSuccess(msg -> resultFuture.complete(msg.body()))
-            .onFailure(error -> resultFuture.completeExceptionally(error));
-
-        Exception exception = assertThrows(Exception.class, () -> resultFuture.get(5, TimeUnit.SECONDS));
+        Exception exception = assertThrows(Exception.class, () ->
+            vertx.eventBus().<JsonObject>request(PgBiTemporalEventStore.databaseOperationAddress(tableName), message)
+                .map(msg -> msg.body())
+                .toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS));
         assertTrue(exception.getMessage().contains("Database pool not initialized"),
             "Expected missing pool error for unknown client key");
     }
@@ -267,12 +255,10 @@ class DatabaseWorkerVerticleTest {
             .put("correlationId", UUID.randomUUID().toString())
             .put("aggregateId", "agg-ambiguous");
 
-        CompletableFuture<JsonObject> resultFuture = new CompletableFuture<>();
-        vertx.eventBus().<JsonObject>request(PgBiTemporalEventStore.databaseOperationAddress(primaryTable), message)
-            .onSuccess(msg -> resultFuture.complete(msg.body()))
-            .onFailure(resultFuture::completeExceptionally);
-
-        Exception exception = assertThrows(Exception.class, () -> resultFuture.get(5, TimeUnit.SECONDS));
+        Exception exception = assertThrows(Exception.class, () ->
+            vertx.eventBus().<JsonObject>request(PgBiTemporalEventStore.databaseOperationAddress(primaryTable), message)
+                .map(msg -> msg.body())
+                .toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS));
         assertTrue(exception.getMessage().contains("Database pool not initialized"),
             "Ambiguous legacy client-key fallback should be rejected");
     }
