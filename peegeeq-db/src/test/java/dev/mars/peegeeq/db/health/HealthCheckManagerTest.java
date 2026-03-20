@@ -22,7 +22,9 @@ import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
 import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -58,7 +60,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
-@ExtendWith(SharedPostgresTestExtension.class)
+@ExtendWith({SharedPostgresTestExtension.class, VertxExtension.class})
 @ResourceLock(value = "dead-letter-queue-database", mode = org.junit.jupiter.api.parallel.ResourceAccessMode.READ_WRITE)
 class HealthCheckManagerTest {
 
@@ -116,7 +118,7 @@ class HealthCheckManagerTest {
     @AfterEach
     void tearDown() throws Exception {
         if (healthCheckManager != null) {
-            healthCheckManager.stop();
+            stopManager(healthCheckManager);
         }
 
         // Clean up test data after each test
@@ -139,12 +141,12 @@ class HealthCheckManagerTest {
      */
     private void cleanupTestData() {
         try {
-            reactivePool.withConnection(connection -> {
+            awaitFuture(reactivePool.withConnection(connection -> {
                 // Clean up all test data from tables
                 return connection.query("DELETE FROM dead_letter_queue").execute()
                     .compose(result -> connection.query("DELETE FROM outbox").execute())
                     .compose(result -> connection.query("DELETE FROM queue_messages").execute());
-            }).toCompletionStage().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
+            }));
 
             System.out.println("DEBUG: Cleaned up test data for HealthCheckManager test isolation");
         } catch (Exception e) {
@@ -161,23 +163,23 @@ class HealthCheckManagerTest {
 
     @Test
     void testHealthCheckManagerStartStop() {
-        assertDoesNotThrow(() -> healthCheckManager.start());
+        assertDoesNotThrow(() -> startManager(healthCheckManager));
         
         // Wait a moment for health checks to run
-                    vertx.timer(3000).toCompletionStage().toCompletableFuture().join();
+        awaitTimer(3000);
 
         
         assertTrue(healthCheckManager.isHealthy());
         
-        assertDoesNotThrow(() -> healthCheckManager.stop());
+        assertDoesNotThrow(() -> stopManager(healthCheckManager));
     }
 
     @Test
     void testOverallHealthStatus() {
-        healthCheckManager.start();
+        startManager(healthCheckManager);
         
         // Wait for health checks to run
-                    vertx.timer(3000).toCompletionStage().toCompletableFuture().join();
+        awaitTimer(3000);
 
         
         OverallHealthStatus status = healthCheckManager.getOverallHealthInternal();
@@ -197,10 +199,10 @@ class HealthCheckManagerTest {
 
     @Test
     void testDatabaseHealthCheck() {
-        healthCheckManager.start();
+        startManager(healthCheckManager);
         
         // Wait for health checks to run
-                    vertx.timer(3000).toCompletionStage().toCompletableFuture().join();
+        awaitTimer(3000);
 
         
         HealthStatus dbHealth = healthCheckManager.getHealthStatus("database");
@@ -215,10 +217,10 @@ class HealthCheckManagerTest {
         // Insert test data for queue health checks
         insertTestData();
         
-        healthCheckManager.start();
+        startManager(healthCheckManager);
         
         // Wait for health checks to run
-                    vertx.timer(3000).toCompletionStage().toCompletableFuture().join();
+        awaitTimer(3000);
 
         
         // Test outbox queue health
@@ -245,10 +247,10 @@ class HealthCheckManagerTest {
 
     @Test
     void testMemoryHealthCheck() {
-        healthCheckManager.start();
+        startManager(healthCheckManager);
         
         // Wait for health checks to run
-                    vertx.timer(3000).toCompletionStage().toCompletableFuture().join();
+        awaitTimer(3000);
 
         
         HealthStatus memoryHealth = healthCheckManager.getHealthStatus("memory");
@@ -262,10 +264,10 @@ class HealthCheckManagerTest {
 
     @Test
     void testDiskSpaceHealthCheck() {
-        healthCheckManager.start();
+        startManager(healthCheckManager);
         
         // Wait for health checks to run
-                    vertx.timer(3000).toCompletionStage().toCompletableFuture().join();
+        awaitTimer(3000);
 
         
         HealthStatus diskHealth = healthCheckManager.getHealthStatus("disk-space");
@@ -287,10 +289,10 @@ class HealthCheckManagerTest {
         };
         
         healthCheckManager.registerHealthCheck("custom", customCheck);
-        healthCheckManager.start();
+        startManager(healthCheckManager);
         
         // Wait for health checks to run
-                    vertx.timer(3000).toCompletionStage().toCompletableFuture().join();
+        awaitTimer(3000);
 
         
         assertTrue(customCheckCalled.get());
@@ -311,20 +313,20 @@ class HealthCheckManagerTest {
      */
     @Test
     void testFailingHealthCheck() {
-        System.out.println("🧪 ===== RUNNING INTENTIONAL HEALTH CHECK FAILURE TEST ===== 🧪");
-        System.out.println("🔥 **INTENTIONAL TEST** 🔥 This test deliberately simulates a health check throwing an exception");
+        System.out.println("===== RUNNING INTENTIONAL HEALTH CHECK FAILURE TEST ===== ");
+        System.out.println("**INTENTIONAL TEST** This test deliberately simulates a health check throwing an exception");
 
         HealthCheck failingCheck = () -> {
-            System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Health check throwing simulated exception");
+            System.out.println("**INTENTIONAL TEST FAILURE** Health check throwing simulated exception");
             // Create a custom exception that clearly indicates it's intentional
             throw new IntentionalTestFailureException("INTENTIONAL TEST FAILURE: Simulated failure");
         };
 
         healthCheckManager.registerHealthCheck("failing", failingCheck);
-        healthCheckManager.start();
+        startManager(healthCheckManager);
 
         // Wait for health checks to run
-                    vertx.timer(3000).toCompletionStage().toCompletableFuture().join();
+        awaitTimer(3000);
 
 
         HealthStatus failingHealth = healthCheckManager.getHealthStatus("failing");
@@ -335,19 +337,19 @@ class HealthCheckManagerTest {
         assertTrue(failingHealth.getMessage().contains("Health check threw exception"));
 
         System.out.println("**SUCCESS** Health check failure was properly handled and reported");
-        System.out.println("🧪 ===== INTENTIONAL FAILURE TEST COMPLETED ===== 🧪");
+        System.out.println("===== INTENTIONAL FAILURE TEST COMPLETED ===== ");
     }
 
     @Test
     void testHealthCheckTimeout() {
         HealthCheck slowCheck = () -> {
-                            vertx.timer(5000).toCompletionStage().toCompletableFuture().join(); // Longer than timeout
+            awaitTimer(5000); // Longer than timeout
 
             return HealthStatus.healthy("slow-check");
         };
         
         healthCheckManager.registerHealthCheck("slow", slowCheck);
-        healthCheckManager.start();
+        startManager(healthCheckManager);
         
         // Wait for health checks to run and timeout
         // Need to wait for:
@@ -355,7 +357,7 @@ class HealthCheckManagerTest {
         // - Default health checks to complete (database, memory, disk-space, etc.)
         // - Slow check to timeout (3 seconds)
         // Total conservative wait: 8 seconds to handle CI/parallel execution variance
-                    vertx.timer(8000).toCompletionStage().toCompletableFuture().join();
+        awaitTimer(8000);
 
         
         HealthStatus slowHealth = healthCheckManager.getHealthStatus("slow");
@@ -374,24 +376,24 @@ class HealthCheckManagerTest {
      */
     @Test
     void testHealthCheckWithDatabaseFailure() throws Exception {
-        System.out.println("🧪 ===== RUNNING INTENTIONAL DATABASE FAILURE TEST ===== 🧪");
-        System.out.println("🔥 **INTENTIONAL TEST** 🔥 This test deliberately closes the database connection to simulate failure");
+        System.out.println("===== RUNNING INTENTIONAL DATABASE FAILURE TEST ===== ");
+        System.out.println("**INTENTIONAL TEST** This test deliberately closes the database connection to simulate failure");
 
-        healthCheckManager.start();
+        startManager(healthCheckManager);
 
         // Wait for initial healthy state
-                    vertx.timer(3000).toCompletionStage().toCompletableFuture().join();
+        awaitTimer(3000);
 
 
         assertTrue(healthCheckManager.isHealthy());
         System.out.println("Initial state: Health checks are healthy");
 
         // Close database connection to simulate failure
-        System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Closing database connection to simulate failure");
+        System.out.println("**INTENTIONAL TEST FAILURE** Closing database connection to simulate failure");
         connectionManager.close();
 
         // Wait for health checks to detect failure
-                    vertx.timer(6000).toCompletionStage().toCompletableFuture().join(); // Wait longer than check interval
+        awaitTimer(6000); // Wait longer than check interval
 
 
         assertFalse(healthCheckManager.isHealthy());
@@ -401,7 +403,7 @@ class HealthCheckManagerTest {
         assertFalse(dbHealth.isHealthy());
 
         System.out.println("**SUCCESS** Database failure was properly detected and reported");
-        System.out.println("🧪 ===== INTENTIONAL FAILURE TEST COMPLETED ===== 🧪");
+        System.out.println("===== INTENTIONAL FAILURE TEST COMPLETED ===== ");
     }
 
     @Test
@@ -414,15 +416,15 @@ class HealthCheckManagerTest {
         for (int i = 0; i < 5; i++) {
             final int checkId = i;
             healthCheckManager.registerHealthCheck("concurrent-" + i, () -> {
-                    vertx.timer(100).toCompletionStage().toCompletableFuture().join(); // Simulate some work
-                    HealthStatus result = HealthStatus.healthy("concurrent-" + checkId);
-                    completedChecks.incrementAndGet();
-                    latch.flag();
-                    return result;
+            awaitTimer(100); // Simulate some work
+            HealthStatus result = HealthStatus.healthy("concurrent-" + checkId);
+            completedChecks.incrementAndGet();
+            latch.flag();
+            return result;
             });
         }
 
-        healthCheckManager.start();
+        startManager(healthCheckManager);
 
         // Wait for all health checks to complete
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
@@ -430,7 +432,7 @@ class HealthCheckManagerTest {
 
         // Wait a bit more to ensure results are stored in lastResults map
         // The health check execution and result storage happen asynchronously
-        vertx.timer(500).toCompletionStage().toCompletableFuture().join();
+        awaitTimer(500);
 
         // Verify all health checks are healthy
         for (int i = 0; i < 5; i++) {
@@ -481,10 +483,10 @@ class HealthCheckManagerTest {
         // Insert data that might cause some health checks to be degraded
         insertLargeAmountOfTestData();
         
-        healthCheckManager.start();
+        startManager(healthCheckManager);
         
         // Wait for health checks to run
-                    vertx.timer(3000).toCompletionStage().toCompletableFuture().join();
+        awaitTimer(3000);
 
         
         OverallHealthStatus status = healthCheckManager.getOverallHealthInternal();
@@ -496,7 +498,7 @@ class HealthCheckManagerTest {
 
     private void insertTestData() {
         try {
-            reactivePool.withConnection(connection -> {
+            awaitFuture(reactivePool.withConnection(connection -> {
                 // Insert outbox message
                 return connection.preparedQuery("INSERT INTO outbox (topic, payload, status) VALUES ($1, $2::jsonb, $3)")
                     .execute(io.vertx.sqlclient.Tuple.of("test-topic", "{\"test\": \"data\"}", "PENDING"))
@@ -511,7 +513,7 @@ class HealthCheckManagerTest {
                             .execute(io.vertx.sqlclient.Tuple.of("outbox", 1L, "test-topic", "{\"test\": \"data\"}",
                                 java.time.OffsetDateTime.now(), "test failure", 3));
                     });
-            }).toCompletionStage().toCompletableFuture().get();
+            }));
         } catch (Exception e) {
             throw new RuntimeException("Failed to insert test data", e);
         }
@@ -519,9 +521,9 @@ class HealthCheckManagerTest {
 
     private void insertLargeAmountOfTestData() {
         try {
-            reactivePool.withConnection(connection -> {
+            awaitFuture(reactivePool.withConnection(connection -> {
                 // Insert many outbox messages to potentially trigger degraded state
-                io.vertx.core.Future<io.vertx.sqlclient.RowSet<io.vertx.sqlclient.Row>> future = io.vertx.core.Future.succeededFuture();
+                Future<io.vertx.sqlclient.RowSet<io.vertx.sqlclient.Row>> future = Future.succeededFuture();
 
                 for (int i = 0; i < 100; i++) {
                     final int index = i;
@@ -533,7 +535,7 @@ class HealthCheckManagerTest {
                 }
 
                 return future;
-            }).toCompletionStage().toCompletableFuture().get();
+            }));
         } catch (Exception e) {
             throw new RuntimeException("Failed to insert large amount of test data", e);
         }
@@ -565,12 +567,12 @@ class HealthCheckManagerTest {
         assertNotNull(reactiveHealthCheckManager);
 
         // Start the health check manager to run the checks
-        reactiveHealthCheckManager.start();
+        startManager(reactiveHealthCheckManager);
 
         // Wait for health checks to complete
         // Health checks include database, memory, disk-space checks
         // Need to wait for initial delay (100ms) + execution time
-                    vertx.timer(3000).toCompletionStage().toCompletableFuture().join();
+        awaitTimer(3000);
 
 
         // Test that health checks work
@@ -586,6 +588,52 @@ class HealthCheckManagerTest {
         assertEquals("UP", overallStatus.getStatus());
 
         // Clean up
-        reactiveHealthCheckManager.stop();
+        stopManager(reactiveHealthCheckManager);
+    }
+
+    private void startManager(HealthCheckManager manager) {
+        try {
+            awaitFuture(manager.startReactive());
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to start HealthCheckManager reactively", e);
+        }
+    }
+
+    private void stopManager(HealthCheckManager manager) {
+        try {
+            awaitFuture(manager.stopReactive());
+        } catch (Exception e) {
+            throw new RuntimeException("Failed to stop HealthCheckManager reactively", e);
+        }
+    }
+
+    private void awaitTimer(long delayMs) {
+        awaitFuture(vertx.timer(delayMs).mapEmpty());
+    }
+
+    private <T> T awaitFuture(Future<T> future) {
+        VertxTestContext testContext = new VertxTestContext();
+        AtomicReference<T> result = new AtomicReference<>();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+
+        future
+            .onSuccess(result::set)
+            .onFailure(failure::set)
+            .eventually(() -> {
+                testContext.completeNow();
+                return Future.succeededFuture();
+            });
+
+        try {
+            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Timed out waiting for Future completion");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted while waiting for Future completion", e);
+        }
+
+        if (failure.get() != null) {
+            throw new RuntimeException(failure.get());
+        }
+        return result.get();
     }
 }
