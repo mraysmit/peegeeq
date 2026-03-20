@@ -33,8 +33,10 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
-import java.util.concurrent.CompletableFuture;
+
 import java.util.concurrent.TimeUnit;
+
+import io.vertx.junit5.VertxTestContext;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -92,64 +94,85 @@ public class PgClientTest {
 
     @Test
     void testGetReactiveConnection() throws Exception {
-        // Test reactive connection - following established Vert.x 5.x patterns
-        Future<Integer> result = pgClient.getReactiveConnection()
+        VertxTestContext testContext = new VertxTestContext();
+
+        pgClient.getReactiveConnection()
             .compose(connection -> {
-                // Execute a simple query using reactive patterns
-                Future<Integer> queryResult = connection.preparedQuery("SELECT 1")
+                return connection.preparedQuery("SELECT 1")
                     .execute()
                     .map(rowSet -> {
                         Row row = rowSet.iterator().next();
                         return row.getInteger(0);
-                    });
+                    })
+                    .onComplete(ar -> connection.close());
+            })
+            .onSuccess(value -> testContext.verify(() -> {
+                assertNotNull(value);
+                assertEquals(1, value);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-                // Close connection and return result
-                return queryResult.onComplete(ar -> connection.close());
-            });
-
-        // Convert to CompletableFuture and wait for result - following established patterns
-        CompletableFuture<Integer> completableFuture = result.toCompletionStage().toCompletableFuture();
-        Integer value = completableFuture.get(10, TimeUnit.SECONDS);
-        assertNotNull(value);
-        assertEquals(1, value);
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            Throwable cause = testContext.causeOfFailure();
+            if (cause instanceof Exception ex) throw ex;
+            throw new RuntimeException(cause);
+        }
     }
 
     @Test
     void testWithReactiveConnectionResultInteger() throws Exception {
-        // Test withReactiveConnectionResult with integer - following established patterns
-        Future<Integer> result = pgClient.withReactiveConnectionResult(connection -> {
+        VertxTestContext testContext = new VertxTestContext();
+
+        pgClient.withReactiveConnectionResult(connection -> {
             return connection.preparedQuery("SELECT 1")
                 .execute()
                 .map(rowSet -> {
                     Row row = rowSet.iterator().next();
                     return row.getInteger(0);
                 });
-        });
+        })
+        .onSuccess(value -> testContext.verify(() -> {
+            assertNotNull(value);
+            assertEquals(1, value);
+            testContext.completeNow();
+        }))
+        .onFailure(testContext::failNow);
 
-        // Convert to CompletableFuture and wait for result - following established patterns
-        CompletableFuture<Integer> completableFuture = result.toCompletionStage().toCompletableFuture();
-        Integer value = completableFuture.get(10, TimeUnit.SECONDS);
-        assertNotNull(value);
-        assertEquals(1, value);
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            Throwable cause = testContext.causeOfFailure();
+            if (cause instanceof Exception ex) throw ex;
+            throw new RuntimeException(cause);
+        }
     }
 
     @Test
     void testWithReactiveConnectionResultString() throws Exception {
-        // Test withReactiveConnectionResult with string - following established patterns
-        Future<String> result = pgClient.withReactiveConnectionResult(connection -> {
+        VertxTestContext testContext = new VertxTestContext();
+
+        pgClient.withReactiveConnectionResult(connection -> {
             return connection.preparedQuery("SELECT 'test' as message")
                 .execute()
                 .map(rowSet -> {
                     Row row = rowSet.iterator().next();
                     return row.getString("message");
                 });
-        });
+        })
+        .onSuccess(value -> testContext.verify(() -> {
+            assertNotNull(value);
+            assertEquals("test", value);
+            testContext.completeNow();
+        }))
+        .onFailure(testContext::failNow);
 
-        // Convert to CompletableFuture and wait for result - following established patterns
-        CompletableFuture<String> completableFuture = result.toCompletionStage().toCompletableFuture();
-        String value = completableFuture.get(10, TimeUnit.SECONDS);
-        assertNotNull(value);
-        assertEquals("test", value);
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            Throwable cause = testContext.causeOfFailure();
+            if (cause instanceof Exception ex) throw ex;
+            throw new RuntimeException(cause);
+        }
     }
 
     @Test
@@ -175,12 +198,12 @@ public class PgClientTest {
 
     @Test
     void testGetReactivePool() throws Exception {
-        // Test that PgClient.getReactivePool() works correctly and resolves through connection manager
         Pool pool = pgClient.getReactivePool();
         assertNotNull(pool, "Pool should not be null");
 
-        // Verify pool is functional by getting a connection
-        Future<Integer> result = pool.getConnection()
+        VertxTestContext testContext = new VertxTestContext();
+
+        pool.getConnection()
             .compose(connection -> {
                 return connection.preparedQuery("SELECT 42 as answer")
                     .execute()
@@ -189,10 +212,18 @@ public class PgClientTest {
                         return row.getInteger("answer");
                     })
                     .onComplete(ar -> connection.close());
-            });
+            })
+            .onSuccess(answer -> testContext.verify(() -> {
+                assertEquals(42, answer, "Pool should be functional");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        CompletableFuture<Integer> completableFuture = result.toCompletionStage().toCompletableFuture();
-        Integer answer = completableFuture.get(10, TimeUnit.SECONDS);
-        assertEquals(42, answer, "Pool should be functional");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            Throwable cause = testContext.causeOfFailure();
+            if (cause instanceof Exception ex) throw ex;
+            throw new RuntimeException(cause);
+        }
     }
 }

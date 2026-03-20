@@ -99,14 +99,13 @@ public class DeadLetterQueueManager implements DeadLetterService {
     /**
      * Moves a message to the dead letter queue asynchronously.
      */
-    public CompletableFuture<Void> moveToDeadLetterQueue(String originalTable, long originalId, String topic,
+    public Future<Void> moveToDeadLetterQueue(String originalTable, long originalId, String topic,
                                                               Object payload, Instant originalCreatedAt, String failureReason,
                                                               int retryCount, Map<String, String> headers, String correlationId,
                                                               String messageGroup) {
         validateMoveToDeadLetterArgs(originalTable, topic, originalCreatedAt, failureReason, retryCount);
         return storeDeadLetterMessage(originalTable, originalId, topic, payload, originalCreatedAt,
-            failureReason, retryCount, headers, correlationId, messageGroup)
-            .toCompletionStage().toCompletableFuture();
+            failureReason, retryCount, headers, correlationId, messageGroup);
     }
 
     Future<Void> storeDeadLetterMessage(String originalTable, long originalId, String topic,
