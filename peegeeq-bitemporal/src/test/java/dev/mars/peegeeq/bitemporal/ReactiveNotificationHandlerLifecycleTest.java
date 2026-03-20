@@ -11,7 +11,6 @@ package dev.mars.peegeeq.bitemporal;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.BiTemporalEvent;
-import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
@@ -22,7 +21,6 @@ import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.pgclient.PgConnection;
-import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -34,12 +32,10 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Instant;
-import java.time.OffsetDateTime;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Function;
@@ -226,7 +222,7 @@ class ReactiveNotificationHandlerLifecycleTest {
         );
 
         MessageHandler<BiTemporalEvent<String>> messageHandler = 
-            message -> CompletableFuture.completedFuture(null);
+            message -> Future.<Void>succeededFuture();
 
         handler.subscribe("test.event", null, messageHandler)
             .onComplete(testContext.failing(error -> testContext.verify(() -> {
@@ -248,7 +244,7 @@ class ReactiveNotificationHandlerLifecycleTest {
         );
 
         MessageHandler<BiTemporalEvent<String>> messageHandler = 
-            message -> CompletableFuture.completedFuture(null);
+            message -> Future.<Void>succeededFuture();
 
         handler.start()
             .compose(v -> handler.subscribe("order.created", null, messageHandler))
@@ -269,7 +265,7 @@ class ReactiveNotificationHandlerLifecycleTest {
         );
 
         MessageHandler<BiTemporalEvent<String>> messageHandler = 
-            message -> CompletableFuture.completedFuture(null);
+            message -> Future.<Void>succeededFuture();
 
         handler.start()
             .compose(v -> handler.subscribe("order.*", null, messageHandler))
@@ -290,7 +286,7 @@ class ReactiveNotificationHandlerLifecycleTest {
         );
 
         MessageHandler<BiTemporalEvent<String>> messageHandler = 
-            message -> CompletableFuture.completedFuture(null);
+            message -> Future.<Void>succeededFuture();
 
         handler.start()
             .compose(v -> handler.subscribe(null, null, messageHandler))
@@ -314,7 +310,7 @@ class ReactiveNotificationHandlerLifecycleTest {
 
         MessageHandler<BiTemporalEvent<String>> messageHandler = message -> {
             receivedEvents.add(message.getPayload().getEventId());
-            return CompletableFuture.completedFuture(null);
+            return Future.<Void>succeededFuture();
         };
 
         handler.start()
@@ -347,12 +343,12 @@ class ReactiveNotificationHandlerLifecycleTest {
 
         MessageHandler<BiTemporalEvent<String>> firstHandler = message -> {
             firstHandlerCount.incrementAndGet();
-            return CompletableFuture.completedFuture(null);
+            return Future.<Void>succeededFuture();
         };
 
         MessageHandler<BiTemporalEvent<String>> secondHandler = message -> {
             secondHandlerCount.incrementAndGet();
-            return CompletableFuture.completedFuture(null);
+            return Future.<Void>succeededFuture();
         };
 
         handler.start()
@@ -383,7 +379,7 @@ class ReactiveNotificationHandlerLifecycleTest {
 
         MessageHandler<BiTemporalEvent<String>> messageHandler = message -> {
             receivedEvents.add(message.getPayload().getEventType());
-            return CompletableFuture.completedFuture(null);
+            return Future.<Void>succeededFuture();
         };
 
         handler.start()
@@ -414,7 +410,7 @@ class ReactiveNotificationHandlerLifecycleTest {
 
         MessageHandler<BiTemporalEvent<String>> messageHandler = message -> {
             receivedEvents.add(message.getPayload().getEventType());
-            return CompletableFuture.completedFuture(null);
+            return Future.<Void>succeededFuture();
         };
 
         handler.start()
@@ -449,17 +445,17 @@ class ReactiveNotificationHandlerLifecycleTest {
 
         MessageHandler<BiTemporalEvent<String>> orderHandler = message -> {
             orderCount.incrementAndGet();
-            return CompletableFuture.completedFuture(null);
+            return Future.<Void>succeededFuture();
         };
 
         MessageHandler<BiTemporalEvent<String>> paymentHandler = message -> {
             paymentCount.incrementAndGet();
-            return CompletableFuture.completedFuture(null);
+            return Future.<Void>succeededFuture();
         };
 
         MessageHandler<BiTemporalEvent<String>> allHandler = message -> {
             allCount.incrementAndGet();
-            return CompletableFuture.completedFuture(null);
+            return Future.<Void>succeededFuture();
         };
 
         handler.start()
@@ -492,7 +488,7 @@ class ReactiveNotificationHandlerLifecycleTest {
 
         MessageHandler<BiTemporalEvent<String>> messageHandler = message -> {
             receivedAggregates.add(message.getHeaders().get("aggregate_id"));
-            return CompletableFuture.completedFuture(null);
+            return Future.<Void>succeededFuture();
         };
 
         handler.start()
@@ -524,9 +520,7 @@ class ReactiveNotificationHandlerLifecycleTest {
         MessageHandler<BiTemporalEvent<String>> faultyHandler = message -> {
             errorCount.incrementAndGet();
             // Simulate handler error
-            CompletableFuture<Void> future = new CompletableFuture<>();
-            future.completeExceptionally(new RuntimeException("Handler error"));
-            return future;
+            return Future.failedFuture(new RuntimeException("Handler error"));
         };
 
         handler.start()
@@ -551,7 +545,7 @@ class ReactiveNotificationHandlerLifecycleTest {
         );
 
         MessageHandler<BiTemporalEvent<String>> messageHandler = 
-            message -> CompletableFuture.completedFuture(null);
+            message -> Future.<Void>succeededFuture();
 
         handler.start()
             .compose(v -> handler.subscribe("test.event", null, messageHandler))
@@ -583,7 +577,7 @@ class ReactiveNotificationHandlerLifecycleTest {
         AtomicInteger receivedCount = new AtomicInteger(0);
         MessageHandler<BiTemporalEvent<String>> messageHandler = message -> {
             receivedCount.incrementAndGet();
-            return CompletableFuture.completedFuture(null);
+            return Future.<Void>succeededFuture();
         };
 
         handler.start()
@@ -616,7 +610,7 @@ class ReactiveNotificationHandlerLifecycleTest {
         AtomicInteger receivedCount = new AtomicInteger(0);
         MessageHandler<BiTemporalEvent<String>> messageHandler = message -> {
             receivedCount.incrementAndGet();
-            return CompletableFuture.completedFuture(null);
+            return Future.<Void>succeededFuture();
         };
 
         handler.start()
