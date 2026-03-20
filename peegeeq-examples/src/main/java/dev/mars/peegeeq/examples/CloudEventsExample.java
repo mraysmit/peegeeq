@@ -35,7 +35,7 @@ import java.net.URI;
 import java.time.OffsetDateTime;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
+
 
 /**
  * Example demonstrating CloudEvents integration with PeeGeeQ.
