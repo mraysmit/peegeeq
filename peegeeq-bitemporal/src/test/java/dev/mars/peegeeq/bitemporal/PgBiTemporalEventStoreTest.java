@@ -59,6 +59,54 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag(TestCategories.CORE)
 @Testcontainers
 class PgBiTemporalEventStoreTest {
+    @Test
+    void testTransactionTimeIsDbValueNotJvmClock() throws Exception {
+        // Given
+        TestEvent payload = new TestEvent("clock-skew", "db clock test", 999);
+        Instant validTime = Instant.now();
+
+        // Simulate JVM clock skew by using a time far in the past
+        Instant fakeJvmNow = Instant.now().minusSeconds(3600 * 24 * 365); // 1 year ago
+
+        // When
+        BiTemporalEvent<TestEvent> event = await(eventStore.appendBuilder()
+            .eventType("ClockSkewTest")
+            .payload(payload)
+            .validTime(validTime)
+            .execute());
+
+        assertNotNull(event);
+        assertEquals("ClockSkewTest", event.getEventType());
+        assertEquals(payload, event.getPayload());
+        assertNotNull(event.getTransactionTime());
+
+        // Fetch the DB value directly
+        PgConnectOptions connectOptions = new PgConnectOptions()
+            .setHost(postgres.getHost())
+            .setPort(postgres.getFirstMappedPort())
+            .setDatabase(postgres.getDatabaseName())
+            .setUser(postgres.getUsername())
+            .setPassword(postgres.getPassword());
+        Pool pool = PgBuilder.pool().connectingTo(connectOptions).build();
+        String sql = "SELECT transaction_time FROM bitemporal_event_log WHERE event_id = $1";
+        Instant dbTransactionTime = pool.withConnection(conn ->
+            conn.preparedQuery(sql)
+                .execute(io.vertx.sqlclient.Tuple.of(event.getEventId()))
+                .map(rows -> rows.iterator().next().getOffsetDateTime("transaction_time").toInstant())
+        ).toCompletionStage().toCompletableFuture().get(10, java.util.concurrent.TimeUnit.SECONDS);
+        pool.close();
+
+        // Then: The API and DB values must match
+        assertEquals(dbTransactionTime, event.getTransactionTime(), "API and DB transaction_time must match");
+
+        // The DB value must NOT match the fake JVM clock
+        assertNotEquals(fakeJvmNow, dbTransactionTime, "DB transaction_time must not match JVM clock if skewed");
+
+        // The DB value must be within a reasonable window of the real current time
+        Instant now = Instant.now();
+        long secondsDiff = Math.abs(dbTransactionTime.getEpochSecond() - now.getEpochSecond());
+        assertTrue(secondsDiff < 30, "DB transaction_time should be within 30s of now (was off by " + secondsDiff + "s)");
+    }
 
     private static <T> T await(io.vertx.core.Future<T> future) {
         return future.toCompletionStage().toCompletableFuture().join();

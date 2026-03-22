@@ -37,6 +37,7 @@ import io.vertx.core.ThreadingModel;
 import io.vertx.core.eventbus.DeliveryOptions;
 import io.vertx.core.Vertx;
 import io.vertx.core.VerticleBase;
+import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnectOptions;
@@ -44,10 +45,12 @@ import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.PoolOptions;
 import io.vertx.sqlclient.Row;
+import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.SqlClient;
 import io.vertx.sqlclient.Tuple;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
 
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -58,6 +61,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * PostgreSQL-based implementation of the bi-temporal event store.
+ * YES A GOD CLASS
  * 
  * This implementation provides:
  * - Append-only event storage with bi-temporal dimensions
@@ -351,19 +355,28 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 .map(rowSet -> {
                     List<BiTemporalEvent<T>> results = new ArrayList<>();
 
-                    // PostgreSQL executeBatch returns one row per batch operation, not per
-                    // individual insert
-                    // We need to construct results based on our input events and generated IDs
+                    // executeBatch returns linked RowSets — one per batch entry.
+                    // Iterate through them to extract each DB-returned transaction_time.
+                    RowSet<Row> currentRowSet = rowSet;
                     for (int i = 0; i < events.size(); i++) {
                         BatchEventData<T> eventData = events.get(i);
                         String eventId = eventIds.get(i);
+
+                        Instant actualTransactionTime;
+                        if (currentRowSet != null && currentRowSet.iterator().hasNext()) {
+                            Row row = currentRowSet.iterator().next();
+                            actualTransactionTime = row.getOffsetDateTime("transaction_time").toInstant();
+                            currentRowSet = currentRowSet.next();
+                        } else {
+                            actualTransactionTime = transactionTime.toInstant();
+                        }
 
                         BiTemporalEvent<T> event = new SimpleBiTemporalEvent<>(
                                 eventId,
                                 eventData.eventType(),
                                 eventData.payload(),
                                 eventData.validTime(),
-                                transactionTime.toInstant(),
+                                actualTransactionTime,
                                 1L, // version
                                 null, // previousVersionId
                                 eventData.headers(),
@@ -619,7 +632,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                                      version, previous_version_id, correlation_id, aggregate_id,
                                      is_correction, correction_reason, created_at)
                                     VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11, $12, $13)
-                                    RETURNING id
+                                    RETURNING id, transaction_time
                                     """.formatted(quotedTableName);
 
                             Tuple insertParams = Tuple.of(
@@ -634,9 +647,12 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                                         logger.debug("Successfully appended correction event: {} for original: {}",
                                                 eventId, originalEventId);
 
+                                        Row insertRow = insertRows.iterator().next();
+                                        Instant actualTransactionTime = insertRow.getOffsetDateTime("transaction_time").toInstant();
+
                                         // Create and return the BiTemporalEvent
                                     BiTemporalEvent<T> correctionEvent = new SimpleBiTemporalEvent<>(
-                                                eventId, eventType, payload, validTime, transactionTime.toInstant(),
+                                                eventId, eventType, payload, validTime, actualTransactionTime,
                                                 nextVersion, originalEventId, headers != null ? headers : Map.of(),
                                                 correlationId, null, aggregateId, true, correctionReason);
                                     return correctionEvent;
@@ -814,12 +830,15 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                             throw new RuntimeException("No rows returned from insert operation");
                         }
 
+                        Row row = rows.iterator().next();
+                        Instant actualTransactionTime = row.getOffsetDateTime("transaction_time").toInstant();
+
                         logger.debug(
                                 "Successfully appended bi-temporal event in transaction: eventId={}, eventType={}, validTime={}",
                                 eventId, eventType, validTime);
 
                         return new SimpleBiTemporalEvent<>(
-                                eventId, eventType, payload, validTime, transactionTime.toInstant(),
+                                eventId, eventType, payload, validTime, actualTransactionTime,
                                 headers != null ? headers : Map.of(), finalCorrelationId, causationId, aggregateId);
                     });
 
@@ -964,8 +983,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                         try {
                             return mapRowToEvent(row);
                         } catch (Exception e) {
-                            logger.error("Failed to map row to event for {}: {}", eventId, e.getMessage(), e);
-                            throw new RuntimeException(e);
+                            throw new RuntimeException("Failed to map row to event for eventId=" + eventId, e);
                         }
                     } else {
                         return null;
@@ -1090,7 +1108,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                     try {
                         return mapRowToEvent(rows.iterator().next());
                     } catch (Exception e) {
-                        throw new RuntimeException("Failed to map as-of transaction time row", e);
+                        throw new RuntimeException(
+                                "Failed to map as-of transaction time row for eventId=" + eventId, e);
                     }
                 });
     }
@@ -1191,11 +1210,11 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                         Row basicRow = basicRows.iterator().next();
                         totalEvents = basicRow.getLong("total_events");
                         totalCorrections = basicRow.getLong("total_corrections");
-                        oldestEventTime = basicRow.getLocalDateTime("oldest_event_time") != null
-                                ? basicRow.getLocalDateTime("oldest_event_time").toInstant(java.time.ZoneOffset.UTC)
+                        oldestEventTime = basicRow.getOffsetDateTime("oldest_event_time") != null
+                                ? basicRow.getOffsetDateTime("oldest_event_time").toInstant()
                                 : null;
-                        newestEventTime = basicRow.getLocalDateTime("newest_event_time") != null
-                                ? basicRow.getLocalDateTime("newest_event_time").toInstant(java.time.ZoneOffset.UTC)
+                        newestEventTime = basicRow.getOffsetDateTime("newest_event_time") != null
+                                ? basicRow.getOffsetDateTime("newest_event_time").toInstant()
                                 : null;
                         storageSizeBytes = basicRow.getLong("storage_size_bytes");
                         uniqueAggregateCount = basicRow.getLong("unique_aggregate_count");
@@ -1292,16 +1311,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         });
     }
 
-    /**
-     * Delegates to {@link #close()}.
-     *
-     * @return a Future that completes when all resources are released
-     * @deprecated Use {@link #close()} instead
-     */
-    @Deprecated
-    public Future<Void> closeFuture() {
-        return close();
-    }
+
 
     /**
      * Ensures the reactive notification handler is started.
@@ -1330,13 +1340,11 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         Instant validTime = row.getOffsetDateTime("valid_time").toInstant();
         Instant transactionTime = row.getOffsetDateTime("transaction_time").toInstant();
 
-        // Get JSONB data from Vert.x Row - these come as JsonObject/JsonArray
+        // Get JSONB data from Vert.x Row using driver type mapping.
+        // The Vert.x PG driver returns JsonObject for JSON objects, JsonArray for
+        // JSON arrays, and Java scalars (String, Number, Boolean) for scalar JSONB.
         Object payloadObj = row.getValue("payload");
         Object headersObj = row.getValue("headers");
-
-        // Convert to JSON strings for Jackson processing
-        String payloadJson = payloadObj != null ? payloadObj.toString() : "{}";
-        String headersJson = headersObj != null ? headersObj.toString() : "{}";
 
         long version = row.getLong("version");
         String previousVersionId = row.getString("previous_version_id");
@@ -1346,29 +1354,36 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         boolean isCorrection = row.getBoolean("is_correction");
         String correctionReason = row.getString("correction_reason");
 
-        // Fix double-encoded JSON issue - remove outer quotes if present
-        if (payloadJson.startsWith("\"") && payloadJson.endsWith("\"")) {
-            // Remove outer quotes and unescape inner quotes
-            payloadJson = payloadJson.substring(1, payloadJson.length() - 1)
-                    .replace("\\\"", "\"")
-                    .replace("\\\\", "\\");
-            logger.debug("Unwrapped double-encoded JSON: {}", payloadJson);
-        }
-
-        if (headersJson.startsWith("\"") && headersJson.endsWith("\"")) {
-            // Remove outer quotes and unescape inner quotes
-            headersJson = headersJson.substring(1, headersJson.length() - 1)
-                    .replace("\\\"", "\"")
-                    .replace("\\\\", "\\");
+        // Type-safe payload extraction — use the driver's typed return values
+        // instead of toString() + manual quote-stripping.
+        String payloadJson;
+        if (payloadObj instanceof JsonObject jo) {
+            payloadJson = jo.encode();
+        } else if (payloadObj instanceof JsonArray ja) {
+            payloadJson = ja.encode();
+        } else if (payloadObj != null) {
+            // Scalar JSONB (string, number, boolean) — driver returns the raw JSONB text
+            // or a Java equivalent. Use valueOf() to preserve the driver's representation
+            // without adding another layer of JSON encoding.
+            payloadJson = String.valueOf(payloadObj);
+        } else {
+            payloadJson = null;
         }
 
         // Deserialize payload using native/outbox-compatible wrapper semantics.
         T payload = parsePayloadFromJsonString(payloadJson);
 
-        // Deserialize headers, filtering out null-valued entries from JSONB
-        @SuppressWarnings("unchecked")
-        Map<String, String> headers = objectMapper.readValue(headersJson, Map.class);
-        headers.values().removeIf(Objects::isNull);
+        // Type-safe header extraction — pull the map directly from the driver's
+        // JsonObject rather than round-tripping through Jackson with a raw type.
+        Map<String, String> headers = new HashMap<>();
+        if (headersObj instanceof JsonObject ho) {
+            for (String key : ho.fieldNames()) {
+                Object val = ho.getValue(key);
+                if (val != null) {
+                    headers.put(key, val.toString());
+                }
+            }
+        }
 
         return new SimpleBiTemporalEvent<>(
                 eventId, eventType, payload, validTime, transactionTime,
@@ -1847,35 +1862,45 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 String traceparent = message.headers().get("traceparent");
                 TraceCtx trace = TraceContextUtil.parseOrCreate(traceparent);
                 
-                // Store in Vert.x Context (source of truth)
-                Context ctx = vertx.getOrCreateContext();
+                // Store in the current handling context (source of truth)
+                Context ctx = Vertx.currentContext();
                 ctx.put(TraceContextUtil.CONTEXT_TRACE_KEY, trace);
                 
                 String operationType = message.body().getString("operation");
                 String requestId = message.body().getString("requestId");
 
-                // Wrap handler execution in MDC scope for logging
-                try (var scope = TraceContextUtil.mdcScope(trace)) {
-                    logger.debug("Processing database operation '{}' with requestId '{}' on thread: {}",
-                            operationType, requestId, Thread.currentThread().getName());
+                // Set MDC for the entire handler chain.  This verticle runs on a
+                // single event-loop thread, so MDC stays valid across the synchronous
+                // call to processDatabaseOperation AND its async Future callbacks
+                // (.map/.compose inside withTransaction) that execute on this same thread.
+                // We clear MDC in the terminal onSuccess/onFailure callbacks.
+                TraceContextUtil.mdcScope(trace);
 
-                    // Process the database operation on this event loop thread
-                    processDatabaseOperation(message.body())
-                            .onSuccess(result -> {
-                                try (var replyScope = TraceContextUtil.mdcScope(trace)) {
-                                    logger.debug("Database operation '{}' completed successfully on thread: {}",
-                                            operationType, Thread.currentThread().getName());
-                                    message.reply(result);
-                                }
-                            })
-                            .onFailure(error -> {
-                                try (var replyScope = TraceContextUtil.mdcScope(trace)) {
-                                    logger.error("Database operation '{}' failed on thread: {}: {}",
-                                            operationType, Thread.currentThread().getName(), error.getMessage(), error);
-                                    message.fail(500, error.getMessage());
-                                }
-                            });
+                logger.debug("Processing database operation '{}' with requestId '{}' on thread: {}",
+                        operationType, requestId, Thread.currentThread().getName());
+
+                Future<JsonObject> result;
+                try {
+                    result = processDatabaseOperation(message.body());
+                } catch (Exception e) {
+                    result = Future.failedFuture(e);
                 }
+
+                result
+                        .onSuccess(json -> {
+                            logger.debug("Database operation '{}' completed successfully on thread: {}",
+                                    operationType, Thread.currentThread().getName());
+                            message.reply(json);
+                            MDC.remove(TraceContextUtil.MDC_TRACE_ID);
+                            MDC.remove(TraceContextUtil.MDC_SPAN_ID);
+                        })
+                        .onFailure(error -> {
+                            logger.error("Database operation '{}' failed on thread: {}: {}",
+                                    operationType, Thread.currentThread().getName(), error.getMessage(), error);
+                            message.fail(500, error.getMessage() != null ? error.getMessage() : error.getClass().getName());
+                            MDC.remove(TraceContextUtil.MDC_TRACE_ID);
+                            MDC.remove(TraceContextUtil.MDC_SPAN_ID);
+                        });
             });
 
                 logger.info("Database worker verticle registered for event bus address '{}' on thread: {}",
@@ -1914,17 +1939,16 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             String clientKey = operation.getString("clientKey", DEFAULT_EVENT_BUS_CLIENT_KEY);
             JsonObject headers = operation.getJsonObject("headers");
 
-            // Parse times from string to OffsetDateTime
-            OffsetDateTime validTime = OffsetDateTime.parse(validTimeStr);
-            OffsetDateTime transactionTime = OffsetDateTime.parse(transactionTimeStr);
-
-            // Resolve the pool from the event-bus instance registry.
-            // Prefer explicit instance key; use client key as legacy fallback.
+            // Resolve the pool first — fail fast for unknown pools before parsing fields
             Pool pool = resolvePoolForEventBusOperation(instanceKey, clientKey);
             if (pool == null) {
                 return Future.failedFuture("Database pool not initialized for instance key: " + instanceKey
                         + " (client key fallback: " + clientKey + ")");
             }
+
+            // Parse times from string to OffsetDateTime
+            OffsetDateTime validTime = OffsetDateTime.parse(validTimeStr);
+            OffsetDateTime transactionTime = OffsetDateTime.parse(transactionTimeStr);
 
             // Use pool.withTransaction() to match the direct path's ACID semantics
             String sql = """
@@ -2092,19 +2116,38 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      */
     public Future<Void> clearInstancePools() {
         Future<Void> chain = Future.succeededFuture();
+        java.util.concurrent.atomic.AtomicReference<Throwable> firstError = new java.util.concurrent.atomic.AtomicReference<>();
         synchronized (this) {
             if (reactivePool != null) {
                 Pool poolRef = reactivePool;
                 reactivePool = null;
-                chain = chain.compose(v -> poolRef.close());
+                chain = chain.compose(v -> poolRef.close()
+                        .onSuccess(x -> logger.debug("Cleared reactive pool"))
+                        .recover(e -> {
+                            logger.warn("Error clearing reactive pool: {}", e.getMessage(), e);
+                            firstError.compareAndSet(null, e);
+                            return Future.succeededFuture();
+                        }));
             }
             if (pipelinedClient != null) {
                 SqlClient clientRef = pipelinedClient;
                 pipelinedClient = null;
-                chain = chain.compose(v -> clientRef.close());
+                chain = chain.compose(v -> clientRef.close()
+                        .onSuccess(x -> logger.debug("Cleared pipelined client"))
+                        .recover(e -> {
+                            logger.warn("Error clearing pipelined client: {}", e.getMessage(), e);
+                            firstError.compareAndSet(null, e);
+                            return Future.succeededFuture();
+                        }));
             }
         }
-        return chain;
+        return chain.compose(v -> {
+            Throwable error = firstError.get();
+            if (error != null) {
+                return Future.failedFuture(error);
+            }
+            return Future.<Void>succeededFuture();
+        });
     }
 
     /**

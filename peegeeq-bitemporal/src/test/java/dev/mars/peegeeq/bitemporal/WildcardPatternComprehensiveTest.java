@@ -92,17 +92,19 @@ class WildcardPatternComprehensiveTest {
 
     @AfterAll
     static void tearDown(VertxTestContext testContext) throws Exception {
-        if (eventStore != null) {
-            try { eventStore.close(); } catch (Exception ignored) {}
-        }
-        Future<Void> closeFuture = (peeGeeQManager != null)
-            ? peeGeeQManager.closeReactive().recover(err -> Future.succeededFuture())
+        Future<Void> closeStore = (eventStore != null)
+            ? eventStore.close().recover(err -> Future.succeededFuture())
             : Future.succeededFuture();
-        closeFuture.onSuccess(v -> {
-            PgBiTemporalEventStore.clearCachedPools();
-            restoreTestProperties();
-            testContext.completeNow();
-        }).onFailure(testContext::failNow);
+        closeStore
+            .compose(v -> (peeGeeQManager != null)
+                ? peeGeeQManager.closeReactive().recover(err -> Future.succeededFuture())
+                : Future.succeededFuture())
+            .onSuccess(v -> {
+                PgBiTemporalEventStore.clearCachedPools();
+                restoreTestProperties();
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Teardown timed out");
     }
