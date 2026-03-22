@@ -570,7 +570,7 @@ class PgBiTemporalEventStoreComplexTest {
         String correlationId = "corr-eb-" + System.nanoTime();
         String causationId = "cause-eb-" + System.nanoTime();
 
-        PgBiTemporalEventStore.deployDatabaseWorkerVerticles(eventStore.getVertx(), 1, "bitemporal_event_log")
+        PgBiTemporalEventStore.deployDatabaseWorkerVerticles(1, "bitemporal_event_log")
             .compose(v -> eventStore.appendBuilder()
                 .eventType("EventBusCausation")
                 .payload(new TestEvent("evt-bus", "payload", 77))

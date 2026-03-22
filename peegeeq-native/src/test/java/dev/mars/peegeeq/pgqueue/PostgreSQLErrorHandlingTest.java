@@ -14,6 +14,8 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -124,7 +126,7 @@ class PostgreSQLErrorHandlingTest {
             factory.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive().await();
         }
 
         // Clear system properties
@@ -151,7 +153,7 @@ class PostgreSQLErrorHandlingTest {
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         // Send initial message to create the topic
-        producer.send("Initial message").get(5, TimeUnit.SECONDS);
+        producer.send("Initial message").await();
 
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicInteger failureCount = new AtomicInteger(0);
@@ -165,32 +167,32 @@ class PostgreSQLErrorHandlingTest {
         // Consumer 1: Simulate long-running transaction that could cause serialization conflicts
         consumer1.subscribe(message -> {
             logger.info("Consumer 1 processing message: {}", message.getPayload());
-            CompletableFuture<Void> future = new CompletableFuture<>();
+            Promise<Void> promise = Promise.promise();
             vertx.setTimer(100, timerId -> {
                 processedCount.incrementAndGet();
                 completionCheckpoint.flag();
                 logger.info("Consumer 1 completed processing");
-                future.complete(null);
+                promise.complete();
             });
-            return future;
+            return promise.future();
         });
 
         // Consumer 2: Competing consumer
         consumer2.subscribe(message -> {
             logger.info("Consumer 2 processing message: {}", message.getPayload());
-            CompletableFuture<Void> future = new CompletableFuture<>();
+            Promise<Void> promise = Promise.promise();
             vertx.setTimer(50, timerId -> {
                 processedCount.incrementAndGet();
                 completionCheckpoint.flag();
                 logger.info("Consumer 2 completed processing");
-                future.complete(null);
+                promise.complete();
             });
-            return future;
+            return promise.future();
         });
 
         // Send messages that will trigger competition
-        producer.send("Competing message 1").get(5, TimeUnit.SECONDS);
-        producer.send("Competing message 2").get(5, TimeUnit.SECONDS);
+        producer.send("Competing message 1").await();
+        producer.send("Competing message 2").await();
 
         // Wait for processing to complete
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
@@ -217,9 +219,9 @@ class PostgreSQLErrorHandlingTest {
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         // Send messages that will be processed concurrently
-        producer.send("Message A").get(5, TimeUnit.SECONDS);
-        producer.send("Message B").get(5, TimeUnit.SECONDS);
-        producer.send("Message C").get(5, TimeUnit.SECONDS);
+        producer.send("Message A").await();
+        producer.send("Message B").await();
+        producer.send("Message C").await();
 
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicInteger deadlockCount = new AtomicInteger(0);
@@ -231,9 +233,9 @@ class PostgreSQLErrorHandlingTest {
         MessageConsumer<String> consumer3 = factory.createConsumer(topicName, String.class);
 
         // Configure consumers to potentially cause deadlock scenarios
-        configureConsumerForDeadlockTesting(consumer1, "Consumer-1", processedCount, deadlockCount, completionCheckpoint);
-        configureConsumerForDeadlockTesting(consumer2, "Consumer-2", processedCount, deadlockCount, completionCheckpoint);
-        configureConsumerForDeadlockTesting(consumer3, "Consumer-3", processedCount, deadlockCount, completionCheckpoint);
+        configureConsumerForDeadlockTesting(vertx, consumer1, "Consumer-1", processedCount, deadlockCount, completionCheckpoint);
+        configureConsumerForDeadlockTesting(vertx, consumer2, "Consumer-2", processedCount, deadlockCount, completionCheckpoint);
+        configureConsumerForDeadlockTesting(vertx, consumer3, "Consumer-3", processedCount, deadlockCount, completionCheckpoint);
 
         // Wait for all messages to be processed
         boolean completed = testContext.awaitCompletion(20, TimeUnit.SECONDS);
@@ -258,12 +260,12 @@ class PostgreSQLErrorHandlingTest {
             processedCount.get(), deadlockCount.get());
     }
 
-    private void configureConsumerForDeadlockTesting(MessageConsumer<String> consumer, String consumerName,
+    private void configureConsumerForDeadlockTesting(Vertx vertx, MessageConsumer<String> consumer, String consumerName,
                                                    AtomicInteger processedCount, AtomicInteger deadlockCount,
                                                    Checkpoint completionCheckpoint) {
         consumer.subscribe(message -> {
             logger.info("{} processing message: {}", consumerName, message.getPayload());
-            return CompletableFuture.supplyAsync(() -> {
+            return vertx.<Void>executeBlocking(() -> {
                 try {
                     // Simulate work that could cause deadlocks with database operations
                     simulateDeadlockProneOperation(consumerName);
@@ -328,7 +330,7 @@ class PostgreSQLErrorHandlingTest {
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         // Send initial message
-        producer.send("Timeout test message").get(5, TimeUnit.SECONDS);
+        producer.send("Timeout test message").await();
 
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicInteger timeoutCount = new AtomicInteger(0);
@@ -339,7 +341,7 @@ class PostgreSQLErrorHandlingTest {
 
         consumer.subscribe(message -> {
             logger.info("Processing message with potential timeout: {}", message.getPayload());
-            return CompletableFuture.supplyAsync(() -> {
+            return vertx.<Void>executeBlocking(() -> {
                 try {
                     // Simulate operation that could timeout
                     simulateConnectionTimeoutScenario();
@@ -375,12 +377,12 @@ class PostgreSQLErrorHandlingTest {
             "Should either process message successfully or handle timeout gracefully");
 
         // Test recovery by sending another message
-        producer.send("Recovery test message").get(5, TimeUnit.SECONDS);
+        producer.send("Recovery test message").await();
 
         // Give system time to recover and process the new message using timer
-        CompletableFuture<Void> recoveryWait = new CompletableFuture<>();
-        vertx.setTimer(2000, id -> recoveryWait.complete(null));
-        recoveryWait.join();
+        Promise<Void> recoveryWait = Promise.promise();
+        vertx.setTimer(2000, id -> recoveryWait.complete());
+        recoveryWait.future().await();
 
         logger.info("Connection timeout handling test completed - processed {} messages, {} timeouts detected",
             processedCount.get(), timeoutCount.get());
@@ -429,8 +431,8 @@ class PostgreSQLErrorHandlingTest {
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         // Send messages for rollback testing
-        producer.send("Rollback test message 1").get(5, TimeUnit.SECONDS);
-        producer.send("Rollback test message 2").get(5, TimeUnit.SECONDS);
+        producer.send("Rollback test message 1").await();
+        producer.send("Rollback test message 2").await();
 
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicInteger rollbackCount = new AtomicInteger(0);
@@ -441,7 +443,7 @@ class PostgreSQLErrorHandlingTest {
 
         consumer.subscribe(message -> {
             logger.info("Processing message for rollback test: {}", message.getPayload());
-            return CompletableFuture.supplyAsync(() -> {
+            return vertx.<Void>executeBlocking(() -> {
                 try {
                     // Simulate transaction that might need rollback
                     boolean shouldRollback = simulateTransactionRollbackScenario(message.getPayload());
@@ -528,7 +530,7 @@ class PostgreSQLErrorHandlingTest {
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
         // Send message for error code testing
-        producer.send("Error code test message").get(5, TimeUnit.SECONDS);
+        producer.send("Error code test message").await();
 
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicInteger errorCodeCount = new AtomicInteger(0);
@@ -538,7 +540,7 @@ class PostgreSQLErrorHandlingTest {
 
         consumer.subscribe(message -> {
             logger.info("Processing message for error code test: {}", message.getPayload());
-            return CompletableFuture.supplyAsync(() -> {
+            return vertx.<Void>executeBlocking(() -> {
                 try {
                     // Simulate operations that could trigger specific PostgreSQL error codes
                     simulatePostgreSQLErrorCodes();

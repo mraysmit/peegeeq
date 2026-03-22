@@ -35,6 +35,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -117,7 +118,7 @@ class ConsumerGroupTest {
             factory.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive().await();
         }
     }
 
@@ -140,13 +141,13 @@ class ConsumerGroupTest {
         consumerGroup.addConsumer("consumer-1",
             message -> {
                 consumer1Count.incrementAndGet();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
         consumerGroup.addConsumer("consumer-2",
             message -> {
                 consumer2Count.incrementAndGet();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
         // Verify consumers added
@@ -160,9 +161,9 @@ class ConsumerGroupTest {
         assertEquals(2, consumerGroup.getActiveConsumerCount());
 
         // Send test messages without headers to avoid encoding issues
-        producer.send("Message 1").join();
-        producer.send("Message 2").join();
-        producer.send("Message 3").join();
+        producer.send("Message 1").await();
+        producer.send("Message 2").await();
+        producer.send("Message 3").await();
 
         // Wait for processing - increase time for async operations
         vertx.setPeriodic(200, id -> {
@@ -206,21 +207,21 @@ class ConsumerGroupTest {
         consumerGroup.addConsumer("us-consumer", 
             message -> {
                 usCount.incrementAndGet();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             },
             MessageFilter.byHeader("region", "US"));
 
         consumerGroup.addConsumer("eu-consumer", 
             message -> {
                 euCount.incrementAndGet();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             },
             MessageFilter.byHeader("region", "EU"));
 
         consumerGroup.addConsumer("all-consumer", 
             message -> {
                 allCount.incrementAndGet();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             },
             MessageFilter.acceptAll());
 
@@ -229,9 +230,9 @@ class ConsumerGroupTest {
 
         // Send messages without headers first to test basic functionality
         // Note: Header-based routing requires fixing the producer parameter encoding issue
-        producer.send("US Message").join();
-        producer.send("EU Message").join();
-        producer.send("ASIA Message").join();
+        producer.send("US Message").await();
+        producer.send("EU Message").await();
+        producer.send("ASIA Message").await();
 
         // Wait for processing
         vertx.setPeriodic(200, id -> {
@@ -263,16 +264,16 @@ class ConsumerGroupTest {
         consumerGroup.addConsumer("priority-consumer",
             message -> {
                 processedCount.incrementAndGet();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
         // Start consumer group
         consumerGroup.start();
 
         // Send messages without headers
-        producer.send("Test Message 1").join();
-        producer.send("Test Message 2").join();
-        producer.send("Test Message 3").join();
+        producer.send("Test Message 1").await();
+        producer.send("Test Message 2").await();
+        producer.send("Test Message 3").await();
 
         // Wait for processing with longer timeout to avoid flaky test failures
         vertx.setPeriodic(200, id -> {
@@ -300,7 +301,7 @@ class ConsumerGroupTest {
         ConsumerGroupMember<String> member = consumerGroup.addConsumer("stats-consumer", 
             message -> {
                 processedCount.incrementAndGet();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
         // Start consumer group
@@ -308,7 +309,7 @@ class ConsumerGroupTest {
 
         // Send messages
         for (int i = 0; i < 5; i++) {
-            producer.send("Message " + i).join();
+            producer.send("Message " + i).await();
         }
 
         // Wait for processing
@@ -357,9 +358,9 @@ class ConsumerGroupTest {
 
         // Add consumers
         consumerGroup.addConsumer("consumer-1", 
-            message -> CompletableFuture.completedFuture(null));
+            message -> Future.succeededFuture());
         consumerGroup.addConsumer("consumer-2", 
-            message -> CompletableFuture.completedFuture(null));
+            message -> Future.succeededFuture());
 
         assertEquals(2, consumerGroup.getConsumerIds().size());
 

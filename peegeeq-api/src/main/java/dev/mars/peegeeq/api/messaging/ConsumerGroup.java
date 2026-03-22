@@ -16,7 +16,8 @@ package dev.mars.peegeeq.api.messaging;
  * limitations under the License.
  */
 
-// No imports needed - all classes are in the same package now
+import io.vertx.core.Future;
+
 import java.util.Set;
 import java.util.function.Predicate;
 
@@ -119,11 +120,12 @@ public interface ConsumerGroup<T> extends AutoCloseable {
      * </p>
      * 
      * @param subscriptionOptions The subscription configuration options
+     * @return a Future that completes when subscription is created and the group is started
      * @throws IllegalArgumentException if subscriptionOptions is null
      * @throws IllegalStateException if the consumer group is closed or already active
      * @since 1.1.0
      */
-    void start(SubscriptionOptions subscriptionOptions);
+    Future<Void> start(SubscriptionOptions subscriptionOptions);
     
     /**
      * Stops the consumer group. All consumers will stop processing messages.

@@ -199,7 +199,7 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
     }
     
     @Override
-    public void start(SubscriptionOptions subscriptionOptions) {
+    public Future<Void> start(SubscriptionOptions subscriptionOptions) {
         if (subscriptionOptions == null) {
             throw new IllegalArgumentException("subscriptionOptions cannot be null");
         }
@@ -207,24 +207,22 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
         logger.info("Starting consumer group '{}' for topic '{}' with subscription options: {}",
                    groupName, topic, subscriptionOptions);
 
-        // Convenience method: Create subscription and then start the consumer group
-        // This combines the two-step process into a single call
         if (databaseService != null) {
             logger.debug("Creating subscription for group '{}' on topic '{}' with options: {}",
                        groupName, topic, subscriptionOptions);
 
-            databaseService.getSubscriptionService()
+            return databaseService.getSubscriptionService()
                 .subscribe(topic, groupName, subscriptionOptions)
-                .onSuccess(v -> {
+                .map(v -> {
                     logger.info("Subscription created successfully for group '{}' on topic '{}'", groupName, topic);
                     start();
-                })
-                .onFailure(e -> logger.error("Failed to create subscription for group '{}' on topic '{}': {}",
-                        groupName, topic, e.getMessage(), e));
+                    return null;
+                });
         } else {
             logger.warn("DatabaseService is null - cannot create subscription. " +
                        "Subscription must be created manually via SubscriptionManager before starting.");
             start();
+            return Future.succeededFuture();
         }
     }
     

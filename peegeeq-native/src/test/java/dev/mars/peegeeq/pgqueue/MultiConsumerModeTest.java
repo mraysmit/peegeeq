@@ -13,6 +13,8 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -93,7 +95,7 @@ class MultiConsumerModeTest {
             factory.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive().await();
         }
 
         // Clear system properties
@@ -163,7 +165,7 @@ class MultiConsumerModeTest {
                     logger.info("📨 Consumer {} processed message: {} (Total: {})",
                         consumerId, message.getPayload(), processed);
                     messagesReceived.flag();
-                    return CompletableFuture.completedFuture(null);
+                    return Future.succeededFuture();
                 });
 
                 consumers.add(consumer);
@@ -171,15 +173,14 @@ class MultiConsumerModeTest {
 
             // Wait for consumer setup, then send
             vertx.setTimer(2000, id -> {
-                try {
+                vertx.executeBlocking(() -> {
                     MessageProducer<String> producer = factory.createProducer(topicName, String.class);
                     for (int i = 0; i < totalMessages; i++) {
-                        producer.send("Multi-same-mode message " + (i + 1)).get(5, TimeUnit.SECONDS);
+                        producer.send("Multi-same-mode message " + (i + 1)).await();
                     }
                     producer.close();
-                } catch (Exception e) {
-                    testContext.failNow(e);
-                }
+                    return null;
+                }).onFailure(testContext::failNow);
             });
 
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "All messages should be processed by multiple consumers with same mode");
@@ -233,42 +234,41 @@ class MultiConsumerModeTest {
                 int processed = listenNotifyProcessed.incrementAndGet();
                 logger.info("📻 LISTEN_NOTIFY consumer processed: {} (Count: {})", message.getPayload(), processed);
                 messagesReceived.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             pollingConsumer.subscribe(message -> {
                 int processed = pollingProcessed.incrementAndGet();
                 logger.info("🔄 POLLING consumer processed: {} (Count: {})", message.getPayload(), processed);
                 messagesReceived.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             hybridConsumer.subscribe(message -> {
                 int processed = hybridProcessed.incrementAndGet();
                 logger.info("🔀 HYBRID consumer processed: {} (Count: {})", message.getPayload(), processed);
                 messagesReceived.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Wait for consumer setup, then send
             vertx.setTimer(2000, id -> {
-                try {
+                vertx.executeBlocking(() -> {
                     MessageProducer<String> listenProducer = factory.createProducer(topicName + "-listen", String.class);
                     MessageProducer<String> pollingProducer = factory.createProducer(topicName + "-polling", String.class);
                     MessageProducer<String> hybridProducer = factory.createProducer(topicName + "-hybrid", String.class);
 
                     for (int i = 0; i < 2; i++) {
-                        listenProducer.send("Listen message " + (i + 1)).get(5, TimeUnit.SECONDS);
-                        pollingProducer.send("Polling message " + (i + 1)).get(5, TimeUnit.SECONDS);
-                        hybridProducer.send("Hybrid message " + (i + 1)).get(5, TimeUnit.SECONDS);
+                        listenProducer.send("Listen message " + (i + 1)).await();
+                        pollingProducer.send("Polling message " + (i + 1)).await();
+                        hybridProducer.send("Hybrid message " + (i + 1)).await();
                     }
 
                     listenProducer.close();
                     pollingProducer.close();
                     hybridProducer.close();
-                } catch (Exception e) {
-                    testContext.failNow(e);
-                }
+                    return null;
+                }).onFailure(testContext::failNow);
             });
 
             assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "All messages should be processed by consumers with different modes");
@@ -321,27 +321,26 @@ class MultiConsumerModeTest {
                 int processed = pollingProcessed.incrementAndGet();
                 logger.info("🔄 POLLING consumer processed: {} (Count: {})", message.getPayload(), processed);
                 messagesReceived.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             hybridConsumer.subscribe(message -> {
                 int processed = hybridProcessed.incrementAndGet();
                 logger.info("🔀 HYBRID consumer processed: {} (Count: {})", message.getPayload(), processed);
                 messagesReceived.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Wait for consumer setup, then send
             vertx.setTimer(2000, id -> {
-                try {
+                vertx.executeBlocking(() -> {
                     MessageProducer<String> producer = factory.createProducer(topicName, String.class);
                     for (int i = 0; i < messagesPerMode; i++) {
-                        producer.send("Isolation test message " + (i + 1)).get(5, TimeUnit.SECONDS);
+                        producer.send("Isolation test message " + (i + 1)).await();
                     }
                     producer.close();
-                } catch (Exception e) {
-                    testContext.failNow(e);
-                }
+                    return null;
+                }).onFailure(testContext::failNow);
             });
 
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Messages should be processed by competing consumers");
@@ -389,15 +388,15 @@ class MultiConsumerModeTest {
 
                 consumer.subscribe(message -> {
                     // Simulate some processing time to test thread safety
-                    CompletableFuture<Void> future = new CompletableFuture<>();
+                    Promise<Void> promise = Promise.promise();
                     vertx.setTimer(50 + (int)(Math.random() * 100), tid -> {
                         int processed = totalProcessed.incrementAndGet();
                         logger.info("🧵 Consumer {} (Mode: {}) processed: {} (Total: {})",
                             consumerId, modes[consumerId], message.getPayload(), processed);
                         messagesReceived.flag();
-                        future.complete(null);
+                        promise.complete();
                     });
-                    return future;
+                    return promise.future();
                 });
 
                 consumers.add(consumer);
@@ -407,17 +406,14 @@ class MultiConsumerModeTest {
             vertx.setTimer(3000, id -> {
                 for (int i = 0; i < consumerCount; i++) {
                     final int consumerIndex = i;
-                    CompletableFuture.runAsync(() -> {
-                        try {
-                            MessageProducer<String> producer = factory.createProducer(topicName + "-" + consumerIndex, String.class);
-                            for (int j = 0; j < messagesPerConsumer; j++) {
-                                producer.send("Thread-safety message " + consumerIndex + "-" + (j + 1)).get(5, TimeUnit.SECONDS);
-                            }
-                            producer.close();
-                        } catch (Exception e) {
-                            testContext.failNow(e);
+                    vertx.executeBlocking(() -> {
+                        MessageProducer<String> producer = factory.createProducer(topicName + "-" + consumerIndex, String.class);
+                        for (int j = 0; j < messagesPerConsumer; j++) {
+                            producer.send("Thread-safety message " + consumerIndex + "-" + (j + 1)).await();
                         }
-                    });
+                        producer.close();
+                        return null;
+                    }).onFailure(testContext::failNow);
                 }
             });
 
@@ -468,7 +464,7 @@ class MultiConsumerModeTest {
                 int processed = fastProcessed.incrementAndGet();
                 logger.info("⚡ FAST consumer processed: {} (Count: {})", message.getPayload(), processed);
                 allMessagesReceived.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Setup slow message handler
@@ -476,28 +472,27 @@ class MultiConsumerModeTest {
                 int processed = slowProcessed.incrementAndGet();
                 logger.info("🐌 SLOW consumer processed: {} (Count: {})", message.getPayload(), processed);
                 allMessagesReceived.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Wait for consumer setup, then send
             vertx.setTimer(2000, id -> {
-                try {
+                vertx.executeBlocking(() -> {
                     MessageProducer<String> fastProducer = factory.createProducer(topicName + "-fast", String.class);
                     MessageProducer<String> slowProducer = factory.createProducer(topicName + "-slow", String.class);
 
                     for (int i = 0; i < fastMessages; i++) {
-                        fastProducer.send("Fast message " + (i + 1)).get(5, TimeUnit.SECONDS);
+                        fastProducer.send("Fast message " + (i + 1)).await();
                     }
 
                     for (int i = 0; i < slowMessages; i++) {
-                        slowProducer.send("Slow message " + (i + 1)).get(5, TimeUnit.SECONDS);
+                        slowProducer.send("Slow message " + (i + 1)).await();
                     }
 
                     fastProducer.close();
                     slowProducer.close();
-                } catch (Exception e) {
-                    testContext.failNow(e);
-                }
+                    return null;
+                }).onFailure(testContext::failNow);
             });
 
             assertTrue(testContext.awaitCompletion(25, TimeUnit.SECONDS));

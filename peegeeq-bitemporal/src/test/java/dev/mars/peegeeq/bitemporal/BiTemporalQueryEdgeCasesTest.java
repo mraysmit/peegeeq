@@ -119,7 +119,7 @@ class BiTemporalQueryEdgeCasesTest {
     void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down bi-temporal query edge cases test...");
 
-        Future<Void> closeStoreFuture = eventStore != null ? eventStore.closeFuture() : Future.succeededFuture();
+        Future<Void> closeStoreFuture = eventStore != null ? eventStore.close() : Future.succeededFuture();
         Future<Void> closeManagerFuture = manager != null ? manager.closeReactive() : Future.succeededFuture();
 
         closeStoreFuture

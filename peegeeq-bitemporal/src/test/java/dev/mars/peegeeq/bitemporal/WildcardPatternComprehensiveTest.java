@@ -347,7 +347,7 @@ class WildcardPatternComprehensiveTest {
         String uniquePattern = prefix + pattern;
         String uniqueEventType = prefix + eventType;
 
-        Vertx vertx = eventStore.getVertx();
+        Vertx vertx = PgBiTemporalEventStore.getOrCreateSharedVertx();
         AtomicReference<BiTemporalEvent<Map<String, Object>>> received = new AtomicReference<>();
         Promise<Void> notified = Promise.promise();
 

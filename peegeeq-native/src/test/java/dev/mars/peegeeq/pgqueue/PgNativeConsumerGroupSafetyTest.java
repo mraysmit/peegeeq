@@ -17,11 +17,7 @@ package dev.mars.peegeeq.pgqueue;
  */
 
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
-import io.vertx.core.Vertx;
 import org.junit.jupiter.api.Test;
-
-
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -35,37 +31,18 @@ class PgNativeConsumerGroupSafetyTest {
     }
 
     @Test
-    void startWithSubscriptionOptionsFailsFastOnEventLoopThread() throws Exception {
-        Vertx vertx = Vertx.vertx();
-        try {
-            PgNativeConsumerGroup<String> group = new PgNativeConsumerGroup<>(
-                    "group-a",
-                    "topic-a",
-                    String.class,
-                    null,
-                    null,
-                    null,
-                    null,
-                    null);
+    void startWithSubscriptionOptionsRejectsNull() {
+        PgNativeConsumerGroup<String> group = new PgNativeConsumerGroup<>(
+                "group-a",
+                "topic-a",
+                String.class,
+                null,
+                null,
+                null,
+                null,
+                null);
 
-            CompletableFuture<Throwable> outcome = new CompletableFuture<>();
-            vertx.runOnContext(v -> {
-                try {
-                    group.start(SubscriptionOptions.builder().build());
-                    outcome.complete(null);
-                } catch (Throwable t) {
-                    outcome.complete(t);
-                }
-            });
-
-            Throwable thrown = outcome.get(5, TimeUnit.SECONDS);
-            assertThrows(IllegalStateException.class, () -> {
-                if (thrown != null) {
-                    throw thrown;
-                }
-            });
-        } finally {
-            vertx.close().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        }
+        assertThrows(IllegalArgumentException.class,
+            () -> group.start((SubscriptionOptions) null));
     }
 }

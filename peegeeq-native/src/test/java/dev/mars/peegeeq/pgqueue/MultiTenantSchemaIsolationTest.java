@@ -30,6 +30,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -152,10 +153,10 @@ class MultiTenantSchemaIsolationTest {
     void tearDown() {
         logger.info("Tearing down multi-tenant test");
         if (managerTenantA != null) {
-            managerTenantA.closeReactive().toCompletionStage().toCompletableFuture().join();
+            managerTenantA.closeReactive().await();
         }
         if (managerTenantB != null) {
-            managerTenantB.closeReactive().toCompletionStage().toCompletableFuture().join();
+            managerTenantB.closeReactive().await();
         }
     }
 
@@ -168,7 +169,7 @@ class MultiTenantSchemaIsolationTest {
 
         // Tenant A sends a message
         MessageProducer<String> producerA = factoryTenantA.createProducer("test-queue", String.class);
-        producerA.send("tenant-a-message").get(5, TimeUnit.SECONDS);
+        producerA.send("tenant-a-message").await();
         logger.info("Tenant A sent message: tenant-a-message");
 
         // Give a moment for the message to be persisted
@@ -181,7 +182,7 @@ class MultiTenantSchemaIsolationTest {
         consumerB.subscribe(msg -> {
             receivedB.add(msg.getPayload());
             tenantBContext.completeNow();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Wait for any cross-tenant leakage
@@ -199,7 +200,7 @@ class MultiTenantSchemaIsolationTest {
             logger.info("🔔 Tenant A consumer received message: {}", msg.getPayload());
             receivedA.add(msg.getPayload());
             testContext.completeNow();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         logger.info("⏳ Waiting for Tenant A to receive message...");
@@ -223,28 +224,22 @@ class MultiTenantSchemaIsolationTest {
         // Tenant A sends 5 messages
         MessageProducer<String> producerA = factoryTenantA.createProducer("stats-queue", String.class);
         for (int i = 0; i < 5; i++) {
-            producerA.send("tenant-a-message-" + i).get(5, TimeUnit.SECONDS);
+            producerA.send("tenant-a-message-" + i).await();
         }
         logger.info("Tenant A sent 5 messages");
 
         // Tenant B sends 3 messages
         MessageProducer<String> producerB = factoryTenantB.createProducer("stats-queue", String.class);
         for (int i = 0; i < 3; i++) {
-            producerB.send("tenant-b-message-" + i).get(5, TimeUnit.SECONDS);
+            producerB.send("tenant-b-message-" + i).await();
         }
         logger.info("Tenant B sent 3 messages");
 
         // Get stats for tenant A
-        QueueStats statsA = factoryTenantA.getStatsAsync("stats-queue")
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get(5, TimeUnit.SECONDS);
+        QueueStats statsA = factoryTenantA.getStatsAsync("stats-queue").await();
 
         // Get stats for tenant B
-        QueueStats statsB = factoryTenantB.getStatsAsync("stats-queue")
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get(5, TimeUnit.SECONDS);
+        QueueStats statsB = factoryTenantB.getStatsAsync("stats-queue").await();
 
         // Verify stats are isolated
         assertEquals(5, statsA.getPendingMessages(), "Tenant A should have 5 pending messages");
@@ -266,8 +261,8 @@ class MultiTenantSchemaIsolationTest {
         MessageProducer<String> producerA = factoryTenantA.createProducer(queueName, String.class);
         MessageProducer<String> producerB = factoryTenantB.createProducer(queueName, String.class);
 
-        producerA.send("tenant-a-data").get(5, TimeUnit.SECONDS);
-        producerB.send("tenant-b-data").get(5, TimeUnit.SECONDS);
+        producerA.send("tenant-a-data").await();
+        producerB.send("tenant-b-data").await();
 
         logger.info("Both tenants sent messages to queue: {}", queueName);
 
@@ -279,7 +274,7 @@ class MultiTenantSchemaIsolationTest {
         consumerA.subscribe(msg -> {
             receivedA.add(msg.getPayload());
             ctxA.completeNow();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         assertTrue(ctxA.awaitCompletion(10, TimeUnit.SECONDS), "Tenant A should receive message");
@@ -293,7 +288,7 @@ class MultiTenantSchemaIsolationTest {
         consumerB.subscribe(msg -> {
             receivedB.add(msg.getPayload());
             testContext.completeNow();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Tenant B should receive message");

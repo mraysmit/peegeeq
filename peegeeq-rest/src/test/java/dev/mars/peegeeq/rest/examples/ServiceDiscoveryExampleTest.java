@@ -17,6 +17,7 @@ package dev.mars.peegeeq.rest.examples;
  */
 
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.ext.web.client.WebClient;
 import org.junit.jupiter.api.AfterEach;
@@ -197,9 +198,9 @@ public class ServiceDiscoveryExampleTest {
         
         // Simulate service manager health check
         logger.info("🏥 Checking Service Manager health...");
-        CompletableFuture<Void> delay = new CompletableFuture<>();
-        vertx.setTimer(100, id -> delay.complete(null));
-        delay.join();
+        Promise<Void> delay = Promise.promise();
+        vertx.setTimer(100, id -> delay.complete());
+        delay.future().await();
         
         boolean isHealthy = true;
         String status = "UP";
@@ -221,9 +222,9 @@ public class ServiceDiscoveryExampleTest {
         String instanceId = "peegeeq-instance-" + System.currentTimeMillis();
         logger.info("📝 Registering instance: {}", instanceId);
         
-        CompletableFuture<Void> delay = new CompletableFuture<>();
-        vertx.setTimer(50, id -> delay.complete(null));
-        delay.join();
+        Promise<Void> delay = Promise.promise();
+        vertx.setTimer(50, id -> delay.complete());
+        delay.future().await();
         
         boolean registrationSuccessful = true;
         int registeredInstances = 3; // Simulate 3 registered instances
@@ -244,9 +245,9 @@ public class ServiceDiscoveryExampleTest {
         String federationId = "peegeeq-federation-" + System.currentTimeMillis();
         logger.info("🌐 Setting up federation: {}", federationId);
         
-        CompletableFuture<Void> delay = new CompletableFuture<>();
-        vertx.setTimer(100, id -> delay.complete(null));
-        delay.join();
+        Promise<Void> delay = Promise.promise();
+        vertx.setTimer(100, id -> delay.complete());
+        delay.future().await();
         
         int federatedInstances = 3;
         int managementOperations = 5; // Simulate 5 management operations
@@ -266,19 +267,19 @@ public class ServiceDiscoveryExampleTest {
         
         // Simulate instance management operations
         logger.info("⚖️ Testing load balancing...");
-        CompletableFuture<Void> delay1 = new CompletableFuture<>();
-        vertx.setTimer(50, id -> delay1.complete(null));
-        delay1.join();
+        Promise<Void> delay1 = Promise.promise();
+        vertx.setTimer(50, id -> delay1.complete());
+        delay1.future().await();
         
         logger.info("🔄 Testing failover scenarios...");
-        CompletableFuture<Void> delay2 = new CompletableFuture<>();
-        vertx.setTimer(50, id -> delay2.complete(null));
-        delay2.join();
+        Promise<Void> delay2 = Promise.promise();
+        vertx.setTimer(50, id -> delay2.complete());
+        delay2.future().await();
         
         logger.info("📊 Monitoring instance health...");
-        CompletableFuture<Void> delay3 = new CompletableFuture<>();
-        vertx.setTimer(50, id -> delay3.complete(null));
-        delay3.join();
+        Promise<Void> delay3 = Promise.promise();
+        vertx.setTimer(50, id -> delay3.complete());
+        delay3.future().await();
         
         int activeInstances = 3;
         int loadBalancingOperations = 10;
