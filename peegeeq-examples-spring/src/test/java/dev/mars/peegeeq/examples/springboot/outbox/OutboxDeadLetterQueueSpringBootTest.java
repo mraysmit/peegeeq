@@ -35,6 +35,8 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -146,9 +148,9 @@ class OutboxDeadLetterQueueSpringBootTest {
         
         // Wait for connections to be fully released before next test
         logger.info("⏳ Waiting for connections to be released...");
-        CompletableFuture<Void> delay = new CompletableFuture<>();
-        vertx.setTimer(2000, id -> delay.complete(null));
-        delay.join();
+        Promise<Void> delay = Promise.promise();
+        vertx.setTimer(2000, id -> delay.complete());
+        delay.future().await();
         
         logger.info("Cleanup complete");
     }
@@ -187,27 +189,27 @@ class OutboxDeadLetterQueueSpringBootTest {
             logger.info("Processing attempt #{} for message: {}", attempt, message.getPayload());
             logger.info("❌ Simulating persistent failure on attempt #{}", attempt);
             checkpoint.flag();
-            return CompletableFuture.failedFuture(
+            return Future.failedFuture(
                 new RuntimeException("Simulated persistent failure - poison message"));
         });
 
         // Send poison message
         logger.info("📤 Sending poison message that will always fail");
         String poisonMessage = "poison-message-" + UUID.randomUUID();
-        producer.send(poisonMessage).get(5, TimeUnit.SECONDS);
+        producer.send(poisonMessage).await();
 
         // Wait for all retry attempts
         boolean completed = testContext.awaitCompletion(30, TimeUnit.SECONDS);
         assertTrue(completed, "Should attempt initial + 3 retries");
 
         // Give time for DLQ movement
-        CompletableFuture<Void> dlqDelay = new CompletableFuture<>();
-        vertx.setTimer(2000, id -> dlqDelay.complete(null));
-        dlqDelay.join();
+        Promise<Void> dlqDelay = Promise.promise();
+        vertx.setTimer(2000, id -> dlqDelay.complete());
+        dlqDelay.future().await();
 
         // Verify message moved to DLQ
             List<DeadLetterMessageInfo> dlqMessages = manager.getDeadLetterQueueManager()
-                .getDeadLetterMessages(topicName, 10, 0).join();
+                .getDeadLetterMessages(topicName, 10, 0).await();
 
         logger.info("📊 DLQ Results:");
         logger.info("  Total attempts: {}", attemptCount.get());
@@ -262,14 +264,14 @@ class OutboxDeadLetterQueueSpringBootTest {
         consumer.subscribe(message -> {
             processedCount.incrementAndGet();
             checkpoint.flag();
-            return CompletableFuture.failedFuture(
+            return Future.failedFuture(
                 new RuntimeException("Test failure for: " + message.getPayload()));
         });
 
         // Send multiple poison messages
         logger.info("📤 Sending {} poison messages", messageCount);
         for (int i = 1; i <= messageCount; i++) {
-            producer.send("poison-" + i).get(5, TimeUnit.SECONDS);
+            producer.send("poison-" + i).await();
         }
 
         // Wait for all processing attempts
@@ -277,13 +279,13 @@ class OutboxDeadLetterQueueSpringBootTest {
         assertTrue(completed, "All messages should be processed and moved to DLQ");
         
         // Give time for DLQ movement
-        CompletableFuture<Void> dlqDelay = new CompletableFuture<>();
-        vertx.setTimer(2000, id -> dlqDelay.complete(null));
-        dlqDelay.join();
+        Promise<Void> dlqDelay = Promise.promise();
+        vertx.setTimer(2000, id -> dlqDelay.complete());
+        dlqDelay.future().await();
         
         // Retrieve and inspect DLQ messages
             List<DeadLetterMessageInfo> dlqMessages = manager.getDeadLetterQueueManager()
-                .getDeadLetterMessages(topicName, 10, 0).join();
+                .getDeadLetterMessages(topicName, 10, 0).await();
 
         logger.info("📊 DLQ Inspection Results:");
         logger.info("  Total processing attempts: {}", processedCount.get());

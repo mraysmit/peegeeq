@@ -94,7 +94,7 @@ public class OrderService {
      * @param request The order creation request
      * @return CompletableFuture containing the created order ID
      */
-    public CompletableFuture<String> createOrder(CreateOrderRequest request) {
+    public Future<String> createOrder(CreateOrderRequest request) {
         log.info("Creating order for customer: {}", request.getCustomerId());
 
         ConnectionProvider connectionProvider = databaseService.getConnectionProvider();
@@ -104,8 +104,7 @@ public class OrderService {
             String orderId = order.getId();
 
             // Step 1: Send outbox event using sendInTransaction()
-            return Future.fromCompletionStage(
-                orderEventProducer.sendInTransaction(
+            return                 orderEventProducer.sendInTransaction(
                     new OrderCreatedEvent(request),
                     connection
                 )
@@ -123,24 +122,21 @@ public class OrderService {
             })
             .compose(id -> {
                 // Step 4: Send additional events using same connection
-                return Future.fromCompletionStage(
-                    orderEventProducer.sendInTransaction(
+                return orderEventProducer.sendInTransaction(
                         new OrderValidatedEvent(id),
                         connection
                     )
-                ).compose(v ->
-                    Future.fromCompletionStage(
-                        orderEventProducer.sendInTransaction(
+                .compose(v ->
+                    orderEventProducer.sendInTransaction(
                             new InventoryReservedEvent(id, request.getItems()),
                             connection
                         )
-                    )
                 ).map(v -> id);
             })
             .onSuccess(id -> log.info("Order {} created successfully with all events", id))
             .onFailure(error -> log.error("❌ Order creation failed, transaction will rollback: {}", error.getMessage()));
 
-        }).toCompletionStage().toCompletableFuture();
+        });
     }
 
     /**
@@ -150,17 +146,12 @@ public class OrderService {
      * @param event The order event to publish
      * @return CompletableFuture for the publish operation
      */
-    public CompletableFuture<Void> publishOrderEvent(OrderEvent event) {
+    public Future<Void> publishOrderEvent(OrderEvent event) {
         log.info("Publishing order event: {}", event.getClass().getSimpleName());
         
         return orderEventProducer.send(event)
-            .whenComplete((result, error) -> {
-                if (error != null) {
-                    log.error("Failed to publish order event {}: {}", event.getClass().getSimpleName(), error.getMessage(), error);
-                } else {
-                    log.info("Order event published successfully: {}", event.getClass().getSimpleName());
-                }
-            });
+            .onSuccess(result -> log.info("Order event published successfully: {}", event.getClass().getSimpleName()))
+            .onFailure(error -> log.error("Failed to publish order event {}: {}", event.getClass().getSimpleName(), error.getMessage(), error));
     }
 
     /**
@@ -171,7 +162,7 @@ public class OrderService {
      * @param request The order creation request
      * @return CompletableFuture containing the created order ID
      */
-    public CompletableFuture<String> createOrderWithBusinessValidation(CreateOrderRequest request) {
+    public Future<String> createOrderWithBusinessValidation(CreateOrderRequest request) {
         log.info("Creating order with business validation for customer: {}", request.getCustomerId());
 
         ConnectionProvider connectionProvider = databaseService.getConnectionProvider();
@@ -181,12 +172,10 @@ public class OrderService {
             String orderId = order.getId();
 
             // Step 1: Send outbox event
-            return Future.fromCompletionStage(
-                orderEventProducer.sendInTransaction(
+            return orderEventProducer.sendInTransaction(
                     new OrderCreatedEvent(request),
                     connection
                 )
-            )
             .compose(v -> {
                 log.debug("Order created event sent, performing business validation");
 
@@ -221,7 +210,7 @@ public class OrderService {
                 }
             });
 
-        }).toCompletionStage().toCompletableFuture();
+        });
     }
 
     /**
@@ -231,7 +220,7 @@ public class OrderService {
      * @param request The order creation request
      * @return CompletableFuture containing the created order ID
      */
-    public CompletableFuture<String> createOrderWithDatabaseConstraints(CreateOrderRequest request) {
+    public Future<String> createOrderWithDatabaseConstraints(CreateOrderRequest request) {
         log.info("Creating order with database constraints for customer: {}", request.getCustomerId());
 
         ConnectionProvider connectionProvider = databaseService.getConnectionProvider();
@@ -241,12 +230,10 @@ public class OrderService {
             String orderId = order.getId();
 
             // Step 1: Send outbox event
-            return Future.fromCompletionStage(
-                orderEventProducer.sendInTransaction(
+            return orderEventProducer.sendInTransaction(
                     new OrderCreatedEvent(request),
                     connection
                 )
-            )
             .compose(v -> {
                 log.debug("Order created event sent, saving order to database");
                 // Step 2: Save order (this will fail for certain customer IDs)
@@ -269,7 +256,7 @@ public class OrderService {
                 }
             });
 
-        }).toCompletionStage().toCompletableFuture();
+        });
     }
 
     /**
@@ -279,7 +266,7 @@ public class OrderService {
      * @param request The order creation request
      * @return CompletableFuture containing the created order ID
      */
-    public CompletableFuture<String> createOrderWithMultipleEvents(CreateOrderRequest request) {
+    public Future<String> createOrderWithMultipleEvents(CreateOrderRequest request) {
         log.info("Creating order with multiple events for customer: {}", request.getCustomerId());
 
         ConnectionProvider connectionProvider = databaseService.getConnectionProvider();
@@ -289,22 +276,16 @@ public class OrderService {
             String orderId = order.getId();
 
             // All operations in the same transaction
-            return Future.fromCompletionStage(
-                orderEventProducer.sendInTransaction(new OrderCreatedEvent(request), connection)
-            )
+            return orderEventProducer.sendInTransaction(new OrderCreatedEvent(request), connection)
             .compose(v -> orderRepository.save(order, connection))
             .compose(savedOrder -> orderItemRepository.saveAll(orderId, request.getItems(), connection))
-            .compose(v -> Future.fromCompletionStage(
-                orderEventProducer.sendInTransaction(new OrderValidatedEvent(orderId), connection)
-            ))
-            .compose(v -> Future.fromCompletionStage(
-                orderEventProducer.sendInTransaction(new InventoryReservedEvent(orderId, request.getItems()), connection)
-            ))
+            .compose(v -> orderEventProducer.sendInTransaction(new OrderValidatedEvent(orderId), connection))
+            .compose(v -> orderEventProducer.sendInTransaction(new InventoryReservedEvent(orderId, request.getItems()), connection))
             .map(v -> orderId)
             .onSuccess(id -> log.info("TRANSACTION SUCCESS: Order {} and all events committed together", id))
             .onFailure(error -> log.error("❌ TRANSACTION ROLLBACK: All operations rolled back due to failure: {}", error.getMessage()));
 
-        }).toCompletionStage().toCompletableFuture();
+        });
     }
 }
 

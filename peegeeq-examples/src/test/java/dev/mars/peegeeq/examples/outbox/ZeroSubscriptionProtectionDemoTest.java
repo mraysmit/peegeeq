@@ -161,7 +161,7 @@ class ZeroSubscriptionProtectionDemoTest {
             }
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive().await();
         }
 
         // Clean up system properties
@@ -194,7 +194,7 @@ class ZeroSubscriptionProtectionDemoTest {
             .messageRetentionHours(24)
             .build();
         topicConfigService.createTopic(topicConfig)
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
         logger.info("✓ QUEUE topic created successfully");
 
         // Step 2: Verify topic has zero subscriptions
@@ -208,7 +208,7 @@ class ZeroSubscriptionProtectionDemoTest {
         Long messageId = insertMessage(topic, new JsonObject()
             .put("taskId", "TASK-001")
             .put("action", "process-order"))
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
 
         assertNotNull(messageId, "Message should be inserted successfully");
         logger.info("✓ Message inserted successfully: ID = {}", messageId);
@@ -249,7 +249,7 @@ class ZeroSubscriptionProtectionDemoTest {
             .blockWritesOnZeroSubscriptions(false)  // Allow writes
             .build();
         topicConfigService.createTopic(topicConfig)
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
         logger.info("✓ PUB_SUB topic created successfully");
         logger.info("  - blockWritesOnZeroSubscriptions: false");
         logger.info("  - zeroSubscriptionRetentionHours: 12");
@@ -265,7 +265,7 @@ class ZeroSubscriptionProtectionDemoTest {
         Long messageId = insertMessage(topic, new JsonObject()
             .put("eventId", "EVENT-001")
             .put("eventType", "order.created"))
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
 
         assertNotNull(messageId, "Message should be inserted successfully");
         logger.info("✓ Message inserted successfully: ID = {}", messageId);
@@ -306,7 +306,7 @@ class ZeroSubscriptionProtectionDemoTest {
             .blockWritesOnZeroSubscriptions(true)  // Block writes
             .build();
         topicConfigService.createTopic(topicConfig)
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
         logger.info("✓ PUB_SUB topic created successfully");
         logger.info("  - blockWritesOnZeroSubscriptions: true");
         logger.info("  - zeroSubscriptionRetentionHours: 24");
@@ -322,7 +322,7 @@ class ZeroSubscriptionProtectionDemoTest {
         logger.info("  (This should be blocked due to write blocking)");
 
         Boolean writeAllowed = zeroSubscriptionValidator.isWriteAllowed(topic)
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
 
         assertFalse(writeAllowed, "Write should be blocked when zero subscriptions and blockWritesOnZeroSubscriptions=true");
         logger.info("✓ Write was BLOCKED as expected");
@@ -360,7 +360,7 @@ class ZeroSubscriptionProtectionDemoTest {
                     }
                     return false;
                 })
-        ).toCompletionStage().toCompletableFuture().get();
+        ).await();
     }
 
     /**

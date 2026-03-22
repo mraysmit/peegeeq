@@ -24,6 +24,8 @@ import dev.mars.peegeeq.outbox.OutboxFactory;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -136,9 +138,9 @@ class OutboxConsumerGroupSpringBootTest {
         
         // Wait for connections to be fully released before next test
         logger.info("⏳ Waiting for connections to be released...");
-        CompletableFuture<Void> delay = new CompletableFuture<>();
-        vertx.setTimer(2000, id -> delay.complete(null));
-        delay.join();
+        Promise<Void> delay = Promise.promise();
+        vertx.setTimer(2000, id -> delay.complete());
+        delay.future().await();
         
         logger.info("Cleanup complete");
     }
@@ -185,7 +187,7 @@ class OutboxConsumerGroupSpringBootTest {
                 consumerMessages.get(consumerId).add(message.getPayload());
                 logger.debug("{} processed: {}", consumerId, message.getPayload());
                 checkpoint.flag();
-                return java.util.concurrent.CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
         }
         
@@ -196,7 +198,7 @@ class OutboxConsumerGroupSpringBootTest {
         logger.info("📤 Sending {} messages for load balancing test", messageCount);
         for (int i = 1; i <= messageCount; i++) {
             String message = "message-" + i;
-            producer.send(message).get(5, TimeUnit.SECONDS);
+            producer.send(message).await();
         }
         
         // Wait for all messages to be processed
@@ -264,7 +266,7 @@ class OutboxConsumerGroupSpringBootTest {
             successfullyProcessed.add(message.getPayload());
             logger.debug("Consumer-1 successfully processed: {}", message.getPayload());
             checkpoint.flag();
-            return java.util.concurrent.CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Consumer 2: Fails on specific messages, then succeeds on retry
@@ -276,14 +278,14 @@ class OutboxConsumerGroupSpringBootTest {
             if (attempt <= 3) {
                 failureCount.incrementAndGet();
                 logger.debug("Consumer-2 simulating failure on attempt {}: {}", attempt, message.getPayload());
-                return java.util.concurrent.CompletableFuture.failedFuture(
+                return Future.failedFuture(
                     new RuntimeException("Simulated transient failure"));
             }
 
             successfullyProcessed.add(message.getPayload());
             logger.debug("Consumer-2 successfully processed after retries: {}", message.getPayload());
             checkpoint.flag();
-            return java.util.concurrent.CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
         
         // Start the consumer group
@@ -293,7 +295,7 @@ class OutboxConsumerGroupSpringBootTest {
         logger.info("📤 Sending {} messages for failure handling test", messageCount);
         for (int i = 1; i <= messageCount; i++) {
             String message = "message-" + i;
-            producer.send(message).get(5, TimeUnit.SECONDS);
+            producer.send(message).await();
         }
         
         // Wait for all messages to be processed

@@ -126,7 +126,7 @@ public class HighPriorityConsumerService {
      *
      * Pattern 2: Only HIGH and CRITICAL priority messages with cutoff checking.
      */
-    private CompletableFuture<Void> processMessage(Message<TradeSettlementEvent> message) {
+    private Future<Void> processMessage(Message<TradeSettlementEvent> message) {
         TradeSettlementEvent event = message.getPayload();
         Priority priority = event.getPriority();
 
@@ -135,7 +135,7 @@ public class HighPriorityConsumerService {
             log.warn("⚠️ [HIGH+] Non-high-priority message received (filter bypass?): tradeId={}, priority={}",
                 event.getTradeId(), priority);
             messagesFiltered.incrementAndGet();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture(null);
         }
 
         log.debug("High-priority consumer received: tradeId={}, priority={}, status={}",
@@ -166,16 +166,14 @@ public class HighPriorityConsumerService {
                         return updateConsumerMetrics(connection);
                     });
             })
-            .toCompletionStage()
-            .toCompletableFuture()
-            .thenApply(v -> {
+            .map(v -> {
                 // Alert if approaching cutoff
                 if (priority == Priority.HIGH) {
                     alertIfApproachingCutoff(event);
                 }
                 return (Void) null;
             })
-            .exceptionally(ex -> {
+            .otherwise(ex -> {
                 log.error("❌ [HIGH+] Failed to process message: tradeId={}, priority={}",
                     event.getTradeId(), priority, ex);
                 messagesFailed.incrementAndGet();
@@ -306,9 +304,8 @@ public class HighPriorityConsumerService {
                         ))
                         .map(result -> null);
                 })
-                .toCompletionStage()
-                .toCompletableFuture()
-                .join();
+                
+                .toCompletionStage().toCompletableFuture().join();
         } catch (Exception e) {
             log.warn("Failed to update consumer status", e);
         }

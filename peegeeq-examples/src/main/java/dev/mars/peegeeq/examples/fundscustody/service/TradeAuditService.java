@@ -10,6 +10,7 @@ import dev.mars.peegeeq.examples.fundscustody.events.TradeEvent;
 import dev.mars.peegeeq.examples.fundscustody.model.ChangeReport;
 import dev.mars.peegeeq.examples.fundscustody.model.CorrectionAudit;
 import dev.mars.peegeeq.examples.fundscustody.model.TradeChange;
+import io.vertx.core.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -32,7 +33,7 @@ import java.util.stream.Collectors;
  *   <li>Trade History - Complete lineage of a trade including corrections</li>
  * </ul>
  * 
- * <p>All methods return CompletableFuture to maintain async/non-blocking behavior.
+ * <p>All methods return Future to maintain async/non-blocking behavior.
  */
 public class TradeAuditService {
     private static final Logger logger = LoggerFactory.getLogger(TradeAuditService.class);
@@ -63,7 +64,7 @@ public class TradeAuditService {
      * @param periodEnd end of transaction time period
      * @return future containing list of correction audits
      */
-    public CompletableFuture<List<CorrectionAudit>> getCorrectionsInPeriod(
+    public Future<List<CorrectionAudit>> getCorrectionsInPeriod(
             String fundId,
             Instant periodStart,
             Instant periodEnd) {
@@ -76,25 +77,19 @@ public class TradeAuditService {
                 .aggregateId("CANCELLATION:" + fundId)
                 .transactionTimeRange(new TemporalRange(periodStart, periodEnd))
                 .build()
-        ).toCompletionStage().toCompletableFuture().thenCompose(cancellations -> {
+        ).compose(cancellations -> {
             // For each cancellation, find the original trade to build audit record
-            List<CompletableFuture<CorrectionAudit>> auditFutures = cancellations.stream()
+            List<Future<CorrectionAudit>> auditFutures = cancellations.stream()
                 .map(cancellation -> buildCorrectionAudit(cancellation))
                 .collect(Collectors.toList());
 
-            // Combine all futures into a single future of list
-            return auditFutures.stream()
-                .reduce(
-                    CompletableFuture.completedFuture(new ArrayList<CorrectionAudit>()),
-                    (acc, future) -> acc.thenCombine(future, (list, audit) -> {
-                        list.add(audit);
-                        return list;
-                    }),
-                    (f1, f2) -> f1.thenCombine(f2, (list1, list2) -> {
-                        list1.addAll(list2);
-                        return list1;
-                    })
-                );
+            return Future.all(auditFutures).map(cf -> {
+                List<CorrectionAudit> result = new ArrayList<>();
+                for (int i = 0; i < auditFutures.size(); i++) {
+                    result.add(auditFutures.get(i).result());
+                }
+                return result;
+            });
         });
     }
     
@@ -111,7 +106,7 @@ public class TradeAuditService {
      * @param validEnd end of valid time period (trade dates)
      * @return future containing list of correction audits
      */
-    public CompletableFuture<List<CorrectionAudit>> getCorrectionsAffectingValidPeriod(
+    public Future<List<CorrectionAudit>> getCorrectionsAffectingValidPeriod(
             String fundId,
             LocalDate validStart,
             LocalDate validEnd) {
@@ -127,24 +122,18 @@ public class TradeAuditService {
                 .aggregateId("CANCELLATION:" + fundId)
                 .validTimeRange(new TemporalRange(validStartInstant, validEndInstant))
                 .build()
-        ).toCompletionStage().toCompletableFuture().thenCompose(cancellations -> {
-            List<CompletableFuture<CorrectionAudit>> auditFutures = cancellations.stream()
+        ).compose(cancellations -> {
+            List<Future<CorrectionAudit>> auditFutures = cancellations.stream()
                 .map(cancellation -> buildCorrectionAudit(cancellation))
                 .collect(Collectors.toList());
 
-            // Combine all futures into a single future of list
-            return auditFutures.stream()
-                .reduce(
-                    CompletableFuture.completedFuture(new ArrayList<CorrectionAudit>()),
-                    (acc, future) -> acc.thenCombine(future, (list, audit) -> {
-                        list.add(audit);
-                        return list;
-                    }),
-                    (f1, f2) -> f1.thenCombine(f2, (list1, list2) -> {
-                        list1.addAll(list2);
-                        return list1;
-                    })
-                );
+            return Future.all(auditFutures).map(cf -> {
+                List<CorrectionAudit> result = new ArrayList<>();
+                for (int i = 0; i < auditFutures.size(); i++) {
+                    result.add(auditFutures.get(i).result());
+                }
+                return result;
+            });
         });
     }
     
@@ -159,34 +148,27 @@ public class TradeAuditService {
      * @param tradeId trade identifier
      * @return future containing list of correction audits
      */
-    public CompletableFuture<List<CorrectionAudit>> getTradeCorrectionHistory(String tradeId) {
+    public Future<List<CorrectionAudit>> getTradeCorrectionHistory(String tradeId) {
         logger.debug("Finding correction history for trade {}", tradeId);
 
         return cancellationEventStore.query(EventQuery.forEventType("TradeCancelled"))
-            .toCompletionStage().toCompletableFuture()
-            .thenCompose(cancellations -> {
+            .compose(cancellations -> {
                 List<BiTemporalEvent<TradeCancelledEvent>> tradeCancellations = cancellations.stream()
                     .filter(c -> tradeId.equals(c.getPayload().tradeId()))
                     .sorted((a, b) -> a.getTransactionTime().compareTo(b.getTransactionTime()))
                     .collect(Collectors.toList());
                 
-                List<CompletableFuture<CorrectionAudit>> auditFutures = tradeCancellations.stream()
+                List<Future<CorrectionAudit>> auditFutures = tradeCancellations.stream()
                     .map(cancellation -> buildCorrectionAudit(cancellation))
                     .collect(Collectors.toList());
 
-                // Combine all futures into a single future of list
-                return auditFutures.stream()
-                    .reduce(
-                        CompletableFuture.completedFuture(new ArrayList<CorrectionAudit>()),
-                        (acc, future) -> acc.thenCombine(future, (list, audit) -> {
-                            list.add(audit);
-                            return list;
-                        }),
-                        (f1, f2) -> f1.thenCombine(f2, (list1, list2) -> {
-                            list1.addAll(list2);
-                            return list1;
-                        })
-                    );
+                return Future.all(auditFutures).map(cf -> {
+                    List<CorrectionAudit> result = new ArrayList<>();
+                    for (int i = 0; i < auditFutures.size(); i++) {
+                        result.add(auditFutures.get(i).result());
+                    }
+                    return result;
+                });
             });
     }
     
@@ -203,7 +185,7 @@ public class TradeAuditService {
      * @param toTransactionTime later transaction time
      * @return future containing change report
      */
-    public CompletableFuture<ChangeReport> getChangesBetween(
+    public Future<ChangeReport> getChangesBetween(
             String fundId,
             Instant fromTransactionTime,
             Instant toTransactionTime) {
@@ -212,33 +194,37 @@ public class TradeAuditService {
             fundId, fromTransactionTime, toTransactionTime);
         
         // Get state as of earlier time
-        CompletableFuture<List<BiTemporalEvent<TradeEvent>>> beforeState =
+        Future<List<BiTemporalEvent<TradeEvent>>> beforeState =
             tradeEventStore.query(
                 EventQuery.builder()
                     .aggregateId("TRADE:" + fundId)
                     .transactionTimeRange(TemporalRange.until(fromTransactionTime))
                     .build()
-            ).toCompletionStage().toCompletableFuture();
+            );
 
         // Get state as of later time
-        CompletableFuture<List<BiTemporalEvent<TradeEvent>>> afterState =
+        Future<List<BiTemporalEvent<TradeEvent>>> afterState =
             tradeEventStore.query(
                 EventQuery.builder()
                     .aggregateId("TRADE:" + fundId)
                     .transactionTimeRange(TemporalRange.until(toTransactionTime))
                     .build()
-            ).toCompletionStage().toCompletableFuture();
+            );
 
         // Get cancellations in the period
-        CompletableFuture<List<BiTemporalEvent<TradeCancelledEvent>>> corrections =
+        Future<List<BiTemporalEvent<TradeCancelledEvent>>> corrections =
             cancellationEventStore.query(
                 EventQuery.builder()
                     .aggregateId("CANCELLATION:" + fundId)
                     .transactionTimeRange(new TemporalRange(fromTransactionTime, toTransactionTime))
                     .build()
-            ).toCompletionStage().toCompletableFuture();
+            );
         
-        return beforeState.thenCombine(afterState, (before, after) -> {
+        return Future.all(beforeState, afterState, corrections).map(cf -> {
+            List<BiTemporalEvent<TradeEvent>> before = beforeState.result();
+            List<BiTemporalEvent<TradeEvent>> after = afterState.result();
+            List<BiTemporalEvent<TradeCancelledEvent>> correctionList = corrections.result();
+            
             // Find new trades (in after but not in before)
             List<String> beforeTradeIds = before.stream()
                 .map(e -> e.getPayload().tradeId())
@@ -263,8 +249,6 @@ public class TradeAuditService {
                 })
                 .collect(Collectors.toList());
 
-            return newTrades;
-        }).thenCombine(corrections, (newTrades, correctionList) -> {
             // Build correction changes
             List<TradeChange> correctedTrades = correctionList.stream()
                 .map(c -> {
@@ -295,15 +279,14 @@ public class TradeAuditService {
     /**
      * Build a correction audit record from a cancellation event.
      */
-    private CompletableFuture<CorrectionAudit> buildCorrectionAudit(
+    private Future<CorrectionAudit> buildCorrectionAudit(
             BiTemporalEvent<TradeCancelledEvent> cancellation) {
         
         TradeCancelledEvent cancel = cancellation.getPayload();
 
         // Find original trade to get original values
         return tradeEventStore.query(EventQuery.forEventType("TradeExecuted"))
-            .toCompletionStage().toCompletableFuture()
-            .thenApply(trades -> {
+            .map(trades -> {
                 BiTemporalEvent<TradeEvent> original = trades.stream()
                     .filter(t -> cancel.tradeId().equals(t.getPayload().tradeId()))
                     .filter(t -> t.getTransactionTime().isBefore(cancellation.getTransactionTime()))

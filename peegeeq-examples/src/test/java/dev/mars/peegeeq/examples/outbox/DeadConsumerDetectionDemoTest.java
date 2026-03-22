@@ -36,6 +36,7 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.core.Promise;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.Tag;
@@ -172,7 +173,7 @@ class DeadConsumerDetectionDemoTest {
             }
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive().await();
         }
 
         // Clean up system properties
@@ -206,7 +207,7 @@ class DeadConsumerDetectionDemoTest {
             .messageRetentionHours(24)
             .build();
         topicConfigService.createTopic(topicConfig)
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
         logger.info("✓ Topic created successfully");
 
         // Step 2: Subscribe with custom heartbeat settings
@@ -220,13 +221,13 @@ class DeadConsumerDetectionDemoTest {
             .build();
 
         subscriptionManager.subscribe(topic, consumerGroup, heartbeatOptions)
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
         logger.info("✓ Subscription created with custom heartbeat settings");
 
         // Step 3: Verify subscription configuration
         logger.info("\nStep 3: Verifying heartbeat configuration");
         Subscription subscription = subscriptionManager.getSubscriptionInternal(topic, consumerGroup)
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
 
         assertNotNull(subscription, "Subscription should exist");
         assertEquals(30, subscription.getHeartbeatIntervalSeconds(),
@@ -271,7 +272,7 @@ class DeadConsumerDetectionDemoTest {
             .messageRetentionHours(24)
             .build();
         topicConfigService.createTopic(topicConfig)
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
         logger.info("✓ Topic created successfully");
 
         // Step 2: Subscribe two consumer groups with short timeout for demo
@@ -285,15 +286,15 @@ class DeadConsumerDetectionDemoTest {
             .build();
 
         subscriptionManager.subscribe(topic, healthyGroup, shortTimeoutOptions)
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
         subscriptionManager.subscribe(topic, deadGroup, shortTimeoutOptions)
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
         logger.info("✓ Both consumer groups subscribed");
 
         // Step 3: Healthy consumer sends heartbeat
         logger.info("\nStep 3: Healthy consumer sends heartbeat");
         subscriptionManager.updateHeartbeat(topic, healthyGroup)
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
         logger.info("✓ Heartbeat sent by '{}'", healthyGroup);
 
         // Step 4: Wait for dead consumer timeout (dead consumer does NOT send heartbeat)
@@ -303,11 +304,11 @@ class DeadConsumerDetectionDemoTest {
 
         // Send periodic heartbeats for healthy consumer during wait period
         for (int i = 0; i < 3; i++) {
-            CompletableFuture<Void> delay = new CompletableFuture<>();
-            vertx.setTimer(4000, id -> delay.complete(null));
-            delay.join();
+            Promise<Void> delay = Promise.promise();
+            vertx.setTimer(4000, id -> delay.complete());
+            delay.future().await();
             subscriptionManager.updateHeartbeat(topic, healthyGroup)
-                .toCompletionStage().toCompletableFuture().get();
+                .await();
             logger.info("  - Heartbeat #{} sent by '{}'", i + 1, healthyGroup);
         }
 
@@ -316,7 +317,7 @@ class DeadConsumerDetectionDemoTest {
         // Step 5: Run dead consumer detection
         logger.info("\nStep 5: Running dead consumer detection");
         int deadCount = deadConsumerDetector.detectDeadSubscriptions(topic)
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
 
         logger.info("✓ Dead consumer detection complete");
         logger.info("  - Marked {} subscriptions as DEAD", deadCount);
@@ -324,7 +325,7 @@ class DeadConsumerDetectionDemoTest {
         // Step 6: Get list of all subscriptions and filter for DEAD ones
         logger.info("\nStep 6: Retrieving dead subscriptions");
         List<Subscription> allSubscriptions = subscriptionManager.listSubscriptionsInternal(topic)
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
 
         List<Subscription> deadSubscriptions = allSubscriptions.stream()
             .filter(sub -> sub.getStatus() == SubscriptionStatus.DEAD)
@@ -351,7 +352,7 @@ class DeadConsumerDetectionDemoTest {
         // Step 7: Verify healthy consumer is still ACTIVE
         logger.info("\nStep 7: Verifying healthy consumer is still ACTIVE");
         Subscription healthySub = subscriptionManager.getSubscriptionInternal(topic, healthyGroup)
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
 
         assertEquals(SubscriptionStatus.ACTIVE, healthySub.getStatus(),
             "Healthy consumer should still be ACTIVE");
@@ -386,7 +387,7 @@ class DeadConsumerDetectionDemoTest {
             .messageRetentionHours(24)
             .build();
         topicConfigService.createTopic(topicConfig)
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
         logger.info("✓ Topic created successfully");
 
         // Step 2: Subscribe consumer group
@@ -397,35 +398,35 @@ class DeadConsumerDetectionDemoTest {
             .build();
 
         subscriptionManager.subscribe(topic, consumerGroup, shortTimeoutOptions)
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
         logger.info("✓ Consumer group subscribed");
 
         // Step 3: Verify initial status is ACTIVE
         logger.info("\nStep 3: Verifying initial status");
         Subscription initialSub = subscriptionManager.getSubscriptionInternal(topic, consumerGroup)
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
         assertEquals(SubscriptionStatus.ACTIVE, initialSub.getStatus(),
             "Initial status should be ACTIVE");
         logger.info("✓ Initial status: {}", initialSub.getStatus());
 
         // Step 4: Simulate consumer crash (stop sending heartbeats)
         logger.info("\nStep 4: Simulating consumer crash (no heartbeats for 12 seconds)");
-        CompletableFuture<Void> delay = new CompletableFuture<>();
-        vertx.setTimer(12000, id -> delay.complete(null));
-        delay.join();
+        Promise<Void> delay = Promise.promise();
+        vertx.setTimer(12000, id -> delay.complete());
+        delay.future().await();
         logger.info("✓ Consumer has been 'crashed' for 12 seconds");
 
         // Step 5: Run dead consumer detection
         logger.info("\nStep 5: Running dead consumer detection");
         int deadCount = deadConsumerDetector.detectDeadSubscriptions(topic)
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
         logger.info("✓ Marked {} subscriptions as DEAD", deadCount);
         assertEquals(1, deadCount, "Should have marked 1 subscription as DEAD");
 
         // Step 6: Verify consumer is now DEAD
         logger.info("\nStep 6: Verifying consumer is marked as DEAD");
         Subscription deadSub = subscriptionManager.getSubscriptionInternal(topic, consumerGroup)
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
         assertEquals(SubscriptionStatus.DEAD, deadSub.getStatus(),
             "Status should be DEAD after detection");
         logger.info("✓ Consumer status: {}", deadSub.getStatus());
@@ -433,13 +434,13 @@ class DeadConsumerDetectionDemoTest {
         // Step 7: Recover consumer by resuming subscription
         logger.info("\nStep 7: Recovering consumer by resuming subscription");
         subscriptionManager.resume(topic, consumerGroup)
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
         logger.info("✓ Subscription resumed");
 
         // Step 8: Verify consumer is ACTIVE again
         logger.info("\nStep 8: Verifying consumer is ACTIVE after recovery");
         Subscription recoveredSub = subscriptionManager.getSubscriptionInternal(topic, consumerGroup)
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
         assertEquals(SubscriptionStatus.ACTIVE, recoveredSub.getStatus(),
             "Status should be ACTIVE after resume");
         logger.info("✓ Consumer recovered successfully");
@@ -449,7 +450,7 @@ class DeadConsumerDetectionDemoTest {
         // Step 9: Send heartbeat to keep consumer alive
         logger.info("\nStep 9: Sending heartbeat to keep consumer alive");
         subscriptionManager.updateHeartbeat(topic, consumerGroup)
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
         logger.info("✓ Heartbeat sent - consumer is now healthy");
 
         logger.info("\n=== DEMO 3 COMPLETE: Consumer Recovery ===\n");

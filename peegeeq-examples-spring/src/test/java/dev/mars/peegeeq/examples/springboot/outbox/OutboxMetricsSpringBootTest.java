@@ -19,6 +19,8 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -28,7 +30,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.ArrayList;
 import java.util.List;
-
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -112,9 +113,9 @@ class OutboxMetricsSpringBootTest {
         activeProducers.clear();
         
         // Wait for connections to be released
-        CompletableFuture<Void> delay = new CompletableFuture<>();
+        Promise<Void> delay = Promise.promise();
         vertx.setTimer(2000, id -> delay.complete(null));
-        delay.join();
+        delay.future().await();
     }
 
     @Test
@@ -146,12 +147,12 @@ class OutboxMetricsSpringBootTest {
         consumer.subscribe(message -> {
             logger.debug("Processing message: {}", message.getPayload());
             checkpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture(null);
         });
         
         // Send messages
         for (int i = 0; i < messageCount; i++) {
-            producer.send("Metrics test message " + i).get(5, TimeUnit.SECONDS);
+            producer.send("Metrics test message " + i).await();
         }
         
         // Wait for processing
@@ -159,9 +160,9 @@ class OutboxMetricsSpringBootTest {
             "All messages should be processed within timeout");
         
         // Allow time for metrics to be updated
-        CompletableFuture<Void> metricsDelay = new CompletableFuture<>();
+        Promise<Void> metricsDelay = Promise.promise();
         vertx.setTimer(2000, id -> metricsDelay.complete(null));
-        metricsDelay.join();
+        metricsDelay.future().await();
         
         // Verify metrics increased
         PeeGeeQMetrics.MetricsSummary finalMetrics = manager.getMetrics().getSummary();
@@ -208,13 +209,13 @@ class OutboxMetricsSpringBootTest {
         consumer.subscribe(message -> {
             logger.info("INTENTIONAL FAILURE: Processing message that will fail: {}", message.getPayload());
             errorCheckpoint.flag();
-            return CompletableFuture.failedFuture(
+            return Future.failedFuture(
                 new RuntimeException("Intentional error for metrics testing"));
         });
         
         // Send messages that will fail
         for (int i = 0; i < errorCount; i++) {
-            producer.send("Error test message " + i).get(5, TimeUnit.SECONDS);
+            producer.send("Error test message " + i).await();
         }
         
         // Wait for errors to occur
@@ -222,9 +223,9 @@ class OutboxMetricsSpringBootTest {
             "All errors should occur within timeout");
         
         // Allow time for error metrics to be updated
-        CompletableFuture<Void> errorDelay = new CompletableFuture<>();
+        Promise<Void> errorDelay = Promise.promise();
         vertx.setTimer(3000, id -> errorDelay.complete(null));
-        errorDelay.join();
+        errorDelay.future().await();
         
         // Verify error metrics increased
         PeeGeeQMetrics.MetricsSummary finalMetrics = manager.getMetrics().getSummary();
@@ -257,19 +258,19 @@ class OutboxMetricsSpringBootTest {
         // Set up consumer with deliberate processing delay
         Checkpoint checkpoint = testContext.checkpoint(messageCount);
         consumer.subscribe(message -> {
-            CompletableFuture<Void> result = new CompletableFuture<>();
+            Promise<Void> result = Promise.promise();
             vertx.setTimer(processingDelayMs, id -> {
                 logger.debug("Processing message with {}ms delay: {}", 
                     processingDelayMs, message.getPayload());
                 checkpoint.flag();
                 result.complete(null);
             });
-            return result;
+            return result.future();
         });
         
         // Send messages
         for (int i = 0; i < messageCount; i++) {
-            producer.send("Timing test message " + i).get(5, TimeUnit.SECONDS);
+            producer.send("Timing test message " + i).await();
         }
         
         // Wait for processing
@@ -277,9 +278,9 @@ class OutboxMetricsSpringBootTest {
             "All messages should be processed within timeout");
         
         // Allow time for metrics to be updated
-        CompletableFuture<Void> timingDelay = new CompletableFuture<>();
+        Promise<Void> timingDelay = Promise.promise();
         vertx.setTimer(2000, id -> timingDelay.complete(null));
-        timingDelay.join();
+        timingDelay.future().await();
         
         // Verify metrics were collected (we can't easily verify exact timing in integration test)
         PeeGeeQMetrics.MetricsSummary metrics = manager.getMetrics().getSummary();

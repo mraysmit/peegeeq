@@ -43,6 +43,7 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.core.Promise;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -176,7 +177,7 @@ class LateJoiningConsumerDemoTest {
             }
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive().await();
         }
 
         // Clean up system properties
@@ -210,7 +211,7 @@ class LateJoiningConsumerDemoTest {
             .messageRetentionHours(24)
             .build();
         topicConfigService.createTopic(topicConfig)
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
         logger.info("✓ Topic created successfully");
 
         // Step 2: Publish 10 historical messages BEFORE subscription
@@ -221,7 +222,7 @@ class LateJoiningConsumerDemoTest {
                 .put("orderId", "ORDER-" + i)
                 .put("amount", 100.0 + i)
                 .put("status", "CREATED"))
-                .toCompletionStage().toCompletableFuture().get();
+                .await();
             historicalMessageIds.add(messageId);
         }
         logger.info("✓ Published {} historical messages", historicalMessageIds.size());
@@ -230,7 +231,7 @@ class LateJoiningConsumerDemoTest {
         logger.info("\nStep 3: Subscribing '{}' using FROM_NOW (default)", emailGroup);
         SubscriptionOptions fromNowOptions = SubscriptionOptions.defaults(); // FROM_NOW is default
         subscriptionManager.subscribe(topic, emailGroup, fromNowOptions)
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
         logger.info("✓ Subscription created with FROM_NOW");
 
         // Step 4: Publish 5 new messages AFTER subscription
@@ -241,7 +242,7 @@ class LateJoiningConsumerDemoTest {
                 .put("orderId", "ORDER-" + i)
                 .put("amount", 100.0 + i)
                 .put("status", "CREATED"))
-                .toCompletionStage().toCompletableFuture().get();
+                .await();
             newMessageIds.add(messageId);
         }
         logger.info("✓ Published {} new messages", newMessageIds.size());
@@ -249,7 +250,7 @@ class LateJoiningConsumerDemoTest {
         // Step 5: Fetch messages for email service
         logger.info("\nStep 5: Fetching messages for '{}'", emailGroup);
         var messages = fetcher.fetchMessages(topic, emailGroup, 20)
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
 
         logger.info("✓ Fetched {} messages", messages.size());
 
@@ -297,13 +298,13 @@ class LateJoiningConsumerDemoTest {
             .messageRetentionHours(24)
             .build();
         topicConfigService.createTopic(topicConfig)
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
         logger.info("✓ Topic created successfully");
 
         // Step 2: Subscribe email service using FROM_NOW
         logger.info("\nStep 2: Subscribing '{}' using FROM_NOW", emailGroup);
         subscriptionManager.subscribe(topic, emailGroup, SubscriptionOptions.defaults())
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
         logger.info("✓ Email service subscribed");
 
         // Step 3: Publish 20 messages (email service will receive all of these)
@@ -314,7 +315,7 @@ class LateJoiningConsumerDemoTest {
                 .put("orderId", "ORDER-" + i)
                 .put("amount", 100.0 + i)
                 .put("status", "CREATED"))
-                .toCompletionStage().toCompletableFuture().get();
+                .await();
             allMessageIds.add(messageId);
         }
         logger.info("✓ Published {} messages", allMessageIds.size());
@@ -325,13 +326,13 @@ class LateJoiningConsumerDemoTest {
             .startPosition(StartPosition.FROM_BEGINNING)
             .build();
         subscriptionManager.subscribe(topic, analyticsGroup, fromBeginningOptions)
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
         logger.info("✓ Analytics service subscribed with FROM_BEGINNING");
 
         // Step 5: Fetch messages for analytics service
         logger.info("\nStep 5: Fetching messages for '{}'", analyticsGroup);
         var analyticsMessages = fetcher.fetchMessages(topic, analyticsGroup, 25)
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
 
         logger.info("✓ Fetched {} messages for analytics", analyticsMessages.size());
 
@@ -378,7 +379,7 @@ class LateJoiningConsumerDemoTest {
             .messageRetentionHours(24)
             .build();
         topicConfigService.createTopic(topicConfig)
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
         logger.info("✓ Topic created successfully");
 
         // Step 2: Publish 10 messages in the past
@@ -389,7 +390,7 @@ class LateJoiningConsumerDemoTest {
                 .put("orderId", "ORDER-" + i)
                 .put("amount", 100.0 + i)
                 .put("status", "CREATED"))
-                .toCompletionStage().toCompletableFuture().get();
+                .await();
             pastMessageIds.add(messageId);
         }
         logger.info("✓ Published {} past messages", pastMessageIds.size());
@@ -400,16 +401,16 @@ class LateJoiningConsumerDemoTest {
 
         // Step 4: Publish 10 more messages after replay timestamp
         logger.info("\nStep 4: Publishing 10 messages after replay timestamp");
-        CompletableFuture<Void> delay = new CompletableFuture<>();
-        vertx.setTimer(100, id -> delay.complete(null));
-        delay.join();
+        Promise<Void> delay = Promise.promise();
+        vertx.setTimer(100, id -> delay.complete());
+        delay.future().await();
         List<Long> recentMessageIds = new ArrayList<>();;
         for (int i = 11; i <= 20; i++) {
             Long messageId = insertMessage(topic, new JsonObject()
                 .put("orderId", "ORDER-" + i)
                 .put("amount", 100.0 + i)
                 .put("status", "CREATED"))
-                .toCompletionStage().toCompletableFuture().get();
+                .await();
             recentMessageIds.add(messageId);
         }
         logger.info("✓ Published {} recent messages", recentMessageIds.size());
@@ -420,13 +421,13 @@ class LateJoiningConsumerDemoTest {
             .startFromTimestamp(replayTimestamp)
             .build();
         subscriptionManager.subscribe(topic, replayGroup, fromTimestampOptions)
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
         logger.info("✓ Disaster recovery service subscribed with FROM_TIMESTAMP: {}", replayTimestamp);
 
         // Step 6: Fetch messages for replay service
         logger.info("\nStep 6: Fetching messages for '{}'", replayGroup);
         var replayMessages = fetcher.fetchMessages(topic, replayGroup, 25)
-            .toCompletionStage().toCompletableFuture().get();
+            .await();
 
         logger.info("✓ Fetched {} messages for replay", replayMessages.size());
 

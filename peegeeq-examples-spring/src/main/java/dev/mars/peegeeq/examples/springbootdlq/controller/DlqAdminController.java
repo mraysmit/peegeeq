@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.*;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import io.vertx.core.Future;
 
 
 /**
@@ -55,8 +56,8 @@ public class DlqAdminController {
      * Get DLQ depth.
      */
     @GetMapping("/depth")
-    public CompletableFuture<ResponseEntity<Map<String, Object>>> getDlqDepth() {
-        return dlqService.getDlqDepth().thenApply(depth -> {
+    public Future<ResponseEntity<Map<String, Object>>> getDlqDepth() {
+        return dlqService.getDlqDepth().map(depth -> {
             Map<String, Object> response = new HashMap<>();
             response.put("depth", depth);
             return ResponseEntity.ok(response);
@@ -67,16 +68,16 @@ public class DlqAdminController {
      * Get all DLQ messages.
      */
     @GetMapping("/messages")
-    public CompletableFuture<ResponseEntity<List<Map<String, Object>>>> getDlqMessages() {
-        return dlqService.getDlqMessages().thenApply(ResponseEntity::ok);
+    public Future<ResponseEntity<List<Map<String, Object>>>> getDlqMessages() {
+        return dlqService.getDlqMessages().map(ResponseEntity::ok);
     }
     
     /**
      * Reprocess a DLQ message.
      */
     @PostMapping("/reprocess/{id}")
-    public CompletableFuture<ResponseEntity<Map<String, Object>>> reprocessMessage(@PathVariable Long id) {
-        return dlqService.reprocessDlqMessage(id).thenApply(success -> {
+    public Future<ResponseEntity<Map<String, Object>>> reprocessMessage(@PathVariable Long id) {
+        return dlqService.reprocessDlqMessage(id).map(success -> {
             Map<String, Object> response = new HashMap<>();
             response.put("success", success);
             response.put("messageId", id);
@@ -88,8 +89,8 @@ public class DlqAdminController {
      * Delete a DLQ message.
      */
     @DeleteMapping("/messages/{id}")
-    public CompletableFuture<ResponseEntity<Map<String, Object>>> deleteMessage(@PathVariable Long id) {
-        return dlqService.deleteDlqMessage(id).thenApply(success -> {
+    public Future<ResponseEntity<Map<String, Object>>> deleteMessage(@PathVariable Long id) {
+        return dlqService.deleteDlqMessage(id).map(success -> {
             Map<String, Object> response = new HashMap<>();
             response.put("success", success);
             response.put("messageId", id);
@@ -101,8 +102,8 @@ public class DlqAdminController {
      * Get DLQ statistics.
      */
     @GetMapping("/stats")
-    public CompletableFuture<ResponseEntity<Map<String, Object>>> getDlqStats() {
-        return dlqService.getDlqStats().thenApply(ResponseEntity::ok);
+    public Future<ResponseEntity<Map<String, Object>>> getDlqStats() {
+        return dlqService.getDlqStats().map(ResponseEntity::ok);
     }
     
     /**

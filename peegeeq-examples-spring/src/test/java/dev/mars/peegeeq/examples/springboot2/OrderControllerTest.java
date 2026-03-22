@@ -142,7 +142,7 @@ class OrderControllerTest {
                         logger.info("Application-specific schema created successfully");
                         return (Void) null;
                     });
-            }).toCompletionStage().toCompletableFuture().get(30, java.util.concurrent.TimeUnit.SECONDS);
+            }).await();
 
         logger.info("=== Application-specific schema setup complete ===");
     }

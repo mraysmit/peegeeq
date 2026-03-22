@@ -39,13 +39,13 @@ class PositionServiceTest extends FundsCustodyTestBase {
             "Morgan Stanley"
         );
         
-        tradeService.recordTrade(trade1).get();
-        tradeService.recordTrade(trade2).get();
+        tradeService.recordTrade(trade1).await();
+        tradeService.recordTrade(trade2).await();
         
         // When: Calculating position as of Nov 16
         Position position = positionService.getPositionAsOf(
             "FUND-001", "AAPL", LocalDate.of(2024, 11, 16)
-        ).get();
+        ).await();
         
         // Then: Position is correct
         assertEquals("FUND-001", position.fundId());
@@ -81,13 +81,13 @@ class PositionServiceTest extends FundsCustodyTestBase {
             "Morgan Stanley"
         );
         
-        tradeService.recordTrade(trade1).get();
-        tradeService.recordTrade(trade2).get();
+        tradeService.recordTrade(trade1).await();
+        tradeService.recordTrade(trade2).await();
         
         // When: Querying position as of Nov 15
         Position positionNov15 = positionService.getPositionAsOf(
             "FUND-001", "MSFT", LocalDate.of(2024, 11, 15)
-        ).get();
+        ).await();
         
         // Then: Only first trade is included
         assertEquals(new BigDecimal("100"), positionNov15.quantity());
@@ -96,7 +96,7 @@ class PositionServiceTest extends FundsCustodyTestBase {
         // When: Querying position as of Nov 16
         Position positionNov16 = positionService.getPositionAsOf(
             "FUND-001", "MSFT", LocalDate.of(2024, 11, 16)
-        ).get();
+        ).await();
         
         // Then: Both trades are included
         assertEquals(new BigDecimal("150"), positionNov16.quantity());
@@ -123,13 +123,13 @@ class PositionServiceTest extends FundsCustodyTestBase {
             "Morgan Stanley"
         );
         
-        tradeService.recordTrade(buy).get();
-        tradeService.recordTrade(sell).get();
+        tradeService.recordTrade(buy).await();
+        tradeService.recordTrade(sell).await();
         
         // When: Calculating position
         Position position = positionService.getPositionAsOf(
             "FUND-001", "GOOGL", LocalDate.of(2024, 11, 16)
-        ).get();
+        ).await();
         
         // Then: Net position is correct
         assertEquals(new BigDecimal("70"), position.quantity());  // 100 - 30
@@ -158,13 +158,13 @@ class PositionServiceTest extends FundsCustodyTestBase {
             "Morgan Stanley"
         );
         
-        tradeService.recordTrade(buy).get();
-        tradeService.recordTrade(sell).get();
+        tradeService.recordTrade(buy).await();
+        tradeService.recordTrade(sell).await();
         
         // When: Calculating position
         Position position = positionService.getPositionAsOf(
             "FUND-001", "TSLA", LocalDate.of(2024, 11, 16)
-        ).get();
+        ).await();
         
         // Then: Position is flat
         assertEquals(BigDecimal.ZERO, position.quantity());
@@ -184,12 +184,12 @@ class PositionServiceTest extends FundsCustodyTestBase {
             "Goldman Sachs"
         );
         
-        tradeService.recordTrade(sell).get();
+        tradeService.recordTrade(sell).await();
         
         // When: Calculating position
         Position position = positionService.getPositionAsOf(
             "FUND-001", "NVDA", LocalDate.of(2024, 11, 15)
-        ).get();
+        ).await();
         
         // Then: Position is short
         assertEquals(new BigDecimal("-50"), position.quantity());
@@ -223,14 +223,14 @@ class PositionServiceTest extends FundsCustodyTestBase {
             "JP Morgan"
         );
         
-        tradeService.recordTrade(aaplTrade).get();
-        tradeService.recordTrade(msftTrade).get();
-        tradeService.recordTrade(googlTrade).get();
+        tradeService.recordTrade(aaplTrade).await();
+        tradeService.recordTrade(msftTrade).await();
+        tradeService.recordTrade(googlTrade).await();
         
         // When: Getting all positions for fund
         List<Position> positions = positionService.getPositionsByFund(
             "FUND-001", LocalDate.of(2024, 11, 15)
-        ).get();
+        ).await();
         
         // Then: All positions are returned
         assertEquals(3, positions.size());
@@ -273,16 +273,16 @@ class PositionServiceTest extends FundsCustodyTestBase {
             "JP Morgan"
         );
         
-        tradeService.recordTrade(day1).get();
-        tradeService.recordTrade(day2).get();
-        tradeService.recordTrade(day3).get();
+        tradeService.recordTrade(day1).await();
+        tradeService.recordTrade(day2).await();
+        tradeService.recordTrade(day3).await();
         
         // When: Getting position history
         List<PositionSnapshot> history = positionService.getPositionHistory(
             "FUND-001", "AAPL",
             LocalDate.of(2024, 11, 15),
             LocalDate.of(2024, 11, 17)
-        ).get();
+        ).await();
         
         // Then: Daily snapshots are returned
         assertEquals(3, history.size());
@@ -313,11 +313,11 @@ class PositionServiceTest extends FundsCustodyTestBase {
             "Goldman Sachs"
         );
         
-        tradeService.recordTrade(trade).get();
+        tradeService.recordTrade(trade).await();
         
         Position position = positionService.getPositionAsOf(
             "FUND-001", "AAPL", LocalDate.of(2024, 11, 15)
-        ).get();
+        ).await();
         
         // When: Calculating market value at current price
         BigDecimal currentPrice = new BigDecimal("160.00");

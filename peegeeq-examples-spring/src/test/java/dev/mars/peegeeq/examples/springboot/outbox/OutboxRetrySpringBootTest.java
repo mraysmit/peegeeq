@@ -33,6 +33,8 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -140,9 +142,9 @@ class OutboxRetrySpringBootTest {
         
         // Wait for connections to be fully released before next test
         logger.info("⏳ Waiting for connections to be released...");
-        CompletableFuture<Void> delay = new CompletableFuture<>();
-        vertx.setTimer(2000, id -> delay.complete(null));
-        delay.join();
+        Promise<Void> delay = Promise.promise();
+        vertx.setTimer(2000, id -> delay.complete());
+        delay.future().await();
         
         logger.info("Cleanup complete");
     }
@@ -184,7 +186,7 @@ class OutboxRetrySpringBootTest {
             // Fail first 2 attempts
             if (attempt <= 2) {
                 logger.info("❌ Simulating transient failure on attempt #{}", attempt);
-                return CompletableFuture.failedFuture(
+                return Future.failedFuture(
                     new RuntimeException("Simulated transient failure"));
             }
             
@@ -192,12 +194,12 @@ class OutboxRetrySpringBootTest {
             logger.info("Successfully processed on attempt #{}", attempt);
             successCount.incrementAndGet();
             checkpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
         
         // Send message
         logger.info("📤 Sending message that will fail twice before succeeding");
-        producer.send("test-message").get(5, TimeUnit.SECONDS);
+        producer.send("test-message").await();
         
         // Wait for successful processing
         boolean completed = testContext.awaitCompletion(30, TimeUnit.SECONDS);
@@ -250,22 +252,22 @@ class OutboxRetrySpringBootTest {
             logger.info("Processing attempt #{} for message: {}", attempt, message.getPayload());
             logger.info("❌ Simulating persistent failure on attempt #{}", attempt);
             checkpoint.flag();
-            return CompletableFuture.failedFuture(
+            return Future.failedFuture(
                 new RuntimeException("Simulated persistent failure"));
         });
         
         // Send message
         logger.info("📤 Sending message that will always fail");
-        producer.send("failing-message").get(5, TimeUnit.SECONDS);
+        producer.send("failing-message").await();
         
         // Wait for all retry attempts
         boolean completed = testContext.awaitCompletion(30, TimeUnit.SECONDS);
         assertTrue(completed, "Should attempt initial + 3 retries");
         
         // Give a bit more time to ensure no additional retries
-        CompletableFuture<Void> retryDelay = new CompletableFuture<>();
-        vertx.setTimer(2000, id -> retryDelay.complete(null));
-        retryDelay.join();
+        Promise<Void> retryDelay = Promise.promise();
+        vertx.setTimer(2000, id -> retryDelay.complete());
+        retryDelay.future().await();
         
         // Verify results
         logger.info("📊 Max Retry Results:");

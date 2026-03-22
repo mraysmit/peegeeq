@@ -26,6 +26,7 @@ import java.util.HashMap;
 import java.util.Map;
 
 import java.util.concurrent.atomic.AtomicLong;
+import io.vertx.core.Future;
 
 /**
  * Trade Producer Service.
@@ -74,7 +75,7 @@ public class TradeProducerService {
      * @param event Trade settlement event to send
      * @return CompletableFuture that completes when message is sent
      */
-    public CompletableFuture<Void> sendTradeEvent(TradeSettlementEvent event) {
+    public Future<Void> sendTradeEvent(TradeSettlementEvent event) {
         // Create headers with priority and metadata
         Map<String, String> headers = new HashMap<>();
         headers.put("priority", event.getPriority().getLevel());
@@ -87,7 +88,7 @@ public class TradeProducerService {
             event.getTradeId(), event.getPriority(), event.getStatus());
 
         return producer.send(event, headers)
-            .thenAccept(v -> {
+            .onSuccess(v -> {
                 // Update metrics
                 totalSent.incrementAndGet();
                 switch (event.getPriority()) {
@@ -99,7 +100,7 @@ public class TradeProducerService {
                 log.info("Trade event sent: tradeId={}, priority={}, status={}",
                     event.getTradeId(), event.getPriority(), event.getStatus());
             })
-            .exceptionally(ex -> {
+            .otherwise(ex -> {
                 log.error("❌ Failed to send trade event: tradeId={}, priority={}",
                     event.getTradeId(), event.getPriority(), ex);
                 throw new RuntimeException("Failed to send trade event", ex);
@@ -117,7 +118,7 @@ public class TradeProducerService {
      * @param failureReason Reason for settlement failure
      * @return CompletableFuture that completes when message is sent
      */
-    public CompletableFuture<Void> sendSettlementFail(String tradeId, String counterparty,
+    public Future<Void> sendSettlementFail(String tradeId, String counterparty,
             java.math.BigDecimal amount, String currency, java.time.LocalDate settlementDate,
             String failureReason) {
 
@@ -147,7 +148,7 @@ public class TradeProducerService {
      * @param settlementDate Settlement date
      * @return CompletableFuture that completes when message is sent
      */
-    public CompletableFuture<Void> sendAmendment(String tradeId, String counterparty,
+    public Future<Void> sendAmendment(String tradeId, String counterparty,
             java.math.BigDecimal amount, String currency, java.time.LocalDate settlementDate) {
 
         TradeSettlementEvent event = new TradeSettlementEvent(
@@ -176,7 +177,7 @@ public class TradeProducerService {
      * @param settlementDate Settlement date
      * @return CompletableFuture that completes when message is sent
      */
-    public CompletableFuture<Void> sendConfirmation(String tradeId, String counterparty,
+    public Future<Void> sendConfirmation(String tradeId, String counterparty,
             java.math.BigDecimal amount, String currency, java.time.LocalDate settlementDate) {
 
         TradeSettlementEvent event = new TradeSettlementEvent(

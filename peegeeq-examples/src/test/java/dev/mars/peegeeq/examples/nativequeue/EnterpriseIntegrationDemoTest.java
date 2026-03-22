@@ -16,6 +16,7 @@ import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.json.JsonObject;
+import io.vertx.core.Future;
 import com.fasterxml.jackson.annotation.JsonIgnore;
 import org.junit.jupiter.api.*;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -297,7 +298,7 @@ class EnterpriseIntegrationDemoTest {
         
         if (manager != null) {
             try {
-                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+                manager.closeReactive().await();
             } catch (Exception e) {
                 System.err.println("⚠️ Error during manager cleanup: " + e.getMessage());
             }
@@ -398,7 +399,7 @@ class EnterpriseIntegrationDemoTest {
             
             messagesProcessed.incrementAndGet();
             inputLatch.countDown();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Output consumer - collects transformed messages
@@ -409,7 +410,7 @@ class EnterpriseIntegrationDemoTest {
             transformedMessages.add(transformed);
             
             outputLatch.countDown();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send orders from different regions
@@ -517,7 +518,7 @@ class EnterpriseIntegrationDemoTest {
 
             messagesRouted.incrementAndGet();
             inputLatch.countDown();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Priority queue consumers
@@ -526,7 +527,7 @@ class EnterpriseIntegrationDemoTest {
             routedMessages.computeIfAbsent("HIGH_PRIORITY", k -> new ArrayList<>()).add(order);
             System.out.println("🔥 HIGH PRIORITY consumer processed: " + order.getOrderId());
             routingLatch.countDown();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         normalPriorityConsumer.subscribe(message -> {
@@ -534,7 +535,7 @@ class EnterpriseIntegrationDemoTest {
             routedMessages.computeIfAbsent("NORMAL_PRIORITY", k -> new ArrayList<>()).add(order);
             System.out.println("⚡ NORMAL PRIORITY consumer processed: " + order.getOrderId());
             routingLatch.countDown();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         lowPriorityConsumer.subscribe(message -> {
@@ -542,7 +543,7 @@ class EnterpriseIntegrationDemoTest {
             routedMessages.computeIfAbsent("LOW_PRIORITY", k -> new ArrayList<>()).add(order);
             System.out.println("🐌 LOW PRIORITY consumer processed: " + order.getOrderId());
             routingLatch.countDown();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send orders with different characteristics for routing

@@ -69,8 +69,8 @@ public class ReactiveBiTemporalAdapter {
      * @param <T> The type of the event payload
      * @return A Mono that completes with the bi-temporal event
      */
-    public <T> Mono<BiTemporalEvent<T>> toMono(CompletableFuture<BiTemporalEvent<T>> future) {
-        return Mono.fromFuture(future)
+    public <T> Mono<BiTemporalEvent<T>> toMono(Future<BiTemporalEvent<T>> future) {
+        return Mono.fromCompletionStage(future.toCompletionStage())
             .doOnError(error -> log.error("Error converting CompletableFuture to Mono", error))
             .doOnSuccess(result -> log.trace("Successfully converted CompletableFuture to Mono"));
     }
@@ -80,15 +80,15 @@ public class ReactiveBiTemporalAdapter {
      * 
      * <p>This method works with the current PeeGeeQ API that returns CompletableFuture.
      * 
-     * @param future The CompletableFuture<List<T>> from PeeGeeQ public API
+     * @param future The Future<List<T>> from PeeGeeQ public API
      * @param <T> The type of the event payload
      * @return A Flux that emits each bi-temporal event
      */
-    public <T> Flux<BiTemporalEvent<T>> toFlux(CompletableFuture<List<BiTemporalEvent<T>>> future) {
-        return Mono.fromFuture(future)
+    public <T> Flux<BiTemporalEvent<T>> toFlux(Future<List<BiTemporalEvent<T>>> future) {
+        return Mono.fromCompletionStage(future.toCompletionStage())
             .flatMapMany(Flux::fromIterable)
-            .doOnError(error -> log.error("Error converting CompletableFuture<List> to Flux", error))
-            .doOnComplete(() -> log.trace("Successfully converted CompletableFuture<List> to Flux"));
+            .doOnError(error -> log.error("Error converting Future<List> to Flux", error))
+            .doOnComplete(() -> log.trace("Successfully converted Future<List> to Flux"));
     }
 
     // ========== APPROACH 2: Native Vert.x Future API (Proposed) ==========

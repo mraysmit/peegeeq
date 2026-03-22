@@ -158,25 +158,25 @@ public class FinancialFabricServicesTest {
                 validTime
             );
 
-            return Future.fromCompletionStage(tradeCaptureService.captureTrade(
+            return tradeCaptureService.captureTrade(
                 tradeEvent,
                 correlationId,
                 null,  // No causation for first event
                 validTime,
                 connection
-            )).compose(tradeCloudEvent -> {
+            ).compose(tradeCloudEvent -> {
                 log.info("Step 1: Trade captured - eventId={}", tradeCloudEvent.getId());
                 assertNotNull(tradeCloudEvent);
                 assertEquals("com.fincorp.trading.equities.capture.completed.v1", tradeCloudEvent.getType());
 
                 // Step 2: Confirm trade
-                return Future.fromCompletionStage(tradeCaptureService.confirmTrade(
+                return tradeCaptureService.confirmTrade(
                     tradeId,
                     correlationId,
                     tradeCloudEvent.getId(),  // Causation links to trade capture
                     validTime,
                     connection
-                ));
+                );
             }).compose(confirmCloudEvent -> {
                 log.info("Step 2: Trade confirmed - eventId={}", confirmCloudEvent.getId());
                 assertNotNull(confirmCloudEvent);
@@ -193,13 +193,13 @@ public class FinancialFabricServicesTest {
                     validTime
                 );
 
-                return Future.fromCompletionStage(settlementService.submitSettlementInstruction(
+                return settlementService.submitSettlementInstruction(
                     instructionEvent,
                     correlationId,
                     confirmCloudEvent.getId(),
                     validTime,
                     connection
-                ));
+                );
             }).compose(settlementCloudEvent -> {
                 log.info("Step 3: Settlement instruction submitted - eventId={}", settlementCloudEvent.getId());
                 assertNotNull(settlementCloudEvent);
@@ -216,13 +216,13 @@ public class FinancialFabricServicesTest {
                     validTime
                 );
 
-                return Future.fromCompletionStage(cashManagementService.recordCashMovement(
+                return cashManagementService.recordCashMovement(
                     cashEvent,
                     correlationId,
                     settlementCloudEvent.getId(),
                     validTime,
                     connection
-                ));
+                );
             }).compose(cashCloudEvent -> {
                 log.info("Step 4: Cash movement recorded - eventId={}", cashCloudEvent.getId());
                 assertNotNull(cashCloudEvent);
@@ -239,13 +239,13 @@ public class FinancialFabricServicesTest {
                     validTime
                 );
 
-                return Future.fromCompletionStage(positionService.recordPositionUpdate(
+                return positionService.recordPositionUpdate(
                     positionEvent,
                     correlationId,
                     cashCloudEvent.getId(),
                     validTime,
                     connection
-                ));
+                );
             }).compose(positionCloudEvent -> {
                 log.info("Step 5: Position updated - eventId={}", positionCloudEvent.getId());
                 assertNotNull(positionCloudEvent);
@@ -260,13 +260,13 @@ public class FinancialFabricServicesTest {
                     validTime
                 );
 
-                return Future.fromCompletionStage(regulatoryReportingService.submitRegulatoryReport(
+                return regulatoryReportingService.submitRegulatoryReport(
                     reportEvent,
                     correlationId,
                     positionCloudEvent.getId(),
                     validTime,
                     connection
-                ));
+                );
             }).map(regulatoryCloudEvent -> {
                 log.info("Step 6: Regulatory report submitted - eventId={}", regulatoryCloudEvent.getId());
                 assertNotNull(regulatoryCloudEvent);
@@ -275,7 +275,7 @@ public class FinancialFabricServicesTest {
                 log.info("Complete trade lifecycle executed successfully");
                 return (Void) null;
             });
-        }).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
+        }).await();
         
         log.info("Complete Trade Lifecycle test passed");
     }

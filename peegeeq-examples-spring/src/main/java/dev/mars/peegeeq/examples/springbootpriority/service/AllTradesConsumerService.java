@@ -127,7 +127,7 @@ public class AllTradesConsumerService {
      *
      * Pattern 1: Process all messages with SLA-based processing.
      */
-    private CompletableFuture<Void> processMessage(Message<TradeSettlementEvent> message) {
+    private Future<Void> processMessage(Message<TradeSettlementEvent> message) {
         TradeSettlementEvent event = message.getPayload();
         Priority priority = event.getPriority();
         Instant messageArrival = Instant.parse(message.getHeaders().get("timestamp"));
@@ -146,7 +146,7 @@ public class AllTradesConsumerService {
     /**
      * Process CRITICAL priority message (SLA: < 1 minute).
      */
-    private CompletableFuture<Void> processCritical(TradeSettlementEvent event, Instant messageArrival) {
+    private Future<Void> processCritical(TradeSettlementEvent event, Instant messageArrival) {
         return databaseService.getConnectionProvider()
             .withTransaction(CLIENT_ID, connection -> {
                 return storeTrade(connection, event)
@@ -167,8 +167,8 @@ public class AllTradesConsumerService {
             })
             .toCompletionStage()
             .toCompletableFuture()
-            .thenApply(v -> (Void) null)
-            .exceptionally(ex -> {
+            .map(v -> (Void) null)
+            .otherwise(ex -> {
                 log.error("❌ [ALL-CRITICAL] Failed to process message: tradeId={}", event.getTradeId(), ex);
                 messagesFailed.incrementAndGet();
                 throw new RuntimeException("Message processing failed", ex);
@@ -178,7 +178,7 @@ public class AllTradesConsumerService {
     /**
      * Process HIGH priority message (SLA: < 5 minutes).
      */
-    private CompletableFuture<Void> processHigh(TradeSettlementEvent event, Instant messageArrival) {
+    private Future<Void> processHigh(TradeSettlementEvent event, Instant messageArrival) {
         return databaseService.getConnectionProvider()
             .withTransaction(CLIENT_ID, connection -> {
                 return storeTrade(connection, event)
@@ -199,8 +199,8 @@ public class AllTradesConsumerService {
             })
             .toCompletionStage()
             .toCompletableFuture()
-            .thenApply(v -> (Void) null)
-            .exceptionally(ex -> {
+            .map(v -> (Void) null)
+            .otherwise(ex -> {
                 log.error("❌ [ALL-HIGH] Failed to process message: tradeId={}", event.getTradeId(), ex);
                 messagesFailed.incrementAndGet();
                 throw new RuntimeException("Message processing failed", ex);
@@ -210,7 +210,7 @@ public class AllTradesConsumerService {
     /**
      * Process NORMAL priority message (SLA: < 30 minutes).
      */
-    private CompletableFuture<Void> processNormal(TradeSettlementEvent event, Instant messageArrival) {
+    private Future<Void> processNormal(TradeSettlementEvent event, Instant messageArrival) {
         return databaseService.getConnectionProvider()
             .withTransaction(CLIENT_ID, connection -> {
                 return storeTrade(connection, event)
@@ -231,8 +231,8 @@ public class AllTradesConsumerService {
             })
             .toCompletionStage()
             .toCompletableFuture()
-            .thenApply(v -> (Void) null)
-            .exceptionally(ex -> {
+            .map(v -> (Void) null)
+            .otherwise(ex -> {
                 log.error("❌ [ALL-NORMAL] Failed to process message: tradeId={}", event.getTradeId(), ex);
                 messagesFailed.incrementAndGet();
                 throw new RuntimeException("Message processing failed", ex);

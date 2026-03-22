@@ -68,7 +68,7 @@ public class RegulatoryReportingService {
      * @param connection Database connection for transactional consistency
      * @return CompletableFuture containing the created CloudEvent
      */
-    public CompletableFuture<CloudEvent> submitRegulatoryReport(
+    public Future<CloudEvent> submitRegulatoryReport(
             RegulatoryReportEvent reportEvent,
             String correlationId,
             String causationId,
@@ -103,23 +103,23 @@ public class RegulatoryReportingService {
                     .aggregateId(reportEvent.getReportId())
                     .inTransaction(connection)
                     .execute())
-                .thenApply(biTemporalEvent -> {
+                .map(biTemporalEvent -> {
                     log.info("Regulatory report submitted successfully: reportId={}, eventId={}, cloudEventId={}",
                         reportEvent.getReportId(), biTemporalEvent.getEventId(), cloudEvent.getId());
                     return cloudEvent;  // Return the CloudEvent for external use
                 });
         } catch (JsonProcessingException e) {
             log.error("Failed to serialize regulatory report: reportId={}", reportEvent.getReportId(), e);
-            return CompletableFuture.failedFuture(new RuntimeException("Failed to serialize regulatory report", e));
+            return Future.failedFuture(new RuntimeException("Failed to serialize regulatory report", e));
         }
     }
 
-    private static <T> CompletableFuture<T> toCompletableFuture(CompletionStage<T> stage) {
-        return stage.toCompletableFuture();
+    private static <T> Future<T> toCompletableFuture(CompletionStage<T> stage) {
+        return Future.fromCompletionStage(stage);
     }
 
-    private static <T> CompletableFuture<T> toCompletableFuture(Future<T> future) {
-        return future.toCompletionStage().toCompletableFuture();
+    private static <T> Future<T> toCompletableFuture(Future<T> future) {
+        return future;
     }
 }
 

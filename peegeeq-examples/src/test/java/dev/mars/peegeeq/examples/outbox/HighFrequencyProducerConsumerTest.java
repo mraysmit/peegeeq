@@ -44,6 +44,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.core.Promise;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
@@ -172,15 +173,15 @@ class HighFrequencyProducerConsumerTest {
             }
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive().await();
         }
 
         // CRITICAL: Wait for connection pools to be fully released
         // This prevents connection pool exhaustion between tests
         try {
-            CompletableFuture<Void> delay = new CompletableFuture<>();
-            vertx.setTimer(2000, id -> delay.complete(null));
-            delay.join();
+            Promise<Void> delay = Promise.promise();
+            vertx.setTimer(2000, id -> delay.complete());
+            delay.future().await();
             logger.debug("Connection pool cleanup wait completed");
         } catch (Exception e) {
             // ignore
@@ -206,31 +207,21 @@ class HighFrequencyProducerConsumerTest {
 
         Instant startTime = Instant.now();
 
-        // Create multiple concurrent producers using CompletableFuture
+        // Create multiple concurrent producers
         for (int producerId = 0; producerId < concurrentProducers; producerId++) {
-            final int finalProducerId = producerId;
-            CompletableFuture.runAsync(() -> {
-                int messagesPerProducer = messageCount / concurrentProducers;
-                for (int i = 0; i < messagesPerProducer; i++) {
-                    try {
-                        int messageId = finalProducerId * messagesPerProducer + i;
-                        OrderEvent event = createOrderEvent(messageId);
-                        Map<String, String> headers = createRoutingHeaders(messageId);
+            int messagesPerProducer = messageCount / concurrentProducers;
+            for (int i = 0; i < messagesPerProducer; i++) {
+                int messageId = producerId * messagesPerProducer + i;
+                OrderEvent event = createOrderEvent(messageId);
+                Map<String, String> headers = createRoutingHeaders(messageId);
 
-                        producer.send(event, headers, "perf-" + messageId, getMessageGroup(headers))
-                            .whenComplete((result, error) -> {
-                                if (error != null) {
-                                    testContext.failNow(error);
-                                    return;
-                                }
-                                sentMessages.incrementAndGet();
-                                sendCheckpoint.flag();
-                            });
-                    } catch (Exception e) {
-                        testContext.failNow(e);
-                    }
-                }
-            });
+                producer.send(event, headers, "perf-" + messageId, getMessageGroup(headers))
+                    .onSuccess(result -> {
+                        sentMessages.incrementAndGet();
+                        sendCheckpoint.flag();
+                    })
+                    .onFailure(testContext::failNow);
+            }
         }
 
         // Wait for completion
@@ -294,7 +285,7 @@ class HighFrequencyProducerConsumerTest {
         for (int i = 1; i <= messageCount; i++) {
             OrderEvent event = createOrderEvent(i);
             Map<String, String> headers = createRoutingHeaders(i);
-            producer.send(event, headers, "load-" + i, getMessageGroup(headers)).join();
+            producer.send(event, headers, "load-" + i, getMessageGroup(headers)).await();
         }
 
         // Wait for processing to complete using Vert.x timer
@@ -492,13 +483,13 @@ class HighFrequencyProducerConsumerTest {
             counter.incrementAndGet();
 
             // Simulate processing time using Vert.x timer
-            CompletableFuture<Void> future = new CompletableFuture<>();
+            Promise<Void> future = Promise.promise();
             vertx.setTimer(50, id -> {
                 long processingTime = System.currentTimeMillis() - startTime;
                 totalProcessingTime.addAndGet(processingTime);
-                future.complete(null);
+                future.complete();
             });
-            return future;
+            return future.future();
         };
     }
 
@@ -510,9 +501,9 @@ class HighFrequencyProducerConsumerTest {
             counter.incrementAndGet();
 
             // Minimal processing time for routing tests using Vert.x timer
-            CompletableFuture<Void> future = new CompletableFuture<>();
-            vertx.setTimer(10, id -> future.complete(null));
-            return future;
+            Promise<Void> future = Promise.promise();
+            vertx.setTimer(10, id -> future.complete());
+            return future.future();
         };
     }
 
@@ -524,7 +515,7 @@ class HighFrequencyProducerConsumerTest {
             OrderEvent event = createOrderEvent(i);
             Map<String, String> headers = createRoutingHeaders(i);
 
-            producer.send(event, headers, "routing-perf-" + i, getMessageGroup(headers)).join();
+            producer.send(event, headers, "routing-perf-" + i, getMessageGroup(headers)).await();
         }
 
         logger.info("Sent {} messages for routing performance test", messageCount);

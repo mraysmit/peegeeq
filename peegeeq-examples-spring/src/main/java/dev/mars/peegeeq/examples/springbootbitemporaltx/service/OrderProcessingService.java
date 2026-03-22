@@ -130,7 +130,7 @@ public class OrderProcessingService {
      * @param orderRequest Order processing request
      * @return CompletableFuture that completes with the processing result
      */
-    public CompletableFuture<OrderProcessingResult> processCompleteOrder(OrderProcessingRequest orderRequest) {
+    public Future<OrderProcessingResult> processCompleteOrder(OrderProcessingRequest orderRequest) {
         logger.info("Starting complete order processing for order: {}", orderRequest.getOrderId());
         
         String correlationId = UUID.randomUUID().toString();
@@ -148,7 +148,7 @@ public class OrderProcessingService {
             AuditEvent transactionStartEvent = createTransactionStartAuditEvent(
                 transactionId, orderRequest.getOrderId(), correlationId, validTime);
             
-            CompletableFuture<BiTemporalEvent<AuditEvent>> auditFuture =
+            Future<BiTemporalEvent<AuditEvent>> auditFuture =
                 toCompletableFuture(auditEventStore.appendBuilder()
                     .eventType("TransactionStarted")
                     .payload(transactionStartEvent)
@@ -162,7 +162,7 @@ public class OrderProcessingService {
             // Step 2: Create order event
             OrderEvent orderEvent = createOrderEvent(orderRequest, validTime);
             
-            CompletableFuture<BiTemporalEvent<OrderEvent>> orderFuture = auditFuture.thenCompose(auditResult -> {
+            Future<BiTemporalEvent<OrderEvent>> orderFuture = auditFuture.compose(auditResult -> {
                 logger.debug("Recording order creation for order: {} with correlation ID: {}", orderRequest.getOrderId(), correlationId);
                 return toCompletableFuture(orderEventStore.appendBuilder()
                     .eventType("OrderCreated")
@@ -176,11 +176,11 @@ public class OrderProcessingService {
             });
             
             // Step 3: Reserve inventory for each order item
-            CompletableFuture<List<BiTemporalEvent<InventoryEvent>>> inventoryFuture = 
-                orderFuture.thenCompose(orderResult -> {
+            Future<List<BiTemporalEvent<InventoryEvent>>> inventoryFuture = 
+                orderFuture.compose(orderResult -> {
                     logger.debug("Reserving inventory for order: {}", orderRequest.getOrderId());
                     
-                    List<CompletableFuture<BiTemporalEvent<InventoryEvent>>> inventoryFutures = 
+                    List<Future<BiTemporalEvent<InventoryEvent>>> inventoryFutures = 
                         orderRequest.getItems().stream()
                             .map(item -> {
                                 InventoryEvent inventoryEvent = createInventoryReservationEvent(
@@ -198,15 +198,15 @@ public class OrderProcessingService {
                             })
                             .toList();
                     
-                    return CompletableFuture.allOf(inventoryFutures.toArray(new CompletableFuture[0]))
-                        .thenApply(v -> inventoryFutures.stream()
-                            .map(CompletableFuture::join)
+                    return Future.all(inventoryFutures)
+                        .map(v -> inventoryFutures.stream()
+                            .map(Future::result)
                             .toList());
                 });
             
             // Step 4: Authorize payment
-            CompletableFuture<BiTemporalEvent<PaymentEvent>> paymentFuture = 
-                inventoryFuture.thenCompose(inventoryResults -> {
+            Future<BiTemporalEvent<PaymentEvent>> paymentFuture = 
+                inventoryFuture.compose(inventoryResults -> {
                     logger.debug("Authorizing payment for order: {}", orderRequest.getOrderId());
                     
                     PaymentEvent paymentEvent = createPaymentAuthorizationEvent(orderRequest, validTime);
@@ -223,8 +223,8 @@ public class OrderProcessingService {
                 });
             
             // Step 5: Record final audit event for transaction completion
-            CompletableFuture<BiTemporalEvent<AuditEvent>> finalAuditFuture = 
-                paymentFuture.thenCompose(paymentResult -> {
+            Future<BiTemporalEvent<AuditEvent>> finalAuditFuture = 
+                paymentFuture.compose(paymentResult -> {
                     logger.debug("Recording transaction completion for order: {}", orderRequest.getOrderId());
                     
                     AuditEvent transactionCompleteEvent = createTransactionCompleteAuditEvent(
@@ -242,7 +242,7 @@ public class OrderProcessingService {
                 });
             
             // Return the complete processing result
-            return Future.fromCompletionStage(finalAuditFuture).map(finalAuditResult -> {
+            return finalAuditFuture.map(finalAuditResult -> {
                 logger.info("Complete order processing successful for order: {}", orderRequest.getOrderId());
                 return new OrderProcessingResult(
                     orderRequest.getOrderId(),
@@ -254,8 +254,7 @@ public class OrderProcessingService {
                 );
             });
             
-        }).toCompletionStage().toCompletableFuture()
-        .exceptionally(throwable -> {
+        }).otherwise(throwable -> {
             logger.error("Complete order processing failed for order: {} - {}", 
                         orderRequest.getOrderId(), throwable.getMessage(), throwable);
             return new OrderProcessingResult(
@@ -269,12 +268,12 @@ public class OrderProcessingService {
         });
     }
 
-    private static <T> CompletableFuture<T> toCompletableFuture(CompletionStage<T> stage) {
-        return stage.toCompletableFuture();
+    private static <T> Future<T> toCompletableFuture(CompletionStage<T> stage) {
+        return Future.fromCompletionStage(stage);
     }
 
-    private static <T> CompletableFuture<T> toCompletableFuture(Future<T> future) {
-        return future.toCompletionStage().toCompletableFuture();
+    private static <T> Future<T> toCompletableFuture(Future<T> future) {
+        return future;
     }
     
     /**

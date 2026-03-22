@@ -104,7 +104,7 @@ public class OrderService {
      * @param request Order creation request
      * @return CompletableFuture with the order ID
      */
-    public CompletableFuture<String> createOrder(CreateOrderRequest request) {
+    public Future<String> createOrder(CreateOrderRequest request) {
         String orderId = UUID.randomUUID().toString();
         Instant validTime = request.getValidTime() != null ? request.getValidTime() : Instant.now();
         
@@ -142,9 +142,7 @@ public class OrderService {
                 .onSuccess(v -> logger.info("Order saved to database: {}", orderId))
                 
                 // Step 2: Send to outbox (for immediate processing)
-                .compose(v -> Future.fromCompletionStage(
-                    orderEventProducer.sendInTransaction(event, connection)
-                ))
+                .compose(v -> orderEventProducer.sendInTransaction(event, connection))
                 .onSuccess(v -> logger.info("Order event sent to outbox: {}", orderId))
                 
                 // Step 3: Append to bi-temporal event store (for historical queries)
@@ -164,14 +162,8 @@ public class OrderService {
                     return orderId;
                 });
                 
-        }).toCompletionStage().toCompletableFuture()
-            .whenComplete((result, error) -> {
-                if (error != null) {
-                    logger.error("Failed to create order: {} - ALL operations rolled back", orderId, error);
-                } else {
-                    logger.info("Order created successfully: {} - ALL operations committed", orderId);
-                }
-            });
+        }).onSuccess(result -> logger.info("Order created successfully: {} - ALL operations committed", orderId))
+          .onFailure(error -> logger.error("Failed to create order: {} - ALL operations rolled back", orderId, error));
     }
     
     /**
@@ -180,11 +172,11 @@ public class OrderService {
      * @param orderId Order identifier
      * @return CompletableFuture with order history
      */
-    public CompletableFuture<OrderResponse> getOrderHistory(String orderId) {
+    public Future<OrderResponse> getOrderHistory(String orderId) {
         logger.info("Retrieving order history: {}", orderId);
         
         return toCompletableFuture(orderEventStore.query(EventQuery.all()))
-            .thenApply(events -> {
+            .map(events -> {
                 List<BiTemporalEvent<OrderEvent>> orderEvents = events.stream()
                     .filter(event -> orderId.equals(event.getPayload().getOrderId()))
                     .collect(Collectors.toList());
@@ -200,11 +192,11 @@ public class OrderService {
      * @param customerId Customer identifier
      * @return CompletableFuture with list of order events
      */
-    public CompletableFuture<List<BiTemporalEvent<OrderEvent>>> getCustomerOrders(String customerId) {
+    public Future<List<BiTemporalEvent<OrderEvent>>> getCustomerOrders(String customerId) {
         logger.info("Retrieving orders for customer: {}", customerId);
         
         return toCompletableFuture(orderEventStore.query(EventQuery.all()))
-            .thenApply(events -> {
+            .map(events -> {
                 List<BiTemporalEvent<OrderEvent>> customerOrders = events.stream()
                     .filter(event -> customerId.equals(event.getPayload().getCustomerId()))
                     .collect(Collectors.toList());
@@ -220,25 +212,20 @@ public class OrderService {
      * @param validTime Point in time to query
      * @return CompletableFuture with events as of that time
      */
-    public CompletableFuture<List<BiTemporalEvent<OrderEvent>>> getOrdersAsOfTime(Instant validTime) {
+    public Future<List<BiTemporalEvent<OrderEvent>>> getOrdersAsOfTime(Instant validTime) {
         logger.info("Querying orders as of time: {}", validTime);
         
         return toCompletableFuture(orderEventStore.query(EventQuery.asOfValidTime(validTime)))
-            .whenComplete((events, error) -> {
-                if (error != null) {
-                    logger.error("Failed to query orders as of time: {}", validTime, error);
-                } else {
-                    logger.info("Found {} orders as of time: {}", events.size(), validTime);
-                }
-            });
+            .onSuccess(events -> logger.info("Found {} orders as of time: {}", events.size(), validTime))
+            .onFailure(error -> logger.error("Failed to query orders as of time: {}", validTime, error));
     }
 
-    private <T> CompletableFuture<T> toCompletableFuture(CompletionStage<T> stage) {
-        return stage.toCompletableFuture();
+    private <T> Future<T> toCompletableFuture(CompletionStage<T> stage) {
+        return Future.fromCompletionStage(stage);
     }
 
-    private <T> CompletableFuture<T> toCompletableFuture(Future<T> future) {
-        return future.toCompletionStage().toCompletableFuture();
+    private <T> Future<T> toCompletableFuture(Future<T> future) {
+        return future;
     }
 }
 

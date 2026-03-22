@@ -41,14 +41,14 @@ import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.List;
 import java.util.ArrayList;
 import java.util.Collections;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 /**
@@ -129,14 +129,14 @@ public class SimpleNativeQueueTest {
         if (manager != null) {
             try {
                 logger.info("Closing PeeGeeQ manager...");
-                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+                manager.closeReactive().await();
                 logger.info("PeeGeeQ manager closed successfully");
 
                 // CRITICAL: Wait for all resources to be fully released
                 // This prevents connection pool exhaustion in subsequent tests
-                CompletableFuture<Void> delay = new CompletableFuture<>();
-                vertx.setTimer(2000, id -> delay.complete(null));
-                delay.join();
+                Promise<Void> delay = Promise.promise();
+                vertx.setTimer(2000, id -> delay.complete());
+                delay.future().await();
                 logger.info("Resource cleanup wait completed");
             } catch (Exception e) {
                 logger.error("Error during manager cleanup", e);
@@ -172,7 +172,7 @@ public class SimpleNativeQueueTest {
             logger.info("RECEIVED MESSAGE: {}", message.getPayload());
             processedCount.incrementAndGet();
             checkpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
         logger.info("Consumer subscribed, waiting 2 seconds for setup...");
 
@@ -227,39 +227,28 @@ public class SimpleNativeQueueTest {
             receivedMessages.add(message.getPayload());
             processedCount.incrementAndGet();
             checkpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
         logger.info("Consumer subscribed, waiting 2 seconds for setup...");
-        CompletableFuture<Void> delay = new CompletableFuture<>();
-        vertx.setTimer(2000, id -> delay.complete(null));
-        delay.join();
+        Promise<Void> delay = Promise.promise();
+        vertx.setTimer(2000, id -> delay.complete());
+        delay.future().await();
 
         // Send messages concurrently like the original failing test
         logger.info("Sending {} messages concurrently...", messageCount);
-        ExecutorService executor = Executors.newFixedThreadPool(2); // Reduce thread pool size
-        List<CompletableFuture<Void>> futures = new ArrayList<>();
+        List<Future<Void>> futures = new ArrayList<>();
 
         for (int i = 0; i < messageCount; i++) {
             final int messageId = i;
-            CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
-                try {
-                    String message = "Concurrent message " + messageId;
-                    logger.info("Sending message {}: {}", messageId, message);
-                    producer.send(message).get(5, TimeUnit.SECONDS);
-                    logger.info("Message {} sent successfully", messageId);
-                } catch (Exception e) {
-                    logger.error("❌ Failed to send message " + messageId, e);
-                }
-            }, executor);
-            futures.add(future);
+            String message = "Concurrent message " + messageId;
+            logger.info("Sending message {}: {}", messageId, message);
+            futures.add(producer.send(message));
         }
 
         // Wait for all sends to complete
         logger.info("Waiting for all sends to complete...");
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).get(30, TimeUnit.SECONDS);
+        Future.all(futures).await();
         logger.info("All sends completed");
-
-        executor.shutdown();
 
         // Wait for all messages to be processed
         logger.info("Waiting for all {} messages to be received...", messageCount);
@@ -269,9 +258,9 @@ public class SimpleNativeQueueTest {
         if (!allReceived) {
             logger.warn("Not all messages received - checking database state...");
             // Add a small delay to let any pending operations complete
-            CompletableFuture<Void> delay2 = new CompletableFuture<>();
-            vertx.setTimer(1000, id -> delay2.complete(null));
-            delay2.join();
+            Promise<Void> delay2 = Promise.promise();
+            vertx.setTimer(1000, id -> delay2.complete());
+            delay2.future().await();
         }
 
         // Verify results

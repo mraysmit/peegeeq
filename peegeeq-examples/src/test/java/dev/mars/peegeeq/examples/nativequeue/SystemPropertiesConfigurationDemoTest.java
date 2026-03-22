@@ -24,6 +24,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
@@ -208,14 +210,14 @@ class SystemPropertiesConfigurationDemoTest {
         if (manager != null) {
             try {
                 System.out.println("🔄 Closing PeeGeeQ manager...");
-                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+                manager.closeReactive().await();
                 System.out.println("PeeGeeQ manager closed successfully");
 
                 // CRITICAL: Wait for all resources to be fully released
                 // This prevents connection pool exhaustion in subsequent tests
-                CompletableFuture<Void> delay = new CompletableFuture<>();
-                vertx.setTimer(2000, id -> delay.complete(null));
-                delay.join();
+                Promise<Void> delay = Promise.promise();
+                vertx.setTimer(2000, id -> delay.complete());
+                delay.future().await();
                 System.out.println("⏱️ Resource cleanup wait completed");
             } catch (Exception e) {
                 System.err.println("⚠️ Error during manager cleanup: " + e.getMessage());
@@ -261,7 +263,7 @@ class SystemPropertiesConfigurationDemoTest {
             System.out.println("📨 Full event: " + event.toString());
             receivedEvents.add(event);
             processedCheckpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Test dynamic configuration updates
@@ -348,7 +350,7 @@ class SystemPropertiesConfigurationDemoTest {
                              ", Debug: " + event.getDebugEnabled());
             receivedEvents.add(event);
             processedCheckpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Test each environment configuration
@@ -429,7 +431,7 @@ class SystemPropertiesConfigurationDemoTest {
                 validationErrors.add(error);
             }
             processedCheckpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Test valid configurations
@@ -497,7 +499,7 @@ class SystemPropertiesConfigurationDemoTest {
                              " - Config: " + event.toString());
             reloadEvents.add(event);
             processedCheckpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Simulate hot configuration reloads

@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import io.vertx.core.Future;
 
 
 /**
@@ -67,7 +68,7 @@ public class DlqManagementService {
     /**
      * Get DLQ depth (number of messages in DLQ).
      */
-    public CompletableFuture<Long> getDlqDepth() {
+    public Future<Long> getDlqDepth() {
         return databaseService.getConnectionProvider()
             .withTransaction(CLIENT_ID, connection -> {
                 String sql = "SELECT COUNT(*) FROM dead_letter_queue WHERE topic = $1";
@@ -78,14 +79,13 @@ public class DlqManagementService {
                         return row.getLong(0);
                     });
             })
-            .toCompletionStage()
-            .toCompletableFuture();
+            ;
     }
     
     /**
      * Get all DLQ messages for inspection.
      */
-    public CompletableFuture<List<Map<String, Object>>> getDlqMessages() {
+    public Future<List<Map<String, Object>>> getDlqMessages() {
         return databaseService.getConnectionProvider()
             .withTransaction(CLIENT_ID, connection -> {
                 String sql = "SELECT id, topic, payload, failure_reason, retry_count, failed_at " +
@@ -107,8 +107,7 @@ public class DlqManagementService {
                         return messages;
                     });
             })
-            .toCompletionStage()
-            .toCompletableFuture();
+            ;
     }
     
     /**
@@ -116,7 +115,7 @@ public class DlqManagementService {
      *
      * This moves the message back to the main queue for reprocessing.
      */
-    public CompletableFuture<Boolean> reprocessDlqMessage(Long messageId) {
+    public Future<Boolean> reprocessDlqMessage(Long messageId) {
         log.info("Reprocessing DLQ message: id={}", messageId);
 
         return databaseService.getConnectionProvider()
@@ -151,14 +150,13 @@ public class DlqManagementService {
                             });
                     });
             })
-            .toCompletionStage()
-            .toCompletableFuture();
+            ;
     }
     
     /**
      * Delete a DLQ message by ID.
      */
-    public CompletableFuture<Boolean> deleteDlqMessage(Long messageId) {
+    public Future<Boolean> deleteDlqMessage(Long messageId) {
         log.info("Deleting DLQ message: id={}", messageId);
 
         return databaseService.getConnectionProvider()
@@ -176,15 +174,14 @@ public class DlqManagementService {
                         return deleted;
                     });
             })
-            .toCompletionStage()
-            .toCompletableFuture();
+            ;
     }
     
     /**
      * Check if DLQ depth exceeds alert threshold.
      */
-    public CompletableFuture<Boolean> shouldAlert() {
-        return getDlqDepth().thenApply(depth -> {
+    public Future<Boolean> shouldAlert() {
+        return getDlqDepth().map(depth -> {
             boolean alert = depth >= properties.getDlqAlertThreshold();
             if (alert) {
                 log.warn("⚠️ DLQ alert threshold exceeded: depth={}, threshold={}", 
@@ -197,8 +194,8 @@ public class DlqManagementService {
     /**
      * Get DLQ statistics.
      */
-    public CompletableFuture<Map<String, Object>> getDlqStats() {
-        return getDlqDepth().thenApply(depth -> {
+    public Future<Map<String, Object>> getDlqStats() {
+        return getDlqDepth().map(depth -> {
             Map<String, Object> stats = new HashMap<>();
             stats.put("depth", depth);
             stats.put("threshold", properties.getDlqAlertThreshold());

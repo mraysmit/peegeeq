@@ -45,11 +45,12 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
-
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -123,7 +124,7 @@ class SpringBootIntegratedApplicationTest {
                         logger.info("Application-specific schema created successfully");
                         return (Void) null;
                     });
-            }).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
+            }).await();
 
         logger.info("=== Application-specific schema setup complete ===");
     }
@@ -140,14 +141,14 @@ class SpringBootIntegratedApplicationTest {
         request.setValidTime(Instant.now());
         
         // Create order (integrated transaction)
-        String orderId = orderService.createOrder(request).get(10, TimeUnit.SECONDS);
+        String orderId = orderService.createOrder(request).await();
         assertNotNull(orderId);
         logger.info("Order created: {}", orderId);
         
         // Wait a bit for async operations
-        CompletableFuture<Void> delay = new CompletableFuture<>();
-        vertx.setTimer(500, id -> delay.complete(null));
-        delay.join();
+        Promise<Void> delay = Promise.promise();
+        vertx.setTimer(500, id -> delay.complete());
+        delay.future().await();
         
         // Verify 1: Order saved to database
         boolean orderExists = verifyOrderInDatabase(orderId);
@@ -160,7 +161,7 @@ class SpringBootIntegratedApplicationTest {
         logger.info("Event found in outbox");
         
         // Verify 3: Event appended to event store
-        OrderResponse history = orderService.getOrderHistory(orderId).get(10, TimeUnit.SECONDS);
+        OrderResponse history = orderService.getOrderHistory(orderId).await();
         assertNotNull(history);
         assertTrue(history.getHistory().size() >= 1, "Event should exist in event store");
         logger.info("Event found in event store ({} events)", history.getHistory().size());
@@ -185,11 +186,11 @@ class SpringBootIntegratedApplicationTest {
         request.setAmount(new BigDecimal("2500.00"));
         request.setDescription("Desktop purchase");
         
-        String orderId = orderService.createOrder(request).get(10, TimeUnit.SECONDS);
+        String orderId = orderService.createOrder(request).await();
         logger.info("Order created: {}", orderId);
         
         // Query order history
-        OrderResponse history = orderService.getOrderHistory(orderId).get(10, TimeUnit.SECONDS);
+        OrderResponse history = orderService.getOrderHistory(orderId).await();
         assertNotNull(history);
         assertEquals(orderId, history.getOrderId());
         assertTrue(history.getHistory().size() >= 1);
@@ -215,14 +216,14 @@ class SpringBootIntegratedApplicationTest {
         request2.setAmount(new BigDecimal("2000.00"));
         request2.setDescription("Order 2");
         
-        String orderId1 = orderService.createOrder(request1).get(10, TimeUnit.SECONDS);
-        String orderId2 = orderService.createOrder(request2).get(10, TimeUnit.SECONDS);
+        String orderId1 = orderService.createOrder(request1).await();
+        String orderId2 = orderService.createOrder(request2).await();
         
         logger.info("Orders created: {}, {}", orderId1, orderId2);
         
         // Query customer orders
         List<BiTemporalEvent<OrderEvent>> orders = orderService.getCustomerOrders(customerId)
-            .get(10, TimeUnit.SECONDS);
+            .await();
         
         assertNotNull(orders);
         assertTrue(orders.size() >= 2, "Should have at least 2 orders for customer");
@@ -236,9 +237,9 @@ class SpringBootIntegratedApplicationTest {
         logger.info("=== Testing Point-in-Time Query ===");
         
         Instant beforeOrders = Instant.now();
-        CompletableFuture<Void> delay = new CompletableFuture<>();
-        vertx.setTimer(100, id -> delay.complete(null));
-        delay.join();
+        Promise<Void> delay = Promise.promise();
+        vertx.setTimer(100, id -> delay.complete());
+        delay.future().await();
         
         // Create order
         CreateOrderRequest request = new CreateOrderRequest();
@@ -246,18 +247,18 @@ class SpringBootIntegratedApplicationTest {
         request.setAmount(new BigDecimal("3000.00"));
         request.setDescription("Server purchase");
         
-        String orderId = orderService.createOrder(request).get(10, TimeUnit.SECONDS);
+        String orderId = orderService.createOrder(request).await();
         logger.info("Order created: {}", orderId);
         
         Instant afterOrders = Instant.now();
         
         // Query as of before orders
         List<BiTemporalEvent<OrderEvent>> beforeResults = orderService.getOrdersAsOfTime(beforeOrders)
-            .get(10, TimeUnit.SECONDS);
+            .await();
         
         // Query as of after orders
         List<BiTemporalEvent<OrderEvent>> afterResults = orderService.getOrdersAsOfTime(afterOrders)
-            .get(10, TimeUnit.SECONDS);
+            .await();
         
         // After should have more orders than before
         assertTrue(afterResults.size() >= beforeResults.size(), 
@@ -271,40 +272,30 @@ class SpringBootIntegratedApplicationTest {
      * Verifies that an order exists in the database.
      */
     private boolean verifyOrderInDatabase(String orderId) throws Exception {
-        CompletableFuture<Boolean> future = new CompletableFuture<>();
-        
-        databaseService.getConnectionProvider().withConnection("peegeeq-main", connection -> {
+        return databaseService.getConnectionProvider().withConnection("peegeeq-main", connection -> {
             String sql = "SELECT COUNT(*) as count FROM orders WHERE id = $1";
             return connection.preparedQuery(sql)
                 .execute(Tuple.of(orderId))
                 .map(rows -> {
                     int count = rows.iterator().next().getInteger("count");
-                    future.complete(count > 0);
-                    return null;
+                    return count > 0;
                 });
-        });
-        
-        return future.get(5, TimeUnit.SECONDS);
+        }).await();
     }
     
     /**
      * Verifies that an event exists in the outbox.
      */
     private boolean verifyEventInOutbox(String orderId) throws Exception {
-        CompletableFuture<Boolean> future = new CompletableFuture<>();
-        
-        databaseService.getConnectionProvider().withConnection("peegeeq-main", connection -> {
+        return databaseService.getConnectionProvider().withConnection("peegeeq-main", connection -> {
             String sql = "SELECT COUNT(*) as count FROM outbox WHERE payload::text LIKE $1";
             return connection.preparedQuery(sql)
                 .execute(Tuple.of("%" + orderId + "%"))
                 .map(rows -> {
                     int count = rows.iterator().next().getInteger("count");
-                    future.complete(count > 0);
-                    return null;
+                    return count > 0;
                 });
-        });
-        
-        return future.get(5, TimeUnit.SECONDS);
+        }).await();
     }
 }
 

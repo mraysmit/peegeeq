@@ -8,6 +8,7 @@ import dev.mars.peegeeq.examples.fundscustody.domain.Currency;
 import dev.mars.peegeeq.examples.fundscustody.events.NAVEvent;
 import dev.mars.peegeeq.examples.fundscustody.model.NAVCorrectionImpact;
 import dev.mars.peegeeq.examples.fundscustody.model.NAVSnapshot;
+import io.vertx.core.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -28,7 +29,7 @@ import java.util.Map;
  *   <li>Historical NAV Queries - NAV at any point in time</li>
  * </ul>
  * 
- * <p>All methods return CompletableFuture to maintain async/non-blocking behavior.
+ * <p>All methods return Future to maintain async/non-blocking behavior.
  */
 public class NAVService {
     private static final Logger logger = LoggerFactory.getLogger(NAVService.class);
@@ -61,7 +62,7 @@ public class NAVService {
      * @param calculatedBy user who calculated NAV
      * @return future containing the NAV event
      */
-    public CompletableFuture<BiTemporalEvent<NAVEvent>> calculateNAV(
+    public Future<BiTemporalEvent<NAVEvent>> calculateNAV(
             String fundId,
             LocalDate navDate,
             BigDecimal totalAssets,
@@ -102,7 +103,7 @@ public class NAVService {
             null,
             null,
             "NAV:" + fundId  // Aggregate by NAV stream for this fund
-        ).toCompletionStage().toCompletableFuture();
+        );
     }
     
     /**
@@ -120,7 +121,7 @@ public class NAVService {
      * @param asOfTransactionTime when the NAV was reported (system time)
      * @return future containing NAV snapshot as reported
      */
-    public CompletableFuture<NAVSnapshot> getNAVAsReported(
+    public Future<NAVSnapshot> getNAVAsReported(
             String fundId,
             LocalDate navDate,
             Instant asOfTransactionTime) {
@@ -136,7 +137,7 @@ public class NAVService {
                 .validTimeRange(TemporalRange.until(navDateTime))
                 .transactionTimeRange(TemporalRange.until(asOfTransactionTime))
                 .build()
-        ).toCompletionStage().toCompletableFuture().thenApply(events -> {
+        ).map(events -> {
             // Find the NAV event for this specific date
             BiTemporalEvent<NAVEvent> navEvent = events.stream()
                 .filter(e -> navDate.equals(e.getPayload().navDate()))
@@ -174,7 +175,7 @@ public class NAVService {
      * @param navDate NAV date (business date)
      * @return future containing corrected NAV snapshot
      */
-    public CompletableFuture<NAVSnapshot> getNAVCorrected(
+    public Future<NAVSnapshot> getNAVCorrected(
             String fundId,
             LocalDate navDate) {
         
@@ -188,7 +189,7 @@ public class NAVService {
                 .validTimeRange(TemporalRange.until(navDateTime))
                 // No transaction time filter = use latest knowledge
                 .build()
-        ).toCompletionStage().toCompletableFuture().thenApply(events -> {
+        ).map(events -> {
             // Find the most recent NAV event for this date
             BiTemporalEvent<NAVEvent> navEvent = events.stream()
                 .filter(e -> navDate.equals(e.getPayload().navDate()))
@@ -230,17 +231,20 @@ public class NAVService {
      * @param reportingTime when NAV was originally reported
      * @return future containing correction impact analysis
      */
-    public CompletableFuture<NAVCorrectionImpact> analyzeNAVCorrection(
+    public Future<NAVCorrectionImpact> analyzeNAVCorrection(
             String fundId,
             LocalDate navDate,
             Instant reportingTime) {
         
         logger.debug("Analyzing NAV correction impact for fund {} on {}", fundId, navDate);
         
-        CompletableFuture<NAVSnapshot> reported = getNAVAsReported(fundId, navDate, reportingTime);
-        CompletableFuture<NAVSnapshot> corrected = getNAVCorrected(fundId, navDate);
+        Future<NAVSnapshot> reported = getNAVAsReported(fundId, navDate, reportingTime);
+        Future<NAVSnapshot> corrected = getNAVCorrected(fundId, navDate);
         
-        return reported.thenCombine(corrected, (rep, cor) -> {
+        return Future.all(reported, corrected).map(cf -> {
+            NAVSnapshot rep = reported.result();
+            NAVSnapshot cor = corrected.result();
+            
             if (rep == null || cor == null) {
                 logger.warn("Cannot analyze NAV correction - missing NAV data");
                 return null;
@@ -265,7 +269,7 @@ public class NAVService {
      * @param endDate end of date range
      * @return future containing list of NAV snapshots
      */
-    public CompletableFuture<java.util.List<NAVSnapshot>> getNAVHistory(
+    public Future<java.util.List<NAVSnapshot>> getNAVHistory(
             String fundId,
             LocalDate startDate,
             LocalDate endDate) {
@@ -280,7 +284,7 @@ public class NAVService {
                 .aggregateId("NAV:" + fundId)
                 .validTimeRange(new TemporalRange(startInstant, endInstant))
                 .build()
-        ).toCompletionStage().toCompletableFuture().thenApply(events -> {
+        ).map(events -> {
             // Group by NAV date and take most recent for each date
             return events.stream()
                 .collect(java.util.stream.Collectors.groupingBy(

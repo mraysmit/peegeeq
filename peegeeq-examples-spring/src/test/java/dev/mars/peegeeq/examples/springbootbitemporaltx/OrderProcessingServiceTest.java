@@ -25,6 +25,8 @@ import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.BeforeAll;
@@ -46,7 +48,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.UUID;
-
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -171,7 +172,7 @@ class OrderProcessingServiceTest {
         
         // SERVICE EXECUTION: Process the order
         logger.info("Processing single product order: {}", orderId);
-        OrderProcessingResult result = orderProcessingService.processCompleteOrder(request).get();
+        OrderProcessingResult result = orderProcessingService.processCompleteOrder(request).await();
         
         // RESULT VALIDATION: Processing should be successful
         assertNotNull(result, "Processing result should not be null");
@@ -187,9 +188,9 @@ class OrderProcessingServiceTest {
         logger.info("Starting event store validation for order: {}", orderId);
 
         // Add a small delay to ensure all async operations complete
-        CompletableFuture<Void> delay = new CompletableFuture<>();
-        vertx.setTimer(100, id -> delay.complete(null));
-        delay.join();
+        Promise<Void> delay = Promise.promise();
+        vertx.setTimer(100, id -> delay.complete());
+        delay.future().await();
 
         // 1. Order Event Validation - Query specifically for OrderCreated events
         logger.info("Querying order events for orderId: {}", orderId);
@@ -197,7 +198,7 @@ class OrderProcessingServiceTest {
             orderEventStore.query(EventQuery.builder()
                 .aggregateId(orderId)
                 .eventType("OrderCreated")
-                .build()).toCompletionStage().toCompletableFuture().get();
+                .build()).await();
 
         assertEquals(1, orderEvents.size(), "Should have exactly one order event");
         
@@ -215,7 +216,7 @@ class OrderProcessingServiceTest {
             inventoryEventStore.query(EventQuery.builder()
                 .aggregateId(orderId)
                 .eventType("InventoryReserved")
-                .build()).toCompletionStage().toCompletableFuture().get();
+                .build()).await();
 
         assertEquals(1, inventoryEvents.size(), "Should have exactly one inventory event");
         
@@ -232,7 +233,7 @@ class OrderProcessingServiceTest {
             paymentEventStore.query(EventQuery.builder()
                 .aggregateId(orderId)
                 .eventType("PaymentAuthorized")
-                .build()).toCompletionStage().toCompletableFuture().get();
+                .build()).await();
 
         assertEquals(1, paymentEvents.size(), "Should have exactly one payment event");
         
@@ -249,7 +250,7 @@ class OrderProcessingServiceTest {
         List<BiTemporalEvent<AuditEvent>> auditEvents =
             auditEventStore.query(EventQuery.builder()
                 .aggregateId(orderId)
-                .build()).toCompletionStage().toCompletableFuture().get();
+                .build()).await();
 
         // DEBUG: Log audit events to understand what's being returned
         logger.info("Found {} audit events for orderId: {}", auditEvents.size(), orderId);
@@ -266,7 +267,7 @@ class OrderProcessingServiceTest {
             logger.info("No TransactionStarted events found with aggregateId={}, trying correlationId query", orderId);
             auditEvents = auditEventStore.query(EventQuery.builder()
                 .correlationId(result.getCorrelationId())
-                .build()).toCompletionStage().toCompletableFuture().get();
+                .build()).await();
 
             logger.info("Found {} audit events for correlationId: {}", auditEvents.size(), result.getCorrelationId());
             for (int i = 0; i < auditEvents.size(); i++) {
@@ -367,7 +368,7 @@ class OrderProcessingServiceTest {
         
         // SERVICE EXECUTION: Process the multi-product order
         logger.info("Processing multi-product order: {}", orderId);
-        OrderProcessingResult result = orderProcessingService.processCompleteOrder(request).get();
+        OrderProcessingResult result = orderProcessingService.processCompleteOrder(request).await();
         
         // RESULT VALIDATION: Processing should be successful
         assertTrue(result.isSuccess(), "Multi-product order processing should be successful");
@@ -379,9 +380,9 @@ class OrderProcessingServiceTest {
         logger.info("Starting event store validation for order: {}", orderId);
 
         // Add a small delay to ensure all async operations complete
-        CompletableFuture<Void> delay = new CompletableFuture<>();
-        vertx.setTimer(100, id -> delay.complete(null));
-        delay.join();
+        Promise<Void> delay = Promise.promise();
+        vertx.setTimer(100, id -> delay.complete());
+        delay.future().await();
 
         // 1. Order Event Validation - Query specifically for OrderCreated events
         logger.info("Querying order events for orderId: {}", orderId);
@@ -389,7 +390,7 @@ class OrderProcessingServiceTest {
             orderEventStore.query(EventQuery.builder()
                 .aggregateId(orderId)
                 .eventType("OrderCreated")
-                .build()).toCompletionStage().toCompletableFuture().get();
+                .build()).await();
 
         assertEquals(1, orderEvents.size(), "Should have exactly one order event");
         
@@ -402,7 +403,7 @@ class OrderProcessingServiceTest {
             inventoryEventStore.query(EventQuery.builder()
                 .aggregateId(orderId)
                 .eventType("InventoryReserved")
-                .build()).toCompletionStage().toCompletableFuture().get();
+                .build()).await();
 
         assertEquals(3, inventoryEvents.size(), "Should have exactly three inventory events (one per product)");
         
@@ -438,7 +439,7 @@ class OrderProcessingServiceTest {
             paymentEventStore.query(EventQuery.builder()
                 .aggregateId(orderId)
                 .eventType("PaymentAuthorized")
-                .build()).toCompletionStage().toCompletableFuture().get();
+                .build()).await();
 
         assertEquals(1, paymentEvents.size(), "Should have exactly one payment event");
         

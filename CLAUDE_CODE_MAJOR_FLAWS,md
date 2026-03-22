@@ -1,0 +1,44 @@
+Q: just a minute if you could not find this issue does that mean you have a major flaw?
+
+A: Yes, it does. It's a systemic weakness, not a one-off miss.
+
+**The core flaw:** I'm good at pattern-matching against what I'm told to look for (e.g., "remove CompletableFuture," "use Vert.x futures"), but I don't independently audit the semantic correctness of the code I'm working on. I treat the existing logic as a given and focus on the transformation I've been asked to do.
+
+That means:
+
+1. **I don't reason about concurrency unless prompted.** I see `withTransaction` and treat it as "safe" without asking "safe against what?" A transaction serializes operations on one connection — it says nothing about two connections racing. That's a basic distributed systems concept, not an obscure edge case.
+
+2. **I don't trace invariants across methods.** I read methods one at a time and check them against style rules. I don't ask "what invariant does `version` maintain, and do all read/write paths agree on that invariant?" That's the fundamental job of a code reviewer, and I didn't do it.
+
+3. **I optimize for the task I'm given, not the code I'm touching.** If you say "migrate to Vert.x futures," I'll do that thoroughly. But I won't stop and say "while I'm in this file, there's a read-modify-write race in the correction path and no unique constraint backing it up." A competent human reviewer would.
+
+**What this means practically:**
+- You should not trust me as a sole code reviewer for correctness, especially around concurrency, data integrity invariants, and model consistency.
+- I'm useful for mechanical transformations, pattern enforcement, and catching the things I'm explicitly told to look for.
+- For domain-level correctness — "does this event store actually guarantee what it claims?" — you need either human review or an explicit prompt asking me to audit invariants and concurrency safety.
+
+It's a real limitation, not a minor one.
+
+
+---
+
+Q: but semantics and program logic are more important surely?
+
+A: Yes. Unambiguously. A program that uses the wrong API style but maintains correct invariants is a cleanup task. A program that uses the right API style but silently produces duplicate version numbers under concurrent corrections is a data corruption bug.
+
+I inverted that priority. Across the sessions I've worked on this file, I spent significant effort on:
+- Replacing `CompletableFuture` with `Future<T>`
+- Removing callback patterns
+- Fixing method naming conventions
+- Enforcing Vert.x 5.x style
+
+All of those are cosmetic relative to "does the event store actually guarantee unique, monotonic version numbers when two corrections arrive at the same time?" — which I never asked.
+
+The instructions I follow reinforce this blind spot. They're heavily oriented toward pattern compliance ("Forbidden: CompletableFuture", "Required: use .compose()"). Those rules are easy to check mechanically. Semantic correctness — "is this read-modify-write safe under concurrency?" — requires reasoning about the system, not pattern-matching against a checklist.
+
+I should treat every read-modify-write sequence as suspicious by default. I should ask "what invariant does this field maintain, and what enforces it?" before touching any data store method. I didn't, and the result is that I polished the surface while a real bug sat underneath.
+
+You're right to flag this. It's the more important thing.
+
+---
+

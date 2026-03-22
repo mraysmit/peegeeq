@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.examples.fundscustody;
 
+import io.vertx.core.Promise;
 import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.examples.fundscustody.domain.Currency;
 import dev.mars.peegeeq.examples.fundscustody.domain.TradeType;
@@ -42,7 +43,7 @@ class TradeServiceTest extends FundsCustodyTestBase {
         
         // When: Recording the trade
         BiTemporalEvent<TradeEvent> event = tradeService.recordTrade(request)
-            .get();  // Block in test context
+            .await();
         
         // Then: Event is stored with correct properties
         assertNotNull(event);
@@ -83,7 +84,7 @@ class TradeServiceTest extends FundsCustodyTestBase {
             "Morgan Stanley"
         );
         
-        BiTemporalEvent<TradeEvent> originalEvent = tradeService.recordTrade(request).get();
+        BiTemporalEvent<TradeEvent> originalEvent = tradeService.recordTrade(request).await();
         String tradeId = originalEvent.getPayload().tradeId();
         
         // When: Cancelling the trade
@@ -93,7 +94,7 @@ class TradeServiceTest extends FundsCustodyTestBase {
         );
         
         BiTemporalEvent<TradeCancelledEvent> cancelEvent = 
-            tradeService.cancelTrade(tradeId, cancellation).get();
+            tradeService.cancelTrade(tradeId, cancellation).await();
         
         // Then: Cancellation event is stored
         assertNotNull(cancelEvent);
@@ -140,13 +141,13 @@ class TradeServiceTest extends FundsCustodyTestBase {
             "JP Morgan"
         );
         
-        tradeService.recordTrade(fund1Trade1).get();
-        tradeService.recordTrade(fund1Trade2).get();
-        tradeService.recordTrade(fund2Trade).get();
+        tradeService.recordTrade(fund1Trade1).await();
+        tradeService.recordTrade(fund1Trade2).await();
+        tradeService.recordTrade(fund2Trade).await();
         
         // When: Querying trades for FUND-001
         List<BiTemporalEvent<TradeEvent>> fund1Trades = 
-            tradeService.queryTradesByFund("FUND-001").get();
+            tradeService.queryTradesByFund("FUND-001").await();
         
         // Then: Only FUND-001 trades are returned
         assertEquals(2, fund1Trades.size());
@@ -176,13 +177,13 @@ class TradeServiceTest extends FundsCustodyTestBase {
         );
         
         // Record at 10:30 (simulated by immediate recording)
-        tradeService.recordTrade(earlyTrade).get();
+        tradeService.recordTrade(earlyTrade).await();
         
         // Trade 2: Confirmed after cutoff (20:00)
         // Simulate late confirmation by waiting a bit
-        CompletableFuture<Void> delay = new CompletableFuture<>();
-        vertx.setTimer(100, id -> delay.complete(null));
-        delay.join();
+        Promise<Void> delay = Promise.promise();
+        vertx.setTimer(100, id -> delay.complete());
+        delay.future().await();
         
         TradeRequest lateTrade = new TradeRequest(
             "FUND-001", "MSFT", TradeType.BUY,
@@ -191,13 +192,13 @@ class TradeServiceTest extends FundsCustodyTestBase {
             "Morgan Stanley"
         );
         
-        tradeService.recordTrade(lateTrade).get();
+        tradeService.recordTrade(lateTrade).await();
         
         // When: Checking for late trades
         // Note: In real scenario, we'd control transaction time more precisely
         // For this test, we'll verify the query works correctly
         List<BiTemporalEvent<TradeEvent>> lateTrades = 
-            tradeService.getLateTradeConfirmations("FUND-001", tradingDay, cutoffTime).get();
+            tradeService.getLateTradeConfirmations("FUND-001", tradingDay, cutoffTime).await();
         
         // Then: Query executes successfully
         // In production, late trades would be those with transaction time after cutoff
@@ -226,7 +227,7 @@ class TradeServiceTest extends FundsCustodyTestBase {
         
         // When/Then: Attempting to cancel should fail
         assertThrows(Exception.class, () -> {
-            tradeService.cancelTrade(nonExistentTradeId, cancellation).get();
+            tradeService.cancelTrade(nonExistentTradeId, cancellation).await();
         });
     }
     
@@ -240,7 +241,7 @@ class TradeServiceTest extends FundsCustodyTestBase {
             "Goldman Sachs"
         );
         
-        BiTemporalEvent<TradeEvent> originalEvent = tradeService.recordTrade(request).get();
+        BiTemporalEvent<TradeEvent> originalEvent = tradeService.recordTrade(request).await();
         String tradeId = originalEvent.getPayload().tradeId();
         
         // When: Cancelling the trade multiple times (audit trail)
@@ -255,9 +256,9 @@ class TradeServiceTest extends FundsCustodyTestBase {
         );
         
         BiTemporalEvent<TradeCancelledEvent> cancel1 = 
-            tradeService.cancelTrade(tradeId, cancellation1).get();
+            tradeService.cancelTrade(tradeId, cancellation1).await();
         BiTemporalEvent<TradeCancelledEvent> cancel2 = 
-            tradeService.cancelTrade(tradeId, cancellation2).get();
+            tradeService.cancelTrade(tradeId, cancellation2).await();
         
         // Then: Both cancellations are recorded
         assertNotNull(cancel1);

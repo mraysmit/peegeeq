@@ -11,6 +11,7 @@ import dev.mars.peegeeq.examples.fundscustody.events.TradeEvent;
 import dev.mars.peegeeq.examples.fundscustody.model.NAVSnapshot;
 import dev.mars.peegeeq.examples.fundscustody.model.RegulatoryReport;
 import dev.mars.peegeeq.examples.fundscustody.model.TradeChange;
+import io.vertx.core.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,7 +32,7 @@ import java.util.stream.Collectors;
  *   <li>MiFID II Reporting - Markets in Financial Instruments Directive</li>
  * </ul>
  * 
- * <p>All methods return CompletableFuture to maintain async/non-blocking behavior.
+ * <p>All methods return Future to maintain async/non-blocking behavior.
  */
 public class RegulatoryReportingService {
     private static final Logger logger = LoggerFactory.getLogger(RegulatoryReportingService.class);
@@ -68,7 +69,7 @@ public class RegulatoryReportingService {
      * @param reportType type of report (AIFMD, MiFID_II, etc.)
      * @return future containing regulatory report
      */
-    public CompletableFuture<RegulatoryReport> getRegulatorySnapshot(
+    public Future<RegulatoryReport> getRegulatorySnapshot(
             String fundId,
             LocalDate reportingDate,
             String reportType) {
@@ -80,24 +81,22 @@ public class RegulatoryReportingService {
             reportType, fundId, reportingDate);
         
         // Get NAV as reported
-        CompletableFuture<NAVSnapshot> navSnapshot = 
+        Future<NAVSnapshot> navSnapshot = 
             navService.getNAVAsReported(fundId, reportingDate, filingDateTime);
         
         // Get positions as reported
-        CompletableFuture<List<Position>> positions = 
+        Future<List<Position>> positions = 
             positionService.getPositionsByFund(fundId, reportingDate);
         
         // Get trades in period (last 30 days for example)
         LocalDate periodStart = reportingDate.minusDays(30);
-        CompletableFuture<List<TradeChange>> trades = getTradesInPeriod(
+        Future<List<TradeChange>> trades = getTradesInPeriod(
             fundId, periodStart, reportingDate, filingDateTime);
         
-        return navSnapshot.thenCombine(positions, (nav, pos) -> 
-            new Object[] { nav, pos }
-        ).thenCombine(trades, (navAndPos, tradeList) -> {
-            NAVSnapshot nav = (NAVSnapshot) navAndPos[0];
-            @SuppressWarnings("unchecked")
-            List<Position> pos = (List<Position>) navAndPos[1];
+        return Future.all(navSnapshot, positions, trades).map(cf -> {
+            NAVSnapshot nav = navSnapshot.result();
+            List<Position> pos = positions.result();
+            List<TradeChange> tradeList = trades.result();
             
             return RegulatoryReport.create(
                 fundId,
@@ -125,7 +124,7 @@ public class RegulatoryReportingService {
      * @param reportingDate quarterly reporting date
      * @return future containing AIFMD report
      */
-    public CompletableFuture<RegulatoryReport> getAIFMDReport(
+    public Future<RegulatoryReport> getAIFMDReport(
             String fundId,
             LocalDate reportingDate) {
         
@@ -150,7 +149,7 @@ public class RegulatoryReportingService {
      * @param tradingDay the trading day to report
      * @return future containing MiFID II report
      */
-    public CompletableFuture<RegulatoryReport> getMiFIDTransactionReport(
+    public Future<RegulatoryReport> getMiFIDTransactionReport(
             String fundId,
             LocalDate tradingDay) {
         
@@ -161,12 +160,12 @@ public class RegulatoryReportingService {
             fundId, tradingDay);
         
         // Get all trades with valid time on trading day
-        CompletableFuture<List<TradeChange>> trades = tradeEventStore.query(
+        Future<List<TradeChange>> trades = tradeEventStore.query(
             EventQuery.builder()
                 .aggregateId("TRADE:" + fundId)
                 .validTimeRange(new TemporalRange(dayStart, dayEnd))
                 .build()
-        ).toCompletionStage().toCompletableFuture().thenApply(events -> events.stream()
+        ).map(events -> events.stream()
             .map(e -> {
                 TradeEvent trade = e.getPayload();
                 return TradeChange.newTrade(
@@ -184,19 +183,17 @@ public class RegulatoryReportingService {
         );
         
         // Get NAV for the day (if available)
-        CompletableFuture<NAVSnapshot> navSnapshot = 
+        Future<NAVSnapshot> navSnapshot = 
             navService.getNAVCorrected(fundId, tradingDay);
         
         // Get positions at end of day
-        CompletableFuture<List<Position>> positions = 
+        Future<List<Position>> positions = 
             positionService.getPositionsByFund(fundId, tradingDay);
         
-        return navSnapshot.thenCombine(positions, (nav, pos) -> 
-            new Object[] { nav, pos }
-        ).thenCombine(trades, (navAndPos, tradeList) -> {
-            NAVSnapshot nav = (NAVSnapshot) navAndPos[0];
-            @SuppressWarnings("unchecked")
-            List<Position> pos = (List<Position>) navAndPos[1];
+        return Future.all(navSnapshot, positions, trades).map(cf -> {
+            NAVSnapshot nav = navSnapshot.result();
+            List<Position> pos = positions.result();
+            List<TradeChange> tradeList = trades.result();
             
             return RegulatoryReport.create(
                 fundId,
@@ -213,7 +210,7 @@ public class RegulatoryReportingService {
     /**
      * Get trades in a period as they were known at a specific transaction time.
      */
-    private CompletableFuture<List<TradeChange>> getTradesInPeriod(
+    private Future<List<TradeChange>> getTradesInPeriod(
             String fundId,
             LocalDate startDate,
             LocalDate endDate,
@@ -228,7 +225,7 @@ public class RegulatoryReportingService {
                 .validTimeRange(new TemporalRange(startInstant, endInstant))
                 .transactionTimeRange(TemporalRange.until(asOfTransactionTime))
                 .build()
-        ).toCompletionStage().toCompletableFuture().thenApply(events -> events.stream()
+        ).map(events -> events.stream()
             .map(e -> {
                 TradeEvent trade = e.getPayload();
                 return TradeChange.newTrade(

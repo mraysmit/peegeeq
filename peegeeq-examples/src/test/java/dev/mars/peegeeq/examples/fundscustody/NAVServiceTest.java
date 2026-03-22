@@ -39,13 +39,13 @@ class NAVServiceTest extends FundsCustodyTestBase {
             new BigDecimal("100000.00"),     // Shares outstanding
             Currency.USD,
             "nav-calculator"
-        ).toCompletableFuture().get();
+        ).await();
         
         vertx.setTimer(100, id -> {
             try {
                 // Get corrected NAV (latest)
                 NAVSnapshot nav = navService.getNAVCorrected(fundId, navDate)
-                    .toCompletableFuture().get();
+                    .await();
                 
                 assertNotNull(nav);
                 assertEquals(fundId, nav.fundId());
@@ -78,7 +78,7 @@ class NAVServiceTest extends FundsCustodyTestBase {
             new BigDecimal("100000"),
             Currency.USD,
             "nav-calculator"
-        ).toCompletableFuture().get();
+        ).await();
         
         vertx.setTimer(100, id1 -> {
             try {
@@ -96,17 +96,17 @@ class NAVServiceTest extends FundsCustodyTestBase {
                             new BigDecimal("100000"),
                             Currency.USD,
                             "nav-auditor"
-                        ).toCompletableFuture().get();
+                        ).await();
                         
                         vertx.setTimer(100, id3 -> {
                             try {
                                 // Get NAV as reported
                                 NAVSnapshot reported = navService.getNAVAsReported(fundId, navDate, reportingTime)
-                                    .toCompletableFuture().get();
+                                    .await();
                                 
                                 // Get corrected NAV
                                 NAVSnapshot corrected = navService.getNAVCorrected(fundId, navDate)
-                                    .toCompletableFuture().get();
+                                    .await();
                                 
                                 // Verify reported NAV (original)
                                 assertNotNull(reported);
@@ -147,7 +147,7 @@ class NAVServiceTest extends FundsCustodyTestBase {
             new BigDecimal("100000"),
             Currency.USD,
             "nav-calculator"
-        ).toCompletableFuture().get();
+        ).await();
         
         vertx.setTimer(100, id1 -> {
             try {
@@ -164,14 +164,14 @@ class NAVServiceTest extends FundsCustodyTestBase {
                             new BigDecimal("100000"),
                             Currency.USD,
                             "nav-auditor"
-                        ).toCompletableFuture().get();
+                        ).await();
                         
                         vertx.setTimer(100, id3 -> {
                             try {
                                 // Analyze correction impact
                                 NAVCorrectionImpact impact = navService
                                     .analyzeNAVCorrection(fundId, navDate, reportingTime)
-                                    .toCompletableFuture().get();
+                                    .await();
                                 
                                 assertNotNull(impact);
                                 assertEquals(fundId, impact.fundId());
@@ -216,7 +216,7 @@ class NAVServiceTest extends FundsCustodyTestBase {
             new BigDecimal("100000"),
             Currency.USD,
             "nav-calculator"
-        ).toCompletableFuture().get();
+        ).await();
         
         vertx.setTimer(100, id1 -> {
             try {
@@ -233,14 +233,14 @@ class NAVServiceTest extends FundsCustodyTestBase {
                             new BigDecimal("100000"),
                             Currency.USD,
                             "nav-auditor"
-                        ).toCompletableFuture().get();
+                        ).await();
                         
                         vertx.setTimer(100, id3 -> {
                             try {
                                 // Analyze correction impact
                                 NAVCorrectionImpact impact = navService
                                     .analyzeNAVCorrection(fundId, navDate, reportingTime)
-                                    .toCompletableFuture().get();
+                                    .await();
                                 
                                 assertNotNull(impact);
 
@@ -274,28 +274,28 @@ class NAVServiceTest extends FundsCustodyTestBase {
         navService.calculateNAV(fundId, date1, 
             new BigDecimal("10000000"), new BigDecimal("500000"), 
             new BigDecimal("100000"), Currency.USD, "calc1")
-            .toCompletableFuture().get();
+            .await();
         
         vertx.setTimer(50, id1 -> {
             try {
                 navService.calculateNAV(fundId, date2, 
                     new BigDecimal("10100000"), new BigDecimal("500000"), 
                     new BigDecimal("100000"), Currency.USD, "calc2")
-                    .toCompletableFuture().get();
+                    .await();
                 
                 vertx.setTimer(50, id2 -> {
                     try {
                         navService.calculateNAV(fundId, date3, 
                             new BigDecimal("10200000"), new BigDecimal("500000"), 
                             new BigDecimal("100000"), Currency.USD, "calc3")
-                            .toCompletableFuture().get();
+                            .await();
                         
                         vertx.setTimer(100, id3 -> {
                             try {
                                 // Get NAV history
                                 List<NAVSnapshot> history = navService
                                     .getNAVHistory(fundId, date1, date3)
-                                    .toCompletableFuture().get();
+                                    .await();
                                 
                                 assertNotNull(history);
                                 assertEquals(3, history.size());
@@ -338,12 +338,12 @@ class NAVServiceTest extends FundsCustodyTestBase {
             BigDecimal.ZERO,  // Zero shares
             Currency.USD,
             "nav-calculator"
-        ).toCompletableFuture().get();
+        ).await();
         
         vertx.setTimer(100, id -> {
             try {
                 NAVSnapshot nav = navService.getNAVCorrected(fundId, navDate)
-                    .toCompletableFuture().get();
+                    .await();
                 
                 assertNotNull(nav);
                 assertEquals(BigDecimal.ZERO, nav.navPerShare());

@@ -25,6 +25,7 @@ import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.sqlclient.Row;
@@ -50,8 +51,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
 import java.util.Map;
-
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -140,7 +139,7 @@ public class OrderConsumerServiceTest {
                         log.info("Application-specific schema created successfully");
                         return (Void) null;
                     });
-            }).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
+            }).await();
 
         log.info("=== Application-specific schema setup complete ===");
     }
@@ -173,12 +172,12 @@ public class OrderConsumerServiceTest {
         
         // Send test message
         OrderEvent event = new OrderEvent("ORDER-001", "customer-1", new BigDecimal("100.00"), "PENDING");
-        producer.send(event).get(5, TimeUnit.SECONDS);
+        producer.send(event).await();
         
         // Wait for message to be processed
-        CompletableFuture<Void> delay = new CompletableFuture<>();
-        vertx.setTimer(2000, id -> delay.complete(null));
-        delay.join();
+        Promise<Void> delay = Promise.promise();
+        vertx.setTimer(2000, id -> delay.complete());
+        delay.future().await();
         
         // Verify order was stored in database
         boolean orderExists = databaseService.getConnectionProvider()
@@ -190,9 +189,7 @@ public class OrderConsumerServiceTest {
                         return row.getLong(0) > 0;
                     });
             })
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get(5, TimeUnit.SECONDS);
+            .await();
         
         assertTrue(orderExists, "Order should be stored in database");
         assertTrue(consumerService.getMessagesProcessed() > 0, "Consumer should have processed messages");
@@ -213,16 +210,16 @@ public class OrderConsumerServiceTest {
         
         // Send message with allowed status (should be processed)
         OrderEvent allowedEvent = new OrderEvent("ORDER-002", "customer-2", new BigDecimal("150.00"), "PENDING");
-        producer.send(allowedEvent).get(5, TimeUnit.SECONDS);
+        producer.send(allowedEvent).await();
         
         // Send message with disallowed status (should be filtered)
         OrderEvent filteredEvent = new OrderEvent("ORDER-003", "customer-3", new BigDecimal("200.00"), "SHIPPED");
-        producer.send(filteredEvent).get(5, TimeUnit.SECONDS);
+        producer.send(filteredEvent).await();
         
         // Wait for messages to be processed
-        CompletableFuture<Void> delay = new CompletableFuture<>();
-        vertx.setTimer(2000, id -> delay.complete(null));
-        delay.join();
+        Promise<Void> delay = Promise.promise();
+        vertx.setTimer(2000, id -> delay.complete());
+        delay.future().await();
         
         // Verify filtering worked
         long processedDelta = consumerService.getMessagesProcessed() - initialProcessed;

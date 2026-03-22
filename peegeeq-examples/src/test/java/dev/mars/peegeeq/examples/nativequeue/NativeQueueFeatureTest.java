@@ -31,6 +31,7 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -136,7 +137,7 @@ class NativeQueueFeatureTest {
             }
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive().await();
         }
         logger.info("Native queue feature test teardown completed");
     }
@@ -178,12 +179,12 @@ class NativeQueueFeatureTest {
             receivedMessages.add(message.getPayload());
             receiveTime.set(System.currentTimeMillis());
             latch.countDown();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
         
         // Send message and measure time
         long sendTime = System.currentTimeMillis();
-        producer.send("Real-time test message").get(5, TimeUnit.SECONDS);
+        producer.send("Real-time test message").await();
         
         // Wait for message to be received
         assertTrue(latch.await(10, TimeUnit.SECONDS), "Message should be received within 10 seconds");
@@ -216,14 +217,14 @@ class NativeQueueFeatureTest {
             processedCount.incrementAndGet();
             latch.countDown();
             logger.info("Member-1 processed: {}", message.getPayload());
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         consumerGroup.addConsumer("member-2", message -> {
             processedCount.incrementAndGet();
             latch.countDown();
             logger.info("Member-2 processed: {}", message.getPayload());
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
         
         // Start the consumer group
@@ -231,7 +232,7 @@ class NativeQueueFeatureTest {
         
         // Send multiple messages
         for (int i = 0; i < 5; i++) {
-            producer.send("Group message " + i).get(2, TimeUnit.SECONDS);
+            producer.send("Group message " + i).await();
         }
         
         // Wait for all messages to be processed
@@ -266,34 +267,24 @@ class NativeQueueFeatureTest {
             receivedMessages.add(message.getPayload());
             processedCount.incrementAndGet();
             latch.countDown();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
         
         // Send messages concurrently
-        ExecutorService executor = Executors.newFixedThreadPool(5);
-        List<CompletableFuture<Void>> futures = new ArrayList<>();
+        List<Future<Void>> futures = new ArrayList<>();
         
         for (int i = 0; i < messageCount; i++) {
-            final int messageId = i;
-            CompletableFuture<Void> future = CompletableFuture.runAsync(() -> {
-                try {
-                    producer.send("Concurrent message " + messageId).get(5, TimeUnit.SECONDS);
-                } catch (Exception e) {
-                    logger.error("Failed to send message " + messageId, e);
-                }
-            }, executor);
-            futures.add(future);
+            futures.add(producer.send("Concurrent message " + i));
         }
         
         // Wait for all sends to complete
-        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).get(30, TimeUnit.SECONDS);
+        Future.all(futures).await();
         
         // Wait for all messages to be processed
         assertTrue(latch.await(30, TimeUnit.SECONDS), "All messages should be processed");
         assertEquals(messageCount, processedCount.get());
         assertEquals(messageCount, receivedMessages.size());
         
-        executor.shutdown();
         producer.close();
         consumer.close();
         

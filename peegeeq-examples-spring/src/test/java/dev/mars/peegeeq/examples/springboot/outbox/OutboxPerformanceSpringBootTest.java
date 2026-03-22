@@ -19,6 +19,8 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -110,9 +112,9 @@ public class OutboxPerformanceSpringBootTest {
         
         // Wait for connections to be fully released before next test
         logger.info("⏳ Waiting for connections to be released...");
-        CompletableFuture<Void> delay = new CompletableFuture<>();
-        vertx.setTimer(2000, id -> delay.complete(null));
-        delay.join();
+        Promise<Void> delay = Promise.promise();
+        vertx.setTimer(2000, id -> delay.complete());
+        delay.future().await();
         
         logger.info("Cleanup complete");
     }
@@ -150,7 +152,7 @@ public class OutboxPerformanceSpringBootTest {
                 logger.info("📦 Processed {} messages", count);
             }
             checkpoint.flag();
-            return java.util.concurrent.CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
         
         // Create producer
@@ -167,7 +169,7 @@ public class OutboxPerformanceSpringBootTest {
                 "High volume test message " + i,
                 System.currentTimeMillis()
             );
-            producer.send(message).join();
+            producer.send(message).await();
             
             if (i % 100 == 0) {
                 logger.info("   Sent {} messages", i);
@@ -242,7 +244,7 @@ public class OutboxPerformanceSpringBootTest {
                     logger.info("📦 Total processed: {}", count);
                 }
                 checkpoint.flag();
-                return java.util.concurrent.CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
             
             logger.info("   Created {}", consumerId);
@@ -262,7 +264,7 @@ public class OutboxPerformanceSpringBootTest {
                 "Concurrent test message " + i,
                 System.currentTimeMillis()
             );
-            producer.send(message).join();
+            producer.send(message).await();
         }
         
         // Wait for all messages to be processed (allow 0.5 sec per message + overhead)
@@ -338,7 +340,7 @@ public class OutboxPerformanceSpringBootTest {
             }
             
             checkpoint.flag();
-            return java.util.concurrent.CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
         
         // Create producer
@@ -355,13 +357,13 @@ public class OutboxPerformanceSpringBootTest {
                 "Batch test message " + i,
                 System.currentTimeMillis()
             );
-            producer.send(message).join();
+            producer.send(message).await();
             
             // Small burst pattern
             if (i % 50 == 0) {
-                CompletableFuture<Void> burstDelay = new CompletableFuture<>();
-                vertx.setTimer(100, tid -> burstDelay.complete(null));
-                burstDelay.join(); // Pause between bursts
+                Promise<Void> burstDelay = Promise.promise();
+                vertx.setTimer(100, tid -> burstDelay.complete());
+                burstDelay.future().await(); // Pause between bursts
                 logger.info("   Sent {} messages", i);
             }
         }

@@ -15,6 +15,8 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
@@ -28,8 +30,6 @@ import java.math.BigDecimal;
 import java.util.*;
 
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -63,7 +63,6 @@ class EnhancedErrorHandlingDemoTest {
 
     private PeeGeeQManager manager;
     private QueueFactory queueFactory;
-    private ExecutorService executorService;
 
     // Error types for testing different scenarios
     public enum ErrorType {
@@ -150,9 +149,6 @@ class EnhancedErrorHandlingDemoTest {
 
         queueFactory = provider.createFactory("native", databaseService);
         
-        // Initialize executor service
-        executorService = Executors.newFixedThreadPool(6);
-        
         logger.info("EnhancedErrorHandlingDemoTest setup complete");
     }
 
@@ -160,12 +156,8 @@ class EnhancedErrorHandlingDemoTest {
     void tearDown() {
         logger.info("🧹 Cleaning up EnhancedErrorHandlingDemoTest");
         
-        if (executorService != null) {
-            executorService.shutdown();
-        }
-        
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive().await();
         }
         
         // Restore original properties
@@ -200,104 +192,94 @@ class EnhancedErrorHandlingDemoTest {
                 order.getOrderId(), message.getHeaders().get("dlq_reason"));
 
             dlqMessages.incrementAndGet();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
         
         // Produce messages with different error scenarios
-        List<CompletableFuture<Void>> producerTasks = new ArrayList<>();
+        List<Future<Void>> producerTasks = new ArrayList<>();
         
         // TRANSIENT_NETWORK errors - should retry and eventually succeed
         for (int i = 0; i < 5; i++) {
-            final int orderId = i;
-            producerTasks.add(CompletableFuture.runAsync(() -> {
-                OrderEvent order = new OrderEvent("NETWORK-" + orderId, "CUSTOMER-" + orderId, 
-                    new BigDecimal("100.00"), "PENDING");
-                
-                Map<String, String> headers = new HashMap<>();
-                headers.put("error_type", ErrorType.TRANSIENT_NETWORK.name());
-                headers.put("simulate_failure", "true");
-                
-                producer.send(order, headers);
+            OrderEvent order = new OrderEvent("NETWORK-" + i, "CUSTOMER-" + i, 
+                new BigDecimal("100.00"), "PENDING");
+            
+            Map<String, String> headers = new HashMap<>();
+            headers.put("error_type", ErrorType.TRANSIENT_NETWORK.name());
+            headers.put("simulate_failure", "true");
+            
+            producerTasks.add(producer.send(order, headers).onSuccess(v -> {
                 totalMessagesProduced.incrementAndGet();
                 logger.debug("📤 Sent order with TRANSIENT_NETWORK error: {}", order.getOrderId());
-            }, executorService));
+            }));
         }
         
         // INVALID_DATA errors - should go to DLQ immediately
         for (int i = 0; i < 3; i++) {
-            final int orderId = i;
-            producerTasks.add(CompletableFuture.runAsync(() -> {
-                OrderEvent order = new OrderEvent("INVALID-" + orderId, "", 
-                    new BigDecimal("-100.00"), "INVALID");
-                
-                Map<String, String> headers = new HashMap<>();
-                headers.put("error_type", ErrorType.INVALID_DATA.name());
-                headers.put("simulate_failure", "true");
-                
-                producer.send(order, headers);
+            OrderEvent order = new OrderEvent("INVALID-" + i, "", 
+                new BigDecimal("-100.00"), "INVALID");
+            
+            Map<String, String> headers = new HashMap<>();
+            headers.put("error_type", ErrorType.INVALID_DATA.name());
+            headers.put("simulate_failure", "true");
+            
+            producerTasks.add(producer.send(order, headers).onSuccess(v -> {
                 totalMessagesProduced.incrementAndGet();
                 logger.debug("📤 Sent order with INVALID_DATA error: {}", order.getOrderId());
-            }, executorService));
+            }));
         }
         
         // EXTERNAL_SERVICE errors - circuit breaker pattern
         for (int i = 0; i < 7; i++) {
-            final int orderId = i;
-            producerTasks.add(CompletableFuture.runAsync(() -> {
-                OrderEvent order = new OrderEvent("EXTERNAL-" + orderId, "CUSTOMER-" + orderId, 
-                    new BigDecimal("200.00"), "PENDING");
-                
-                Map<String, String> headers = new HashMap<>();
-                headers.put("error_type", ErrorType.EXTERNAL_SERVICE.name());
-                headers.put("simulate_failure", "true");
-                
-                producer.send(order, headers);
+            OrderEvent order = new OrderEvent("EXTERNAL-" + i, "CUSTOMER-" + i, 
+                new BigDecimal("200.00"), "PENDING");
+            
+            Map<String, String> headers = new HashMap<>();
+            headers.put("error_type", ErrorType.EXTERNAL_SERVICE.name());
+            headers.put("simulate_failure", "true");
+            
+            producerTasks.add(producer.send(order, headers).onSuccess(v -> {
                 totalMessagesProduced.incrementAndGet();
                 logger.debug("📤 Sent order with EXTERNAL_SERVICE error: {}", order.getOrderId());
-            }, executorService));
+            }));
         }
         
         // RECOVERABLE errors - standard retry logic
         for (int i = 0; i < 4; i++) {
-            final int orderId = i;
-            producerTasks.add(CompletableFuture.runAsync(() -> {
-                OrderEvent order = new OrderEvent("RECOVER-" + orderId, "CUSTOMER-" + orderId, 
-                    new BigDecimal("50.00"), "PENDING");
-                
-                Map<String, String> headers = new HashMap<>();
-                headers.put("error_type", ErrorType.RECOVERABLE.name());
-                headers.put("simulate_failure", "true");
-                
-                producer.send(order, headers);
+            OrderEvent order = new OrderEvent("RECOVER-" + i, "CUSTOMER-" + i, 
+                new BigDecimal("50.00"), "PENDING");
+            
+            Map<String, String> headers = new HashMap<>();
+            headers.put("error_type", ErrorType.RECOVERABLE.name());
+            headers.put("simulate_failure", "true");
+            
+            producerTasks.add(producer.send(order, headers).onSuccess(v -> {
                 totalMessagesProduced.incrementAndGet();
                 logger.debug("📤 Sent order with RECOVERABLE error: {}", order.getOrderId());
-            }, executorService));
+            }));
         }
         
         // Some successful messages
         for (int i = 0; i < 6; i++) {
-            final int orderId = i;
-            producerTasks.add(CompletableFuture.runAsync(() -> {
-                OrderEvent order = new OrderEvent("SUCCESS-" + orderId, "CUSTOMER-" + orderId, 
-                    new BigDecimal("75.00"), "PENDING");
-                
-                Map<String, String> headers = new HashMap<>();
-                headers.put("error_type", ErrorType.RECOVERABLE.name());
-                headers.put("simulate_failure", "false");
-                
-                producer.send(order, headers);
+            OrderEvent order = new OrderEvent("SUCCESS-" + i, "CUSTOMER-" + i, 
+                new BigDecimal("75.00"), "PENDING");
+            
+            Map<String, String> headers = new HashMap<>();
+            headers.put("error_type", ErrorType.RECOVERABLE.name());
+            headers.put("simulate_failure", "false");
+            
+            producerTasks.add(producer.send(order, headers).onSuccess(v -> {
                 totalMessagesProduced.incrementAndGet();
                 logger.debug("📤 Sent successful order: {}", order.getOrderId());
-            }, executorService));
+            }));
         }
         
         // Wait for all producers to complete
-        CompletableFuture.allOf(producerTasks.toArray(new CompletableFuture[0])).get();
+        Future.all(producerTasks).await();
 
-        // Wait for processing to complete using CompletableFuture
-        CompletableFuture<Void> delay = new CompletableFuture<>();
-        vertx.setTimer(5000, id -> delay.complete(null));
-        delay.join();
+        // Wait for processing to complete
+        Promise<Void> delay = Promise.promise();
+        vertx.setTimer(5000, id -> delay.complete());
+        delay.future().await();
         
         // Stop consumers
         consumer.close();
@@ -327,8 +309,8 @@ class EnhancedErrorHandlingDemoTest {
         logger.info("Enhanced error handling demonstration complete");
     }
 
-    private CompletableFuture<Void> processOrderWithErrorHandling(OrderEvent order, ErrorType errorType, Map<String, String> headers) {
-        return CompletableFuture.supplyAsync(() -> {
+    private Future<Void> processOrderWithErrorHandling(OrderEvent order, ErrorType errorType, Map<String, String> headers) {
+        try {
             boolean shouldFail = "true".equals(headers.get("simulate_failure"));
             
             if (shouldFail) {
@@ -345,23 +327,23 @@ class EnhancedErrorHandlingDemoTest {
                             logger.info("🔄 Network error recovered for order: {}", order.getOrderId());
                             successfulRecoveries.incrementAndGet();
                             totalMessagesConsumed.incrementAndGet();
-                            return null;
+                            return Future.succeededFuture();
                         }
-                        throw new RuntimeException("Network timeout - retry");
+                        return Future.failedFuture(new RuntimeException("Network timeout - retry"));
                         
                     case INVALID_DATA:
                         // Invalid data - send to DLQ immediately
                         logger.warn("💀 Invalid data detected, sending to DLQ: {}", order.getOrderId());
-                        throw new IllegalArgumentException("Invalid order data - DLQ");
+                        return Future.failedFuture(new IllegalArgumentException("Invalid order data - DLQ"));
                         
                     case EXTERNAL_SERVICE:
                         // External service failure - circuit breaker
                         totalRetries.incrementAndGet();
                         if (totalRetries.get() > 5) {
                             logger.warn("🔌 Circuit breaker opened for external service");
-                            throw new RuntimeException("Circuit breaker open");
+                            return Future.failedFuture(new RuntimeException("Circuit breaker open"));
                         }
-                        throw new RuntimeException("External service unavailable");
+                        return Future.failedFuture(new RuntimeException("External service unavailable"));
                         
                     case RECOVERABLE:
                         // Standard recoverable error
@@ -370,20 +352,22 @@ class EnhancedErrorHandlingDemoTest {
                             logger.info("🔄 Recoverable error resolved for order: {}", order.getOrderId());
                             successfulRecoveries.incrementAndGet();
                             totalMessagesConsumed.incrementAndGet();
-                            return null;
+                            return Future.succeededFuture();
                         }
-                        throw new RuntimeException("Temporary processing error");
+                        return Future.failedFuture(new RuntimeException("Temporary processing error"));
                         
                     default:
-                        throw new RuntimeException("Unknown error type");
+                        return Future.failedFuture(new RuntimeException("Unknown error type"));
                 }
             } else {
                 // Successful processing
                 logger.info("Successfully processed order: {}", order.getOrderId());
                 totalMessagesConsumed.incrementAndGet();
-                return null;
+                return Future.succeededFuture();
             }
-        }, executorService).thenApply(result -> null);
+        } catch (Exception e) {
+            return Future.failedFuture(e);
+        }
     }
 
     private void backupSystemProperties() {

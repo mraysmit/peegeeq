@@ -26,6 +26,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.core.Promise;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.BeforeEach;
@@ -255,7 +256,7 @@ class PeeGeeQExampleTest {
         logger.info(">> Overall Health: {}", isHealthy ? "UP" : "DOWN");
 
         // Get system status which includes health information
-        PeeGeeQManager.SystemStatus status = manager.getSystemStatus();
+        PeeGeeQManager.SystemStatus status = manager.getSystemStatus().await();
         logger.info("System Status: {}", status);
 
         // Note: Individual health component details are not exposed in the current API
@@ -356,9 +357,9 @@ class PeeGeeQExampleTest {
             }
 
             // Wait briefly for operations to complete
-            CompletableFuture<Void> delay = new CompletableFuture<>();
-            vertx.setTimer(1000, id -> delay.complete(null));
-            delay.join();
+            Promise<Void> delay = Promise.promise();
+            vertx.setTimer(1000, id -> delay.complete());
+            delay.future().await();
 
             BackpressureManager.BackpressureMetrics metrics = backpressureManager.getMetrics();
             logger.info(">> Total Requests: {}", metrics.getTotalRequests());
@@ -378,7 +379,7 @@ class PeeGeeQExampleTest {
         var deadLetterManager = manager.getDeadLetterQueueManager();
 
         // Display dead letter queue statistics (initially empty)
-        var stats = deadLetterManager.getStatistics().join();
+        var stats = deadLetterManager.getStatistics().await();
         logger.info(">> Dead Letter Queue Stats:");
         logger.info("  > Total Messages: {}", stats.totalMessages());
         logger.info("  > Is Empty: {}", stats.isEmpty());
@@ -400,7 +401,7 @@ class PeeGeeQExampleTest {
         try {
             monitor.scheduleAtFixedRate(() -> {
                 try {
-                    PeeGeeQManager.SystemStatus status = manager.getSystemStatus();
+                    PeeGeeQManager.SystemStatus status = manager.getSystemStatus().await();
                     logger.info("System Status: {}", status);
 
                     if (!status.getHealthStatus().isHealthy()) {
@@ -418,9 +419,9 @@ class PeeGeeQExampleTest {
             }, 0, 2, TimeUnit.SECONDS); // Faster for test
 
             // Run monitoring for 5 seconds (shorter for test)
-            CompletableFuture<Void> delay = new CompletableFuture<>();
-            vertx.setTimer(5000, id -> delay.complete(null));
-            delay.join();
+            Promise<Void> delay = Promise.promise();
+            vertx.setTimer(5000, id -> delay.complete());
+            delay.future().await();
 
         } finally {
             shutdownExecutorGracefully(monitor, "system-monitor");

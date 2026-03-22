@@ -21,6 +21,7 @@ import io.vertx.junit5.VertxExtension;
 import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.Pool;
+import io.vertx.core.Promise;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -108,15 +109,15 @@ public abstract class FundsCustodyTestBase {
                             System.out.println("Cleanup operation warning: " + throwable.getMessage());
                         }
                     })
-            ).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+            ).await();
 
-            cleanupPool.close().toCompletionStage().toCompletableFuture().get(3, TimeUnit.SECONDS);
+            cleanupPool.close().await();
             
             // Wait for async operations to complete
             if (vertx != null) {
-                CompletableFuture<Void> delay = new CompletableFuture<>();
-                vertx.setTimer(200, id -> delay.complete(null));
-                delay.join();
+                io.vertx.core.Promise<Void> delay = io.vertx.core.Promise.promise();
+                vertx.setTimer(200, id -> delay.complete());
+                delay.future().await();
             }
 
         } catch (Exception e) {
@@ -218,7 +219,7 @@ public abstract class FundsCustodyTestBase {
         // This is critical to prevent shared pool reuse across test classes
         if (manager != null) {
             try {
-                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+                manager.closeReactive().await();
             } catch (Exception e) {
                 System.err.println("Error closing PeeGeeQ manager: " + e.getMessage());
             }

@@ -7,6 +7,7 @@ import dev.mars.peegeeq.examples.fundscustody.domain.Currency;
 import dev.mars.peegeeq.examples.fundscustody.domain.Position;
 import dev.mars.peegeeq.examples.fundscustody.events.TradeEvent;
 import dev.mars.peegeeq.examples.fundscustody.model.PositionSnapshot;
+import io.vertx.core.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -31,7 +32,7 @@ import java.util.stream.Collectors;
  *   <li>Calculating weighted average price</li>
  * </ul>
  * 
- * <p>All methods return CompletableFuture to maintain async/non-blocking behavior.
+ * <p>All methods return Future to maintain async/non-blocking behavior.
  * No Spring dependencies - plain Java with constructor injection.
  */
 public class PositionService {
@@ -58,7 +59,7 @@ public class PositionService {
      * @param asOfDate date for position calculation
      * @return future containing the position
      */
-    public CompletableFuture<Position> getPositionAsOf(
+    public Future<Position> getPositionAsOf(
             String fundId, String securityId, LocalDate asOfDate) {
         
         Instant asOfInstant = asOfDate.atTime(23, 59, 59).toInstant(ZoneOffset.UTC);
@@ -71,7 +72,7 @@ public class PositionService {
                 .aggregateId("TRADE:" + fundId)
                 .validTimeRange(dev.mars.peegeeq.api.TemporalRange.until(asOfInstant))
                 .build()
-        ).toCompletionStage().toCompletableFuture().thenApply(trades -> {
+        ).map(trades -> {
             List<TradeEvent> securityTrades = trades.stream()
                 .map(BiTemporalEvent::getPayload)
                 .filter(trade -> securityId.equals(trade.securityId()))
@@ -88,7 +89,7 @@ public class PositionService {
      * @param asOfDate date for position calculation
      * @return future containing list of positions
      */
-    public CompletableFuture<List<Position>> getPositionsByFund(
+    public Future<List<Position>> getPositionsByFund(
             String fundId, LocalDate asOfDate) {
         
         Instant asOfInstant = asOfDate.atTime(23, 59, 59).toInstant(ZoneOffset.UTC);
@@ -100,7 +101,7 @@ public class PositionService {
                 .aggregateId("TRADE:" + fundId)
                 .validTimeRange(dev.mars.peegeeq.api.TemporalRange.until(asOfInstant))
                 .build()
-        ).toCompletionStage().toCompletableFuture().thenApply(trades -> {
+        ).map(trades -> {
             // Group trades by security
             Map<String, List<TradeEvent>> tradesByecurity = trades.stream()
                 .map(BiTemporalEvent::getPayload)
@@ -129,36 +130,31 @@ public class PositionService {
      * @param endDate end of date range
      * @return future containing list of position snapshots
      */
-    public CompletableFuture<List<PositionSnapshot>> getPositionHistory(
+    public Future<List<PositionSnapshot>> getPositionHistory(
             String fundId, String securityId, LocalDate startDate, LocalDate endDate) {
 
         logger.debug("Calculating position history for fund {} security {} from {} to {}",
             fundId, securityId, startDate, endDate);
 
-        List<CompletableFuture<PositionSnapshot>> futures = new ArrayList<>();
+        List<Future<PositionSnapshot>> futures = new ArrayList<>();
         LocalDate currentDate = startDate;
 
         while (!currentDate.isAfter(endDate)) {
             LocalDate date = currentDate;  // Effectively final for lambda
-            CompletableFuture<PositionSnapshot> future = getPositionAsOf(fundId, securityId, date)
-                .thenApply(position -> PositionSnapshot.from(position, Instant.now()));
+            Future<PositionSnapshot> future = getPositionAsOf(fundId, securityId, date)
+                .map(position -> PositionSnapshot.from(position, Instant.now()));
             futures.add(future);
             currentDate = currentDate.plusDays(1);
         }
 
         // Combine all futures into a single future of list
-        return futures.stream()
-            .reduce(
-                CompletableFuture.completedFuture(new ArrayList<PositionSnapshot>()),
-                (acc, future) -> acc.thenCombine(future, (list, snapshot) -> {
-                    list.add(snapshot);
-                    return list;
-                }),
-                (f1, f2) -> f1.thenCombine(f2, (list1, list2) -> {
-                    list1.addAll(list2);
-                    return list1;
-                })
-            );
+        return Future.all(futures).map(cf -> {
+            List<PositionSnapshot> result = new ArrayList<>();
+            for (int i = 0; i < futures.size(); i++) {
+                result.add(futures.get(i).result());
+            }
+            return result;
+        });
     }
     
     /**

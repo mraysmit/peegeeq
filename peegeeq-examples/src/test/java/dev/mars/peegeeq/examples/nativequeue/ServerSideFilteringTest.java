@@ -35,6 +35,8 @@ import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
@@ -114,10 +116,10 @@ public class ServerSideFilteringTest {
         }
         if (manager != null) {
             try {
-                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
-                CompletableFuture<Void> delay = new CompletableFuture<>();
-                vertx.setTimer(2000, id -> delay.complete(null));
-                delay.join();
+                manager.closeReactive().await();
+                Promise<Void> delay = Promise.promise();
+                vertx.setTimer(2000, id -> delay.complete());
+                delay.future().await();
             } catch (Exception e) {
                 logger.error("Error during manager cleanup", e);
             }
@@ -154,7 +156,7 @@ public class ServerSideFilteringTest {
             logger.info("Received filtered message: {} with headers: {}", message.getPayload(), message.getHeaders());
             receivedMessages.add(message.getPayload());
             checkpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         vertx.setTimer(2000, id -> {
@@ -204,7 +206,7 @@ public class ServerSideFilteringTest {
             logger.info("Received filtered message: {} with headers: {}", message.getPayload(), message.getHeaders());
             receivedMessages.add(message.getPayload());
             checkpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         vertx.setTimer(2000, id -> {
@@ -253,7 +255,7 @@ public class ServerSideFilteringTest {
             logger.info("Received filtered message: {} with headers: {}", message.getPayload(), message.getHeaders());
             receivedMessages.add(message.getPayload());
             checkpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         vertx.setTimer(2000, id -> {
@@ -299,7 +301,7 @@ public class ServerSideFilteringTest {
             logger.info("Received filtered message: {} with headers: {}", message.getPayload(), message.getHeaders());
             receivedMessages.add(message.getPayload());
             checkpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         vertx.setTimer(2000, id -> {
@@ -350,7 +352,7 @@ public class ServerSideFilteringTest {
             logger.info("Received filtered message: {} with headers: {}", message.getPayload(), message.getHeaders());
             receivedMessages.add(message.getPayload());
             checkpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         vertx.setTimer(2000, id -> {
@@ -397,7 +399,7 @@ public class ServerSideFilteringTest {
             logger.info("Received filtered message: {} with headers: {}", message.getPayload(), message.getHeaders());
             receivedMessages.add(message.getPayload());
             checkpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         vertx.setTimer(2000, id -> {
@@ -444,7 +446,7 @@ public class ServerSideFilteringTest {
             logger.info("Received filtered message: {} with headers: {}", message.getPayload(), message.getHeaders());
             receivedMessages.add(message.getPayload());
             checkpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         vertx.setTimer(2000, id -> {

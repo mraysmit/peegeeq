@@ -30,6 +30,7 @@ import org.springframework.web.bind.annotation.*;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.List;
+import io.vertx.core.Future;
 
 
 /**
@@ -79,14 +80,14 @@ public class TransactionController {
      * @return CompletableFuture with the recorded event
      */
     @PostMapping("/transactions")
-    public CompletableFuture<ResponseEntity<BiTemporalEvent<TransactionEvent>>> recordTransaction(
+    public Future<ResponseEntity<BiTemporalEvent<TransactionEvent>>> recordTransaction(
             @RequestBody TransactionRequest request) {
         
         logger.info("REST: Recording transaction for account: {}", request.getAccountId());
         
         return transactionService.recordTransaction(request)
-            .thenApply(ResponseEntity::ok)
-            .exceptionally(error -> {
+            .map(ResponseEntity::ok)
+            .otherwise(error -> {
                 logger.error("REST: Failed to record transaction", error);
                 return ResponseEntity.internalServerError().build();
             });
@@ -104,14 +105,14 @@ public class TransactionController {
      * @return CompletableFuture with account history
      */
     @GetMapping("/accounts/{accountId}/history")
-    public CompletableFuture<ResponseEntity<AccountHistoryResponse>> getAccountHistory(
+    public Future<ResponseEntity<AccountHistoryResponse>> getAccountHistory(
             @PathVariable String accountId) {
         
         logger.info("REST: Retrieving history for account: {}", accountId);
         
         return transactionService.getAccountHistory(accountId)
-            .thenApply(ResponseEntity::ok)
-            .exceptionally(error -> {
+            .map(ResponseEntity::ok)
+            .otherwise(error -> {
                 logger.error("REST: Failed to retrieve account history", error);
                 return ResponseEntity.internalServerError().build();
             });
@@ -130,7 +131,7 @@ public class TransactionController {
      * @return CompletableFuture with the balance
      */
     @GetMapping("/accounts/{accountId}/balance")
-    public CompletableFuture<ResponseEntity<BigDecimal>> getAccountBalance(
+    public Future<ResponseEntity<BigDecimal>> getAccountBalance(
             @PathVariable String accountId,
             @RequestParam(required = false) Instant asOf) {
         
@@ -138,8 +139,8 @@ public class TransactionController {
         logger.info("REST: Calculating balance for account: {} as of: {}", accountId, pointInTime);
         
         return transactionService.getAccountBalance(accountId, pointInTime)
-            .thenApply(ResponseEntity::ok)
-            .exceptionally(error -> {
+            .map(ResponseEntity::ok)
+            .otherwise(error -> {
                 logger.error("REST: Failed to calculate balance", error);
                 return ResponseEntity.internalServerError().build();
             });
@@ -162,15 +163,15 @@ public class TransactionController {
      * @return CompletableFuture with the correction event
      */
     @PostMapping("/transactions/{transactionId}/correct")
-    public CompletableFuture<ResponseEntity<BiTemporalEvent<TransactionEvent>>> correctTransaction(
+    public Future<ResponseEntity<BiTemporalEvent<TransactionEvent>>> correctTransaction(
             @PathVariable String transactionId,
             @RequestBody TransactionCorrectionRequest request) {
         
         logger.info("REST: Correcting transaction: {}", transactionId);
         
         return transactionService.correctTransaction(transactionId, request)
-            .thenApply(ResponseEntity::ok)
-            .exceptionally(error -> {
+            .map(ResponseEntity::ok)
+            .otherwise(error -> {
                 logger.error("REST: Failed to correct transaction", error);
                 return ResponseEntity.internalServerError().build();
             });
@@ -188,14 +189,14 @@ public class TransactionController {
      * @return CompletableFuture with all versions
      */
     @GetMapping("/transactions/{transactionId}/versions")
-    public CompletableFuture<ResponseEntity<List<BiTemporalEvent<TransactionEvent>>>> getTransactionVersions(
+    public Future<ResponseEntity<List<BiTemporalEvent<TransactionEvent>>>> getTransactionVersions(
             @PathVariable String transactionId) {
         
         logger.info("REST: Retrieving versions for transaction: {}", transactionId);
         
         return transactionService.getTransactionVersions(transactionId)
-            .thenApply(ResponseEntity::ok)
-            .exceptionally(error -> {
+            .map(ResponseEntity::ok)
+            .otherwise(error -> {
                 logger.error("REST: Failed to retrieve transaction versions", error);
                 return ResponseEntity.internalServerError().build();
             });

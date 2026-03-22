@@ -125,7 +125,7 @@ public class CriticalTradeConsumerService {
      *
      * Pattern 2: Only CRITICAL priority messages with immediate alerting.
      */
-    private CompletableFuture<Void> processMessage(Message<TradeSettlementEvent> message) {
+    private Future<Void> processMessage(Message<TradeSettlementEvent> message) {
         TradeSettlementEvent event = message.getPayload();
         Priority priority = event.getPriority();
 
@@ -164,7 +164,7 @@ public class CriticalTradeConsumerService {
             })
             .toCompletionStage()
             .toCompletableFuture()
-            .thenApply(v -> {
+            .map(v -> {
                 // STEP 4: Notify trading desk immediately
                 notifyTradingDesk(event, incidentId);
 
@@ -173,7 +173,7 @@ public class CriticalTradeConsumerService {
 
                 return (Void) null;
             })
-            .exceptionally(ex -> {
+            .otherwise(ex -> {
                 log.error("❌ [CRITICAL] Failed to process message: tradeId={}, priority={}",
                     event.getTradeId(), priority, ex);
                 messagesFailed.incrementAndGet();

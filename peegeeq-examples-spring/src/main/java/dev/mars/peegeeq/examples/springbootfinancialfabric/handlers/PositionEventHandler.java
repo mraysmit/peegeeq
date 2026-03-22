@@ -14,6 +14,7 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 
 import java.util.concurrent.atomic.AtomicLong;
+import io.vertx.core.Future;
 
 /**
  * Event handler for position management domain events.
@@ -45,7 +46,7 @@ public class PositionEventHandler {
         
         positionEventStore.subscribe(null, null, new MessageHandler<BiTemporalEvent<PositionUpdateEvent>>() {
             @Override
-            public CompletableFuture<Void> handle(Message<BiTemporalEvent<PositionUpdateEvent>> message) {
+            public Future<Void> handle(Message<BiTemporalEvent<PositionUpdateEvent>> message) {
                 return handlePositionEvent(message.getPayload());
             }
         }).onComplete(ar -> {
@@ -74,7 +75,7 @@ public class PositionEventHandler {
     /**
      * Handles all position events asynchronously.
      */
-    private CompletableFuture<Void> handlePositionEvent(BiTemporalEvent<PositionUpdateEvent> event) {
+    private Future<Void> handlePositionEvent(BiTemporalEvent<PositionUpdateEvent> event) {
         eventsProcessed.incrementAndGet();
         
         String eventType = event.getEventType();
@@ -87,19 +88,19 @@ public class PositionEventHandler {
                 return handlePositionUpdate(event);
             } else {
                 log.warn("Unknown position event type: {}", eventType);
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture(null);
             }
         } catch (Exception e) {
             log.error("Error processing position event: {} for update: {}", 
                     eventType, positionUpdate.getUpdateId(), e);
-            return CompletableFuture.failedFuture(e);
+            return Future.failedFuture(e);
         }
     }
     
     /**
      * Handles position update events.
      */
-    private CompletableFuture<Void> handlePositionUpdate(BiTemporalEvent<PositionUpdateEvent> event) {
+    private Future<Void> handlePositionUpdate(BiTemporalEvent<PositionUpdateEvent> event) {
         updateEventsProcessed.incrementAndGet();
         
         PositionUpdateEvent positionUpdate = event.getPayload();
@@ -126,7 +127,7 @@ public class PositionEventHandler {
         // 5. Notify risk team if significant change
         notifyRiskTeamIfSignificant(positionUpdate);
         
-        return CompletableFuture.completedFuture(null);
+        return Future.succeededFuture(null);
     }
     
     // Simulated async processing methods

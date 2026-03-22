@@ -138,8 +138,7 @@ public class DatabaseSetupServiceIntegrationTest {
                 Map.of("test", "true")
         );
         
-        CompletableFuture<DatabaseSetupResult> future = setupService.createCompleteSetup(request);
-        DatabaseSetupResult result = future.get(60, TimeUnit.SECONDS);
+        DatabaseSetupResult result = setupService.createCompleteSetup(request).await();
         
         assertNotNull(result);
         assertEquals(testSetupId, result.getSetupId());
@@ -159,10 +158,9 @@ public class DatabaseSetupServiceIntegrationTest {
         logger.info("=== Testing Setup Status Retrieval ===");
 
         DatabaseSetupRequest request = createMinimalSetupRequest();
-        setupService.createCompleteSetup(request).get(30, TimeUnit.SECONDS);
+        setupService.createCompleteSetup(request).await();
 
-        CompletableFuture<DatabaseSetupStatus> future = setupService.getSetupStatus(testSetupId);
-        DatabaseSetupStatus status = future.get(10, TimeUnit.SECONDS);
+        DatabaseSetupStatus status = setupService.getSetupStatus(testSetupId).await();
 
         assertNotNull(status);
         assertEquals(DatabaseSetupStatus.ACTIVE, status);
@@ -177,7 +175,7 @@ public class DatabaseSetupServiceIntegrationTest {
         logger.info("=== Testing Add Queue to Existing Setup ===");
 
         DatabaseSetupRequest request = createMinimalSetupRequest();
-        setupService.createCompleteSetup(request).get(30, TimeUnit.SECONDS);
+        setupService.createCompleteSetup(request).await();
 
         QueueConfig newQueue = new QueueConfig.Builder()
                 .queueName("payments")
@@ -186,8 +184,7 @@ public class DatabaseSetupServiceIntegrationTest {
                 .deadLetterEnabled(true)
                 .build();
 
-        CompletableFuture<Void> future = setupService.addQueue(testSetupId, newQueue);
-        future.get(30, TimeUnit.SECONDS);
+        setupService.addQueue(testSetupId, newQueue).await();
 
         logger.info("Queue added successfully to existing setup");
         logger.info("=== Add Queue to Existing Setup Test Passed ===");
@@ -199,7 +196,7 @@ public class DatabaseSetupServiceIntegrationTest {
         logger.info("=== Testing Add Event Store to Existing Setup ===");
 
         DatabaseSetupRequest request = createMinimalSetupRequest();
-        setupService.createCompleteSetup(request).get(30, TimeUnit.SECONDS);
+        setupService.createCompleteSetup(request).await();
 
         EventStoreConfig newEventStore = new EventStoreConfig.Builder()
                 .eventStoreName("payment-events")
@@ -208,8 +205,7 @@ public class DatabaseSetupServiceIntegrationTest {
                 .notificationPrefix("payment_events_")
                 .build();
 
-        CompletableFuture<Void> future = setupService.addEventStore(testSetupId, newEventStore);
-        future.get(30, TimeUnit.SECONDS);
+        setupService.addEventStore(testSetupId, newEventStore).await();
 
         logger.info("Event store added successfully to existing setup");
         logger.info("=== Add Event Store to Existing Setup Test Passed ===");
@@ -221,13 +217,12 @@ public class DatabaseSetupServiceIntegrationTest {
         logger.info("=== Testing Setup Destruction ===");
 
         DatabaseSetupRequest request = createMinimalSetupRequest();
-        setupService.createCompleteSetup(request).get(30, TimeUnit.SECONDS);
+        setupService.createCompleteSetup(request).await();
 
-        CompletableFuture<Void> future = setupService.destroySetup(testSetupId);
-        future.get(30, TimeUnit.SECONDS);
+        setupService.destroySetup(testSetupId).await();
 
         assertThrows(Exception.class, () -> {
-            setupService.getSetupStatus(testSetupId).get(10, TimeUnit.SECONDS);
+            setupService.getSetupStatus(testSetupId).await();
         });
 
         logger.info("Setup destroyed successfully");
@@ -255,7 +250,7 @@ public class DatabaseSetupServiceIntegrationTest {
         );
 
         assertThrows(Exception.class, () -> {
-            setupService.createCompleteSetup(invalidRequest).get(10, TimeUnit.SECONDS);
+            setupService.createCompleteSetup(invalidRequest).await();
         });
 
         logger.info("Invalid setup request properly rejected");

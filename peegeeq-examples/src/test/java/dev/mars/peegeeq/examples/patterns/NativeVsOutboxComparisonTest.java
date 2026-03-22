@@ -33,6 +33,8 @@ import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -169,7 +171,7 @@ class NativeVsOutboxComparisonTest {
             }
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive().await();
         }
 
         // Clean up system properties
@@ -207,10 +209,10 @@ class NativeVsOutboxComparisonTest {
         nativeConsumer.subscribe(message -> {
             nativeMessages.add(message.getPayload());
             nativeCheckpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
         
-        nativeProducer.send(testMessage).get(5, TimeUnit.SECONDS);
+        nativeProducer.send(testMessage).await();
         assertTrue(nativeContext.awaitCompletion(10, TimeUnit.SECONDS));
         assertEquals(1, nativeMessages.size());
         assertEquals(testMessage, nativeMessages.get(0));
@@ -227,10 +229,10 @@ class NativeVsOutboxComparisonTest {
         outboxConsumer.subscribe(message -> {
             outboxMessages.add(message.getPayload());
             outboxCheckpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
         
-        outboxProducer.send(testMessage).get(5, TimeUnit.SECONDS);
+        outboxProducer.send(testMessage).await();
         assertTrue(outboxContext.awaitCompletion(10, TimeUnit.SECONDS));
         assertEquals(1, outboxMessages.size());
         assertEquals(testMessage, outboxMessages.get(0));
@@ -267,15 +269,15 @@ class NativeVsOutboxComparisonTest {
             }
             nativeLastReceiveTime.set(System.currentTimeMillis());
             nativeCheckpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
         
         // Send messages to native with small delays
         for (int i = 0; i < messageCount; i++) {
-            nativeProducer.send(testMessage + " " + i).get(5, TimeUnit.SECONDS);
-            CompletableFuture<Void> delay = new CompletableFuture<>();
-            vertx.setTimer(100, id -> delay.complete(null));
-            delay.join();
+            nativeProducer.send(testMessage + " " + i).await();
+            Promise<Void> delay = Promise.promise();
+            vertx.setTimer(100, id -> delay.complete());
+            delay.future().await();
         }
         
         assertTrue(nativePerfContext.awaitCompletion(30, TimeUnit.SECONDS));
@@ -300,15 +302,15 @@ class NativeVsOutboxComparisonTest {
             }
             outboxLastReceiveTime.set(System.currentTimeMillis());
             outboxCheckpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
         
         // Send messages to outbox with small delays
         for (int i = 0; i < messageCount; i++) {
-            outboxProducer.send(testMessage + " " + i).get(5, TimeUnit.SECONDS);
-            CompletableFuture<Void> delay = new CompletableFuture<>();
-            vertx.setTimer(100, id -> delay.complete(null));
-            delay.join();
+            outboxProducer.send(testMessage + " " + i).await();
+            Promise<Void> delay = Promise.promise();
+            vertx.setTimer(100, id -> delay.complete());
+            delay.future().await();
         }
         
         assertTrue(outboxPerfContext.awaitCompletion(30, TimeUnit.SECONDS));
@@ -352,20 +354,20 @@ class NativeVsOutboxComparisonTest {
         nativeGroup.addConsumer("native-member-1", message -> {
             nativeProcessed.incrementAndGet();
             nativeCheckpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         nativeGroup.addConsumer("native-member-2", message -> {
             nativeProcessed.incrementAndGet();
             nativeCheckpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
         
         nativeGroup.start();
         
         // Send messages to native
         for (int i = 0; i < 6; i++) {
-            nativeProducer.send("Native group message " + i).get(2, TimeUnit.SECONDS);
+            nativeProducer.send("Native group message " + i).await();
         }
         
         assertTrue(nativeGroupContext.awaitCompletion(15, TimeUnit.SECONDS));
@@ -383,20 +385,20 @@ class NativeVsOutboxComparisonTest {
         outboxGroup.addConsumer("outbox-member-1", message -> {
             outboxProcessed.incrementAndGet();
             outboxCheckpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         outboxGroup.addConsumer("outbox-member-2", message -> {
             outboxProcessed.incrementAndGet();
             outboxCheckpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
         
         outboxGroup.start();
         
         // Send messages to outbox
         for (int i = 0; i < 6; i++) {
-            outboxProducer.send("Outbox group message " + i).get(2, TimeUnit.SECONDS);
+            outboxProducer.send("Outbox group message " + i).await();
         }
         
         assertTrue(outboxGroupContext.awaitCompletion(15, TimeUnit.SECONDS));

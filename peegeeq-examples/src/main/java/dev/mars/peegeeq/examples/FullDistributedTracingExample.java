@@ -10,6 +10,8 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpServer;
 import io.vertx.core.json.JsonObject;
@@ -91,7 +93,7 @@ public class FullDistributedTracingExample {
 
             logger.info("🌐 Calling external service with traceparent: {}", traceparent);
 
-            CompletableFuture<Void> future = new CompletableFuture<>();
+            Promise<Void> promise = Promise.promise();
 
             webClient.post(9090, "localhost", "/external/process")
                     .putHeader("traceparent", traceparent)
@@ -100,14 +102,14 @@ public class FullDistributedTracingExample {
                     .onSuccess(response -> {
                         logger.info("External service responded: {}", response.bodyAsString());
                         logger.info("🎯 Order processing complete!");
-                        future.complete(null);
+                        promise.complete();
                     })
                     .onFailure(err -> {
                         logger.error("❌ External service call failed", err);
-                        future.completeExceptionally(err);
+                        promise.fail(err);
                     });
 
-            return future;
+            return promise.future();
         });
 
         logger.info("================================================================================");
@@ -169,7 +171,7 @@ public class FullDistributedTracingExample {
             logger.info("📤 Sending to queue with traceparent: {}", newTraceparent);
 
             producer.send(order, headers, correlationId)
-                    .thenAccept(v -> {
+                    .onSuccess(v -> {
                         logger.info("Message sent to queue successfully");
 
                         // Return response with trace context
@@ -186,11 +188,10 @@ public class FullDistributedTracingExample {
                         // Clear MDC after request
                         MDC.clear();
                     })
-                    .exceptionally(err -> {
+                    .onFailure(err -> {
                         logger.error("❌ Failed to send message", err);
                         ctx.response().setStatusCode(500).end();
                         MDC.clear();
-                        return null;
                     });
         });
 

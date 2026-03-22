@@ -68,7 +68,7 @@ public class SettlementService {
      * @param connection Database connection for transactional consistency
      * @return CompletableFuture containing the created CloudEvent
      */
-    public CompletableFuture<CloudEvent> submitSettlementInstruction(
+    public Future<CloudEvent> submitSettlementInstruction(
             SettlementInstructionEvent instructionEvent,
             String correlationId,
             String causationId,
@@ -96,14 +96,14 @@ public class SettlementService {
                     .aggregateId(instructionEvent.getInstructionId())
                     .inTransaction(connection)
                     .execute())
-                .thenApply(biTemporalEvent -> {
+                .map(biTemporalEvent -> {
                     log.info("Settlement instruction submitted successfully: instructionId={}, eventId={}, cloudEventId={}",
                         instructionEvent.getInstructionId(), biTemporalEvent.getEventId(), cloudEvent.getId());
                     return cloudEvent;  // Return the CloudEvent for external use
                 });
         } catch (JsonProcessingException e) {
             log.error("Failed to serialize settlement instruction: instructionId={}", instructionEvent.getInstructionId(), e);
-            return CompletableFuture.failedFuture(new RuntimeException("Failed to serialize settlement instruction", e));
+            return Future.failedFuture(new RuntimeException("Failed to serialize settlement instruction", e));
         }
     }
     
@@ -117,7 +117,7 @@ public class SettlementService {
      * @param connection Database connection for transactional consistency
      * @return CompletableFuture containing the created CloudEvent
      */
-    public CompletableFuture<CloudEvent> confirmSettlement(
+    public Future<CloudEvent> confirmSettlement(
             String instructionId,
             String correlationId,
             String causationId,
@@ -155,23 +155,23 @@ public class SettlementService {
                     .aggregateId(instructionId)
                     .inTransaction(connection)
                     .execute())
-                .thenApply(biTemporalEvent -> {
+                .map(biTemporalEvent -> {
                     log.info("Settlement confirmed successfully: instructionId={}, eventId={}, cloudEventId={}",
                         instructionId, biTemporalEvent.getEventId(), cloudEvent.getId());
                     return cloudEvent;  // Return the CloudEvent for external use
                 });
         } catch (JsonProcessingException e) {
             log.error("Failed to serialize settlement confirmation: instructionId={}", instructionId, e);
-            return CompletableFuture.failedFuture(new RuntimeException("Failed to serialize settlement confirmation", e));
+            return Future.failedFuture(new RuntimeException("Failed to serialize settlement confirmation", e));
         }
     }
 
-    private static <T> CompletableFuture<T> toCompletableFuture(CompletionStage<T> stage) {
-        return stage.toCompletableFuture();
+    private static <T> Future<T> toCompletableFuture(CompletionStage<T> stage) {
+        return Future.fromCompletionStage(stage);
     }
 
-    private static <T> CompletableFuture<T> toCompletableFuture(Future<T> future) {
-        return future.toCompletionStage().toCompletableFuture();
+    private static <T> Future<T> toCompletableFuture(Future<T> future) {
+        return future;
     }
 }
 

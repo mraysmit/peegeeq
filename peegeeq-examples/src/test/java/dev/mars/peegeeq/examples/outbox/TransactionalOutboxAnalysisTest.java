@@ -27,6 +27,7 @@ import dev.mars.peegeeq.outbox.OutboxFactory;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -131,7 +132,7 @@ public class TransactionalOutboxAnalysisTest {
         }
 
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive().await();
         }
 
         // Clear system properties
@@ -214,7 +215,7 @@ public class TransactionalOutboxAnalysisTest {
             }
 
             // Now send a message through the outbox (after transaction)
-            producer.send(messagePayload).get(5, TimeUnit.SECONDS);
+            producer.send(messagePayload).await();
             logger.info("✓ Outbox message sent");
 
             // Verify business data exists
@@ -236,7 +237,7 @@ public class TransactionalOutboxAnalysisTest {
                 messages.add(msg);
                 logger.info("✓ Received message: {}", msg.getPayload());
                 latch.countDown();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             assertTrue(latch.await(10, TimeUnit.SECONDS), "Should receive message within timeout");
