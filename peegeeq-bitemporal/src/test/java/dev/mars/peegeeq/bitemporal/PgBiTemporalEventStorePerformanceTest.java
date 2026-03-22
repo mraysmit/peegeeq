@@ -5,10 +5,14 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -26,11 +30,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -60,44 +64,44 @@ class PgBiTemporalEventStorePerformanceTest {
     private static final int CONCURRENT_THREADS = 10;
     private static final int EVENTS_PER_THREAD = 10;
 
-    private static <T> T await(io.vertx.core.Future<T> future, long timeout, TimeUnit unit) throws Exception {
-        return future.toCompletionStage().toCompletableFuture().get(timeout, unit);
-    }
-
-    private static <T> T await(java.util.concurrent.CompletionStage<T> stage, long timeout, TimeUnit unit) throws Exception {
-        return stage.toCompletableFuture().get(timeout, unit);
-    }
-
     @SuppressWarnings("unchecked")
     private static Class<Map<String, Object>> mapClass() {
         return (Class<Map<String, Object>>) (Class<?>) Map.class;
     }
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) throws Exception {
         logger.info("Setting up performance test...");
         configureSystemPropertiesForContainer(postgres);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
         createTestEventsTable();
-        
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        peeGeeQManager.start();
 
-        Class<Map<String, Object>> mapClass = mapClass();
-        eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "perf_test_events", new ObjectMapper());
-        
-        logger.info("Performance test setup completed");
+        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
+        peeGeeQManager.start()
+            .onSuccess(v -> {
+                eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass(), "perf_test_events", new ObjectMapper());
+                logger.info("Performance test setup completed");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         if (eventStore != null) {
             eventStore.close();
         }
-        if (peeGeeQManager != null) {
-            peeGeeQManager.closeReactive().toCompletionStage().toCompletableFuture().join();
-        }
-        PgBiTemporalEventStore.clearCachedPools();
-        restoreTestProperties();
+        Future<Void> closeFuture = (peeGeeQManager != null)
+            ? peeGeeQManager.closeReactive().recover(err -> {
+                logger.warn("Error during cleanup: {}", err.getMessage());
+                return Future.succeededFuture();
+            })
+            : Future.succeededFuture();
+        closeFuture.onSuccess(v -> {
+            PgBiTemporalEventStore.clearCachedPools();
+            restoreTestProperties();
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
     }
 
     private void configureSystemPropertiesForContainer(PostgreSQLContainer postgres) {
@@ -108,6 +112,8 @@ class PgBiTemporalEventStorePerformanceTest {
         setTestProperty("peegeeq.database.password", postgres.getPassword());
         setTestProperty("peegeeq.database.schema", "public");
         setTestProperty("peegeeq.database.ssl.enabled", "false");
+        // Performance tests fire many concurrent appends; ensure the pool can queue them
+        setTestProperty("peegeeq.database.pool.max-wait-queue-size", "256");
     }
 
     private void setTestProperty(String key, String value) {
@@ -130,11 +136,7 @@ class PgBiTemporalEventStorePerformanceTest {
         originalProperties.clear();
     }
 
-    private void awaitAsyncDelay(long delayMs) throws Exception {
-        io.vertx.core.Promise<Void> promise = io.vertx.core.Promise.promise();
-        PgBiTemporalEventStore.getOrCreateSharedVertx().setTimer(delayMs, id -> promise.complete());
-        await(promise.future(), delayMs + 2000, TimeUnit.MILLISECONDS);
-    }
+
 
     private void createTestEventsTable() throws Exception {
         logger.info("Creating perf_test_events table...");
@@ -217,39 +219,60 @@ class PgBiTemporalEventStorePerformanceTest {
      * Batch should be significantly faster due to reduced round-trips.
      */
     @Test
-    void testBatchAppendVsSingleAppend() throws Exception {
+    void testBatchAppendVsSingleAppend(VertxTestContext testContext) {
         logger.info("=== Test: Batch Append vs Single Append Performance ===");
+        AtomicLong singleDurationRef = new AtomicLong();
+        AtomicLong batchDurationRef = new AtomicLong();
 
         // Warm up
-        await(eventStore.appendBuilder().eventType("warmup").payload(Map.of("data", "warmup")).validTime(Instant.now()).execute(), 5, TimeUnit.SECONDS);
+        eventStore.appendBuilder().eventType("warmup").payload(Map.of("data", "warmup"))
+            .validTime(Instant.now()).execute()
+            .compose(warmup -> {
+                // Single append timing — sequential chain
+                long singleStart = System.currentTimeMillis();
+                Future<Void> chain = Future.succeededFuture();
+                for (int i = 0; i < BATCH_SIZE; i++) {
+                    final int idx = i;
+                    chain = chain.compose(v -> eventStore.appendBuilder()
+                        .eventType("single.event").payload(Map.of("index", idx))
+                        .validTime(Instant.now()).execute().mapEmpty());
+                }
+                return chain.map(v -> {
+                    singleDurationRef.set(System.currentTimeMillis() - singleStart);
+                    return (Void) null;
+                });
+            })
+            .compose(v -> {
+                // Batch append timing
+                List<PgBiTemporalEventStore.BatchEventData<Map<String, Object>>> batchEvents = new ArrayList<>();
+                for (int i = 0; i < BATCH_SIZE; i++) {
+                    batchEvents.add(new PgBiTemporalEventStore.BatchEventData<>(
+                        "batch.event", Map.of("index", i), Instant.now(), Map.of(), null, null));
+                }
+                long batchStart = System.currentTimeMillis();
+                return eventStore.appendBatch(batchEvents).map(results -> {
+                    batchDurationRef.set(System.currentTimeMillis() - batchStart);
+                    return results;
+                });
+            })
+            .onSuccess(batchResults -> testContext.verify(() -> {
+                long singleDuration = singleDurationRef.get();
+                long batchDuration = batchDurationRef.get();
+                double singleThroughput = BATCH_SIZE * 1000.0 / singleDuration;
+                double batchThroughput = BATCH_SIZE * 1000.0 / batchDuration;
 
-        // Single append timing
-        long singleStart = System.currentTimeMillis();
-        for (int i = 0; i < BATCH_SIZE; i++) {
-            await(eventStore.appendBuilder().eventType("single.event").payload(Map.of("index", i)).validTime(Instant.now()).execute(), 5, TimeUnit.SECONDS);
-        }
-        long singleDuration = System.currentTimeMillis() - singleStart;
-        double singleThroughput = BATCH_SIZE * 1000.0 / singleDuration;
+                logger.info("PERFORMANCE RESULTS:");
+                logger.info("  Single append: {} events in {}ms = {} events/sec", BATCH_SIZE, singleDuration,
+                    String.format("%.1f", singleThroughput));
+                logger.info("  Batch append:  {} events in {}ms = {} events/sec", BATCH_SIZE, batchDuration,
+                    String.format("%.1f", batchThroughput));
+                logger.info("  Speedup: {}x", String.format("%.1f", batchThroughput / singleThroughput));
 
-        // Batch append timing
-        List<PgBiTemporalEventStore.BatchEventData<Map<String, Object>>> batchEvents = new ArrayList<>();
-        for (int i = 0; i < BATCH_SIZE; i++) {
-            batchEvents.add(new PgBiTemporalEventStore.BatchEventData<>("batch.event", Map.of("index", i), Instant.now(),
-                Map.of(), null, null));
-        }
-
-        long batchStart = System.currentTimeMillis();
-        List<BiTemporalEvent<Map<String, Object>>> batchResults = await(eventStore.appendBatch(batchEvents), 30, TimeUnit.SECONDS);
-        long batchDuration = System.currentTimeMillis() - batchStart;
-        double batchThroughput = BATCH_SIZE * 1000.0 / batchDuration;
-
-        logger.info("PERFORMANCE RESULTS:");
-        logger.info("  Single append: {} events in {}ms = {:.1f} events/sec", BATCH_SIZE, singleDuration, singleThroughput);
-        logger.info("  Batch append:  {} events in {}ms = {:.1f} events/sec", BATCH_SIZE, batchDuration, batchThroughput);
-        logger.info("  Speedup: {:.1f}x", batchThroughput / singleThroughput);
-
-        assertEquals(BATCH_SIZE, batchResults.size(), "Batch should return all events");
-        assertTrue(batchDuration < singleDuration, "Batch should be faster than single appends");
+                assertEquals(BATCH_SIZE, batchResults.size(), "Batch should return all events");
+                assertTrue(batchDuration < singleDuration, "Batch should be faster than single appends");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     /**
@@ -257,49 +280,52 @@ class PgBiTemporalEventStorePerformanceTest {
      * Verify subscriber can keep up with rapid event publishing.
      */
     @Test
-    void testSubscriptionThroughputUnderLoad() throws Exception {
+    void testSubscriptionThroughputUnderLoad(VertxTestContext testContext) {
         logger.info("=== Test: Subscription Throughput Under Load ===");
 
         int eventCount = 50;
-        CountDownLatch receivedLatch = new CountDownLatch(eventCount);
         List<BiTemporalEvent<Map<String, Object>>> receivedEvents = new CopyOnWriteArrayList<>();
         AtomicInteger duplicateCount = new AtomicInteger(0);
+        Promise<Void> allExpectedNotifications = Promise.promise();
 
         // Subscribe before publishing
-        await(eventStore.subscribe("throughput.test", message -> {
+        eventStore.subscribe("throughput.test", message -> {
             BiTemporalEvent<Map<String, Object>> event = message.getPayload();
             if (receivedEvents.stream().anyMatch(e -> e.getEventId().equals(event.getEventId()))) {
                 duplicateCount.incrementAndGet();
+                allExpectedNotifications.tryFail("Duplicate notification for eventId=" + event.getEventId());
             } else {
                 receivedEvents.add(event);
+                if (receivedEvents.size() == eventCount) {
+                    allExpectedNotifications.tryComplete();
+                } else if (receivedEvents.size() > eventCount) {
+                    allExpectedNotifications.tryFail("Received more notifications than expected");
+                }
             }
-            receivedLatch.countDown();
-            return io.vertx.core.Future.<Void>succeededFuture();
-        }), 10, TimeUnit.SECONDS);
+            return Future.<Void>succeededFuture();
+        })
+        .compose(v -> {
+            // Rapid-fire publish events
+            List<Future<BiTemporalEvent<Map<String, Object>>>> futures = new ArrayList<>();
+            for (int i = 0; i < eventCount; i++) {
+                futures.add(eventStore.appendBuilder()
+                    .eventType("throughput.test").payload(Map.of("index", i))
+                    .validTime(Instant.now()).execute());
+            }
+            return Future.all(new ArrayList<>(futures));
+        })
+        .compose(cf -> allExpectedNotifications.future())
+        .onSuccess(v -> testContext.verify(() -> {
+            logger.info("THROUGHPUT RESULTS:");
+            logger.info("  Received {} events", receivedEvents.size());
+            logger.info("  Duplicates detected: {}", duplicateCount.get());
 
-        awaitAsyncDelay(500); // Allow subscription to stabilize
-
-        // Rapid-fire publish events
-        long publishStart = System.currentTimeMillis();
-        List<Future<BiTemporalEvent<Map<String, Object>>>> futures = new ArrayList<>();
-        for (int i = 0; i < eventCount; i++) {
-            futures.add(eventStore.appendBuilder().eventType("throughput.test").payload(Map.of("index", i)).validTime(Instant.now()).execute());
-        }
-        Future.all(new ArrayList<>(futures)).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
-        long publishDuration = System.currentTimeMillis() - publishStart;
-
-        // Wait for all notifications
-        boolean allReceived = receivedLatch.await(30, TimeUnit.SECONDS);
-        long totalDuration = System.currentTimeMillis() - publishStart;
-
-        logger.info("THROUGHPUT RESULTS:");
-        logger.info("  Published {} events in {}ms", eventCount, publishDuration);
-        logger.info("  Received {} events in {}ms", receivedEvents.size(), totalDuration);
-        logger.info("  Duplicates detected: {}", duplicateCount.get());
-
-        assertTrue(allReceived, "Should receive all events within timeout");
-        assertEquals(eventCount, receivedEvents.size(), "Should receive exactly " + eventCount + " unique events");
-        assertEquals(0, duplicateCount.get(), "Should not receive duplicate events");
+            assertEquals(eventCount, receivedEvents.size(),
+                "Should receive exactly " + eventCount + " unique events");
+            assertEquals(0, duplicateCount.get(), "Should not receive duplicate events");
+            testContext.completeNow();
+        }))
+        .onFailure(testContext::failNow);
     }
 
     /**
@@ -307,52 +333,37 @@ class PgBiTemporalEventStorePerformanceTest {
      * Verify connection pool handles concurrent writes efficiently.
      */
     @Test
-    void testConcurrentAppendThroughput() throws Exception {
+    void testConcurrentAppendThroughput(VertxTestContext testContext) {
         logger.info("=== Test: Concurrent Append Throughput ===");
 
         int totalEvents = CONCURRENT_THREADS * EVENTS_PER_THREAD;
-        List<Future<BiTemporalEvent<Map<String, Object>>>> allFutures = new CopyOnWriteArrayList<>();
-        CountDownLatch startLatch = new CountDownLatch(1);
-        CountDownLatch completeLatch = new CountDownLatch(CONCURRENT_THREADS);
+        List<Future<BiTemporalEvent<Map<String, Object>>>> allFutures = new ArrayList<>();
 
-        // Create concurrent threads
+        // Fire all appends concurrently (Vert.x pipelines them)
+        long start = System.currentTimeMillis();
         for (int t = 0; t < CONCURRENT_THREADS; t++) {
-            final int threadId = t;
-            new Thread(() -> {
-                try {
-                    startLatch.await(); // Wait for signal to start
-                    for (int i = 0; i < EVENTS_PER_THREAD; i++) {
-                        var future =
-                            eventStore.appendBuilder().eventType("concurrent.event").payload(Map.of("thread", threadId, "index", i)).validTime(Instant.now()).execute();
-                        allFutures.add(future);
-                    }
-                } catch (Exception e) {
-                    logger.error("Thread {} failed: {}", threadId, e.getMessage());
-                } finally {
-                    completeLatch.countDown();
-                }
-            }).start();
+            for (int i = 0; i < EVENTS_PER_THREAD; i++) {
+                allFutures.add(eventStore.appendBuilder()
+                    .eventType("concurrent.event")
+                    .payload(Map.of("thread", t, "index", i))
+                    .validTime(Instant.now()).execute());
+            }
         }
 
-        // Start all threads simultaneously
-        long start = System.currentTimeMillis();
-        startLatch.countDown();
+        Future.all(new ArrayList<>(allFutures))
+            .onSuccess(cf -> testContext.verify(() -> {
+                long duration = System.currentTimeMillis() - start;
+                double throughput = totalEvents * 1000.0 / duration;
+                logger.info("CONCURRENT RESULTS:");
+                logger.info("  {} threads x {} events = {} total events", CONCURRENT_THREADS, EVENTS_PER_THREAD, totalEvents);
+                logger.info("  Completed in {}ms = {} events/sec", duration, String.format("%.1f", throughput));
 
-        // Wait for all threads to submit
-        completeLatch.await(10, TimeUnit.SECONDS);
-
-        // Wait for all futures to complete
-        Future.all(new ArrayList<>(allFutures)).toCompletionStage().toCompletableFuture().get(60, TimeUnit.SECONDS);
-        long duration = System.currentTimeMillis() - start;
-
-        double throughput = totalEvents * 1000.0 / duration;
-        logger.info("CONCURRENT RESULTS:");
-        logger.info("  {} threads x {} events = {} total events", CONCURRENT_THREADS, EVENTS_PER_THREAD, totalEvents);
-        logger.info("  Completed in {}ms = {:.1f} events/sec", duration, throughput);
-
-        assertEquals(totalEvents, allFutures.size(), "All events should be submitted");
-        long successCount = allFutures.stream().filter(f -> !f.failed()).count();
-        assertEquals(totalEvents, successCount, "All events should complete successfully");
+                assertEquals(totalEvents, allFutures.size(), "All events should be submitted");
+                long successCount = allFutures.stream().filter(f -> !f.failed()).count();
+                assertEquals(totalEvents, successCount, "All events should complete successfully");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     /**
@@ -360,59 +371,83 @@ class PgBiTemporalEventStorePerformanceTest {
      * Exact match should not be slower than wildcard (validates channel optimization).
      */
     @Test
-    void testWildcardVsExactMatchSubscriptionPerformance() throws Exception {
+    void testWildcardVsExactMatchSubscriptionPerformance(VertxTestContext testContext) {
         logger.info("=== Test: Wildcard vs Exact Match Subscription Performance ===");
 
         int eventCount = 30;
-
-        // Test exact match subscription
-        CountDownLatch exactLatch = new CountDownLatch(eventCount);
         List<Long> exactLatencies = new CopyOnWriteArrayList<>();
-
-        await(eventStore.subscribe("perf.exact.event", message -> {
-            exactLatencies.add(System.currentTimeMillis());
-            exactLatch.countDown();
-            return Future.<Void>succeededFuture();
-        }), 10, TimeUnit.SECONDS);
-
-        awaitAsyncDelay(500);
-
-        long exactPublishStart = System.currentTimeMillis();
-        for (int i = 0; i < eventCount; i++) {
-            await(eventStore.appendBuilder().eventType("perf.exact.event").payload(Map.of("index", i)).validTime(Instant.now()).execute(), 5, TimeUnit.SECONDS);
-        }
-        exactLatch.await(30, TimeUnit.SECONDS);
-        long exactTotalTime = System.currentTimeMillis() - exactPublishStart;
-
-        // Test wildcard subscription
-        CountDownLatch wildcardLatch = new CountDownLatch(eventCount);
         List<Long> wildcardLatencies = new CopyOnWriteArrayList<>();
+        AtomicLong exactDurationRef = new AtomicLong();
+        AtomicLong wildcardStartRef = new AtomicLong();
+        Promise<Void> exactNotificationsDone = Promise.promise();
+        Promise<Void> wildcardNotificationsDone = Promise.promise();
+        AtomicInteger exactNotifications = new AtomicInteger(0);
+        AtomicInteger wildcardNotifications = new AtomicInteger(0);
 
-        await(eventStore.subscribe("perf.wildcard.*", message -> {
-            wildcardLatencies.add(System.currentTimeMillis());
-            wildcardLatch.countDown();
+        // Exact match subscription
+        eventStore.subscribe("perf.exact.event", message -> {
+            exactLatencies.add(System.currentTimeMillis());
+            int current = exactNotifications.incrementAndGet();
+            if (current == eventCount) {
+                exactNotificationsDone.tryComplete();
+            } else if (current > eventCount) {
+                exactNotificationsDone.tryFail("Exact subscriber received too many notifications");
+            }
             return Future.<Void>succeededFuture();
-        }), 10, TimeUnit.SECONDS);
+        })
+        .compose(v -> {
+            long exactStart = System.currentTimeMillis();
+            Future<Void> chain = Future.succeededFuture();
+            for (int i = 0; i < eventCount; i++) {
+                final int idx = i;
+                chain = chain.compose(x -> eventStore.appendBuilder()
+                    .eventType("perf.exact.event").payload(Map.of("index", idx))
+                    .validTime(Instant.now()).execute().mapEmpty());
+            }
+            return chain.compose(v2 -> exactNotificationsDone.future())
+                .map(v2 -> {
+                    exactDurationRef.set(System.currentTimeMillis() - exactStart);
+                    return (Void) null;
+                });
+        })
+        // Wildcard subscription
+        .compose(v -> eventStore.subscribe("perf.wildcard.*", message -> {
+            wildcardLatencies.add(System.currentTimeMillis());
+            int current = wildcardNotifications.incrementAndGet();
+            if (current == eventCount) {
+                wildcardNotificationsDone.tryComplete();
+            } else if (current > eventCount) {
+                wildcardNotificationsDone.tryFail("Wildcard subscriber received too many notifications");
+            }
+            return Future.<Void>succeededFuture();
+        }))
+        .compose(v -> {
+            wildcardStartRef.set(System.currentTimeMillis());
+            Future<Void> chain = Future.succeededFuture();
+            for (int i = 0; i < eventCount; i++) {
+                final int idx = i;
+                chain = chain.compose(x -> eventStore.appendBuilder()
+                    .eventType("perf.wildcard.event").payload(Map.of("index", idx))
+                    .validTime(Instant.now()).execute().mapEmpty());
+            }
+            return chain.compose(v2 -> wildcardNotificationsDone.future());
+        })
+        .onSuccess(v -> testContext.verify(() -> {
+            long exactTotalTime = exactDurationRef.get();
+            long wildcardTotalTime = System.currentTimeMillis() - wildcardStartRef.get();
 
-        awaitAsyncDelay(500);
+            logger.info("SUBSCRIPTION PERFORMANCE RESULTS:");
+            logger.info("  Exact match:  {} events received in {}ms", exactLatencies.size(), exactTotalTime);
+            logger.info("  Wildcard:     {} events received in {}ms", wildcardLatencies.size(), wildcardTotalTime);
 
-        long wildcardPublishStart = System.currentTimeMillis();
-        for (int i = 0; i < eventCount; i++) {
-            await(eventStore.appendBuilder().eventType("perf.wildcard.event").payload(Map.of("index", i)).validTime(Instant.now()).execute(), 5, TimeUnit.SECONDS);
-        }
-        wildcardLatch.await(30, TimeUnit.SECONDS);
-        long wildcardTotalTime = System.currentTimeMillis() - wildcardPublishStart;
+            assertEquals(eventCount, exactLatencies.size(), "Exact match should receive all events");
+            assertEquals(eventCount, wildcardLatencies.size(), "Wildcard should receive all events");
 
-        logger.info("SUBSCRIPTION PERFORMANCE RESULTS:");
-        logger.info("  Exact match:  {} events received in {}ms", exactLatencies.size(), exactTotalTime);
-        logger.info("  Wildcard:     {} events received in {}ms", wildcardLatencies.size(), wildcardTotalTime);
-
-        assertEquals(eventCount, exactLatencies.size(), "Exact match should receive all events");
-        assertEquals(eventCount, wildcardLatencies.size(), "Wildcard should receive all events");
-
-        // Exact match should not be significantly slower than wildcard (within 2x)
-        assertTrue(exactTotalTime <= wildcardTotalTime * 2,
-            "Exact match should not be significantly slower than wildcard");
+            assertTrue(exactTotalTime <= wildcardTotalTime * 2,
+                "Exact match should not be significantly slower than wildcard");
+            testContext.completeNow();
+        }))
+        .onFailure(testContext::failNow);
     }
 }
 

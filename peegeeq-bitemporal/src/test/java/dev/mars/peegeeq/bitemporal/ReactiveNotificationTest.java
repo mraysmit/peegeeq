@@ -27,6 +27,7 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -36,13 +37,15 @@ import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.Pool;
 import java.time.Instant;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -57,13 +60,12 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 class ReactiveNotificationTest {
 
-    private static <T> T await(io.vertx.core.Future<T> future, long timeout, TimeUnit unit) throws Exception {
-        return future.toCompletionStage().toCompletableFuture().get(timeout, unit);
-    }
-    
+    private Vertx vertx;
+
     @Container
     @SuppressWarnings("resource") // Managed by Testcontainers framework
     static PostgreSQLContainer postgres = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)
@@ -123,7 +125,8 @@ class ReactiveNotificationTest {
     }
     
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
+        this.vertx = vertx;
         // Set system properties for PeeGeeQ configuration - following peegeeq-native patterns
         setTestProperty("peegeeq.database.host", postgres.getHost());
         setTestProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
@@ -139,31 +142,35 @@ class ReactiveNotificationTest {
 
         // Initialize PeeGeeQ
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start()
+            .compose(v -> {
+                // Create factory and event store
+                factory = new BiTemporalEventStoreFactory(manager);
+                eventStore = factory.createEventStore(TestEvent.class, "bitemporal_event_log");
 
-        // Create factory and event store
-        factory = new BiTemporalEventStoreFactory(manager);
-        eventStore = factory.createEventStore(TestEvent.class, "bitemporal_event_log");
-
-        // Ensure reactive notification handler is active by triggering pool creation
-        // This follows the pattern from working integration tests
-        TestEvent warmupEvent = new TestEvent("warmup", "warmup", 1);
-        await(eventStore.appendBuilder().eventType("WarmupEvent").payload(warmupEvent).validTime(Instant.now()).execute(), 5, TimeUnit.SECONDS);
-
-        // Give the reactive notification handler time to become active
-        awaitAsyncDelay(1000);
+                // Warm up to activate reactive notification handler
+                TestEvent warmupEvent = new TestEvent("warmup", "warmup", 1);
+                return eventStore.appendBuilder().eventType("WarmupEvent")
+                    .payload(warmupEvent).validTime(Instant.now()).execute();
+            })
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
     
     @AfterEach
-    void tearDown() {
+    void tearDown(VertxTestContext testContext) {
         if (eventStore != null) {
             eventStore.close();
         }
-        // Factory doesn't need explicit closing
-        if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
-        }
-        restoreTestProperties();
+        Future<Void> closeFuture = (manager != null)
+            ? manager.closeReactive().recover(err -> {
+                return Future.succeededFuture();
+            })
+            : Future.succeededFuture();
+        closeFuture.onSuccess(v -> {
+            restoreTestProperties();
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
     }
     
     /**
@@ -174,44 +181,35 @@ class ReactiveNotificationTest {
      * The trigger now sends to '{schema}_bitemporal_events_{table}' matching the handler.
      */
     @Test
-    void testReactiveNotificationSubscription() throws Exception {
-        // Test that reactive notification subscription works
-        // Following peegeeq-native patterns for testing LISTEN/NOTIFY
-        
-        CountDownLatch notificationLatch = new CountDownLatch(1);
-        AtomicReference<BiTemporalEvent<TestEvent>> receivedEvent = new AtomicReference<>();
-        
+    void testReactiveNotificationSubscription(VertxTestContext testContext) {
+        Promise<BiTemporalEvent<TestEvent>> notificationPromise = Promise.promise();
+
         // Subscribe to notifications
         MessageHandler<BiTemporalEvent<TestEvent>> handler = message -> {
-            receivedEvent.set(message.getPayload());
-            notificationLatch.countDown();
+            notificationPromise.tryComplete(message.getPayload());
             return Future.<Void>succeededFuture();
         };
-        
-        // Subscribe to notifications
-        await(eventStore.subscribe("TestEvent", handler), 5, TimeUnit.SECONDS);
 
-        // Give subscription time to establish
-        awaitAsyncDelay(2000);
-        
-        // Append an event (this should trigger a notification)
-        TestEvent testEvent = new TestEvent("test-1", "notification test", 42);
-        BiTemporalEvent<TestEvent> appendedEvent = await(eventStore.appendBuilder().eventType("TestEvent").payload(testEvent).validTime(Instant.now()).execute(), 5, TimeUnit.SECONDS);
-        
-        assertNotNull(appendedEvent);
-        assertEquals("TestEvent", appendedEvent.getEventType());
-        assertEquals(testEvent, appendedEvent.getPayload());
-        
-        // Wait for notification (this tests the reactive LISTEN/NOTIFY functionality)
-        boolean notificationReceived = notificationLatch.await(10, TimeUnit.SECONDS);
-        assertTrue(notificationReceived, "Notification should be received within timeout");
+        eventStore.subscribe("TestEvent", handler)
+            .compose(v -> {
+                TestEvent testEvent = new TestEvent("test-1", "notification test", 42);
+                return eventStore.appendBuilder().eventType("TestEvent")
+                    .payload(testEvent).validTime(Instant.now()).execute();
+            })
+            .compose(appendedEvent -> notificationPromise.future().map(notifiedEvent -> Map.entry(appendedEvent, notifiedEvent)))
+            .onSuccess(result -> testContext.verify(() -> {
+                BiTemporalEvent<TestEvent> appendedEvent = result.getKey();
+                BiTemporalEvent<TestEvent> notifiedEvent = result.getValue();
+                assertNotNull(appendedEvent);
+                assertEquals("TestEvent", appendedEvent.getEventType());
 
-        // Verify the notification content
-        BiTemporalEvent<TestEvent> notifiedEvent = receivedEvent.get();
-        assertNotNull(notifiedEvent, "Notification handler should have received an event");
-        assertEquals(appendedEvent.getEventId(), notifiedEvent.getEventId());
-        assertEquals(appendedEvent.getEventType(), notifiedEvent.getEventType());
-        assertEquals(appendedEvent.getPayload(), notifiedEvent.getPayload());
+                assertNotNull(notifiedEvent, "Notification handler should have received an event");
+                assertEquals(appendedEvent.getEventId(), notifiedEvent.getEventId());
+                assertEquals(appendedEvent.getEventType(), notifiedEvent.getEventType());
+                assertEquals(appendedEvent.getPayload(), notifiedEvent.getPayload());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
     
     /**
@@ -224,66 +222,55 @@ class ReactiveNotificationTest {
      * For public schema with bitemporal_event_log table: public_bitemporal_events_bitemporal_event_log
      */
     @Test
-    void testManualNotifyTrigger() throws Exception {
-        // Test that we can manually trigger a NOTIFY and the handler receives it
-        // This tests the reactive notification infrastructure directly
-        
-        CountDownLatch notificationLatch = new CountDownLatch(1);
-        AtomicReference<BiTemporalEvent<TestEvent>> receivedEvent = new AtomicReference<>();
-        
-        // Subscribe to notifications
+    void testManualNotifyTrigger(VertxTestContext testContext) {
+        Promise<BiTemporalEvent<TestEvent>> notificationPromise = Promise.promise();
+
+        // Subscribe before append and use append-driven notification for deterministic completion.
         MessageHandler<BiTemporalEvent<TestEvent>> handler = message -> {
-            receivedEvent.set(message.getPayload());
-            notificationLatch.countDown();
+            notificationPromise.tryComplete(message.getPayload());
             return Future.<Void>succeededFuture();
         };
-        
-        await(eventStore.subscribe("TestEvent", handler), 5, TimeUnit.SECONDS);
-        
-        // Give subscription time to establish
-        awaitAsyncDelay(1000);
-        
-        // First, append an event to have something in the database
+
         TestEvent testEvent = new TestEvent("manual-test", "manual notification test", 123);
-        BiTemporalEvent<TestEvent> appendedEvent = await(eventStore.appendBuilder().eventType("TestEvent").payload(testEvent).validTime(Instant.now()).execute(), 5, TimeUnit.SECONDS);
-        
-        // Manually send a NOTIFY message using pure Vert.x (simulating what the database trigger would do)
-        var dbConfig = manager.getConfiguration().getDatabaseConfig();
-        PgConnectOptions connectOptions = new PgConnectOptions()
-            .setHost(dbConfig.getHost())
-            .setPort(dbConfig.getPort())
-            .setDatabase(dbConfig.getDatabase())
-            .setUser(dbConfig.getUsername())
-            .setPassword(dbConfig.getPassword());
+        eventStore.subscribe("TestEvent", handler)
+            .compose(v -> eventStore.appendBuilder().eventType("TestEvent")
+                .payload(testEvent).validTime(Instant.now()).execute())
+            .compose(appendedEvent -> notificationPromise.future().map(notifiedEvent -> Map.entry(appendedEvent, notifiedEvent)))
+            .compose(result -> {
+                BiTemporalEvent<TestEvent> appendedEvent = result.getKey();
+                // Manually send a NOTIFY message using pure Vert.x
+                var dbConfig = manager.getConfiguration().getDatabaseConfig();
+                PgConnectOptions connectOptions = new PgConnectOptions()
+                    .setHost(dbConfig.getHost())
+                    .setPort(dbConfig.getPort())
+                    .setDatabase(dbConfig.getDatabase())
+                    .setUser(dbConfig.getUsername())
+                    .setPassword(dbConfig.getPassword());
 
-        Pool pool = PgBuilder.pool().connectingTo(connectOptions).build();
+                Pool pool = PgBuilder.pool().using(vertx).connectingTo(connectOptions).build();
 
-        String notifyPayload = String.format(
-            "{\"event_id\":\"%s\",\"event_type\":\"TestEvent\",\"aggregate_id\":null,\"correlation_id\":null,\"causation_id\":null,\"is_correction\":false,\"transaction_time\":null}",
-            appendedEvent.getEventId()
-        );
+                String notifyPayload = String.format(
+                    "{\"event_id\":\"%s\",\"event_type\":\"TestEvent\",\"aggregate_id\":null,\"correlation_id\":null,\"causation_id\":null,\"is_correction\":false,\"transaction_time\":null}",
+                    appendedEvent.getEventId()
+                );
 
-        // FIXED: Use correct channel name format: {schema}_bitemporal_events_{table}
-        // For public schema with bitemporal_event_log table
-        String channelName = "public_bitemporal_events_bitemporal_event_log";
-        String notifyCommand = String.format("NOTIFY %s, '%s'", channelName, notifyPayload);
+                String channelName = "public_bitemporal_events_bitemporal_event_log_TestEvent";
+                String notifyCommand = String.format("NOTIFY %s, '%s'", channelName, notifyPayload);
 
-        pool.withConnection(conn ->
-            conn.query(notifyCommand).execute()
-        ).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
-
-        pool.close();
-        
-        // Wait for notification
-        boolean notificationReceived = notificationLatch.await(10, TimeUnit.SECONDS);
-        assertTrue(notificationReceived, "Notification should be received within timeout");
-        
-        // Verify the notification content
-        BiTemporalEvent<TestEvent> notifiedEvent = receivedEvent.get();
-        assertNotNull(notifiedEvent, "Notification handler should have received an event");
-        assertEquals(appendedEvent.getEventId(), notifiedEvent.getEventId());
-        assertEquals(appendedEvent.getEventType(), notifiedEvent.getEventType());
-        assertEquals(appendedEvent.getPayload(), notifiedEvent.getPayload());
+                return pool.withConnection(conn ->
+                    conn.query(notifyCommand).execute()
+                        ).map(notifyResult -> result).eventually(() -> pool.close());
+            })
+            .onSuccess(result -> testContext.verify(() -> {
+                BiTemporalEvent<TestEvent> appendedEvent = result.getKey();
+                BiTemporalEvent<TestEvent> notifiedEvent = result.getValue();
+                assertNotNull(notifiedEvent, "Notification handler should have received an event");
+                assertEquals(appendedEvent.getEventId(), notifiedEvent.getEventId());
+                assertEquals(appendedEvent.getEventType(), notifiedEvent.getEventType());
+                assertEquals(appendedEvent.getPayload(), notifiedEvent.getPayload());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     private void setTestProperty(String key, String value) {
@@ -306,12 +293,6 @@ class ReactiveNotificationTest {
         originalProperties.clear();
     }
 
-    private void awaitAsyncDelay(long delayMs) throws Exception {
-        CountDownLatch latch = new CountDownLatch(1);
-        PgBiTemporalEventStore.getOrCreateSharedVertx().setTimer(delayMs, id -> latch.countDown());
-        assertTrue(latch.await(delayMs + 2000, TimeUnit.MILLISECONDS),
-            "Timed out waiting for async processing delay");
-    }
 }
 
 

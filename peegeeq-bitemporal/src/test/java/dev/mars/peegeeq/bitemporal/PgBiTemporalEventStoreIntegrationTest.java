@@ -9,7 +9,11 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent
 import dev.mars.peegeeq.test.categories.TestCategories;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
+import io.vertx.sqlclient.TransactionPropagation;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -21,35 +25,33 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import io.vertx.core.Future;
-import io.vertx.sqlclient.TransactionPropagation;
-
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
-
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Integration test to verify ReactiveNotificationHandler integration with PgBiTemporalEventStore.
  * Tests the complete integration following PGQ coding principles.
+ *
+ * <p><b>Implementation notes (reactive migration):</b>
+ * <ul>
+ *   <li>All blocking {@code await()} helpers removed — tests use {@code .compose()} chains
+ *       with {@code VertxTestContext} for async coordination.</li>
+ *   <li>All {@code .toCompletionStage().toCompletableFuture().get()} bridges removed.</li>
+ *   <li>All {@code CountDownLatch} patterns replaced with compose chains and promise-based completion.</li>
+ * </ul>
  */
 @Tag(TestCategories.INTEGRATION)
 @ExtendWith(VertxExtension.class)
 @Testcontainers
 class PgBiTemporalEventStoreIntegrationTest {
     private static final Logger logger = LoggerFactory.getLogger(PgBiTemporalEventStoreIntegrationTest.class);
-
-    private static <T> T await(Future<T> future, long timeout, TimeUnit unit) throws Exception {
-        return future.toCompletionStage().toCompletableFuture().get(timeout, unit);
-    }
 
     @SuppressWarnings("unchecked")
     private static Class<Map<String, Object>> mapClass() {
@@ -74,16 +76,12 @@ class PgBiTemporalEventStoreIntegrationTest {
     private final Map<String, String> originalProperties = new HashMap<>();
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) throws Exception {
         logger.info("Setting up ReactiveNotificationHandler integration test...");
-
-        // Set system properties for PeeGeeQ configuration - following exact outbox pattern
         configureSystemPropertiesForContainer(postgres);
-
-        // Create bitemporal_event_log table - following established pattern from SharedPostgresTestExtension
         createBiTemporalEventLogTable();
-
         logger.info("✓ ReactiveNotificationHandler integration test setup completed");
+        testContext.completeNow();
     }
 
     /**
@@ -217,168 +215,166 @@ class PgBiTemporalEventStoreIntegrationTest {
     }
 
     @Test
-    void testReactiveNotificationHandlerIntegration() throws Exception {
+    void testReactiveNotificationHandlerIntegration(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing ReactiveNotificationHandler Integration ===");
 
-        // Initialize PeeGeeQ Manager - following exact outbox pattern
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        peeGeeQManager.start();
-        logger.info("PeeGeeQ Manager started successfully");
-
-        // Create event store - this will test ReactiveNotificationHandler integration
-        Class<Map<String, Object>> mapClass = mapClass();
-        eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
-        logger.info("PgBiTemporalEventStore created successfully");
-
-        // Test data
         String eventType = "test_event";
         String aggregateId = "test-aggregate-123";
         Map<String, Object> payload = Map.of("message", "integration test", "timestamp", Instant.now().toString());
+        Promise<BiTemporalEvent<Map<String, Object>>> notificationPromise = Promise.promise();
 
-        // Set up notification handler to capture events
-        CountDownLatch notificationLatch = new CountDownLatch(1);
-        AtomicReference<BiTemporalEvent<Map<String, Object>>> receivedEvent = new AtomicReference<>();
+        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
 
-        // Subscribe to notifications - this tests ReactiveNotificationHandler.subscribe()
-        // Following established pattern from PeeGeeQBiTemporalIntegrationTest
-        Future<Void> subscriptionFuture = eventStore.subscribe(eventType, message -> {
-            BiTemporalEvent<Map<String, Object>> event = message.getPayload();
-            logger.info("Received notification for event: {}", event.getEventId());
-            receivedEvent.set(event);
-            notificationLatch.countDown();
-            return Future.<Void>succeededFuture();
-        });
-        await(subscriptionFuture, 10, TimeUnit.SECONDS);
-        logger.info("Subscription established successfully");
+        peeGeeQManager.start()
+            .compose(v -> {
+                logger.info("PeeGeeQ Manager started successfully");
+                eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass(), "test_events", new ObjectMapper());
+                logger.info("PgBiTemporalEventStore created successfully");
+                return eventStore.subscribe(eventType, message -> {
+                    BiTemporalEvent<Map<String, Object>> event = message.getPayload();
+                    logger.info("Received notification for event: {}", event.getEventId());
+                    notificationPromise.tryComplete(event);
+                    return Future.<Void>succeededFuture();
+                });
+            })
+            .compose(v -> eventStore.appendBuilder().eventType(eventType).payload(payload).validTime(Instant.now())
+                .headers(Map.of("source", "integration-test"))
+                .correlationId("test-correlation-" + System.currentTimeMillis())
+                .causationId(null).aggregateId(aggregateId).execute())
+            .compose(appended -> {
+                logger.info("Event appended: {}", appended.getEventId());
+                return notificationPromise.future().map(notification -> Map.entry(appended, notification));
+            })
+            .onSuccess(result -> testContext.verify(() -> {
+                BiTemporalEvent<Map<String, Object>> appended = result.getKey();
+                BiTemporalEvent<Map<String, Object>> notification = result.getValue();
+                assertNotNull(notification, "Notification event should not be null");
+                assertEquals(appended.getEventId(), notification.getEventId(), "Event ID should match");
+                assertEquals(eventType, notification.getEventType(), "Event type should match");
+                assertEquals(aggregateId, notification.getAggregateId(), "Aggregate ID should match");
+                assertEquals(payload, notification.getPayload(), "Payload should match");
+                logger.info("ReactiveNotificationHandler integration test completed successfully");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        // Give subscription time to be established
-        awaitAsyncDelay(1000);
-
-        // Append event - this should trigger notification via ReactiveNotificationHandler
-        // Following established pattern: append(eventType, payload, validTime, headers, correlationId, causationId, aggregateId)
-        BiTemporalEvent<Map<String, Object>> appendedEvent = await(eventStore.appendBuilder().eventType(eventType).payload(payload).validTime(Instant.now()).headers(Map.of("source", "integration-test")).correlationId("test-correlation-" + System.currentTimeMillis()).causationId(null).aggregateId(aggregateId).execute(), 10, TimeUnit.SECONDS);
-        logger.info("Event appended: {}", appendedEvent.getEventId());
-
-        // Wait for notification - this tests the complete integration
-        boolean notificationReceived = notificationLatch.await(15, TimeUnit.SECONDS);
-        assertTrue(notificationReceived, "Should receive notification within 15 seconds");
-
-        // Verify notification content
-        BiTemporalEvent<Map<String, Object>> notification = receivedEvent.get();
-        assertNotNull(notification, "Notification event should not be null");
-        assertEquals(appendedEvent.getEventId(), notification.getEventId(), "Event ID should match");
-        assertEquals(eventType, notification.getEventType(), "Event type should match");
-        assertEquals(aggregateId, notification.getAggregateId(), "Aggregate ID should match");
-        assertEquals(payload, notification.getPayload(), "Payload should match");
-
-        logger.info("ReactiveNotificationHandler integration test completed successfully");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
     }
 
     @Test
-    void testAppendWithTransactionOverloads() throws Exception {
+    void testAppendWithTransactionOverloads(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing appendWithTransaction overloads ===");
 
-        // Initialize PeeGeeQ Manager
         peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        peeGeeQManager.start();
 
-        Class<Map<String, Object>> mapClass = mapClass();
-        eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
+        peeGeeQManager.start()
+            .compose(v -> {
+                eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass(), "test_events", new ObjectMapper());
+                Map<String, Object> payload1 = Map.of("test", "overload1");
+                return eventStore.appendWithTransaction(
+                    "test.overload1", payload1, Instant.now(), TransactionPropagation.CONTEXT);
+            })
+            .compose(event1 -> {
+                testContext.verify(() -> {
+                    assertNotNull(event1);
+                    assertEquals("test.overload1", event1.getEventType());
+                });
+                Map<String, Object> payload2 = Map.of("test", "overload2");
+                return eventStore.appendWithTransaction(
+                    "test.overload2", payload2, Instant.now(), Map.of("header", "value"), TransactionPropagation.CONTEXT);
+            })
+            .compose(event2 -> {
+                testContext.verify(() -> {
+                    assertNotNull(event2);
+                    assertEquals("test.overload2", event2.getEventType());
+                });
+                Map<String, Object> payload3 = Map.of("test", "overload3");
+                return eventStore.appendWithTransaction(
+                    "test.overload3", payload3, Instant.now(), Map.of(), "corr-123", TransactionPropagation.CONTEXT);
+            })
+            .compose(event3 -> {
+                testContext.verify(() -> {
+                    assertNotNull(event3);
+                    assertEquals("corr-123", event3.getCorrelationId());
+                });
+                Map<String, Object> payload4 = Map.of("test", "overload4");
+                return eventStore.appendWithTransaction(
+                    "test.overload4", payload4, Instant.now(), Map.of(), "corr-456", null, "agg-789", TransactionPropagation.CONTEXT);
+            })
+            .onSuccess(event4 -> testContext.verify(() -> {
+                assertNotNull(event4);
+                assertEquals("agg-789", event4.getAggregateId());
+                logger.info("appendWithTransaction overloads test completed successfully");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        // Test appendWithTransaction(eventType, payload, validTime, propagation)
-        Map<String, Object> payload1 = Map.of("test", "overload1");
-        BiTemporalEvent<Map<String, Object>> event1 = await(eventStore.appendWithTransaction(
-            "test.overload1", payload1, Instant.now(), TransactionPropagation.CONTEXT
-        ), 10, TimeUnit.SECONDS);
-        assertNotNull(event1);
-        assertEquals("test.overload1", event1.getEventType());
-
-        // Test appendWithTransaction(eventType, payload, validTime, headers, propagation)
-        Map<String, Object> payload2 = Map.of("test", "overload2");
-        BiTemporalEvent<Map<String, Object>> event2 = await(eventStore.appendWithTransaction(
-            "test.overload2", payload2, Instant.now(), Map.of("header", "value"), TransactionPropagation.CONTEXT
-        ), 10, TimeUnit.SECONDS);
-        assertNotNull(event2);
-        assertEquals("test.overload2", event2.getEventType());
-
-        // Test appendWithTransaction(eventType, payload, validTime, headers, correlationId, propagation)
-        Map<String, Object> payload3 = Map.of("test", "overload3");
-        BiTemporalEvent<Map<String, Object>> event3 = await(eventStore.appendWithTransaction(
-            "test.overload3", payload3, Instant.now(), Map.of(), "corr-123", TransactionPropagation.CONTEXT
-        ), 10, TimeUnit.SECONDS);
-        assertNotNull(event3);
-        assertEquals("corr-123", event3.getCorrelationId());
-
-        // Test appendWithTransaction(eventType, payload, validTime, headers, correlationId, causationId, aggregateId, propagation)
-        Map<String, Object> payload4 = Map.of("test", "overload4");
-        BiTemporalEvent<Map<String, Object>> event4 = await(eventStore.appendWithTransaction(
-            "test.overload4", payload4, Instant.now(), Map.of(), "corr-456", null, "agg-789", TransactionPropagation.CONTEXT
-        ), 10, TimeUnit.SECONDS);
-        assertNotNull(event4);
-        assertEquals("agg-789", event4.getAggregateId());
-
-        logger.info("appendWithTransaction overloads test completed successfully");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
     }
 
     @Test
-    void testAppendReactive() throws Exception {
+    void testAppendReactive(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing appendReactive ===");
 
         peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        peeGeeQManager.start();
 
-        Class<Map<String, Object>> mapClass = mapClass();
-        eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
+        peeGeeQManager.start()
+            .compose(v -> {
+                eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass(), "test_events", new ObjectMapper());
+                Map<String, Object> payload = Map.of("reactive", "test");
+                return eventStore.appendReactive("test.reactive", payload, Instant.now());
+            })
+            .onSuccess(event -> testContext.verify(() -> {
+                assertNotNull(event);
+                assertEquals("test.reactive", event.getEventType());
+                logger.info("appendReactive test completed successfully");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        Map<String, Object> payload = Map.of("reactive", "test");
-        Future<BiTemporalEvent<Map<String, Object>>> future = eventStore.appendReactive(
-            "test.reactive", payload, Instant.now()
-        );
-
-        BiTemporalEvent<Map<String, Object>> event = future.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        assertNotNull(event);
-        assertEquals("test.reactive", event.getEventType());
-
-        logger.info("appendReactive test completed successfully");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
     }
 
     @Test
-    void testSubscribeReactiveAndUnsubscribe() throws Exception {
+    void testSubscribeReactiveAndUnsubscribe(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing subscribeReactive and unsubscribe ===");
 
+        Promise<BiTemporalEvent<Map<String, Object>>> notificationPromise = Promise.promise();
+
         peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        peeGeeQManager.start();
 
-        Class<Map<String, Object>> mapClass = mapClass();
-        eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
+        peeGeeQManager.start()
+            .compose(v -> {
+                eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass(), "test_events", new ObjectMapper());
+                return eventStore.subscribeReactive("test.subscribe", message -> {
+                    notificationPromise.tryComplete(message.getPayload());
+                    return Future.<Void>succeededFuture();
+                });
+            })
+            .compose(v -> eventStore.appendBuilder().eventType("test.subscribe")
+                .payload(Map.of("subscribe", "test")).validTime(Instant.now()).execute())
+            .compose(v -> notificationPromise.future())
+            .onSuccess(received -> testContext.verify(() -> {
+                assertNotNull(received);
+                eventStore.unsubscribe();
+                logger.info("subscribeReactive and unsubscribe test completed successfully");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        CountDownLatch latch = new CountDownLatch(1);
-        AtomicReference<BiTemporalEvent<Map<String, Object>>> received = new AtomicReference<>();
-
-        // Test subscribeReactive - dots are now allowed and converted to underscores for channel names
-        Future<Void> subscriptionFuture = eventStore.subscribeReactive("test.subscribe", message -> {
-            received.set(message.getPayload());
-            latch.countDown();
-            return Future.<Void>succeededFuture();
-        });
-        subscriptionFuture.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-
-        // Give subscription time to establish
-        awaitAsyncDelay(500);
-
-        // Append an event - use dot notation to match subscription
-        Map<String, Object> payload = Map.of("subscribe", "test");
-        await(eventStore.appendBuilder().eventType("test.subscribe").payload(payload).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
-
-        // Wait for notification
-        boolean notified = latch.await(10, TimeUnit.SECONDS);
-        assertTrue(notified, "Should receive notification");
-        assertNotNull(received.get());
-
-        // Test unsubscribe
-        eventStore.unsubscribe();
-
-        logger.info("subscribeReactive and unsubscribe test completed successfully");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
     }
 
     /**
@@ -393,159 +389,143 @@ class PgBiTemporalEventStoreIntegrationTest {
      * uses the original event_type from the notification payload, ensuring correct isolation.
      */
     @Test
-    void testDotUnderscoreChannelCollisionIsolation() throws Exception {
+    void testDotUnderscoreChannelCollisionIsolation(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing dot/underscore channel collision isolation ===");
 
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        peeGeeQManager.start();
-
-        Class<Map<String, Object>> mapClass = mapClass();
-        eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
-
-        // Track received events for each subscription
         AtomicInteger dotSubscriberCount = new AtomicInteger(0);
         AtomicInteger underscoreSubscriberCount = new AtomicInteger(0);
         List<String> dotSubscriberEventTypes = new CopyOnWriteArrayList<>();
         List<String> underscoreSubscriberEventTypes = new CopyOnWriteArrayList<>();
-        CountDownLatch allEventsLatch = new CountDownLatch(2); // Expect 2 events total (1 per subscriber)
+        Promise<Void> bothSubscribersSatisfied = Promise.promise();
 
-        // Subscribe to "my.channel" (with dot)
-        Future<Void> dotSubscription = eventStore.subscribeReactive("my.channel", message -> {
-            String eventType = message.getPayload().getEventType();
-            dotSubscriberCount.incrementAndGet();
-            dotSubscriberEventTypes.add(eventType);
-            logger.info("DOT subscriber received event type: {}", eventType);
-            allEventsLatch.countDown();
-            return Future.<Void>succeededFuture();
-        });
-        dotSubscription.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
 
-        // Subscribe to "my_channel" (with underscore)
-        Future<Void> underscoreSubscription = eventStore.subscribeReactive("my_channel", message -> {
-            String eventType = message.getPayload().getEventType();
-            underscoreSubscriberCount.incrementAndGet();
-            underscoreSubscriberEventTypes.add(eventType);
-            logger.info("UNDERSCORE subscriber received event type: {}", eventType);
-            allEventsLatch.countDown();
-            return Future.<Void>succeededFuture();
-        });
-        underscoreSubscription.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+        peeGeeQManager.start()
+            .compose(v -> {
+                eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass(), "test_events", new ObjectMapper());
+                return eventStore.subscribeReactive("my.channel", message -> {
+                    String eventType = message.getPayload().getEventType();
+                    int dotCount = dotSubscriberCount.incrementAndGet();
+                    dotSubscriberEventTypes.add(eventType);
+                    logger.info("DOT subscriber received event type: {}", eventType);
+                    if (dotCount > 1) {
+                        bothSubscribersSatisfied.tryFail("DOT subscriber received duplicate notifications");
+                    } else if (dotSubscriberCount.get() == 1 && underscoreSubscriberCount.get() == 1) {
+                        bothSubscribersSatisfied.tryComplete();
+                    }
+                    return Future.<Void>succeededFuture();
+                });
+            })
+            .compose(v -> eventStore.subscribeReactive("my_channel", message -> {
+                String eventType = message.getPayload().getEventType();
+                int underscoreCount = underscoreSubscriberCount.incrementAndGet();
+                underscoreSubscriberEventTypes.add(eventType);
+                logger.info("UNDERSCORE subscriber received event type: {}", eventType);
+                if (underscoreCount > 1) {
+                    bothSubscribersSatisfied.tryFail("UNDERSCORE subscriber received duplicate notifications");
+                } else if (dotSubscriberCount.get() == 1 && underscoreSubscriberCount.get() == 1) {
+                    bothSubscribersSatisfied.tryComplete();
+                }
+                return Future.<Void>succeededFuture();
+            }))
+            .compose(v -> {
+                Map<String, Object> dotPayload = Map.of("source", "dot");
+                return eventStore.appendBuilder().eventType("my.channel").payload(dotPayload).validTime(Instant.now()).execute();
+            })
+            .compose(v -> {
+                logger.info("Appended event with type 'my.channel'");
+                Map<String, Object> underscorePayload = Map.of("source", "underscore");
+                return eventStore.appendBuilder().eventType("my_channel").payload(underscorePayload).validTime(Instant.now()).execute();
+            })
+            .compose(v -> {
+                logger.info("Appended event with type 'my_channel'");
+                return bothSubscribersSatisfied.future();
+            })
+            .onSuccess(v -> testContext.verify(() -> {
+                assertEquals(1, dotSubscriberCount.get(),
+                    "DOT subscriber should receive exactly 1 event");
+                assertEquals(1, underscoreSubscriberCount.get(),
+                    "UNDERSCORE subscriber should receive exactly 1 event");
+                assertTrue(dotSubscriberEventTypes.contains("my.channel"),
+                    "DOT subscriber should receive 'my.channel' event");
+                assertFalse(dotSubscriberEventTypes.contains("my_channel"),
+                    "DOT subscriber should NOT receive 'my_channel' event");
+                assertTrue(underscoreSubscriberEventTypes.contains("my_channel"),
+                    "UNDERSCORE subscriber should receive 'my_channel' event");
+                assertFalse(underscoreSubscriberEventTypes.contains("my.channel"),
+                    "UNDERSCORE subscriber should NOT receive 'my.channel' event");
+                eventStore.unsubscribe();
+                logger.info("Dot/underscore channel collision isolation test completed successfully");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        // Give subscriptions time to establish
-        awaitAsyncDelay(500);
-
-        // Append event with dot notation
-        Map<String, Object> dotPayload = Map.of("source", "dot");
-        await(eventStore.appendBuilder().eventType("my.channel").payload(dotPayload).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
-        logger.info("Appended event with type 'my.channel'");
-
-        // Append event with underscore notation
-        Map<String, Object> underscorePayload = Map.of("source", "underscore");
-        await(eventStore.appendBuilder().eventType("my_channel").payload(underscorePayload).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
-        logger.info("Appended event with type 'my_channel'");
-
-        // Wait for notifications
-        boolean allReceived = allEventsLatch.await(10, TimeUnit.SECONDS);
-        assertTrue(allReceived, "Should receive both notifications");
-
-        // Verify isolation: each subscriber should only receive their matching event type
-        assertEquals(1, dotSubscriberCount.get(),
-            "DOT subscriber should receive exactly 1 event");
-        assertEquals(1, underscoreSubscriberCount.get(),
-            "UNDERSCORE subscriber should receive exactly 1 event");
-
-        assertTrue(dotSubscriberEventTypes.contains("my.channel"),
-            "DOT subscriber should receive 'my.channel' event");
-        assertFalse(dotSubscriberEventTypes.contains("my_channel"),
-            "DOT subscriber should NOT receive 'my_channel' event");
-
-        assertTrue(underscoreSubscriberEventTypes.contains("my_channel"),
-            "UNDERSCORE subscriber should receive 'my_channel' event");
-        assertFalse(underscoreSubscriberEventTypes.contains("my.channel"),
-            "UNDERSCORE subscriber should NOT receive 'my.channel' event");
-
-        eventStore.unsubscribe();
-
-        logger.info("Dot/underscore channel collision isolation test completed successfully");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
     }
 
     @Test
-    void testGetAsOfTransactionTime() throws Exception {
+    void testGetAsOfTransactionTime(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing getAsOfTransactionTime ===");
 
         peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        peeGeeQManager.start();
 
-        Class<Map<String, Object>> mapClass = mapClass();
-        eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
+        peeGeeQManager.start()
+            .compose(v -> {
+                eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass(), "test_events", new ObjectMapper());
+                Map<String, Object> payload = Map.of("asof", "test");
+                return eventStore.appendBuilder().eventType("test.asof").payload(payload).validTime(Instant.now()).execute();
+            })
+            .compose(event -> {
+                Instant queryTime = Instant.now();
+                return eventStore.getAsOfTransactionTime(event.getEventId(), queryTime)
+                    .map(result -> Map.entry(event, result));
+            })
+            .onSuccess(pair -> testContext.verify(() -> {
+                assertNotNull(pair.getValue());
+                assertEquals(pair.getKey().getEventId(), pair.getValue().getEventId());
+                logger.info("getAsOfTransactionTime test completed successfully");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        // Append an event
-        Map<String, Object> payload = Map.of("asof", "test");
-        BiTemporalEvent<Map<String, Object>> event = await(eventStore.appendBuilder().eventType("test.asof").payload(payload).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
-
-        // Query as of transaction time (slightly after the event was created)
-        Instant queryTime = Instant.now();
-        Future<BiTemporalEvent<Map<String, Object>>> future = eventStore.getAsOfTransactionTime(
-            event.getEventId(), queryTime
-        );
-
-        BiTemporalEvent<Map<String, Object>> result = await(future, 10, TimeUnit.SECONDS);
-        assertNotNull(result);
-        assertEquals(event.getEventId(), result.getEventId());
-
-        logger.info("getAsOfTransactionTime test completed successfully");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
     }
 
     @Test
-    void testClearCachedPoolsAndInstancePools() throws Exception {
+    void testClearCachedPoolsAndInstancePools(VertxTestContext testContext) throws Exception {
         logger.info("=== Testing clearCachedPools and clearInstancePools ===");
 
         peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        peeGeeQManager.start();
 
-        Class<Map<String, Object>> mapClass = mapClass();
-        eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
+        peeGeeQManager.start()
+            .compose(v -> {
+                eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass(), "test_events", new ObjectMapper());
+                Map<String, Object> payload = Map.of("pool", "test");
+                return eventStore.appendBuilder().eventType("test.pool").payload(payload).validTime(Instant.now()).execute();
+            })
+            .compose(v -> eventStore.clearInstancePools())
+            .compose(v -> {
+                Map<String, Object> payload2 = Map.of("pool", "test2");
+                return eventStore.appendBuilder().eventType("test.pool2").payload(payload2).validTime(Instant.now()).execute();
+            })
+            .onSuccess(event -> testContext.verify(() -> {
+                assertNotNull(event);
+                PgBiTemporalEventStore.clearCachedPools();
+                logger.info("clearCachedPools and clearInstancePools test completed successfully");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        // Append an event to ensure pools are created
-        Map<String, Object> payload = Map.of("pool", "test");
-        await(eventStore.appendBuilder().eventType("test.pool").payload(payload).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
-
-        // Test clearInstancePools
-        eventStore.clearInstancePools();
-
-        // Append another event to verify pools are recreated
-        Map<String, Object> payload2 = Map.of("pool", "test2");
-        BiTemporalEvent<Map<String, Object>> event = await(eventStore.appendBuilder().eventType("test.pool2").payload(payload2).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
-        assertNotNull(event);
-
-        // Test clearCachedPools (static method)
-        PgBiTemporalEventStore.clearCachedPools();
-
-        logger.info("clearCachedPools and clearInstancePools test completed successfully");
-    }
-
-    @Test
-    void testCloseSharedVertx() throws Exception {
-        logger.info("=== Testing closeSharedVertx ===");
-
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        peeGeeQManager.start();
-
-        Class<Map<String, Object>> mapClass = mapClass();
-        eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
-
-        // Append an event to ensure Vertx is created
-        Map<String, Object> payload = Map.of("vertx", "test");
-        await(eventStore.appendBuilder().eventType("test.vertx").payload(payload).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
-
-        // Close the event store first
-        eventStore.close();
-        eventStore = null;
-
-        // Test closeSharedVertx (static method)
-        PgBiTemporalEventStore.closeSharedVertx();
-
-        logger.info("closeSharedVertx test completed successfully");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
     }
 
     // ==================================================================================
@@ -561,193 +541,199 @@ class PgBiTemporalEventStoreIntegrationTest {
      * verify subscriber receives ONLY the matching event.
      */
     @Test
-    void testTypeSpecificSubscriptionOnlyReceivesMatchingEvents() throws Exception {
+    void testTypeSpecificSubscriptionOnlyReceivesMatchingEvents(VertxTestContext testContext) throws Exception {
         logger.info("=== Test 1: Type-specific subscription only receives matching events ===");
 
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        peeGeeQManager.start();
-
-        Class<Map<String, Object>> mapClass = mapClass();
-        eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
-
         List<String> receivedEventTypes = new CopyOnWriteArrayList<>();
-        CountDownLatch latch = new CountDownLatch(1);
+        Promise<Void> expectedNotifications = Promise.promise();
 
-        // Subscribe to order.created only
-        Future<Void> subscription = eventStore.subscribeReactive("order.created", message -> {
-            String eventType = message.getPayload().getEventType();
-            receivedEventTypes.add(eventType);
-            logger.info("Received event type: {}", eventType);
-            latch.countDown();
-            return Future.<Void>succeededFuture();
-        });
-        subscription.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        awaitAsyncDelay(500);
+        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
 
-        // Append 3 different event types
-        await(eventStore.appendBuilder().eventType("order.created").payload(Map.of("test", "1")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
-        await(eventStore.appendBuilder().eventType("order.shipped").payload(Map.of("test", "2")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
-        await(eventStore.appendBuilder().eventType("payment.received").payload(Map.of("test", "3")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
+        peeGeeQManager.start()
+            .compose(v -> {
+                eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass(), "test_events", new ObjectMapper());
+                return eventStore.subscribeReactive("order.created", message -> {
+                    String eventType = message.getPayload().getEventType();
+                    receivedEventTypes.add(eventType);
+                    logger.info("Received event type: {}", eventType);
+                    if (receivedEventTypes.size() == 1) {
+                        expectedNotifications.tryComplete();
+                    } else if (receivedEventTypes.size() > 1) {
+                        expectedNotifications.tryFail("Received more type-specific notifications than expected");
+                    }
+                    return Future.<Void>succeededFuture();
+                });
+            })
+            .compose(v -> eventStore.appendBuilder().eventType("order.created").payload(Map.of("test", "1")).validTime(Instant.now()).execute())
+            .compose(v -> eventStore.appendBuilder().eventType("order.shipped").payload(Map.of("test", "2")).validTime(Instant.now()).execute())
+            .compose(v -> eventStore.appendBuilder().eventType("payment.received").payload(Map.of("test", "3")).validTime(Instant.now()).execute())
+            .compose(v -> expectedNotifications.future())
+            .onSuccess(v -> testContext.verify(() -> {
+                assertEquals(1, receivedEventTypes.size(), "Should receive exactly 1 event");
+                assertEquals("order.created", receivedEventTypes.get(0), "Should receive order.created");
+                eventStore.unsubscribe();
+                logger.info("Test 1 completed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        // Wait for the expected event
-        boolean received = latch.await(10, TimeUnit.SECONDS);
-        assertTrue(received, "Should receive the matching event");
-
-        // Give extra time for any unexpected events
-        awaitAsyncDelay(1000);
-
-        // Verify only 1 event received
-        assertEquals(1, receivedEventTypes.size(), "Should receive exactly 1 event");
-        assertEquals("order.created", receivedEventTypes.get(0), "Should receive order.created");
-
-        eventStore.unsubscribe();
-        logger.info("Test 1 completed");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
     }
 
     /**
      * Test 2: General subscription (null event type) receives all events.
      */
     @Test
-    void testGeneralSubscriptionReceivesAllEvents() throws Exception {
+    void testGeneralSubscriptionReceivesAllEvents(VertxTestContext testContext) throws Exception {
         logger.info("=== Test 2: General subscription receives all events ===");
 
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        peeGeeQManager.start();
-
-        Class<Map<String, Object>> mapClass = mapClass();
-        eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
-
         List<String> receivedEventTypes = new CopyOnWriteArrayList<>();
-        CountDownLatch latch = new CountDownLatch(3);
+        Promise<Void> expectedNotifications = Promise.promise();
 
-        // Subscribe with null event type (all events)
-        Future<Void> subscription = eventStore.subscribeReactive(null, message -> {
-            String eventType = message.getPayload().getEventType();
-            receivedEventTypes.add(eventType);
-            logger.info("Received event type: {}", eventType);
-            latch.countDown();
-            return Future.<Void>succeededFuture();
-        });
-        subscription.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        awaitAsyncDelay(500);
+        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
 
-        // Append 3 different event types
-        await(eventStore.appendBuilder().eventType("order.created").payload(Map.of("test", "1")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
-        await(eventStore.appendBuilder().eventType("order.shipped").payload(Map.of("test", "2")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
-        await(eventStore.appendBuilder().eventType("payment.received").payload(Map.of("test", "3")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
+        peeGeeQManager.start()
+            .compose(v -> {
+                eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass(), "test_events", new ObjectMapper());
+                return eventStore.subscribeReactive(null, message -> {
+                    String eventType = message.getPayload().getEventType();
+                    receivedEventTypes.add(eventType);
+                    logger.info("Received event type: {}", eventType);
+                    if (receivedEventTypes.size() == 3) {
+                        expectedNotifications.tryComplete();
+                    } else if (receivedEventTypes.size() > 3) {
+                        expectedNotifications.tryFail("General subscription received more notifications than expected");
+                    }
+                    return Future.<Void>succeededFuture();
+                });
+            })
+            .compose(v -> eventStore.appendBuilder().eventType("order.created").payload(Map.of("test", "1")).validTime(Instant.now()).execute())
+            .compose(v -> eventStore.appendBuilder().eventType("order.shipped").payload(Map.of("test", "2")).validTime(Instant.now()).execute())
+            .compose(v -> eventStore.appendBuilder().eventType("payment.received").payload(Map.of("test", "3")).validTime(Instant.now()).execute())
+            .compose(v -> expectedNotifications.future())
+            .onSuccess(v -> testContext.verify(() -> {
+                assertEquals(3, receivedEventTypes.size(), "Should receive exactly 3 events");
+                assertTrue(receivedEventTypes.contains("order.created"));
+                assertTrue(receivedEventTypes.contains("order.shipped"));
+                assertTrue(receivedEventTypes.contains("payment.received"));
+                eventStore.unsubscribe();
+                logger.info("Test 2 completed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        // Wait for all events
-        boolean received = latch.await(10, TimeUnit.SECONDS);
-        assertTrue(received, "Should receive all 3 events");
-
-        assertEquals(3, receivedEventTypes.size(), "Should receive exactly 3 events");
-        assertTrue(receivedEventTypes.contains("order.created"));
-        assertTrue(receivedEventTypes.contains("order.shipped"));
-        assertTrue(receivedEventTypes.contains("payment.received"));
-
-        eventStore.unsubscribe();
-        logger.info("Test 2 completed");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
     }
 
     /**
      * Test 3: Multiple type-specific subscriptions receive only their types.
      */
     @Test
-    void testMultipleTypeSpecificSubscriptionsIsolation() throws Exception {
+    void testMultipleTypeSpecificSubscriptionsIsolation(VertxTestContext testContext) throws Exception {
         logger.info("=== Test 3: Multiple type-specific subscriptions isolation ===");
-
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        peeGeeQManager.start();
-
-        Class<Map<String, Object>> mapClass = mapClass();
-        eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
 
         List<String> orderCreatedEvents = new CopyOnWriteArrayList<>();
         List<String> paymentReceivedEvents = new CopyOnWriteArrayList<>();
-        CountDownLatch latch = new CountDownLatch(2);
+        Promise<Void> bothSubscriptionsSatisfied = Promise.promise();
 
-        // Subscribe to order.created
-        Future<Void> sub1 = eventStore.subscribeReactive("order.created", message -> {
-            orderCreatedEvents.add(message.getPayload().getEventType());
-            logger.info("order.created subscriber received: {}", message.getPayload().getEventType());
-            latch.countDown();
-            return Future.<Void>succeededFuture();
-        });
-        sub1.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
 
-        // Subscribe to payment.received
-        Future<Void> sub2 = eventStore.subscribeReactive("payment.received", message -> {
-            paymentReceivedEvents.add(message.getPayload().getEventType());
-            logger.info("payment.received subscriber received: {}", message.getPayload().getEventType());
-            latch.countDown();
-            return Future.<Void>succeededFuture();
-        });
-        sub2.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        awaitAsyncDelay(500);
+        peeGeeQManager.start()
+            .compose(v -> {
+                eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass(), "test_events", new ObjectMapper());
+                return eventStore.subscribeReactive("order.created", message -> {
+                    orderCreatedEvents.add(message.getPayload().getEventType());
+                    logger.info("order.created subscriber received: {}", message.getPayload().getEventType());
+                    if (orderCreatedEvents.size() > 1) {
+                        bothSubscriptionsSatisfied.tryFail("order.created subscriber received duplicate notifications");
+                    } else if (orderCreatedEvents.size() == 1 && paymentReceivedEvents.size() == 1) {
+                        bothSubscriptionsSatisfied.tryComplete();
+                    }
+                    return Future.<Void>succeededFuture();
+                });
+            })
+            .compose(v -> eventStore.subscribeReactive("payment.received", message -> {
+                paymentReceivedEvents.add(message.getPayload().getEventType());
+                logger.info("payment.received subscriber received: {}", message.getPayload().getEventType());
+                if (paymentReceivedEvents.size() > 1) {
+                    bothSubscriptionsSatisfied.tryFail("payment.received subscriber received duplicate notifications");
+                } else if (orderCreatedEvents.size() == 1 && paymentReceivedEvents.size() == 1) {
+                    bothSubscriptionsSatisfied.tryComplete();
+                }
+                return Future.<Void>succeededFuture();
+            }))
+            .compose(v -> eventStore.appendBuilder().eventType("order.created").payload(Map.of("test", "1")).validTime(Instant.now()).execute())
+            .compose(v -> eventStore.appendBuilder().eventType("order.shipped").payload(Map.of("test", "2")).validTime(Instant.now()).execute())
+            .compose(v -> eventStore.appendBuilder().eventType("payment.received").payload(Map.of("test", "3")).validTime(Instant.now()).execute())
+            .compose(v -> bothSubscriptionsSatisfied.future())
+            .onSuccess(v -> testContext.verify(() -> {
+                assertEquals(1, orderCreatedEvents.size(), "order.created subscriber should receive 1 event");
+                assertEquals("order.created", orderCreatedEvents.get(0));
+                assertEquals(1, paymentReceivedEvents.size(), "payment.received subscriber should receive 1 event");
+                assertEquals("payment.received", paymentReceivedEvents.get(0));
+                eventStore.unsubscribe();
+                logger.info("Test 3 completed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        // Append 3 different event types
-        await(eventStore.appendBuilder().eventType("order.created").payload(Map.of("test", "1")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
-        await(eventStore.appendBuilder().eventType("order.shipped").payload(Map.of("test", "2")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
-        await(eventStore.appendBuilder().eventType("payment.received").payload(Map.of("test", "3")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
-
-        // Wait for expected events
-        boolean received = latch.await(10, TimeUnit.SECONDS);
-        assertTrue(received, "Should receive both expected events");
-
-        // Give extra time for any unexpected events
-        awaitAsyncDelay(1000);
-
-        // Verify isolation
-        assertEquals(1, orderCreatedEvents.size(), "order.created subscriber should receive 1 event");
-        assertEquals("order.created", orderCreatedEvents.get(0));
-
-        assertEquals(1, paymentReceivedEvents.size(), "payment.received subscriber should receive 1 event");
-        assertEquals("payment.received", paymentReceivedEvents.get(0));
-
-        eventStore.unsubscribe();
-        logger.info("Test 3 completed");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
     }
 
     /**
      * Test 5: No duplicate events - subscriber receives exactly 1 event per append.
      */
     @Test
-    void testNoDuplicateEvents() throws Exception {
+    void testNoDuplicateEvents(VertxTestContext testContext) throws Exception {
         logger.info("=== Test 5: No duplicate events ===");
-
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        peeGeeQManager.start();
-
-        Class<Map<String, Object>> mapClass = mapClass();
-        eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
 
         AtomicInteger eventCount = new AtomicInteger(0);
         List<String> receivedEventIds = new CopyOnWriteArrayList<>();
+        Promise<Void> expectedNotification = Promise.promise();
 
-        // Subscribe to test.event
-        Future<Void> subscription = eventStore.subscribeReactive("test.event", message -> {
-            eventCount.incrementAndGet();
-            receivedEventIds.add(message.getPayload().getEventId());
-            logger.info("Received event #{}: {}", eventCount.get(), message.getPayload().getEventId());
-            return Future.<Void>succeededFuture();
-        });
-        subscription.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        awaitAsyncDelay(500);
+        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
 
-        // Append 1 event
-        BiTemporalEvent<Map<String, Object>> appendedEvent = await(eventStore.appendBuilder().eventType("test.event").payload(Map.of("test", "no-duplicates")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
-        String expectedEventId = appendedEvent.getEventId();
+        peeGeeQManager.start()
+            .compose(v -> {
+                eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass(), "test_events", new ObjectMapper());
+                return eventStore.subscribeReactive("test.event", message -> {
+                    int currentCount = eventCount.incrementAndGet();
+                    receivedEventIds.add(message.getPayload().getEventId());
+                    logger.info("Received event #{}: {}", eventCount.get(), message.getPayload().getEventId());
+                    if (currentCount == 1) {
+                        expectedNotification.tryComplete();
+                    } else {
+                        expectedNotification.tryFail("Received duplicate notification for single append");
+                    }
+                    return Future.<Void>succeededFuture();
+                });
+            })
+            .compose(v -> eventStore.appendBuilder().eventType("test.event")
+                .payload(Map.of("test", "no-duplicates")).validTime(Instant.now()).execute())
+            .compose(appended -> expectedNotification.future().map(x -> appended))
+            .onSuccess(appended -> testContext.verify(() -> {
+                assertEquals(1, eventCount.get(), "Should receive exactly 1 event (not duplicated)");
+                assertEquals(1, receivedEventIds.size());
+                assertEquals(appended.getEventId(), receivedEventIds.get(0));
+                eventStore.unsubscribe();
+                logger.info("Test 5 completed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        // Wait for event and give extra time for any duplicates
-        awaitAsyncDelay(2000);
-
-        // Verify exactly 1 event received
-        assertEquals(1, eventCount.get(), "Should receive exactly 1 event (not duplicated)");
-        assertEquals(1, receivedEventIds.size());
-        assertEquals(expectedEventId, receivedEventIds.get(0));
-
-        eventStore.unsubscribe();
-        logger.info("Test 5 completed");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
     }
 
     // ==================================================================================
@@ -758,144 +744,144 @@ class PgBiTemporalEventStoreIntegrationTest {
      * Test 6: Trailing wildcard 'order.*' matches order.created, order.shipped but not payment.received.
      */
     @Test
-    void testTrailingWildcard() throws Exception {
+    void testTrailingWildcard(VertxTestContext testContext) throws Exception {
         logger.info("=== Test 6: Trailing wildcard order.* ===");
 
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        peeGeeQManager.start();
-
-        Class<Map<String, Object>> mapClass = mapClass();
-        eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
-
         List<String> receivedEventTypes = new CopyOnWriteArrayList<>();
-        CountDownLatch latch = new CountDownLatch(2);
+        Promise<Void> expectedNotifications = Promise.promise();
 
-        // Subscribe to order.*
-        Future<Void> subscription = eventStore.subscribeReactive("order.*", message -> {
-            String eventType = message.getPayload().getEventType();
-            receivedEventTypes.add(eventType);
-            logger.info("order.* subscriber received: {}", eventType);
-            latch.countDown();
-            return Future.<Void>succeededFuture();
-        });
-        subscription.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        awaitAsyncDelay(500);
+        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
 
-        // Append events
-        await(eventStore.appendBuilder().eventType("order.created").payload(Map.of("test", "1")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
-        await(eventStore.appendBuilder().eventType("order.shipped").payload(Map.of("test", "2")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
-        await(eventStore.appendBuilder().eventType("payment.received").payload(Map.of("test", "3")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
+        peeGeeQManager.start()
+            .compose(v -> {
+                eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass(), "test_events", new ObjectMapper());
+                return eventStore.subscribeReactive("order.*", message -> {
+                    String eventType = message.getPayload().getEventType();
+                    receivedEventTypes.add(eventType);
+                    logger.info("order.* subscriber received: {}", eventType);
+                    if (receivedEventTypes.size() == 2) {
+                        expectedNotifications.tryComplete();
+                    } else if (receivedEventTypes.size() > 2) {
+                        expectedNotifications.tryFail("order.* subscriber received too many notifications");
+                    }
+                    return Future.<Void>succeededFuture();
+                });
+            })
+            .compose(v -> eventStore.appendBuilder().eventType("order.created").payload(Map.of("test", "1")).validTime(Instant.now()).execute())
+            .compose(v -> eventStore.appendBuilder().eventType("order.shipped").payload(Map.of("test", "2")).validTime(Instant.now()).execute())
+            .compose(v -> eventStore.appendBuilder().eventType("payment.received").payload(Map.of("test", "3")).validTime(Instant.now()).execute())
+            .compose(v -> expectedNotifications.future())
+            .onSuccess(v -> testContext.verify(() -> {
+                assertEquals(2, receivedEventTypes.size(), "Should receive exactly 2 events");
+                assertTrue(receivedEventTypes.contains("order.created"));
+                assertTrue(receivedEventTypes.contains("order.shipped"));
+                assertFalse(receivedEventTypes.contains("payment.received"));
+                eventStore.unsubscribe();
+                logger.info("Test 6 completed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        // Wait for expected events
-        boolean received = latch.await(10, TimeUnit.SECONDS);
-        assertTrue(received, "Should receive 2 matching events");
-
-        // Give extra time for any unexpected events
-        awaitAsyncDelay(1000);
-
-        assertEquals(2, receivedEventTypes.size(), "Should receive exactly 2 events");
-        assertTrue(receivedEventTypes.contains("order.created"));
-        assertTrue(receivedEventTypes.contains("order.shipped"));
-        assertFalse(receivedEventTypes.contains("payment.received"));
-
-        eventStore.unsubscribe();
-        logger.info("Test 6 completed");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
     }
 
     /**
      * Test 7: Leading wildcard '*.created' matches order.created, payment.created but not order.shipped.
      */
     @Test
-    void testLeadingWildcard() throws Exception {
+    void testLeadingWildcard(VertxTestContext testContext) throws Exception {
         logger.info("=== Test 7: Leading wildcard *.created ===");
 
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        peeGeeQManager.start();
-
-        Class<Map<String, Object>> mapClass = mapClass();
-        eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
-
         List<String> receivedEventTypes = new CopyOnWriteArrayList<>();
-        CountDownLatch latch = new CountDownLatch(2);
+        Promise<Void> expectedNotifications = Promise.promise();
 
-        // Subscribe to *.created
-        Future<Void> subscription = eventStore.subscribeReactive("*.created", message -> {
-            String eventType = message.getPayload().getEventType();
-            receivedEventTypes.add(eventType);
-            logger.info("*.created subscriber received: {}", eventType);
-            latch.countDown();
-            return Future.<Void>succeededFuture();
-        });
-        subscription.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        awaitAsyncDelay(500);
+        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
 
-        // Append events
-        await(eventStore.appendBuilder().eventType("order.created").payload(Map.of("test", "1")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
-        await(eventStore.appendBuilder().eventType("payment.created").payload(Map.of("test", "2")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
-        await(eventStore.appendBuilder().eventType("order.shipped").payload(Map.of("test", "3")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
+        peeGeeQManager.start()
+            .compose(v -> {
+                eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass(), "test_events", new ObjectMapper());
+                return eventStore.subscribeReactive("*.created", message -> {
+                    String eventType = message.getPayload().getEventType();
+                    receivedEventTypes.add(eventType);
+                    logger.info("*.created subscriber received: {}", eventType);
+                    if (receivedEventTypes.size() == 2) {
+                        expectedNotifications.tryComplete();
+                    } else if (receivedEventTypes.size() > 2) {
+                        expectedNotifications.tryFail("*.created subscriber received too many notifications");
+                    }
+                    return Future.<Void>succeededFuture();
+                });
+            })
+            .compose(v -> eventStore.appendBuilder().eventType("order.created").payload(Map.of("test", "1")).validTime(Instant.now()).execute())
+            .compose(v -> eventStore.appendBuilder().eventType("payment.created").payload(Map.of("test", "2")).validTime(Instant.now()).execute())
+            .compose(v -> eventStore.appendBuilder().eventType("order.shipped").payload(Map.of("test", "3")).validTime(Instant.now()).execute())
+            .compose(v -> expectedNotifications.future())
+            .onSuccess(v -> testContext.verify(() -> {
+                assertEquals(2, receivedEventTypes.size(), "Should receive exactly 2 events");
+                assertTrue(receivedEventTypes.contains("order.created"));
+                assertTrue(receivedEventTypes.contains("payment.created"));
+                assertFalse(receivedEventTypes.contains("order.shipped"));
+                eventStore.unsubscribe();
+                logger.info("Test 7 completed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        // Wait for expected events
-        boolean received = latch.await(10, TimeUnit.SECONDS);
-        assertTrue(received, "Should receive 2 matching events");
-
-        // Give extra time for any unexpected events
-        awaitAsyncDelay(1000);
-
-        assertEquals(2, receivedEventTypes.size(), "Should receive exactly 2 events");
-        assertTrue(receivedEventTypes.contains("order.created"));
-        assertTrue(receivedEventTypes.contains("payment.created"));
-        assertFalse(receivedEventTypes.contains("order.shipped"));
-
-        eventStore.unsubscribe();
-        logger.info("Test 7 completed");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
     }
 
     /**
      * Test 8: Middle wildcard 'order.*.completed' matches order.payment.completed, order.shipping.completed.
      */
     @Test
-    void testMiddleWildcard() throws Exception {
+    void testMiddleWildcard(VertxTestContext testContext) throws Exception {
         logger.info("=== Test 8: Middle wildcard order.*.completed ===");
 
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        peeGeeQManager.start();
-
-        Class<Map<String, Object>> mapClass = mapClass();
-        eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
-
         List<String> receivedEventTypes = new CopyOnWriteArrayList<>();
-        CountDownLatch latch = new CountDownLatch(2);
+        Promise<Void> expectedNotifications = Promise.promise();
 
-        // Subscribe to order.*.completed
-        Future<Void> subscription = eventStore.subscribeReactive("order.*.completed", message -> {
-            String eventType = message.getPayload().getEventType();
-            receivedEventTypes.add(eventType);
-            logger.info("order.*.completed subscriber received: {}", eventType);
-            latch.countDown();
-            return Future.<Void>succeededFuture();
-        });
-        subscription.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        awaitAsyncDelay(500);
+        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
 
-        // Append events
-        await(eventStore.appendBuilder().eventType("order.payment.completed").payload(Map.of("test", "1")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
-        await(eventStore.appendBuilder().eventType("order.shipping.completed").payload(Map.of("test", "2")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
-        await(eventStore.appendBuilder().eventType("order.created").payload(Map.of("test", "3")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
+        peeGeeQManager.start()
+            .compose(v -> {
+                eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass(), "test_events", new ObjectMapper());
+                return eventStore.subscribeReactive("order.*.completed", message -> {
+                    String eventType = message.getPayload().getEventType();
+                    receivedEventTypes.add(eventType);
+                    logger.info("order.*.completed subscriber received: {}", eventType);
+                    if (receivedEventTypes.size() == 2) {
+                        expectedNotifications.tryComplete();
+                    } else if (receivedEventTypes.size() > 2) {
+                        expectedNotifications.tryFail("order.*.completed subscriber received too many notifications");
+                    }
+                    return Future.<Void>succeededFuture();
+                });
+            })
+            .compose(v -> eventStore.appendBuilder().eventType("order.payment.completed").payload(Map.of("test", "1")).validTime(Instant.now()).execute())
+            .compose(v -> eventStore.appendBuilder().eventType("order.shipping.completed").payload(Map.of("test", "2")).validTime(Instant.now()).execute())
+            .compose(v -> eventStore.appendBuilder().eventType("order.created").payload(Map.of("test", "3")).validTime(Instant.now()).execute())
+            .compose(v -> expectedNotifications.future())
+            .onSuccess(v -> testContext.verify(() -> {
+                assertEquals(2, receivedEventTypes.size(), "Should receive exactly 2 events");
+                assertTrue(receivedEventTypes.contains("order.payment.completed"));
+                assertTrue(receivedEventTypes.contains("order.shipping.completed"));
+                assertFalse(receivedEventTypes.contains("order.created"));
+                eventStore.unsubscribe();
+                logger.info("Test 8 completed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        // Wait for expected events
-        boolean received = latch.await(10, TimeUnit.SECONDS);
-        assertTrue(received, "Should receive 2 matching events");
-
-        // Give extra time for any unexpected events
-        awaitAsyncDelay(1000);
-
-        assertEquals(2, receivedEventTypes.size(), "Should receive exactly 2 events");
-        assertTrue(receivedEventTypes.contains("order.payment.completed"));
-        assertTrue(receivedEventTypes.contains("order.shipping.completed"));
-        assertFalse(receivedEventTypes.contains("order.created"));
-
-        eventStore.unsubscribe();
-        logger.info("Test 8 completed");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
     }
 
     /**
@@ -903,119 +889,123 @@ class PgBiTemporalEventStoreIntegrationTest {
      * 'order.*' should match 'order.created' but NOT 'orders.created' or 'order'.
      */
     @Test
-    void testWildcardMatchesWholeSegmentsOnly() throws Exception {
+    void testWildcardMatchesWholeSegmentsOnly(VertxTestContext testContext) throws Exception {
         logger.info("=== Test 9: Wildcard matches whole segments only ===");
 
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        peeGeeQManager.start();
-
-        Class<Map<String, Object>> mapClass = mapClass();
-        eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
-
         List<String> receivedEventTypes = new CopyOnWriteArrayList<>();
-        CountDownLatch latch = new CountDownLatch(1);
+        Promise<Void> expectedNotifications = Promise.promise();
 
-        // Subscribe to order.*
-        Future<Void> subscription = eventStore.subscribeReactive("order.*", message -> {
-            String eventType = message.getPayload().getEventType();
-            receivedEventTypes.add(eventType);
-            logger.info("order.* subscriber received: {}", eventType);
-            latch.countDown();
-            return Future.<Void>succeededFuture();
-        });
-        subscription.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        awaitAsyncDelay(500);
+        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
 
-        // Append events - only order.created should match
-        await(eventStore.appendBuilder().eventType("order.created").payload(Map.of("test", "1")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
-        await(eventStore.appendBuilder().eventType("orders.created").payload(Map.of("test", "2")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
-        await(eventStore.appendBuilder().eventType("order").payload(Map.of("test", "3")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
+        peeGeeQManager.start()
+            .compose(v -> {
+                eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass(), "test_events", new ObjectMapper());
+                return eventStore.subscribeReactive("order.*", message -> {
+                    String eventType = message.getPayload().getEventType();
+                    receivedEventTypes.add(eventType);
+                    logger.info("order.* subscriber received: {}", eventType);
+                    if (receivedEventTypes.size() == 1) {
+                        expectedNotifications.tryComplete();
+                    } else if (receivedEventTypes.size() > 1) {
+                        expectedNotifications.tryFail("order.* subscriber received too many notifications");
+                    }
+                    return Future.<Void>succeededFuture();
+                });
+            })
+            .compose(v -> eventStore.appendBuilder().eventType("order.created").payload(Map.of("test", "1")).validTime(Instant.now()).execute())
+            .compose(v -> eventStore.appendBuilder().eventType("orders.created").payload(Map.of("test", "2")).validTime(Instant.now()).execute())
+            .compose(v -> eventStore.appendBuilder().eventType("order").payload(Map.of("test", "3")).validTime(Instant.now()).execute())
+            .compose(v -> expectedNotifications.future())
+            .onSuccess(v -> testContext.verify(() -> {
+                assertEquals(1, receivedEventTypes.size(), "Should receive exactly 1 event");
+                assertEquals("order.created", receivedEventTypes.get(0));
+                eventStore.unsubscribe();
+                logger.info("Test 9 completed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        // Wait for expected event
-        boolean received = latch.await(10, TimeUnit.SECONDS);
-        assertTrue(received, "Should receive 1 matching event");
-
-        // Give extra time for any unexpected events
-        awaitAsyncDelay(1000);
-
-        assertEquals(1, receivedEventTypes.size(), "Should receive exactly 1 event");
-        assertEquals("order.created", receivedEventTypes.get(0));
-
-        eventStore.unsubscribe();
-        logger.info("Test 9 completed");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
     }
 
     /**
      * Test 10: Multiple wildcards '*.order.*' matches foo.order.bar, abc.order.xyz but not order.created.
      */
     @Test
-    void testMultipleWildcards() throws Exception {
+    void testMultipleWildcards(VertxTestContext testContext) throws Exception {
         logger.info("=== Test 10: Multiple wildcards *.order.* ===");
 
-        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        peeGeeQManager.start();
-
-        Class<Map<String, Object>> mapClass = mapClass();
-        eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "test_events", new ObjectMapper());
-
         List<String> receivedEventTypes = new CopyOnWriteArrayList<>();
-        CountDownLatch latch = new CountDownLatch(2);
+        Promise<Void> expectedNotifications = Promise.promise();
 
-        // Subscribe to *.order.*
-        Future<Void> subscription = eventStore.subscribeReactive("*.order.*", message -> {
-            String eventType = message.getPayload().getEventType();
-            receivedEventTypes.add(eventType);
-            logger.info("*.order.* subscriber received: {}", eventType);
-            latch.countDown();
-            return Future.<Void>succeededFuture();
-        });
-        subscription.toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        awaitAsyncDelay(500);
+        peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
 
-        // Append events
-        await(eventStore.appendBuilder().eventType("foo.order.bar").payload(Map.of("test", "1")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
-        await(eventStore.appendBuilder().eventType("abc.order.xyz").payload(Map.of("test", "2")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
-        await(eventStore.appendBuilder().eventType("order.created").payload(Map.of("test", "3")).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
+        peeGeeQManager.start()
+            .compose(v -> {
+                eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass(), "test_events", new ObjectMapper());
+                return eventStore.subscribeReactive("*.order.*", message -> {
+                    String eventType = message.getPayload().getEventType();
+                    receivedEventTypes.add(eventType);
+                    logger.info("*.order.* subscriber received: {}", eventType);
+                    if (receivedEventTypes.size() == 2) {
+                        expectedNotifications.tryComplete();
+                    } else if (receivedEventTypes.size() > 2) {
+                        expectedNotifications.tryFail("*.order.* subscriber received too many notifications");
+                    }
+                    return Future.<Void>succeededFuture();
+                });
+            })
+            .compose(v -> eventStore.appendBuilder().eventType("foo.order.bar").payload(Map.of("test", "1")).validTime(Instant.now()).execute())
+            .compose(v -> eventStore.appendBuilder().eventType("abc.order.xyz").payload(Map.of("test", "2")).validTime(Instant.now()).execute())
+            .compose(v -> eventStore.appendBuilder().eventType("order.created").payload(Map.of("test", "3")).validTime(Instant.now()).execute())
+            .compose(v -> expectedNotifications.future())
+            .onSuccess(v -> testContext.verify(() -> {
+                assertEquals(2, receivedEventTypes.size(), "Should receive exactly 2 events");
+                assertTrue(receivedEventTypes.contains("foo.order.bar"));
+                assertTrue(receivedEventTypes.contains("abc.order.xyz"));
+                assertFalse(receivedEventTypes.contains("order.created"));
+                eventStore.unsubscribe();
+                logger.info("Test 10 completed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        // Wait for expected events
-        boolean received = latch.await(10, TimeUnit.SECONDS);
-        assertTrue(received, "Should receive 2 matching events");
-
-        // Give extra time for any unexpected events
-        awaitAsyncDelay(1000);
-
-        assertEquals(2, receivedEventTypes.size(), "Should receive exactly 2 events");
-        assertTrue(receivedEventTypes.contains("foo.order.bar"));
-        assertTrue(receivedEventTypes.contains("abc.order.xyz"));
-        assertFalse(receivedEventTypes.contains("order.created"));
-
-        eventStore.unsubscribe();
-        logger.info("Test 10 completed");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Cleaning up integration test...");
+
+        Future<Void> chain = Future.succeededFuture();
 
         if (eventStore != null) {
             try {
                 eventStore.close();
             } catch (Exception e) {
-                logger.warn("Error closing event store: {}", e.getMessage(), e);
+                logger.warn("Error closing event store: {}", e.getMessage());
             }
         }
 
         if (peeGeeQManager != null) {
-            try {
-                peeGeeQManager.closeReactive().toCompletionStage().toCompletableFuture().join();
-            } catch (Exception e) {
-                logger.warn("Error closing PeeGeeQManager: {}", e.getMessage(), e);
-            }
+            chain = peeGeeQManager.closeReactive()
+                .recover(err -> {
+                    logger.warn("Error closing PeeGeeQManager: {}", err.getMessage());
+                    return Future.succeededFuture();
+                });
         }
 
-        restoreTestProperties();
-
-        logger.info("Integration test cleanup completed");
+        chain.onSuccess(v -> {
+            restoreTestProperties();
+            logger.info("Integration test cleanup completed");
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
     }
 
     private void setTestProperty(String key, String value) {
@@ -1036,13 +1026,6 @@ class PgBiTemporalEventStoreIntegrationTest {
             }
         }
         originalProperties.clear();
-    }
-
-    private void awaitAsyncDelay(long delayMs) throws Exception {
-        CountDownLatch latch = new CountDownLatch(1);
-        PgBiTemporalEventStore.getOrCreateSharedVertx().setTimer(delayMs, id -> latch.countDown());
-        assertTrue(latch.await(delayMs + 2000, TimeUnit.MILLISECONDS),
-            "Timed out waiting for async processing delay");
     }
 
 }

@@ -25,20 +25,21 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CountDownLatch;
-
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -58,6 +59,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.PERFORMANCE)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class VertxPerformanceOptimizationValidationTest {
 
@@ -79,12 +81,8 @@ class VertxPerformanceOptimizationValidationTest {
     private PeeGeeQManager manager;
     private PgBiTemporalEventStore<TestEvent> eventStore;
 
-    private static <T> T await(io.vertx.core.Future<T> future, long timeout, TimeUnit unit) throws Exception {
-        return future.toCompletionStage().toCompletableFuture().get(timeout, unit);
-    }
-
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) {
         logger.info("Setting up Vert.x 5.x performance optimization validation test");
 
         // Set database connection properties from TestContainers
@@ -113,63 +111,72 @@ class VertxPerformanceOptimizationValidationTest {
         // Initialize with test configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration();
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
-
-        eventStore = new PgBiTemporalEventStore<>(manager, TestEvent.class, "bitemporal_event_log", new ObjectMapper());
-
-        logger.info("Test setup completed with optimized configuration");
+        manager.start()
+            .onSuccess(v -> {
+                eventStore = new PgBiTemporalEventStore<>(manager, TestEvent.class, "bitemporal_event_log", new ObjectMapper());
+                logger.info("Test setup completed with optimized configuration");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
     
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
+        Future<Void> closeFuture = Future.succeededFuture();
         if (eventStore != null) {
             eventStore.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            closeFuture = manager.closeReactive().recover(err -> {
+                logger.warn("Error during manager close: {}", err.getMessage());
+                return Future.succeededFuture();
+            });
         }
-
-        // Clear system properties
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-        System.clearProperty("peegeeq.database.pool.max-size");
-        System.clearProperty("peegeeq.database.pool.min-size");
-        System.clearProperty("peegeeq.database.pool.wait-queue-multiplier");
-        System.clearProperty("peegeeq.database.pipelining.limit");
-        System.clearProperty("peegeeq.database.event.loop.size");
-        System.clearProperty("peegeeq.database.worker.pool.size");
-
-        logger.info("Test teardown completed");
+        closeFuture.onSuccess(v -> {
+            // Clear system properties
+            System.clearProperty("peegeeq.database.host");
+            System.clearProperty("peegeeq.database.port");
+            System.clearProperty("peegeeq.database.name");
+            System.clearProperty("peegeeq.database.username");
+            System.clearProperty("peegeeq.database.password");
+            System.clearProperty("peegeeq.database.pool.max-size");
+            System.clearProperty("peegeeq.database.pool.min-size");
+            System.clearProperty("peegeeq.database.pool.wait-queue-multiplier");
+            System.clearProperty("peegeeq.database.pipelining.limit");
+            System.clearProperty("peegeeq.database.event.loop.size");
+            System.clearProperty("peegeeq.database.worker.pool.size");
+            logger.info("Test teardown completed");
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
     }
     
     @Test
     @Order(1)
     @DisplayName("Should validate pipelined client creation and usage")
-    void shouldValidatePipelinedClientCreation() throws Exception {
+    void shouldValidatePipelinedClientCreation(VertxTestContext testContext) {
         logger.info("=== Validating Pipelined Client Creation ===");
         
         // Test that events can be appended successfully (validates pipelined client works)
         TestEvent event = new TestEvent("pipeline-test", "Testing pipelined client");
         
         long startTime = System.currentTimeMillis();
-        BiTemporalEvent<TestEvent> result = await(eventStore.appendBuilder().eventType("test.pipeline").payload(event).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
-        long duration = System.currentTimeMillis() - startTime;
-        
-        assertNotNull(result);
-        assertEquals("test.pipeline", result.getEventType());
-        assertEquals("pipeline-test", result.getPayload().getId());
-        
-        logger.info("Pipelined client validation successful - append completed in {}ms", duration);
-        assertTrue(duration < 1000, "Append should complete quickly with pipelined client");
+        eventStore.appendBuilder().eventType("test.pipeline").payload(event).validTime(Instant.now()).execute()
+            .onSuccess(result -> testContext.verify(() -> {
+                long duration = System.currentTimeMillis() - startTime;
+                assertNotNull(result);
+                assertEquals("test.pipeline", result.getEventType());
+                assertEquals("pipeline-test", result.getPayload().getId());
+                logger.info("Pipelined client validation successful - append completed in {}ms", duration);
+                assertTrue(duration < 1000, "Append should complete quickly with pipelined client");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
     
     @Test
     @Order(2)
     @DisplayName("Should validate research-based pool configuration")
-    void shouldValidatePoolConfiguration() throws Exception {
+    void shouldValidatePoolConfiguration(VertxTestContext testContext) {
         logger.info("=== Validating Pool Configuration ===");
         
         // Test concurrent operations to validate pool size and wait queue
@@ -184,28 +191,31 @@ class VertxPerformanceOptimizationValidationTest {
         }
         
         // All operations should complete without pool exhaustion
-        await(io.vertx.core.Future.all(futures), 30, TimeUnit.SECONDS);
-        
-        long duration = System.currentTimeMillis() - startTime;
-        double throughput = concurrentOperations * 1000.0 / duration;
-        
-        logger.info("Pool configuration validation successful - {} operations in {}ms, throughput: {:.1f} ops/sec",
-                   concurrentOperations, duration, String.format("%.1f", throughput));
-        
-        // Validate all operations completed successfully
-        for (io.vertx.core.Future<?> future : futures) {
-            assertTrue(future.isComplete());
-            assertFalse(future.failed());
-        }
-        
-        // Throughput should be reasonable with optimized pool
-        assertTrue(throughput > 10, "Throughput should be > 10 ops/sec with optimized pool");
+        io.vertx.core.Future.all(futures)
+            .onSuccess(cf -> testContext.verify(() -> {
+                long duration = System.currentTimeMillis() - startTime;
+                double throughput = concurrentOperations * 1000.0 / duration;
+                
+                logger.info("Pool configuration validation successful - {} operations in {}ms, throughput: {} ops/sec",
+                           concurrentOperations, duration, String.format("%.1f", throughput));
+                
+                // Validate all operations completed successfully
+                for (io.vertx.core.Future<?> future : futures) {
+                    assertTrue(future.isComplete());
+                    assertFalse(future.failed());
+                }
+                
+                // Throughput should be reasonable with optimized pool
+                assertTrue(throughput > 10, "Throughput should be > 10 ops/sec with optimized pool");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
     
     @Test
     @Order(3)
     @DisplayName("Should validate batch operations performance")
-    void shouldValidateBatchOperations() throws Exception {
+    void shouldValidateBatchOperations(VertxTestContext testContext) {
         logger.info("=== Validating Batch Operations ===");
         
         int batchSize = 100;
@@ -218,64 +228,59 @@ class VertxPerformanceOptimizationValidationTest {
         }
         
         long startTime = System.currentTimeMillis();
-        List<BiTemporalEvent<TestEvent>> results = await(eventStore.appendBatch(batchEvents),
-            30, TimeUnit.SECONDS);
-        long duration = System.currentTimeMillis() - startTime;
-        
-        double throughput = batchSize * 1000.0 / duration;
-        
-        logger.info("Batch operations validation successful - {} events in {}ms, throughput: {} events/sec",
-                   batchSize, duration, String.format("%.1f", throughput));
-        
-        assertEquals(batchSize, results.size());
-        
-        // Batch operations should be significantly faster than individual operations
-        assertTrue(throughput > 50, "Batch throughput should be > 50 events/sec");
-        
-        // Validate all events were stored correctly
-        for (int i = 0; i < results.size(); i++) {
-            BiTemporalEvent<TestEvent> result = results.get(i);
-            assertEquals("test.batch", result.getEventType());
-            assertEquals("batch-" + i, result.getPayload().getId());
-        }
+        eventStore.appendBatch(batchEvents)
+            .onSuccess(results -> testContext.verify(() -> {
+                long duration = System.currentTimeMillis() - startTime;
+                double throughput = batchSize * 1000.0 / duration;
+                
+                logger.info("Batch operations validation successful - {} events in {}ms, throughput: {} events/sec",
+                           batchSize, duration, String.format("%.1f", throughput));
+                
+                assertEquals(batchSize, results.size());
+                
+                // Batch operations should be significantly faster than individual operations
+                assertTrue(throughput > 50, "Batch throughput should be > 50 events/sec");
+                
+                // Validate all events were stored correctly
+                for (int i = 0; i < results.size(); i++) {
+                    BiTemporalEvent<TestEvent> result = results.get(i);
+                    assertEquals("test.batch", result.getEventType());
+                    assertEquals("batch-" + i, result.getPayload().getId());
+                }
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
     
     @Test
     @Order(4)
     @DisplayName("Should validate performance monitoring integration")
-    void shouldValidatePerformanceMonitoring() throws Exception {
+    void shouldValidatePerformanceMonitoring(VertxTestContext testContext) {
         logger.info("=== Validating Performance Monitoring ===");
         
         // Perform some operations to generate metrics
+        Future<Void> chain = Future.succeededFuture();
         for (int i = 0; i < 10; i++) {
-            TestEvent event = new TestEvent("monitor-test-" + i, "Performance monitoring test " + i);
-            await(eventStore.appendBuilder().eventType("test.monitoring").payload(event).validTime(Instant.now()).execute(), 5, TimeUnit.SECONDS);
+            final int index = i;
+            chain = chain.compose(v -> {
+                TestEvent event = new TestEvent("monitor-test-" + index, "Performance monitoring test " + index);
+                return eventStore.appendBuilder().eventType("test.monitoring").payload(event).validTime(Instant.now()).execute().mapEmpty();
+            });
         }
         
-        // Give monitoring time to collect metrics
-        awaitAsyncDelay(1000);
-        
-        logger.info("Performance monitoring validation completed - metrics should be collected");
-        
-        // Note: In a real test, we would access the performance monitor instance
-        // and validate that metrics are being collected. For this validation,
-        // we're ensuring that operations complete successfully with monitoring enabled.
-        assertTrue(true, "Performance monitoring integration validated");
-    }
-
-    private void awaitAsyncDelay(long delayMs) throws Exception {
-        CountDownLatch latch = new CountDownLatch(1);
-        new java.util.Timer().schedule(new java.util.TimerTask() {
-            @Override public void run() { latch.countDown(); }
-        }, delayMs);
-        assertTrue(latch.await(delayMs + 2000, TimeUnit.MILLISECONDS),
-            "Timed out waiting for async processing delay");
+        chain
+            .onSuccess(v -> testContext.verify(() -> {
+                logger.info("Performance monitoring validation completed - metrics should be collected");
+                assertTrue(true, "Performance monitoring integration validated");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
     
     @Test
     @Order(5)
     @DisplayName("Should validate configuration profiles work correctly")
-    void shouldValidateConfigurationProfiles() throws Exception {
+    void shouldValidateConfigurationProfiles(VertxTestContext testContext) {
         logger.info("=== Validating Configuration Profiles ===");
         
         // Test that the system properties are being read correctly
@@ -291,18 +296,20 @@ class VertxPerformanceOptimizationValidationTest {
         
         // Test that operations work with the configured values
         TestEvent event = new TestEvent("config-test", "Configuration profile test");
-        BiTemporalEvent<TestEvent> result = await(eventStore.appendBuilder().eventType("test.config").payload(event).validTime(Instant.now()).execute(), 5, TimeUnit.SECONDS);
-        
-        assertNotNull(result);
-        assertEquals("config-test", result.getPayload().getId());
-        
-        logger.info("Configuration profiles operational validation successful");
+        eventStore.appendBuilder().eventType("test.config").payload(event).validTime(Instant.now()).execute()
+            .onSuccess(result -> testContext.verify(() -> {
+                assertNotNull(result);
+                assertEquals("config-test", result.getPayload().getId());
+                logger.info("Configuration profiles operational validation successful");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
     
     @Test
     @Order(6)
     @DisplayName("Should validate overall performance improvement")
-    void shouldValidateOverallPerformanceImprovement() throws Exception {
+    void shouldValidateOverallPerformanceImprovement(VertxTestContext testContext) {
         logger.info("=== Validating Overall Performance Improvement ===");
         
         // Run a comprehensive test to validate performance targets
@@ -327,28 +334,31 @@ class VertxPerformanceOptimizationValidationTest {
         
         io.vertx.core.Future<List<BiTemporalEvent<TestEvent>>> batchFuture = eventStore.appendBatch(batchEvents);
         
-        // Wait for all operations to complete
-        await(io.vertx.core.Future.all(futures), 60, TimeUnit.SECONDS);
-        List<BiTemporalEvent<TestEvent>> batchResults = await(batchFuture, 60, TimeUnit.SECONDS);
-        
-        long duration = System.currentTimeMillis() - startTime;
-        double throughput = totalEvents * 1000.0 / duration;
-        
-        logger.info("Overall performance validation completed - {} events in {}ms, throughput: {} events/sec",
-                   totalEvents, duration, String.format("%.1f", throughput));
-        
-        // Validate performance targets
-        assertTrue(throughput > 100, "Overall throughput should be > 100 events/sec with optimizations");
-        assertEquals(totalEvents / 2, batchResults.size());
-        
-        // Validate all individual operations completed successfully
-        for (io.vertx.core.Future<?> future : futures) {
-            assertTrue(future.isComplete());
-            assertFalse(future.failed());
-        }
-        
-        logger.info("=== Vert.x 5.x Performance Optimization Validation Complete ===");
-        logger.info("All optimizations validated successfully!");
+        // Wait for all individual + batch operations to complete
+        io.vertx.core.Future.all(futures)
+            .compose(cf -> batchFuture)
+            .onSuccess(batchResults -> testContext.verify(() -> {
+                long duration = System.currentTimeMillis() - startTime;
+                double throughput = totalEvents * 1000.0 / duration;
+                
+                logger.info("Overall performance validation completed - {} events in {}ms, throughput: {} events/sec",
+                           totalEvents, duration, String.format("%.1f", throughput));
+                
+                // Validate performance targets
+                assertTrue(throughput > 100, "Overall throughput should be > 100 events/sec with optimizations");
+                assertEquals(totalEvents / 2, batchResults.size());
+                
+                // Validate all individual operations completed successfully
+                for (io.vertx.core.Future<?> future : futures) {
+                    assertTrue(future.isComplete());
+                    assertFalse(future.failed());
+                }
+                
+                logger.info("=== Vert.x 5.x Performance Optimization Validation Complete ===");
+                logger.info("All optimizations validated successfully!");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
     
     /**

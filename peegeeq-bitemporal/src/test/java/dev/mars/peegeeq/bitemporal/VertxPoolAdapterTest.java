@@ -9,11 +9,16 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Future;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 @Tag(TestCategories.CORE)
+@ExtendWith(VertxExtension.class)
 class VertxPoolAdapterTest {
 
     private Vertx vertx;
@@ -21,7 +26,7 @@ class VertxPoolAdapterTest {
     private VertxPoolAdapter vertxPoolAdapter;
 
     @BeforeEach
-    void setUp() {
+    void setUp(Vertx vertx) {
         // Set system properties for configuration
         System.setProperty("peegeeq.database.host", "localhost");
         System.setProperty("peegeeq.database.port", "5432");
@@ -30,30 +35,33 @@ class VertxPoolAdapterTest {
         System.setProperty("peegeeq.database.password", "test_pass");
         System.setProperty("peegeeq.database.pool.max-size", "10");
 
-        vertx = Vertx.vertx();
+        this.vertx = vertx;
         PeeGeeQConfiguration config = new PeeGeeQConfiguration();
         peeGeeQManager = new PeeGeeQManager(config, new SimpleMeterRegistry(), vertx);
         vertxPoolAdapter = new VertxPoolAdapter(vertx, peeGeeQManager);
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown(VertxTestContext testContext) {
         if (vertxPoolAdapter != null) {
             vertxPoolAdapter.close();
         }
-        if (peeGeeQManager != null) {
-            peeGeeQManager.closeReactive().toCompletionStage().toCompletableFuture().join();
-        }
-        if (vertx != null) {
-            vertx.close();
-        }
+
+        Future<Void> closeFuture = peeGeeQManager != null
+                ? peeGeeQManager.closeReactive().recover(error -> Future.<Void>succeededFuture())
+                : Future.succeededFuture();
         
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-        System.clearProperty("peegeeq.database.pool.max-size");
+        closeFuture
+                .onSuccess(v -> {
+                    System.clearProperty("peegeeq.database.host");
+                    System.clearProperty("peegeeq.database.port");
+                    System.clearProperty("peegeeq.database.name");
+                    System.clearProperty("peegeeq.database.username");
+                    System.clearProperty("peegeeq.database.password");
+                    System.clearProperty("peegeeq.database.pool.max-size");
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
     }
 
     @Test

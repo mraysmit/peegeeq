@@ -35,9 +35,12 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.Pool;
+import io.vertx.core.Vertx;
 
+import java.lang.reflect.Constructor;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CountDownLatch;
@@ -639,6 +642,33 @@ class PgBiTemporalEventStoreTest {
         assertThrows(IllegalArgumentException.class,
             () -> new PgBiTemporalEventStore<>(manager, TestEvent.class,
                 "bitemporal_event_log;DROP TABLE bitemporal_event_log;--", new ObjectMapper()));
+    }
+
+    @Test
+    void testPublicConstructorsAlignWithReactiveNotificationHandlerStyle() {
+        Constructor<?>[] constructors = PgBiTemporalEventStore.class.getConstructors();
+
+        assertEquals(2, constructors.length, "Expected only convenience and explicit constructors");
+
+        assertTrue(Arrays.stream(constructors)
+            .anyMatch(constructor -> Arrays.equals(constructor.getParameterTypes(), new Class<?>[] {
+                PeeGeeQManager.class,
+                Class.class,
+                String.class,
+                ObjectMapper.class
+            })), "Expected 4-argument convenience constructor");
+
+        assertTrue(Arrays.stream(constructors)
+            .anyMatch(constructor -> Arrays.equals(constructor.getParameterTypes(), new Class<?>[] {
+                PeeGeeQManager.class,
+                Class.class,
+                String.class,
+                ObjectMapper.class,
+                String.class,
+                Vertx.class,
+                Pool.class,
+                PgConnectOptions.class
+            })), "Expected 8-argument explicit constructor with connect options");
     }
 }
 

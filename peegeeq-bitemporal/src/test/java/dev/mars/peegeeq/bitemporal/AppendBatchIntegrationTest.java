@@ -116,6 +116,7 @@ class AppendBatchIntegrationTest {
 
         Pool cleanupPool = PgBuilder.pool()
             .connectingTo(connectOptions)
+            .using(vertx)
             .build();
 
         return cleanupPool.withConnection(conn ->

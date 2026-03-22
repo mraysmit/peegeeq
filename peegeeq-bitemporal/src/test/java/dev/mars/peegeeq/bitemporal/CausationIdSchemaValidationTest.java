@@ -24,19 +24,24 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
+import io.vertx.sqlclient.Row;
+import io.vertx.sqlclient.RowSet;
+import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.ResultSet;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -52,6 +57,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * This test prevents regression by validating the complete schema including triggers.
  */
 @Tag(TestCategories.CORE)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 @DisplayName("Causation ID Schema Validation - CRITICAL for Production Parity")
 public class CausationIdSchemaValidationTest {
@@ -72,17 +78,13 @@ public class CausationIdSchemaValidationTest {
     private PeeGeeQManager peeGeeQManager;
     private PgBiTemporalEventStore<Map<String, Object>> eventStore;
 
-    private static <T> T await(io.vertx.core.Future<T> future, long timeout, TimeUnit unit) throws Exception {
-        return future.toCompletionStage().toCompletableFuture().get(timeout, unit);
-    }
-
     @SuppressWarnings("unchecked")
     private static Class<Map<String, Object>> mapClass() {
         return (Class<Map<String, Object>>) (Class<?>) Map.class;
     }
     
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) throws Exception {
         logger.info("🧪 Setting up CausationIdSchemaValidationTest");
 
         // Initialize database schema using centralized schema initializer
@@ -102,71 +104,66 @@ public class CausationIdSchemaValidationTest {
 
         // Initialize PeeGeeQ Manager
         peeGeeQManager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        peeGeeQManager.start();
-
-        // Create the bitemporal event store
-        BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(peeGeeQManager);
-        Class<Map<String, Object>> mapClass = mapClass();
-        eventStore = (PgBiTemporalEventStore<Map<String, Object>>) factory.createEventStore(mapClass, "bitemporal_event_log");
-
-        logger.info("Setup completed successfully");
+        peeGeeQManager.start()
+                .map(v -> {
+                    BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(peeGeeQManager);
+                    Class<Map<String, Object>> mapClass = mapClass();
+                    eventStore = (PgBiTemporalEventStore<Map<String, Object>>) factory.createEventStore(mapClass, "bitemporal_event_log");
+                    logger.info("Setup completed successfully");
+                    return (Void) null;
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
     
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         logger.info("🧹 Cleaning up CausationIdSchemaValidationTest");
 
-        if (eventStore != null) {
-            eventStore.close();
-        }
+        Future<Void> closeStoreFuture = eventStore != null ? eventStore.closeFuture() : Future.succeededFuture();
+        Future<Void> closeManagerFuture = peeGeeQManager != null ? peeGeeQManager.closeReactive() : Future.succeededFuture();
 
-        if (peeGeeQManager != null) {
-            peeGeeQManager.closeReactive().toCompletionStage().toCompletableFuture().join();
-        }
-
-        // Clean up system properties
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-
-        logger.info("Cleanup completed successfully");
+        closeStoreFuture
+                .recover(error -> Future.<Void>succeededFuture())
+                .compose(v -> closeManagerFuture.recover(error -> Future.<Void>succeededFuture()))
+                .onSuccess(v -> {
+                    System.clearProperty("peegeeq.database.host");
+                    System.clearProperty("peegeeq.database.port");
+                    System.clearProperty("peegeeq.database.name");
+                    System.clearProperty("peegeeq.database.username");
+                    System.clearProperty("peegeeq.database.password");
+                    logger.info("Cleanup completed successfully");
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
     }
     
     @Test
     @DisplayName("CRITICAL: Validate causation_id column exists in bitemporal_event_log table")
-    void testCausationIdColumnExists() throws Exception {
+    void testCausationIdColumnExists(VertxTestContext testContext) {
         logger.info("🧪 Validating causation_id column exists in test schema");
 
-        try (Connection conn = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
-             var stmt = conn.createStatement()) {
-            
-            // Query information_schema to check if causation_id column exists
-            ResultSet rs = stmt.executeQuery("""
+        querySingleRow(
+                """
                 SELECT column_name, data_type, character_maximum_length
                 FROM information_schema.columns
-                WHERE table_name = 'bitemporal_event_log'
-                AND column_name = 'causation_id'
-                """);
-            
-            assertTrue(rs.next(), "causation_id column MUST exist in bitemporal_event_log table");
-            
-            String columnName = rs.getString("column_name");
-            String dataType = rs.getString("data_type");
-            Integer maxLength = rs.getInt("character_maximum_length");
-            
-            assertEquals("causation_id", columnName, "Column name should be causation_id");
-            assertEquals("character varying", dataType, "Data type should be VARCHAR");
-            assertEquals(255, maxLength, "Max length should be 255");
-            
-            logger.info("causation_id column exists with correct schema: VARCHAR(255)");
-        }
+                WHERE table_name = $1
+                  AND column_name = $2
+                """,
+                Tuple.of("bitemporal_event_log", "causation_id"))
+                .onSuccess(row -> testContext.verify(() -> {
+                    assertEquals("causation_id", row.getString("column_name"), "Column name should be causation_id");
+                    assertEquals("character varying", row.getString("data_type"), "Data type should be VARCHAR");
+                    assertEquals(255, row.getInteger("character_maximum_length"), "Max length should be 255");
+                    logger.info("causation_id column exists with correct schema: VARCHAR(255)");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
     
     @Test
     @DisplayName("CRITICAL: Validate trigger function references causation_id without error")
-    void testTriggerFunctionCanReferenceCausationId() throws Exception {
+    void testTriggerFunctionCanReferenceCausationId(VertxTestContext testContext) {
         logger.info("🧪 Testing that notify_bitemporal_event trigger can execute with causation_id");
 
         // Test data with causation_id
@@ -180,30 +177,28 @@ public class CausationIdSchemaValidationTest {
         // This will INSERT into bitemporal_event_log which will trigger notify_bitemporal_event()
         // If the trigger references causation_id and the column doesn't exist, this will fail with:
         // "ERROR: record "new" has no field "causation_id""
-        BiTemporalEvent<Map<String, Object>> event = await(eventStore.appendBuilder().eventType(eventType).payload(payload).validTime(validTime).headers(Map.of("test-header", "value")).correlationId(correlationId).causationId(causationId).aggregateId(aggregateId).execute(), 10, TimeUnit.SECONDS);
-
-        assertNotNull(event, "Event should be successfully appended");
-        assertEquals(causationId, event.getCausationId(), "Causation ID should match");
-        
-        // Validate causation_id was actually stored in the database
-        try (Connection conn = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
-             var stmt = conn.prepareStatement(
-                 "SELECT causation_id FROM bitemporal_event_log WHERE event_id = ?")) {
-            
-            stmt.setString(1, event.getEventId());
-            ResultSet rs = stmt.executeQuery();
-            
-            assertTrue(rs.next(), "Event should exist in database");
-            String storedCausationId = rs.getString("causation_id");
-            assertEquals(causationId, storedCausationId, "Stored causation_id should match");
-            
-            logger.info("Trigger executed successfully and causation_id was stored: {}", storedCausationId);
-        }
+        eventStore.appendBuilder().eventType(eventType).payload(payload).validTime(validTime)
+                .headers(Map.of("test-header", "value")).correlationId(correlationId)
+                .causationId(causationId).aggregateId(aggregateId).execute()
+                .compose(event -> querySingleRow(
+                        "SELECT causation_id FROM bitemporal_event_log WHERE event_id = $1",
+                        Tuple.of(event.getEventId()))
+                        .map(row -> Map.entry(event, row.getString("causation_id"))))
+                .onSuccess(result -> testContext.verify(() -> {
+                    BiTemporalEvent<Map<String, Object>> event = result.getKey();
+                    String storedCausationId = result.getValue();
+                    assertNotNull(event, "Event should be successfully appended");
+                    assertEquals(causationId, event.getCausationId(), "Causation ID should match");
+                    assertEquals(causationId, storedCausationId, "Stored causation_id should match");
+                    logger.info("Trigger executed successfully and causation_id was stored: {}", storedCausationId);
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
     
     @Test
     @DisplayName("CRITICAL: Validate appendWithTransaction includes causation_id in interface")
-    void testAppendWithTransactionMethodSignature() throws Exception {
+    void testAppendWithTransactionMethodSignature(VertxTestContext testContext) {
         logger.info("🧪 Validating appendWithTransaction method signature includes causation_id");
 
         // This test ensures the EventStore interface has the appendWithTransaction method
@@ -215,67 +210,77 @@ public class CausationIdSchemaValidationTest {
         Instant validTime = Instant.now();
         String causationId = "SIGNATURE-TEST-" + System.currentTimeMillis();
 
-        BiTemporalEvent<Map<String, Object>> event = await(eventStore.appendWithTransaction(
-            eventType,
-            payload,
-            validTime,
-            Map.of(),
-            "CORR-123",
-            causationId,
-            "AGG-123",
-            io.vertx.sqlclient.TransactionPropagation.CONTEXT
-        ), 10, TimeUnit.SECONDS);
-
-        assertNotNull(event, "Event should be successfully appended");
-        assertEquals(causationId, event.getCausationId(), "Causation ID should match");
-        
-        logger.info("appendWithTransaction method signature validated with causation_id parameter");
+        eventStore.appendWithTransaction(
+                        eventType,
+                        payload,
+                        validTime,
+                        Map.of(),
+                        "CORR-123",
+                        causationId,
+                        "AGG-123",
+                        io.vertx.sqlclient.TransactionPropagation.CONTEXT)
+                .onSuccess(event -> testContext.verify(() -> {
+                    assertNotNull(event, "Event should be successfully appended");
+                    assertEquals(causationId, event.getCausationId(), "Causation ID should match");
+                    logger.info("appendWithTransaction method signature validated with causation_id parameter");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
     
     @Test
     @DisplayName("CRITICAL: Validate test schema matches production schema columns")
-    void testSchemaColumnParity() throws Exception {
+    void testSchemaColumnParity(VertxTestContext testContext) {
         logger.info("🧪 Validating test schema has all expected columns matching production");
 
-        try (Connection conn = DriverManager.getConnection(postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword());
-             var stmt = conn.createStatement()) {
-            
-            // Get all columns from bitemporal_event_log table
-            ResultSet rs = stmt.executeQuery("""
-                SELECT column_name
-                FROM information_schema.columns
-                WHERE table_name = 'bitemporal_event_log'
-                ORDER BY ordinal_position
-                """);
-            
-            // Expected columns based on V001 + V012 migrations
-            String[] expectedColumns = {
-                "id", "event_id", "event_type", "valid_time", "transaction_time",
-                "payload", "headers", "version", "previous_version_id", "is_correction",
-                "correction_reason", "correlation_id", "causation_id", "aggregate_id", "created_at"
-            };
-            
-            StringBuilder actualColumns = new StringBuilder();
-            while (rs.next()) {
-                if (actualColumns.length() > 0) {
-                    actualColumns.append(", ");
-                }
-                actualColumns.append(rs.getString("column_name"));
-            }
-            
-            String actualColumnsStr = actualColumns.toString();
-            logger.info("Actual columns: {}", actualColumnsStr);
-            
-            for (String expectedColumn : expectedColumns) {
-                assertTrue(
-                    actualColumnsStr.contains(expectedColumn),
-                    "Test schema MUST have column '" + expectedColumn + "' to match production. " +
-                    "Actual columns: " + actualColumnsStr
-                );
-            }
-            
-            logger.info("Test schema has all required columns matching production");
-        }
+        listColumnNames("bitemporal_event_log")
+                .onSuccess(actualColumns -> testContext.verify(() -> {
+                    String[] expectedColumns = {
+                            "id", "event_id", "event_type", "valid_time", "transaction_time",
+                            "payload", "headers", "version", "previous_version_id", "is_correction",
+                            "correction_reason", "correlation_id", "causation_id", "aggregate_id", "created_at"
+                    };
+                    String actualColumnsStr = String.join(", ", actualColumns);
+                    logger.info("Actual columns: {}", actualColumnsStr);
+                    for (String expectedColumn : expectedColumns) {
+                        assertTrue(
+                                actualColumns.contains(expectedColumn),
+                                "Test schema MUST have column '" + expectedColumn + "' to match production. Actual columns: " + actualColumnsStr
+                        );
+                    }
+                    logger.info("Test schema has all required columns matching production");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
+    }
+
+    private Future<Row> querySingleRow(String sql, Tuple params) {
+        return peeGeeQManager.getPool()
+                .preparedQuery(sql)
+                .execute(params)
+                .compose(rows -> {
+                    Row row = rows.iterator().hasNext() ? rows.iterator().next() : null;
+                    return row != null ? Future.succeededFuture(row) : Future.failedFuture("Expected query to return a row");
+                });
+    }
+
+    private Future<List<String>> listColumnNames(String tableName) {
+        return peeGeeQManager.getPool()
+                .preparedQuery(
+                        """
+                        SELECT column_name
+                        FROM information_schema.columns
+                        WHERE table_name = $1
+                        ORDER BY ordinal_position
+                        """)
+                .execute(Tuple.of(tableName))
+                .map(rows -> {
+                    List<String> columns = new ArrayList<>();
+                    for (Row row : rows) {
+                        columns.add(row.getString("column_name"));
+                    }
+                    return columns;
+                });
     }
 }
 

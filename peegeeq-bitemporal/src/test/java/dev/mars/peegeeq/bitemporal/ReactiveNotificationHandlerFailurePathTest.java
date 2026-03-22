@@ -21,23 +21,26 @@ import io.vertx.pgclient.PgConnection;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.Isolated;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 
 import java.util.List;
 
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.CompletionException;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 @Tag(TestCategories.CORE)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 @Isolated
 class ReactiveNotificationHandlerFailurePathTest {
@@ -68,204 +71,177 @@ class ReactiveNotificationHandlerFailurePathTest {
     }
 
     @Test
-    void startShouldReplayListenChannelsForExistingSubscriptions() {
-        Vertx vertx = Vertx.vertx();
-        try {
-            Promise<PgConnection> connectPromise = Promise.promise();
-            AtomicInteger connectCalls = new AtomicInteger(0);
-            CopyOnWriteArrayList<String> listenChannels = new CopyOnWriteArrayList<>();
+    void startShouldReplayListenChannelsForExistingSubscriptions(Vertx vertx, VertxTestContext testContext) {
+        Promise<PgConnection> connectPromise = Promise.promise();
+        AtomicInteger connectCalls = new AtomicInteger(0);
+        CopyOnWriteArrayList<String> listenChannels = new CopyOnWriteArrayList<>();
 
-            TestableReactiveNotificationHandler handler = new TestableReactiveNotificationHandler(
-                    vertx,
-                    connectOptions,
-                    eventId -> Future.succeededFuture(null),
-                    connectPromise::future,
-                    connectCalls,
-                    listenChannels,
-                    channel -> Future.succeededFuture(),
-                    channel -> Future.succeededFuture(),
-                    new AtomicBoolean(false));
+        TestableReactiveNotificationHandler handler = new TestableReactiveNotificationHandler(
+                vertx,
+                connectOptions,
+                eventId -> Future.succeededFuture(null),
+                connectPromise::future,
+                connectCalls,
+                listenChannels,
+                channel -> Future.succeededFuture(),
+                channel -> Future.succeededFuture(),
+                new AtomicBoolean(false));
 
-            handler.subscriptionsView().put(SubscriptionKey.of("order.created", null), new CopyOnWriteArrayList<>());
-            handler.listeningChannelsView().add("stale_channel_state_should_be_cleared");
+        handler.subscriptionsView().put(SubscriptionKey.of("order.created", null), new CopyOnWriteArrayList<>());
+        handler.listeningChannelsView().add("stale_channel_state_should_be_cleared");
 
-            Future<Void> startFuture = handler.start();
-            connectPromise.complete(connect(vertx));
-            startFuture.toCompletionStage().toCompletableFuture().join();
-
-            assertEquals(1, connectCalls.get(), "Expected a single connect attempt");
-            assertTrue(listenChannels.contains("public_bitemporal_events_bitemporal_event_log_order_created"),
-                    "Existing subscriptions should re-issue LISTEN commands after connect");
-            assertFalse(handler.listeningChannelsView().contains("stale_channel_state_should_be_cleared"),
-                    "Reconnect replay should discard stale in-memory LISTEN state");
-
-            handler.stop().toCompletionStage().toCompletableFuture().join();
-        } finally {
-            vertx.close();
-        }
+        Future<Void> startFuture = handler.start();
+        connect(vertx)
+                .compose(connection -> {
+                    connectPromise.complete(connection);
+                    return startFuture.compose(v -> handler.stop());
+                })
+                .onSuccess(v -> testContext.verify(() -> {
+                    assertEquals(1, connectCalls.get(), "Expected a single connect attempt");
+                    assertTrue(listenChannels.contains("public_bitemporal_events_bitemporal_event_log_order_created"),
+                            "Existing subscriptions should re-issue LISTEN commands after connect");
+                    assertFalse(handler.listeningChannelsView().contains("stale_channel_state_should_be_cleared"),
+                            "Reconnect replay should discard stale in-memory LISTEN state");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 
     @Test
-    void startShouldDeduplicateConcurrentCalls() {
-        Vertx vertx = Vertx.vertx();
-        try {
-            Promise<PgConnection> connectPromise = Promise.promise();
-            AtomicInteger connectCalls = new AtomicInteger(0);
+    void startShouldDeduplicateConcurrentCalls(Vertx vertx, VertxTestContext testContext) {
+        Promise<PgConnection> connectPromise = Promise.promise();
+        AtomicInteger connectCalls = new AtomicInteger(0);
 
-            TestableReactiveNotificationHandler handler = new TestableReactiveNotificationHandler(
-                    vertx,
-                    connectOptions,
-                    eventId -> Future.succeededFuture(null),
-                    connectPromise::future,
-                    connectCalls,
-                    new CopyOnWriteArrayList<>(),
-                    channel -> Future.succeededFuture(),
-                    channel -> Future.succeededFuture(),
-                    new AtomicBoolean(false));
+        TestableReactiveNotificationHandler handler = new TestableReactiveNotificationHandler(
+                vertx,
+                connectOptions,
+                eventId -> Future.succeededFuture(null),
+                connectPromise::future,
+                connectCalls,
+                new CopyOnWriteArrayList<>(),
+                channel -> Future.succeededFuture(),
+                channel -> Future.succeededFuture(),
+                new AtomicBoolean(false));
 
-            Future<Void> first = handler.start();
-            Future<Void> second = handler.start();
+        Future<Void> first = handler.start();
+        Future<Void> second = handler.start();
 
-            assertSame(first, second, "Concurrent start calls should return the same in-progress future");
-            assertEquals(1, connectCalls.get(), "Only one physical connect attempt should be started");
+        assertSame(first, second, "Concurrent start calls should return the same in-progress future");
+        assertEquals(1, connectCalls.get(), "Only one physical connect attempt should be started");
 
-            connectPromise.complete(connect(vertx));
-            first.toCompletionStage().toCompletableFuture().join();
-            assertTrue(handler.isActive(), "Handler should become active after connection succeeds");
-
-            handler.stop().toCompletionStage().toCompletableFuture().join();
-        } finally {
-            vertx.close();
-        }
+        connect(vertx)
+                .compose(connection -> {
+                    connectPromise.complete(connection);
+                    return first.compose(v -> {
+                        testContext.verify(() -> assertTrue(handler.isActive(), "Handler should become active after connection succeeds"));
+                        return handler.stop();
+                    });
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @Test
-    void stopShouldFailWhenUnlistenFailsAndStillCleanupState() {
-        Vertx vertx = Vertx.vertx();
-        try {
-            AtomicBoolean closeCalled = new AtomicBoolean(false);
+    void stopShouldFailWhenUnlistenFailsAndStillCleanupState(Vertx vertx, VertxTestContext testContext) {
+        AtomicBoolean closeCalled = new AtomicBoolean(false);
 
-            TestableReactiveNotificationHandler handler = new TestableReactiveNotificationHandler(
-                    vertx,
-                    connectOptions,
-                    eventId -> Future.succeededFuture(null),
-                    () -> Future.succeededFuture(connect(vertx)),
-                    new AtomicInteger(0),
-                    new CopyOnWriteArrayList<>(),
-                    channel -> Future.succeededFuture(),
-                    channel -> "public_bitemporal_events_bitemporal_event_log_test_event".equals(channel)
-                            ? Future.failedFuture(new RuntimeException("forced unlisten failure"))
-                            : Future.succeededFuture(),
-                    closeCalled);
+        TestableReactiveNotificationHandler handler = new TestableReactiveNotificationHandler(
+                vertx,
+                connectOptions,
+                eventId -> Future.succeededFuture(null),
+                () -> connect(vertx),
+                new AtomicInteger(0),
+                new CopyOnWriteArrayList<>(),
+                channel -> Future.succeededFuture(),
+                channel -> "public_bitemporal_events_bitemporal_event_log_test_event".equals(channel)
+                        ? Future.failedFuture(new RuntimeException("forced unlisten failure"))
+                        : Future.succeededFuture(),
+                closeCalled);
 
-            handler.start().toCompletionStage().toCompletableFuture().join();
-            handler.subscribe("test.event", null, message -> Future.<Void>succeededFuture())
-                    .toCompletionStage()
-                    .toCompletableFuture()
-                    .join();
-
-            CompletionException thrown = assertThrows(CompletionException.class,
-                    () -> handler.stop().toCompletionStage().toCompletableFuture().join());
-            assertNotNull(thrown.getCause());
-            assertTrue(thrown.getCause().getMessage().contains("forced unlisten failure"));
-
-            assertFalse(handler.isActive());
-            assertFalse(handler.hasListenConnection());
-            assertTrue(handler.listeningChannelsView().isEmpty(), "Listening channels should be cleaned up on failed stop");
-            assertTrue(handler.subscriptionsView().isEmpty(), "Subscriptions should be cleaned up on failed stop");
-            assertTrue(closeCalled.get(), "stop() should attempt to close connection even after UNLISTEN failure");
-        } finally {
-            vertx.close();
-        }
+        handler.start()
+                .compose(v -> handler.subscribe("test.event", null, message -> Future.<Void>succeededFuture()))
+                .compose(v -> handler.stop().compose(stop -> Future.failedFuture("stop should have failed")))
+                .onSuccess(v -> testContext.failNow(new AssertionError("stop should have failed")))
+                .onFailure(error -> testContext.verify(() -> {
+                    assertTrue(error.getMessage().contains("forced unlisten failure"));
+                    assertFalse(handler.isActive());
+                    assertFalse(handler.hasListenConnection());
+                    assertTrue(handler.listeningChannelsView().isEmpty(), "Listening channels should be cleaned up on failed stop");
+                    assertTrue(handler.subscriptionsView().isEmpty(), "Subscriptions should be cleaned up on failed stop");
+                    assertTrue(closeCalled.get(), "stop() should attempt to close connection even after UNLISTEN failure");
+                    testContext.completeNow();
+                }));
     }
 
     @Test
-    void subscribeShouldRejectNullHandlerBeforeActiveCheck() {
-        Vertx vertx = Vertx.vertx();
-        try {
-            ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
-                    vertx,
-                    connectOptions,
-                    new ObjectMapper(),
-                    String.class,
-                    eventId -> Future.succeededFuture(null));
+    void subscribeShouldRejectNullHandlerBeforeActiveCheck(Vertx vertx, VertxTestContext testContext) {
+        ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
+                vertx,
+                connectOptions,
+                new ObjectMapper(),
+                String.class,
+                eventId -> Future.succeededFuture(null));
 
-            Throwable thrown = assertThrows(CompletionException.class,
-                    () -> handler.subscribe("order.created", null, (MessageHandler<BiTemporalEvent<String>>) null)
-                            .toCompletionStage()
-                            .toCompletableFuture()
-                            .join());
-            assertTrue(thrown.getCause() instanceof IllegalArgumentException);
-            assertTrue(thrown.getCause().getMessage().contains("Handler cannot be null"));
-        } finally {
-            vertx.close();
-        }
+        handler.subscribe("order.created", null, (MessageHandler<BiTemporalEvent<String>>) null)
+                .onSuccess(v -> testContext.failNow(new AssertionError("subscribe should have failed")))
+                .onFailure(error -> testContext.verify(() -> {
+                    assertTrue(error instanceof IllegalArgumentException);
+                    assertTrue(error.getMessage().contains("Handler cannot be null"));
+                    testContext.completeNow();
+                }));
     }
 
     @Test
-    void subscribeShouldRollbackStateWhenListenSetupFails() {
-        Vertx vertx = Vertx.vertx();
-        try {
-            String failingChannel = "public_bitemporal_events_bitemporal_event_log_test_event";
-            TestableReactiveNotificationHandler handler = new TestableReactiveNotificationHandler(
-                    vertx,
-                    connectOptions,
-                    eventId -> Future.succeededFuture(null),
-                    () -> Future.succeededFuture(connect(vertx)),
-                    new AtomicInteger(0),
-                    new CopyOnWriteArrayList<>(),
-                    channel -> failingChannel.equals(channel)
-                            ? Future.failedFuture(new RuntimeException("forced listen failure"))
-                            : Future.succeededFuture(),
-                    channel -> Future.succeededFuture(),
-                    new AtomicBoolean(false));
+    void subscribeShouldRollbackStateWhenListenSetupFails(Vertx vertx, VertxTestContext testContext) {
+        String failingChannel = "public_bitemporal_events_bitemporal_event_log_test_event";
+        TestableReactiveNotificationHandler handler = new TestableReactiveNotificationHandler(
+                vertx,
+                connectOptions,
+                eventId -> Future.succeededFuture(null),
+                () -> connect(vertx),
+                new AtomicInteger(0),
+                new CopyOnWriteArrayList<>(),
+                channel -> failingChannel.equals(channel)
+                        ? Future.failedFuture(new RuntimeException("forced listen failure"))
+                        : Future.succeededFuture(),
+                channel -> Future.succeededFuture(),
+                new AtomicBoolean(false));
 
-            handler.start().toCompletionStage().toCompletableFuture().join();
-
-            CompletionException thrown = assertThrows(CompletionException.class,
-                    () -> handler.subscribe("test.event", null, message -> Future.<Void>succeededFuture())
-                            .toCompletionStage()
-                            .toCompletableFuture()
-                            .join());
-            assertNotNull(thrown.getCause());
-            assertTrue(thrown.getCause().getMessage().contains("forced listen failure"));
-            assertTrue(handler.subscriptionsView().isEmpty(), "Failed subscribe should not retain handler state");
-            assertTrue(handler.listeningChannelsView().isEmpty(), "Failed subscribe should not retain channel state");
-
-            handler.stop().toCompletionStage().toCompletableFuture().join();
-        } finally {
-            vertx.close();
-        }
+        handler.start()
+                .compose(v -> handler.subscribe("test.event", null, message -> Future.<Void>succeededFuture())
+                        .compose(ignored -> Future.<Void>failedFuture("subscribe should have failed"))
+                        .recover(error -> {
+                            testContext.verify(() -> {
+                                assertTrue(error.getMessage().contains("forced listen failure"));
+                                assertTrue(handler.subscriptionsView().isEmpty(), "Failed subscribe should not retain handler state");
+                                assertTrue(handler.listeningChannelsView().isEmpty(), "Failed subscribe should not retain channel state");
+                            });
+                            return handler.stop();
+                        }))
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
 
     @Test
-    void subscribeShouldRejectPartialWildcardSegments() {
-        Vertx vertx = Vertx.vertx();
-        try {
-            ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
-                    vertx,
-                    connectOptions,
-                    new ObjectMapper(),
-                    String.class,
-                    eventId -> Future.succeededFuture(null));
+    void subscribeShouldRejectPartialWildcardSegments(Vertx vertx, VertxTestContext testContext) {
+        ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
+                vertx,
+                connectOptions,
+                new ObjectMapper(),
+                String.class,
+                eventId -> Future.succeededFuture(null));
 
-            Throwable thrown = assertThrows(CompletionException.class,
-                    () -> handler.subscribe("order*created", null, message -> Future.<Void>succeededFuture())
-                            .toCompletionStage()
-                            .toCompletableFuture()
-                            .join());
-            assertTrue(thrown.getCause() instanceof IllegalArgumentException);
-            assertTrue(thrown.getCause().getMessage().contains("Invalid eventType"));
-        } finally {
-            vertx.close();
-        }
+        handler.subscribe("order*created", null, message -> Future.<Void>succeededFuture())
+                .onSuccess(v -> testContext.failNow(new AssertionError("subscribe should have failed")))
+                .onFailure(error -> testContext.verify(() -> {
+                    assertTrue(error instanceof IllegalArgumentException);
+                    assertTrue(error.getMessage().contains("Invalid eventType"));
+                    testContext.completeNow();
+                }));
     }
 
-    private PgConnection connect(Vertx vertx) {
-        return PgConnection.connect(vertx, connectOptions)
-                .toCompletionStage()
-                .toCompletableFuture()
-                .join();
+    private Future<PgConnection> connect(Vertx vertx) {
+        return PgConnection.connect(vertx, connectOptions);
     }
 
     private static final class TestableReactiveNotificationHandler extends ReactiveNotificationHandler<String> {

@@ -115,17 +115,16 @@ class ReactiveNotificationHandlerIntegrationTest {
         System.err.println("=== TEST: Constructor Success ===");
         System.err.flush();
 
-        // Should not throw any exception
-        assertDoesNotThrow(() -> {
-            ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
-                vertx, connectOptions, objectMapper, String.class, eventRetriever
-            );
+        ReactiveNotificationHandler<String> handler = new ReactiveNotificationHandler<>(
+            vertx, connectOptions, objectMapper, String.class, eventRetriever
+        );
+        testContext.verify(() -> {
             assertNotNull(handler, "Handler should be created successfully");
-            
-            System.err.println("Constructor succeeded with valid parameters");
-            System.err.flush();
-            testContext.completeNow();
         });
+
+        System.err.println("Constructor succeeded with valid parameters");
+        System.err.flush();
+        testContext.completeNow();
     }
 
     @Test
@@ -281,8 +280,13 @@ class ReactiveNotificationHandlerIntegrationTest {
         );
 
         MessageHandler<BiTemporalEvent<String>> messageHandler = message -> {
+            String receivedType = message.getPayload().getEventType();
+            // Ignore stale notifications from prior test methods; only act on our event.
+            if (!"order.updated".equals(receivedType)) {
+                return Future.<Void>succeededFuture();
+            }
             testContext.verify(() -> {
-                assertEquals("order.updated", message.getPayload().getEventType());
+                assertEquals("order.updated", receivedType);
             });
             handler.stop().onComplete(ar -> {
                 if (ar.failed()) {
@@ -380,6 +384,9 @@ class ReactiveNotificationHandlerIntegrationTest {
 
     private Future<Void> insertBiTemporalEvent(Vertx vertx, String eventType, String aggregateId) {
         String eventId = UUID.randomUUID().toString();
+        // Register event type BEFORE insert so the eventRetriever can resolve it
+        // when the NOTIFY fires (which happens inside the INSERT transaction).
+        eventTypesById.put(eventId, eventType);
         JsonObject payload = new JsonObject().put("test", "payload");
 
         Pool pool = Pool.pool(vertx, connectOptions, new PoolOptions().setMaxSize(1));
@@ -391,10 +398,7 @@ class ReactiveNotificationHandlerIntegrationTest {
 
         return pool.preparedQuery(sql)
             .execute(Tuple.of(eventId, eventType, payload, aggregateId))
-            .map(rows -> {
-                eventTypesById.put(eventId, eventType);
-                return (Void) null;
-            })
+            .map((Void) null)
             .onComplete(ar -> pool.close());
     }
 

@@ -26,20 +26,26 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -80,46 +86,27 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
 class BiTemporalEventStoreExampleTest {
     
     private static final Logger logger = LoggerFactory.getLogger(BiTemporalEventStoreExampleTest.class);
     
-    // Use a shared container that persists across multiple test classes to prevent port conflicts
-    private static PostgreSQLContainer sharedPostgres;
-
-    static {
-        // Initialize shared container only once across all example test classes
-        if (sharedPostgres == null) {
-            @SuppressWarnings("resource") // Stored in sharedPostgres and closed via shutdown hook
-            PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)
-                .withDatabaseName("peegeeq_bitemporal_test")
-                .withUsername("postgres")
-                .withPassword("password")
-                .withSharedMemorySize(256 * 1024 * 1024L) // 256MB shared memory
-                .withCommand("postgres", "-c", "max_connections=300", "-c", "fsync=off", "-c", "synchronous_commit=off"); // Performance optimizations for tests
-            container.start();
-            sharedPostgres = container;
-
-            // Add shutdown hook to properly clean up the container
-            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-                if (sharedPostgres != null && sharedPostgres.isRunning()) {
-                    sharedPostgres.stop();
-                }
-            }));
-        }
-    }
+    @Container
+    @SuppressWarnings("resource") // Managed by Testcontainers framework
+    static PostgreSQLContainer sharedPostgres = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)
+        .withDatabaseName("peegeeq_bitemporal_test")
+        .withUsername("postgres")
+        .withPassword("password")
+        .withSharedMemorySize(256 * 1024 * 1024L) // 256MB shared memory
+        .withCommand("postgres", "-c", "max_connections=300", "-c", "fsync=off", "-c", "synchronous_commit=off"); // Performance optimizations for tests
     
     private PeeGeeQManager manager;
     private EventStore<OrderEvent> eventStore;
 
-    private static <T> T await(io.vertx.core.Future<T> future) {
-        return future.toCompletionStage().toCompletableFuture().join();
-    }
-    
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) throws Exception {
         logger.info("=== Setting up Bi-Temporal Event Store Example Test ===");
 
         // Configure PeeGeeQ to use container database
@@ -139,88 +126,70 @@ class BiTemporalEventStoreExampleTest {
         logger.info("bitemporal_event_log table created successfully");
 
         // Initialize PeeGeeQ Manager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
-        logger.info("PeeGeeQ Manager started successfully");
-        
-        // Create bi-temporal event store
-        BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager);
-        eventStore = factory.createEventStore(OrderEvent.class, "bitemporal_event_log");
-        
-        logger.info("Bi-Temporal Event Store Example Test setup completed");
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration(), new SimpleMeterRegistry());
+        manager.start()
+                .compose(v -> {
+                    logger.info("PeeGeeQ Manager started successfully");
+                    BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager);
+                    eventStore = factory.createEventStore(OrderEvent.class, "bitemporal_event_log");
+                    return cleanupDatabase();
+                })
+                .map(v -> {
+                    logger.info("Bi-Temporal Event Store Example Test setup completed");
+                    return (Void) null;
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
     
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         logger.info("🧹 Cleaning up Bi-Temporal Event Store Example Test");
 
+        Future<Void> closeChain = Future.succeededFuture();
         if (eventStore != null) {
-            eventStore.close();
+            closeChain = closeChain.compose(v -> eventStore.closeFuture());
         }
-
         if (manager != null) {
-            // Clean up database tables before closing manager
-            try {
-                cleanupDatabase();
-            } catch (Exception e) {
-                logger.warn("Failed to cleanup database: {}", e.getMessage());
-            }
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            closeChain = closeChain.compose(v -> manager.closeReactive());
         }
 
-        // Clear system properties
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-        System.clearProperty("peegeeq.database.schema");
-        
-        logger.info("Bi-Temporal Event Store Example Test cleanup completed");
+        closeChain
+                .recover(error -> {
+                    logger.warn("Bi-Temporal Event Store Example Test cleanup encountered an error: {}", error.getMessage());
+                    return Future.<Void>succeededFuture();
+                })
+                .onSuccess(v -> {
+                    System.clearProperty("peegeeq.database.host");
+                    System.clearProperty("peegeeq.database.port");
+                    System.clearProperty("peegeeq.database.name");
+                    System.clearProperty("peegeeq.database.username");
+                    System.clearProperty("peegeeq.database.password");
+                    System.clearProperty("peegeeq.database.schema");
+                    System.clearProperty("peegeeq.health-check.queue-checks-enabled");
+                    logger.info("Bi-Temporal Event Store Example Test cleanup completed");
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
     }
 
-    private void cleanupDatabase() throws Exception {
-        // Clean up bi-temporal event tables to ensure test isolation using Vert.x reactive client
-        if (manager != null) {
-            try {
-                // Use the PeeGeeQ manager's connection provider for reactive database operations
-                @SuppressWarnings("resource") // Lifecycle managed by PeeGeeQManager teardown
-                var databaseService = new dev.mars.peegeeq.db.provider.PgDatabaseService(manager);
-                var connectionProvider = databaseService.getConnectionProvider();
-
-                // Create a client specifically for cleanup operations
-                var clientFactory = manager.getClientFactory();
-                clientFactory.createClient("test-cleanup",
-                    manager.getConfiguration().getDatabaseConfig(),
-                    manager.getConfiguration().getPoolConfig());
-
-                connectionProvider.withConnection("test-cleanup", connection -> {
-                    // Clean up all possible bi-temporal event tables
-                    return connection.query("TRUNCATE TABLE bitemporal_event_log CASCADE").execute()
-                        .compose(v -> connection.query("DELETE FROM bitemporal_event_log").execute())
-                        .recover(error -> {
-                            // If table doesn't exist, that's fine
-                            logger.debug("Table cleanup failed (may not exist): {}", error.getMessage());
-                            return io.vertx.core.Future.succeededFuture();
-                        });
-                })
-                .onSuccess(result -> logger.debug("Database tables cleaned up successfully"))
-                .onFailure(error -> {
-                    // Tables might not exist yet, which is fine
-                    logger.debug("Could not truncate tables (they may not exist yet): {}", error.getMessage());
-                })
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get(); // Wait for completion in test cleanup
-            } catch (Exception e) {
-                // Tables might not exist yet, which is fine
-                logger.debug("Could not truncate tables (they may not exist yet): {}", e.getMessage());
-            }
+    private Future<Void> cleanupDatabase() {
+        if (manager == null || manager.getPool() == null) {
+            return Future.succeededFuture();
         }
+
+        return manager.getPool()
+                .query("TRUNCATE TABLE bitemporal_event_log CASCADE")
+                .execute()
+                .map(rows -> (Void) null)
+                .recover(error -> {
+                    logger.debug("Could not truncate tables (they may not exist yet): {}", error.getMessage());
+                    return Future.succeededFuture((Void) null);
+                });
     }
     
     @Test
-    void testAppendOnlyEventStorage() throws Exception {
+    void testAppendOnlyEventStorage(VertxTestContext testContext) {
         logger.info("=== Testing Append-Only Event Storage with Bi-Temporal Dimensions ===");
         
         // Create test events with different valid times
@@ -232,45 +201,35 @@ class BiTemporalEventStoreExampleTest {
         OrderEvent event3 = new OrderEvent("order-003", "customer-001", new BigDecimal("75.50"), "SHIPPED");
         
         // Append events with specific valid times
-        await(eventStore.appendBuilder()
-            .eventType("OrderCreated")
-            .payload(new OrderEvent("order-001", "customer-001", new BigDecimal("100.00"), "PENDING"))
-            .validTime(now.minus(2, ChronoUnit.HOURS))
-            .execute());
-
-        await(eventStore.appendBuilder()
-            .eventType("OrderCreated")
-            .payload(event2)
-            .validTime(validTime2)
-            .execute());
-
-        await(eventStore.appendBuilder()
-            .eventType("OrderCreated")
-            .payload(event3)
-            .validTime(validTime3)
-            .execute());
-        
-        logger.info("Successfully appended 3 events with bi-temporal dimensions");
-        
-        // Query all events
-        List<BiTemporalEvent<OrderEvent>> allEvents = await(eventStore.query(EventQuery.all()));
-        assertEquals(3, allEvents.size(), "Should have 3 events stored");
-
-        // Verify bi-temporal dimensions are preserved
-        for (BiTemporalEvent<OrderEvent> event : allEvents) {
-            assertNotNull(event.getValidTime(), "Valid time should be set");
-            assertNotNull(event.getTransactionTime(), "Transaction time should be set");
-            assertNotNull(event.getPayload(), "Event payload should be present");
-
-            logger.info("📋 Event: {} - Valid Time: {}, Transaction Time: {}",
-                event.getPayload().getOrderId(), event.getValidTime(), event.getTransactionTime());
-        }
-        
-        logger.info("Append-only event storage test completed successfully!");
+        eventStore.appendBuilder()
+                .eventType("OrderCreated")
+                .payload(new OrderEvent("order-001", "customer-001", new BigDecimal("100.00"), "PENDING"))
+                .validTime(now.minus(2, ChronoUnit.HOURS))
+                .execute()
+                .compose(v -> eventStore.appendBuilder().eventType("OrderCreated").payload(event2).validTime(validTime2).execute())
+                .compose(v -> eventStore.appendBuilder().eventType("OrderCreated").payload(event3).validTime(validTime3).execute())
+                .compose(v -> eventStore.query(EventQuery.all()))
+                .onSuccess(allEvents -> testContext.verify(() -> {
+                    logger.info("Successfully appended 3 events with bi-temporal dimensions");
+                    List<BiTemporalEvent<OrderEvent>> matchingEvents = allEvents.stream()
+                            .filter(event -> List.of("order-001", "order-002", "order-003").contains(event.getPayload().getOrderId()))
+                            .toList();
+                    assertEquals(3, matchingEvents.size(), "Should have 3 events stored for this test");
+                    for (BiTemporalEvent<OrderEvent> event : matchingEvents) {
+                        assertNotNull(event.getValidTime(), "Valid time should be set");
+                        assertNotNull(event.getTransactionTime(), "Transaction time should be set");
+                        assertNotNull(event.getPayload(), "Event payload should be present");
+                        logger.info("📋 Event: {} - Valid Time: {}, Transaction Time: {}",
+                                event.getPayload().getOrderId(), event.getValidTime(), event.getTransactionTime());
+                    }
+                    logger.info("Append-only event storage test completed successfully!");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
     
     @Test
-    void testEventCorrectionsAndVersioning() throws Exception {
+    void testEventCorrectionsAndVersioning(VertxTestContext testContext) {
         logger.info("=== Testing Event Corrections and Versioning ===");
         
         // Use a fixed timestamp to avoid precision issues
@@ -278,49 +237,42 @@ class BiTemporalEventStoreExampleTest {
         
         // Original event
         OrderEvent originalEvent = new OrderEvent("order-004", "customer-003", new BigDecimal("150.00"), "PENDING");
-        await(eventStore.appendBuilder()
-            .eventType("OrderCreated")
-            .payload(originalEvent)
-            .validTime(originalValidTime)
-            .execute());
-
-        logger.info("📋 Original event stored: {}", originalEvent);
-
-        // Correction - same valid time, but different transaction time
         OrderEvent correctedEvent = new OrderEvent("order-004", "customer-003", new BigDecimal("175.00"), "CONFIRMED");
-        await(eventStore.appendBuilder()
-            .eventType("OrderUpdated")
-            .payload(correctedEvent)
-            .validTime(originalValidTime)
-            .execute());
-        
-        logger.info("📋 Corrected event stored: {}", correctedEvent);
-        
-        // Query all versions of the event
-        List<BiTemporalEvent<OrderEvent>> allVersions = await(eventStore.query(EventQuery.all()));
-
-        // Should have both versions
-        List<BiTemporalEvent<OrderEvent>> order004Events = allVersions.stream()
-            .filter(event -> "order-004".equals(event.getPayload().getOrderId()))
-            .toList();
-
-        assertEquals(2, order004Events.size(), "Should have 2 versions of order-004");
-
-        // Verify both versions have same valid time but different transaction times
-        BiTemporalEvent<OrderEvent> version1 = order004Events.get(0);
-        BiTemporalEvent<OrderEvent> version2 = order004Events.get(1);
-        
-        assertEquals(originalValidTime, version1.getValidTime(), "Both versions should have same valid time");
-        assertEquals(originalValidTime, version2.getValidTime(), "Both versions should have same valid time");
-        assertNotEquals(version1.getTransactionTime(), version2.getTransactionTime(), 
-            "Versions should have different transaction times");
-        
-        logger.info("Event corrections and versioning test completed successfully!");
-        logger.info("   📊 Preserved audit trail with {} versions", order004Events.size());
+        eventStore.appendBuilder()
+                .eventType("OrderCreated")
+                .payload(originalEvent)
+                .validTime(originalValidTime)
+                .execute()
+                .compose(v -> {
+                    logger.info("📋 Original event stored: {}", originalEvent);
+                    return eventStore.appendBuilder()
+                            .eventType("OrderUpdated")
+                            .payload(correctedEvent)
+                            .validTime(originalValidTime)
+                            .execute();
+                })
+                .compose(v -> eventStore.query(EventQuery.all()))
+                .onSuccess(allVersions -> testContext.verify(() -> {
+                    logger.info("📋 Corrected event stored: {}", correctedEvent);
+                    List<BiTemporalEvent<OrderEvent>> order004Events = allVersions.stream()
+                            .filter(event -> "order-004".equals(event.getPayload().getOrderId()))
+                            .toList();
+                    assertEquals(2, order004Events.size(), "Should have 2 versions of order-004");
+                    BiTemporalEvent<OrderEvent> version1 = order004Events.get(0);
+                    BiTemporalEvent<OrderEvent> version2 = order004Events.get(1);
+                    assertEquals(originalValidTime, version1.getValidTime(), "Both versions should have same valid time");
+                    assertEquals(originalValidTime, version2.getValidTime(), "Both versions should have same valid time");
+                    assertNotEquals(version1.getTransactionTime(), version2.getTransactionTime(),
+                            "Versions should have different transaction times");
+                    logger.info("Event corrections and versioning test completed successfully!");
+                    logger.info("   📊 Preserved audit trail with {} versions", order004Events.size());
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
     
     @Test
-    void testHistoricalQueriesAndPointInTimeViews() throws Exception {
+    void testHistoricalQueriesAndPointInTimeViews(VertxTestContext testContext) {
         logger.info("=== Testing Historical Queries and Point-in-Time Views ===");
         
         Instant baseTime = Instant.now().minus(3, ChronoUnit.HOURS);
@@ -331,133 +283,96 @@ class BiTemporalEventStoreExampleTest {
         OrderEvent event3 = new OrderEvent("order-007", "customer-005", new BigDecimal("150.00"), "SHIPPED");
         
         // Append events with specific valid times
-        await(eventStore.appendBuilder()
-            .eventType("OrderCreated")
-            .payload(event1)
-            .validTime(baseTime)
-            .execute());
-
-        await(eventStore.appendBuilder()
-            .eventType("OrderCreated")
-            .payload(event2)
-            .validTime(baseTime.plus(1, ChronoUnit.HOURS))
-            .execute());
-            
-        await(eventStore.appendBuilder()
-            .eventType("OrderCreated")
-            .payload(event3)
-            .validTime(baseTime.plus(2, ChronoUnit.HOURS))
-            .execute());
-
-        // Query point-in-time view (1 hour after base time)
         Instant pointInTime = baseTime.plus(1, ChronoUnit.HOURS);
-        List<BiTemporalEvent<OrderEvent>> pointInTimeView = await(eventStore.query(
-            EventQuery.asOfValidTime(pointInTime)));
-
-        // Should only see events 1 and 2 at this point in time
-        assertEquals(2, pointInTimeView.size(), "Point-in-time view should show 2 events");
-
-        // Query range
         Instant rangeStart = baseTime.plus(30, ChronoUnit.MINUTES);
         Instant rangeEnd = baseTime.plus(90, ChronoUnit.MINUTES);
-        List<BiTemporalEvent<OrderEvent>> rangeView = await(eventStore.query(
-            EventQuery.builder()
-                .validTimeRange(new TemporalRange(rangeStart, rangeEnd))
-            .build()));
 
-        // Should only see event 2 in this range
-        assertEquals(1, rangeView.size(), "Range query should show 1 event");
-        assertEquals("order-006", rangeView.get(0).getPayload().getOrderId(), "Should be order-006");
-        
-        logger.info("Historical queries and point-in-time views test completed successfully!");
-        logger.info("   📊 Point-in-time view: {} events, Range view: {} events",
-            pointInTimeView.size(), rangeView.size());
+        eventStore.appendBuilder().eventType("OrderCreated").payload(event1).validTime(baseTime).execute()
+                .compose(v -> eventStore.appendBuilder().eventType("OrderCreated").payload(event2)
+                        .validTime(baseTime.plus(1, ChronoUnit.HOURS)).execute())
+                .compose(v -> eventStore.appendBuilder().eventType("OrderCreated").payload(event3)
+                        .validTime(baseTime.plus(2, ChronoUnit.HOURS)).execute())
+                .compose(v -> eventStore.query(EventQuery.asOfValidTime(pointInTime)))
+                .compose(pointInTimeView -> eventStore.query(
+                                EventQuery.builder().validTimeRange(new TemporalRange(rangeStart, rangeEnd)).build())
+                        .map(rangeView -> Map.entry(pointInTimeView, rangeView)))
+                .onSuccess(result -> testContext.verify(() -> {
+                    List<BiTemporalEvent<OrderEvent>> pointInTimeView = result.getKey();
+                    List<BiTemporalEvent<OrderEvent>> rangeView = result.getValue();
+                    assertEquals(2, pointInTimeView.size(), "Point-in-time view should show 2 events");
+                    assertEquals(1, rangeView.size(), "Range query should show 1 event");
+                    assertEquals("order-006", rangeView.get(0).getPayload().getOrderId(), "Should be order-006");
+                    logger.info("Historical queries and point-in-time views test completed successfully!");
+                    logger.info("   📊 Point-in-time view: {} events, Range view: {} events",
+                            pointInTimeView.size(), rangeView.size());
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 
     @Test
-    void testRealTimeEventSubscriptions() throws Exception {
+    void testRealTimeEventSubscriptions(VertxTestContext testContext) {
         logger.info("=== Testing Real-Time Event Subscriptions ===");
 
-        // For now, test that subscription setup works without errors
-        // Real-time subscriptions in bi-temporal stores may work differently than regular queues
-        assertDoesNotThrow(() -> {
-            io.vertx.core.Future<Void> subscription = eventStore.subscribe(null, message -> {
-                BiTemporalEvent<OrderEvent> eventRecord = message.getPayload();
-                logger.info("📡 Real-time event received: {}",
-                    eventRecord.getPayload().getOrderId());
-                return io.vertx.core.Future.<Void>succeededFuture();
-            });
-
-            // Verify subscription was established
-            assertNotNull(subscription, "Subscription should not be null");
-            await(subscription);
-
-        }, "Subscription setup should not throw exceptions");
-
-        // Test that we can append events (which would trigger subscriptions if active)
         OrderEvent event1 = new OrderEvent("order-008", "customer-006", new BigDecimal("400.00"), "PENDING");
         OrderEvent event2 = new OrderEvent("order-009", "customer-007", new BigDecimal("500.00"), "CONFIRMED");
 
-        BiTemporalEvent<OrderEvent> storedEvent1 = await(eventStore.appendBuilder()
-            .eventType("OrderCreated")
-            .payload(event1)
-            .validTime(Instant.now())
-            .execute());
-        BiTemporalEvent<OrderEvent> storedEvent2 = await(eventStore.appendBuilder()
-            .eventType("OrderCreated")
-            .payload(event2)
-            .validTime(Instant.now())
-            .execute());
+        Future<Void> subscription = eventStore.subscribe(null, message -> {
+            BiTemporalEvent<OrderEvent> eventRecord = message.getPayload();
+            logger.info("📡 Real-time event received: {}", eventRecord.getPayload().getOrderId());
+            return Future.<Void>succeededFuture();
+        });
 
-        // Verify events were stored successfully
-        assertNotNull(storedEvent1, "First event should be stored");
-        assertNotNull(storedEvent2, "Second event should be stored");
-        assertEquals("order-008", storedEvent1.getPayload().getOrderId());
-        assertEquals("order-009", storedEvent2.getPayload().getOrderId());
+        assertNotNull(subscription, "Subscription should not be null");
 
-        logger.info("Real-time event subscriptions test completed successfully!");
-        logger.info("   📊 Subscription setup and event storage verified");
+        subscription
+                .compose(v -> eventStore.appendBuilder().eventType("OrderCreated").payload(event1).validTime(Instant.now()).execute())
+                .compose(storedEvent1 -> eventStore.appendBuilder().eventType("OrderCreated").payload(event2).validTime(Instant.now()).execute()
+                        .map(storedEvent2 -> Map.entry(storedEvent1, storedEvent2)))
+                .onSuccess(result -> testContext.verify(() -> {
+                    BiTemporalEvent<OrderEvent> storedEvent1 = result.getKey();
+                    BiTemporalEvent<OrderEvent> storedEvent2 = result.getValue();
+                    assertNotNull(storedEvent1, "First event should be stored");
+                    assertNotNull(storedEvent2, "Second event should be stored");
+                    assertEquals("order-008", storedEvent1.getPayload().getOrderId());
+                    assertEquals("order-009", storedEvent2.getPayload().getOrderId());
+                    logger.info("Real-time event subscriptions test completed successfully!");
+                    logger.info("   📊 Subscription setup and event storage verified");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 
     @Test
-    void testTypeSafeEventHandling() throws Exception {
+    void testTypeSafeEventHandling(VertxTestContext testContext) {
         logger.info("=== Testing Type-Safe Event Handling ===");
 
         // Create strongly typed events
         OrderEvent orderEvent = new OrderEvent("order-010", "customer-008", new BigDecimal("600.00"), "PROCESSING");
 
-        // Append with type safety
-        assertDoesNotThrow(() -> {
-            await(eventStore.appendBuilder()
+        eventStore.appendBuilder()
                 .eventType("OrderCreated")
                 .payload(orderEvent)
                 .validTime(Instant.now())
-                .execute());
-        }, "Type-safe append should not throw exceptions");
-
-        // Query with type safety
-        List<BiTemporalEvent<OrderEvent>> events = await(eventStore.query(EventQuery.all()));
-
-        // Find our test event
-        BiTemporalEvent<OrderEvent> testEvent = events.stream()
-            .filter(event -> "order-010".equals(event.getPayload().getOrderId()))
-            .findFirst()
-            .orElse(null);
-
-        assertNotNull(testEvent, "Should find the test event");
-
-        // Verify type-safe access to event properties
-        OrderEvent payload = testEvent.getPayload();
-        assertEquals("order-010", payload.getOrderId(), "Order ID should match");
-        assertEquals("customer-008", payload.getCustomerId(), "Customer ID should match");
-        assertEquals(0, new BigDecimal("600.00").compareTo(payload.getAmount()), "Amount should match");
-        assertEquals("PROCESSING", payload.getStatus(), "Status should match");
-
-        // Verify type safety prevents incorrect casting
-        assertInstanceOf(OrderEvent.class, payload, "Payload should be OrderEvent type");
-
-        logger.info("Type-safe event handling test completed successfully!");
-        logger.info("   📋 Event details: {}", payload);
+                .execute()
+                .compose(v -> eventStore.query(EventQuery.all()))
+                .onSuccess(events -> testContext.verify(() -> {
+                    BiTemporalEvent<OrderEvent> testEvent = events.stream()
+                            .filter(event -> "order-010".equals(event.getPayload().getOrderId()))
+                            .findFirst()
+                            .orElse(null);
+                    assertNotNull(testEvent, "Should find the test event");
+                    OrderEvent payload = testEvent.getPayload();
+                    assertEquals("order-010", payload.getOrderId(), "Order ID should match");
+                    assertEquals("customer-008", payload.getCustomerId(), "Customer ID should match");
+                    assertEquals(0, new BigDecimal("600.00").compareTo(payload.getAmount()), "Amount should match");
+                    assertEquals("PROCESSING", payload.getStatus(), "Status should match");
+                    assertInstanceOf(OrderEvent.class, payload, "Payload should be OrderEvent type");
+                    logger.info("Type-safe event handling test completed successfully!");
+                    logger.info("   📋 Event details: {}", payload);
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 
     /**
