@@ -20,7 +20,7 @@ import java.util.concurrent.atomic.LongAdder;
  */
 public class SimplePerformanceMonitor {
     private static final Logger logger = LoggerFactory.getLogger(SimplePerformanceMonitor.class);
-    
+
     private final LongAdder queryCount = new LongAdder();
     private final LongAdder connectionCount = new LongAdder();
     private final LongAdder connectionFailures = new LongAdder();
@@ -28,6 +28,9 @@ public class SimplePerformanceMonitor {
     private final AtomicLong totalConnectionTime = new AtomicLong(0);
     private final AtomicLong maxQueryTime = new AtomicLong(0);
     private final AtomicLong maxConnectionTime = new AtomicLong(0);
+
+    // Timer management for periodic logging
+    private volatile long periodicTimerId = -1L;
     
     /**
      * Records query execution time.
@@ -165,13 +168,35 @@ public class SimplePerformanceMonitor {
      * @param vertx Vertx instance
      * @param intervalMs Logging interval in milliseconds
      */
-    public void startPeriodicLogging(Vertx vertx, long intervalMs) {
-        vertx.setPeriodic(intervalMs, id -> {
+    /**
+     * Starts periodic performance metric logging. Idempotent: only one timer per monitor.
+     *
+     * @param vertx Vertx instance
+     * @param intervalMs Logging interval in milliseconds
+     */
+    public synchronized void startPeriodicLogging(Vertx vertx, long intervalMs) {
+        if (periodicTimerId != -1L) {
+            logger.debug("Periodic performance logging already started (timerId={})", periodicTimerId);
+            return;
+        }
+        periodicTimerId = vertx.setPeriodic(intervalMs, id -> {
             logPerformanceMetrics();
             checkPerformanceThresholds();
         });
-        
-        logger.info("Started periodic performance logging every {}ms", intervalMs);
+        logger.info("Started periodic performance logging every {}ms (timerId={})", intervalMs, periodicTimerId);
+    }
+
+    /**
+     * Stops periodic performance metric logging if started.
+     *
+     * @param vertx Vertx instance
+     */
+    public synchronized void stopPeriodicLogging(Vertx vertx) {
+        if (periodicTimerId != -1L) {
+            vertx.cancelTimer(periodicTimerId);
+            logger.info("Stopped periodic performance logging (timerId={})", periodicTimerId);
+            periodicTimerId = -1L;
+        }
     }
     
     /**
