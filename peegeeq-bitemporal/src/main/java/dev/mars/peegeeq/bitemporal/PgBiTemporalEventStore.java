@@ -45,7 +45,6 @@ import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.PoolOptions;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.SqlClient;
-import io.vertx.sqlclient.TransactionPropagation;
 import io.vertx.sqlclient.Tuple;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -383,64 +382,12 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     }
 
     /**
-     * Production-grade transactional append method with TransactionPropagation
-     * support.
-     * This method uses Vert.x TransactionPropagation for advanced transaction
-     * management.
+     * Appends a new event in its own transaction.
+     * This method starts a fresh database transaction — it does not join or
+     * participate in any externally-started transaction.
      *
-     * @param eventType   The type of the event
-     * @param payload     The event payload
-     * @param validTime   The valid time for the event
-     * @param propagation Transaction propagation behavior (e.g., CONTEXT for
-     *                    sharing existing transactions)
-     * @return Future that completes when the event is stored
-     */
-    public Future<BiTemporalEvent<T>> appendWithTransaction(String eventType, T payload, Instant validTime,
-            TransactionPropagation propagation) {
-        return appendWithTransactionInternal(eventType, payload, validTime, Map.of(), null, null, null,
-                propagation);
-    }
-
-    /**
-     * Production-grade transactional append method with headers and
-     * TransactionPropagation support.
-     *
-     * @param eventType   The type of the event
-     * @param payload     The event payload
-     * @param validTime   The valid time for the event
-     * @param headers     Optional event headers
-     * @param propagation Transaction propagation behavior
-     * @return Future that completes when the event is stored
-     */
-    public Future<BiTemporalEvent<T>> appendWithTransaction(String eventType, T payload, Instant validTime,
-            Map<String, String> headers,
-            TransactionPropagation propagation) {
-        return appendWithTransactionInternal(eventType, payload, validTime, headers, null, null, null,
-                propagation);
-    }
-
-    /**
-     * Production-grade transactional append method with headers, correlation ID and
-     * TransactionPropagation support.
-     *
-     * @param eventType     The type of the event
-     * @param payload       The event payload
-     * @param validTime     The valid time for the event
-     * @param headers       Optional event headers
-     * @param correlationId Optional correlation ID for event tracking
-     * @param propagation   Transaction propagation behavior
-     * @return Future that completes when the event is stored
-     */
-    public Future<BiTemporalEvent<T>> appendWithTransaction(String eventType, T payload, Instant validTime,
-            Map<String, String> headers, String correlationId,
-            TransactionPropagation propagation) {
-        return appendWithTransactionInternal(eventType, payload, validTime, headers, correlationId, null, null,
-                propagation);
-    }
-
-    /**
-     * Full production-grade transactional append method with all parameters and
-     * TransactionPropagation support.
+     * For genuine transaction participation (where the event rolls back with
+     * the caller's transaction), use {@link #appendInTransaction(String, Object, Instant, io.vertx.sqlclient.SqlConnection)}.
      *
      * @param eventType     The type of the event
      * @param payload       The event payload
@@ -449,44 +396,21 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      * @param correlationId Optional correlation ID for event tracking
      * @param causationId   Optional causation ID identifying which event caused this event
      * @param aggregateId   Optional aggregate ID for event grouping
-     * @param propagation   Transaction propagation behavior
      * @return Future that completes when the event is stored
      */
     public Future<BiTemporalEvent<T>> appendWithTransaction(String eventType, T payload, Instant validTime,
             Map<String, String> headers, String correlationId,
             String causationId, String aggregateId) {
-        return appendWithTransaction(eventType, payload, validTime, headers, correlationId, causationId, aggregateId,
-                TransactionPropagation.CONTEXT);
-    }
-
-    /**
-     * Full production-grade transactional append method with all parameters and
-     * TransactionPropagation support.
-     *
-     * @param eventType     The type of the event
-     * @param payload       The event payload
-     * @param validTime     The valid time for the event
-     * @param headers       Optional event headers
-     * @param correlationId Optional correlation ID for event tracking
-     * @param causationId   Optional causation ID identifying which event caused this event
-     * @param aggregateId   Optional aggregate ID for event grouping
-     * @param propagation   Transaction propagation behavior
-     * @return Future that completes when the event is stored
-     */
-    public Future<BiTemporalEvent<T>> appendWithTransaction(String eventType, T payload, Instant validTime,
-            Map<String, String> headers, String correlationId,
-            String causationId, String aggregateId, TransactionPropagation propagation) {
         return appendWithTransactionInternal(eventType, payload, validTime, headers, correlationId, causationId,
-                aggregateId, propagation);
+                aggregateId);
     }
 
     /**
-     * Internal implementation for production-grade transactional append method.
-     * This method uses the official Vert.x Pool.withTransaction() which handles:
-     * - Automatic transaction begin/commit/rollback
-     * - Connection management
-     * - Proper error handling and automatic rollback on failure
-     * - TransactionPropagation support for advanced transaction management
+     * Internal implementation for transactional append.
+     * This method starts its own transaction via Pool.withTransaction() — it does
+     * not participate in any externally-started transaction. For genuine
+     * transaction participation, callers must use
+     * {@link #appendInTransaction(String, Object, Instant, io.vertx.sqlclient.SqlConnection)}.
      *
      * @param eventType     The type of the event
      * @param payload       The event payload
@@ -495,14 +419,12 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      * @param correlationId Optional correlation ID for event tracking
      * @param causationId   Optional causation ID identifying which event caused this event
      * @param aggregateId   Optional aggregate ID for event grouping
-     * @param propagation   Optional transaction propagation behavior (null for
-     *                      default)
      * @return Future that completes when the event is stored
      */
     private Future<BiTemporalEvent<T>> appendWithTransactionInternal(String eventType, T payload,
             Instant validTime,
             Map<String, String> headers, String correlationId,
-            String causationId, String aggregateId, TransactionPropagation propagation) {
+            String causationId, String aggregateId) {
         if (closed) {
             return Future.failedFuture(new IllegalStateException("Event store is closed"));
         }
@@ -535,14 +457,14 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                         transactionTime);
             }
 
-            // Use cached reactive infrastructure (traditional approach)
+            // Use cached reactive infrastructure
             Pool pool = getOrCreateReactivePool();
             Vertx vertx = getOrCreateSharedVertx();
 
-            // Execute transaction on Vert.x context for proper TransactionPropagation
-            // support
-                Future<BiTemporalEvent<T>> transactionFuture = (propagation != null)
-                    ? executeOnVertxContext(vertx, () -> pool.withTransaction(propagation, client -> {
+            // Own-transaction: starts a fresh transaction on the internal pool.
+            // This does NOT participate in any externally-started transaction.
+            Future<BiTemporalEvent<T>> transactionFuture = executeOnVertxContext(vertx,
+                    () -> pool.withTransaction(client -> {
                         String sql = """
                                 INSERT INTO %s
                                 (event_id, event_type, valid_time, transaction_time, payload, headers,
@@ -556,32 +478,6 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                                 transactionTime, payloadJson, headersJson,
                                 1L, finalCorrelationId, causationId, aggregateId, false, transactionTime);
 
-                        // Return Future<BiTemporalEvent<T>> to indicate transaction success/failure
-                        return client.preparedQuery(sql).execute(params).map(rows -> {
-                            Row row = rows.iterator().next();
-                            Instant actualTransactionTime = row.getOffsetDateTime("transaction_time").toInstant();
-
-                            BiTemporalEvent<T> event = new SimpleBiTemporalEvent<>(
-                                    eventId, eventType, payload, validTime, actualTransactionTime,
-                                    headers != null ? headers : Map.of(), finalCorrelationId, causationId, aggregateId);
-                            return event;
-                        });
-                    }))
-                    : executeOnVertxContext(vertx, () -> pool.withTransaction(client -> {
-                        String sql = """
-                                INSERT INTO %s
-                                (event_id, event_type, valid_time, transaction_time, payload, headers,
-                                 version, correlation_id, causation_id, aggregate_id, is_correction, created_at)
-                                VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7, $8, $9, $10, $11, $12)
-                                RETURNING event_id, transaction_time
-                                """.formatted(quotedTableName);
-
-                        Tuple params = Tuple.of(
-                                eventId, eventType, validTime.atOffset(java.time.ZoneOffset.UTC),
-                                transactionTime, payloadJson, headersJson,
-                                1L, finalCorrelationId, causationId, aggregateId, false, transactionTime);
-
-                        // Return Future<BiTemporalEvent<T>> to indicate transaction success/failure
                         return client.preparedQuery(sql).execute(params).map(rows -> {
                             Row row = rows.iterator().next();
                             Instant actualTransactionTime = row.getOffsetDateTime("transaction_time").toInstant();
@@ -1724,9 +1620,11 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     }
 
     /**
-     * Gets or creates a shared Vertx instance for proper context management.
-     * This ensures that TransactionPropagation.CONTEXT works correctly by providing
-     * a consistent Vertx context across all EventStore instances.
+     * Gets or creates a shared Vertx instance for context management.
+     * This provides a consistent Vertx context for internal pool operations.
+     * Note: operations on this internal Vertx do not participate in transactions
+     * started on a different Vertx instance. For genuine transaction participation,
+     * use {@link #appendInTransaction} with an explicit SqlConnection.
      *
      * @return The shared Vertx instance
      */

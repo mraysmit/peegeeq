@@ -34,7 +34,6 @@ import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.SqlConnection;
-import io.vertx.sqlclient.TransactionPropagation;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -337,8 +336,7 @@ class PgBiTemporalEventStoreComplexTest {
             Map.of("tx", "context"),
             "corr-tx",
             null,
-            "agg-tx",
-            TransactionPropagation.CONTEXT
+            "agg-tx"
         )
         .compose(event -> {
             testContext.verify(() -> {
@@ -1201,18 +1199,18 @@ class PgBiTemporalEventStoreComplexTest {
                     assertNotNull(e2);
                     assertEquals("value1", e2.getHeaders().get("header1"));
                 });
-                return eventStore.appendWithTransaction("OverloadEvent", new TestEvent("o3", "data", 3),
-                    validTime, TransactionPropagation.CONTEXT);
+                return eventStore.append("OverloadEvent", new TestEvent("o3", "data", 3),
+                    validTime);
             })
             .compose(e3 -> {
                 testContext.verify(() -> assertNotNull(e3));
-                return eventStore.appendWithTransaction("OverloadEvent", new TestEvent("o4", "data", 4),
-                    validTime, Map.of("tx", "true"), TransactionPropagation.CONTEXT);
+                return eventStore.append("OverloadEvent", new TestEvent("o4", "data", 4),
+                    validTime, Map.of("tx", "true"));
             })
             .compose(e4 -> {
                 testContext.verify(() -> assertNotNull(e4));
-                return eventStore.appendWithTransaction("OverloadEvent", new TestEvent("o5", "data", 5),
-                    validTime, Map.of(), "corr-tx", TransactionPropagation.CONTEXT);
+                return eventStore.append("OverloadEvent", new TestEvent("o5", "data", 5),
+                    validTime, Map.of(), "corr-tx", null, null);
             })
             .compose(e5 -> {
                 testContext.verify(() -> {
@@ -1735,7 +1733,7 @@ class PgBiTemporalEventStoreComplexTest {
         Instant validTime = Instant.now();
         TestEvent payload = new TestEvent("tx-min", "minimal", 111);
         
-        eventStore.appendWithTransaction("TxMinTest", payload, validTime, TransactionPropagation.CONTEXT)
+        eventStore.append("TxMinTest", payload, validTime)
             .onSuccess(result -> testContext.verify(() -> {
                 assertNotNull(result);
                 assertEquals("TxMinTest", result.getEventType());
@@ -1755,8 +1753,8 @@ class PgBiTemporalEventStoreComplexTest {
         Instant validTime = Instant.now();
         TestEvent payload = new TestEvent("tx-headers", "headers", 222);
         
-        eventStore.appendWithTransaction("TxHeadersTest", payload, validTime,
-            Map.of("h1", "v1", "h2", "v2"), TransactionPropagation.CONTEXT)
+        eventStore.append("TxHeadersTest", payload, validTime,
+            Map.of("h1", "v1", "h2", "v2"))
             .onSuccess(result -> testContext.verify(() -> {
                 assertNotNull(result);
                 assertEquals("TxHeadersTest", result.getEventType());
@@ -1777,8 +1775,8 @@ class PgBiTemporalEventStoreComplexTest {
         Instant validTime = Instant.now();
         TestEvent payload = new TestEvent("tx-corr", "correlation", 333);
         
-        eventStore.appendWithTransaction("TxCorrTest", payload, validTime,
-            Map.of(), "my-correlation-id", TransactionPropagation.CONTEXT)
+        eventStore.append("TxCorrTest", payload, validTime,
+            Map.of(), "my-correlation-id", null, null)
             .onSuccess(result -> testContext.verify(() -> {
                 assertNotNull(result);
                 assertEquals("TxCorrTest", result.getEventType());
