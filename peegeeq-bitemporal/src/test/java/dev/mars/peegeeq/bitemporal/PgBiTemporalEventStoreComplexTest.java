@@ -191,15 +191,12 @@ class PgBiTemporalEventStoreComplexTest {
     
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
-        if (eventStore != null) {
-            eventStore.close();
-        }
-
-        Future<Void> closeFuture = (manager != null)
-            ? manager.closeReactive()
+        Future<Void> closeFuture = (eventStore != null)
+            ? eventStore.close()
             : Future.succeededFuture();
 
         closeFuture
+            .compose(v -> manager != null ? manager.closeReactive() : Future.succeededFuture())
             .compose(v -> vertx != null ? vertx.close() : Future.succeededFuture())
             .onSuccess(v -> {
                 System.clearProperty("peegeeq.database.host");
