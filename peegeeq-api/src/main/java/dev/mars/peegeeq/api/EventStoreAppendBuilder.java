@@ -18,7 +18,6 @@ package dev.mars.peegeeq.api;
 
 import io.vertx.core.Future;
 import io.vertx.sqlclient.SqlConnection;
-import io.vertx.sqlclient.TransactionPropagation;
 
 import java.time.Instant;
 import java.util.HashMap;
@@ -86,7 +85,6 @@ public class EventStoreAppendBuilder<T> {
     
     // Transaction management
     private SqlConnection connection;
-    private TransactionPropagation propagation;
     
     /**
      * Creates a new builder for the given event store.
@@ -214,18 +212,6 @@ public class EventStoreAppendBuilder<T> {
     }
     
     /**
-     * Appends this event using TransactionPropagation for advanced transaction management.
-     * Use this with Vert.x Pool.withTransaction() for automatic transaction handling.
-     * 
-     * @param propagation Transaction propagation behavior (e.g., CONTEXT for sharing existing transactions)
-     * @return This builder for chaining
-     */
-    public EventStoreAppendBuilder<T> withTransactionPropagation(TransactionPropagation propagation) {
-        this.propagation = propagation;
-        return this;
-    }
-    
-    /**
      * Executes the append operation and returns a Vert.x Future.
      * 
      * @return A Vert.x Future that completes with the stored event
@@ -245,13 +231,7 @@ public class EventStoreAppendBuilder<T> {
             }
         }
         
-        // Transaction propagation (modern approach)
-        if (propagation != null) {
-            return eventStore.appendWithTransaction(eventType, payload, validTime,
-                headers, correlationId, causationId, aggregateId, propagation);
-        }
-        
-        // In transaction (legacy approach with SqlConnection)
+        // In transaction (explicit participation via SqlConnection)
         if (connection != null) {
             return eventStore.appendInTransaction(eventType, payload, validTime,
                 headers, correlationId, causationId, aggregateId, connection);
@@ -286,8 +266,6 @@ public class EventStoreAppendBuilder<T> {
         if (validTime == null) {
             throw new IllegalStateException("validTime is required");
         }
-        if (connection != null && propagation != null) {
-            throw new IllegalStateException("Cannot use both inTransaction() and withTransactionPropagation()");
-        }
+
     }
 }

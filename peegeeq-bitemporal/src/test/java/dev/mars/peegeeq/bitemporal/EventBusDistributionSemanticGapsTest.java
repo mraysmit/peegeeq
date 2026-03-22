@@ -34,7 +34,6 @@ import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.PoolOptions;
-import io.vertx.sqlclient.TransactionPropagation;
 import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -54,7 +53,7 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests verifying that 6 semantic defects in the event-bus distribution path
+ * Tests verifying that 5 semantic defects in the event-bus distribution path
  * ({@code peegeeq.database.use.event.bus.distribution=true}) have been fixed.
  *
  * <p>Each test has a POSITIVE case (direct path works correctly) and a FIXED case
@@ -65,7 +64,6 @@ import static org.junit.jupiter.api.Assertions.*;
  *   <li>Event ID: caller-generated ID now passed to worker and used verbatim</li>
  *   <li>Transaction time: caller-generated timestamp now passed to worker</li>
  *   <li>Transaction wrapper: worker now uses pool.withTransaction() for atomicity</li>
- *   <li>TransactionPropagation: rejected with UnsupportedOperationException on event-bus path</li>
  *   <li>Trace context: traceparent now propagated via DeliveryOptions headers</li>
  *   <li>Worker DB timing: worker now logs its own DB execution time</li>
  * </ol>
@@ -499,87 +497,6 @@ class EventBusDistributionSemanticGapsTest {
                 })
                 .onSuccess(event -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (testContext.failed()) {
-            throw new RuntimeException(testContext.causeOfFailure());
-        }
-    }
-
-    // ========================================================================
-    // ERROR: TransactionPropagation silently ignored  --  contract violation
-    // ========================================================================
-
-    @Test
-    @DisplayName("POSITIVE: Direct path honors TransactionPropagation.CONTEXT parameter")
-    void directPathHonorsTransactionPropagation(VertxTestContext testContext) throws Exception {
-        /*
-         * When event-bus distribution is OFF, passing TransactionPropagation.CONTEXT
-         * is forwarded to pool.withTransaction(propagation, ...)  --  the parameter
-         * is honored (even if it starts its own transaction due to Vertx instance
-         * boundaries, the plumbing is present).
-         */
-        String eventType = "gap4.direct.propagation.honored";
-        TestPayload payload = new TestPayload("direct-propagation", 40);
-        Instant validTime = Instant.now();
-
-        // Direct path: ensure event-bus distribution is OFF
-        System.clearProperty("peegeeq.database.use.event.bus.distribution");
-
-        eventStore.appendWithTransaction(eventType, payload, validTime,
-                        TransactionPropagation.CONTEXT)
-                .compose(event -> {
-                    String sql = "SELECT COUNT(*) FROM " + resolveSchema()
-                            + ".bitemporal_event_log WHERE event_type = $1";
-                    return verificationPool.preparedQuery(sql).execute(Tuple.of(eventType))
-                            .map(rows -> {
-                                int count = rows.iterator().next().getInteger(0);
-                                assertEquals(1, count,
-                                        "Direct path with CONTEXT propagation: event committed");
-                                return event;
-                            });
-                })
-                .onSuccess(event -> testContext.completeNow())
-                .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (testContext.failed()) {
-            throw new RuntimeException(testContext.causeOfFailure());
-        }
-    }
-
-    @Test
-    @DisplayName("FIXED: Event-bus path now rejects TransactionPropagation with UnsupportedOperationException")
-    void eventBusPathRejectsTransactionPropagation(VertxTestContext testContext) throws Exception {
-        /*
-         * FIX VERIFICATION: When event-bus distribution is ON, requesting
-         * TransactionPropagation.CONTEXT must be rejected with a clear error
-         * because the worker runs on a separate context and cannot join the
-         * caller's transaction.  Previously this was silently ignored.
-         */
-        String eventType = "gap4.eventbus.propagation.rejected";
-        TestPayload payload = new TestPayload("eventbus-propagation-rejected", 41);
-        Instant validTime = Instant.now();
-
-        // Event-bus path: enable event-bus distribution
-        System.setProperty("peegeeq.database.use.event.bus.distribution", "true");
-
-        eventStore.appendWithTransaction(eventType, payload, validTime,
-                        Map.of(), null, null, null,
-                        TransactionPropagation.CONTEXT)
-                .onSuccess(event -> testContext.failNow(
-                        "Should have failed with UnsupportedOperationException"))
-                .onFailure(error -> {
-                    assertInstanceOf(UnsupportedOperationException.class, error,
-                            "Must reject with UnsupportedOperationException, not silent success");
-                    assertTrue(error.getMessage().contains("TransactionPropagation"),
-                            "Error message must mention TransactionPropagation");
-                    assertTrue(error.getMessage().contains("event-bus distribution"),
-                            "Error message must explain that event-bus distribution is the reason");
-                    logger.info("DEFECT 4 FIXED: TransactionPropagation.CONTEXT correctly " +
-                            "rejected with: {}", error.getMessage());
-                    testContext.completeNow();
-                });
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {

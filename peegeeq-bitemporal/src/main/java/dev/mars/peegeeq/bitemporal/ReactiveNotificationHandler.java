@@ -55,7 +55,7 @@ import java.util.regex.Pattern;
  * - Uses Vert.x PgConnection for reactive LISTEN/NOTIFY
  * - Proper error handling with automatic reconnection
  * - Non-blocking notification processing
- * - Context-aware execution for TransactionPropagation compatibility
+ * - Context-aware execution on Vert.x event loop
  *
  * This class is part of the PeeGeeQ message queue system, providing
  * production-ready PostgreSQL-based message queuing capabilities.
@@ -360,8 +360,7 @@ public class ReactiveNotificationHandler<T> {
 
                         logger.debug("Received reactive notification on channel '{}': {}", channel, payload);
 
-                        // Process notification on Vert.x context for proper TransactionPropagation
-                        // support
+                        // Process notification on Vert.x context for proper event-loop execution
                         vertx.runOnContext(v -> handleNotification(channel, payload));
                     });
 

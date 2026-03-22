@@ -34,7 +34,6 @@ import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.PoolOptions;
-import io.vertx.sqlclient.TransactionPropagation;
 import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -57,11 +56,11 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * <p>These tests demonstrate three concrete facts:
  * <ol>
- *   <li>appendWithTransaction(CONTEXT) does NOT participate in an external
- *       transaction started on a different Vertx instance — the event
- *       survives an external rollback because it starts its own transaction.</li>
- *   <li>The default propagation used by append() is functionally equivalent
- *       to starting a fresh own-transaction — there is no ambient context to join.</li>
+ *   <li>append() and appendWithTransaction() start their own independent
+ *       transaction on the internal pool — the event survives an external
+ *       rollback because it never participates in the external transaction.</li>
+ *   <li>append() and appendWithTransaction() are semantically equivalent —
+ *       both start a fresh own-transaction every time.</li>
  *   <li>Only appendInTransaction(connection) genuinely participates in an
  *       external transaction — rollback on the connection rolls back the event.</li>
  * </ol>
@@ -235,32 +234,32 @@ class TransactionPropagationHonestyTest {
     }
 
     // ========================================================================
-    // Test 1: appendWithTransaction(CONTEXT) starts own-tx, does NOT join external
+    // Test 1: appendWithTransaction starts own-tx, does NOT join external
     // ========================================================================
 
     @Test
-    @DisplayName("CONTEXT propagation starts own-transaction — event survives external Vertx rollback")
-    void contextPropagationDoesNotJoinExternalTransaction(VertxTestContext testContext) throws Exception {
+    @DisplayName("appendWithTransaction starts own-transaction — event survives external rollback")
+    void appendWithTransactionDoesNotJoinExternalTransaction(VertxTestContext testContext) throws Exception {
         /*
          * Scenario:
          *   1. Start a transaction on the EXTERNAL pool (different Vertx instance).
-         *   2. Inside that transaction, call appendWithTransaction(CONTEXT).
-         *      Because the pool and caller are on different Vertx instances,
-         *      CONTEXT cannot join the external transaction.
+         *   2. Inside that transaction, call appendWithTransaction().
+         *      The event store always starts its own independent transaction
+         *      on its internal pool.
          *   3. Deliberately roll back the external transaction.
          *   4. Query the event store — the event should still be there because
          *      the event store started its own independent transaction.
          */
         String schema = resolveSchema();
-        String eventType = "cross.vertx.context.test";
-        TestPayload payload = new TestPayload("should-not-survive-if-truly-participating", 1);
+        String eventType = "cross.vertx.own.tx.test";
+        TestPayload payload = new TestPayload("should-survive-external-rollback", 1);
         Instant validTime = Instant.now();
 
         externalPool.withTransaction(externalConn -> {
             // We're on the external Vertx context now.
-            // Call the event store's CONTEXT-based method.
+            // Call the event store's own-transaction method.
             return eventStore.appendWithTransaction(eventType, payload, validTime,
-                            TransactionPropagation.CONTEXT)
+                            Map.of(), null, null, null)
                     .compose(event -> {
                         // Got the event back — now deliberately fail to trigger rollback.
                         return Future.<BiTemporalEvent<TestPayload>>failedFuture(
@@ -273,8 +272,8 @@ class TransactionPropagationHonestyTest {
             return Future.succeededFuture(null);
         })
         .compose(ignored -> {
-            // Now query the event log.  If CONTEXT truly participated, the event
-            // should have been rolled back too.
+            // Now query the event log.  The event store started its own
+            // transaction, so the event should survive the external rollback.
             String countSql = "SELECT COUNT(*) FROM " + schema + ".bitemporal_event_log WHERE event_type = $1";
             return externalPool.preparedQuery(countSql).execute(Tuple.of(eventType));
         })
@@ -283,15 +282,14 @@ class TransactionPropagationHonestyTest {
 
             // CORRECT BEHAVIOUR: the event store starts its own independent
             // transaction on its internal pool, so the event survives the
-            // external rollback.  TransactionPropagation.CONTEXT cannot cross
-            // the Vertx instance boundary.
+            // external rollback.
             //
             // For genuine transaction participation, callers must use
             // appendInTransaction(connection) — see tests 3 and 5.
             assertEquals(1, count,
                     "Event should survive external rollback because " +
-                    "appendWithTransaction(CONTEXT) starts an own-transaction on " +
-                    "the internal pool — it does not join the external Vertx transaction");
+                    "appendWithTransaction() starts an own-transaction on " +
+                    "the internal pool — it does not join external transactions");
             testContext.completeNow();
         }))
         .onFailure(testContext::failNow);
@@ -303,46 +301,41 @@ class TransactionPropagationHonestyTest {
     }
 
     // ========================================================================
-    // Test 2: Default CONTEXT on standalone append is equivalent to own-tx
+    // Test 2: append() and appendWithTransaction() are both own-tx
     // ========================================================================
 
     @Test
-    @DisplayName("Default CONTEXT propagation on append() is equivalent to own-transaction — no ambient context exists")
-    void defaultContextIsEquivalentToOwnTransaction(VertxTestContext testContext) throws Exception {
+    @DisplayName("append() and appendWithTransaction() both start own-transaction — semantically equivalent")
+    void appendAndAppendWithTransactionAreBothOwnTransaction(VertxTestContext testContext) throws Exception {
         /*
          * Scenario:
-         *   1. Call append() (which defaults to CONTEXT internally).
-         *   2. Call appendWithTransaction(null propagation) — explicit own-tx.
-         *   3. Both should succeed independently — proving CONTEXT falls back to
-         *      own-transaction when no ambient context exists.
+         *   1. Call append() — starts its own transaction.
+         *   2. Call appendWithTransaction() — also starts its own transaction.
+         *   3. Both should succeed independently — proving they are
+         *      semantically equivalent (both start a fresh own-transaction).
          *   4. Both events should be independently committed.
-         *
-         * This test documents that CONTEXT adds no value for standalone appends
-         * — it simply starts a new transaction, same as no propagation.
          */
         String schema = resolveSchema();
         Instant validTime = Instant.now();
-        String contextEventType = "default.context.standalone";
-        String ownTxEventType = "explicit.own.transaction";
+        String appendEventType = "via.append.own.tx";
+        String withTxEventType = "via.appendWithTransaction.own.tx";
 
-        eventStore.append(contextEventType, new TestPayload("via-append-default-context", 10), validTime)
-                .compose(contextEvent -> {
-                    // Now do a non-CONTEXT append for comparison
+        eventStore.append(appendEventType, new TestPayload("via-append", 10), validTime)
+                .compose(appendEvent -> {
                     return eventStore.appendWithTransaction(
-                            ownTxEventType,
-                            new TestPayload("via-explicit-no-propagation", 20),
+                            withTxEventType,
+                            new TestPayload("via-appendWithTransaction", 20),
                             validTime,
                             Map.of(),
-                            null, null, null,
-                            null  // null propagation = own transaction
-                    ).map(ownEvent -> contextEvent);
+                            null, null, null
+                    ).map(ownEvent -> appendEvent);
                 })
-                .compose(contextEvent -> {
+                .compose(appendEvent -> {
                     // Count both events
                     String countSql = "SELECT event_type, COUNT(*) as cnt FROM " + schema +
                             ".bitemporal_event_log WHERE event_type IN ($1, $2) GROUP BY event_type";
                     return externalPool.preparedQuery(countSql)
-                            .execute(Tuple.of(contextEventType, ownTxEventType));
+                            .execute(Tuple.of(appendEventType, withTxEventType));
                 })
                 .onSuccess(rows -> testContext.verify(() -> {
                     int typesFound = 0;
@@ -353,7 +346,7 @@ class TransactionPropagationHonestyTest {
                     }
                     assertEquals(2, typesFound,
                             "Both event types should be independently committed — " +
-                            "CONTEXT with no ambient context behaves identically to own-transaction");
+                            "append() and appendWithTransaction() both start own-transactions");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);

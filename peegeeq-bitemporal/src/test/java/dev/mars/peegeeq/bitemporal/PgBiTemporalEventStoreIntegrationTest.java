@@ -13,7 +13,6 @@ import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
-import io.vertx.sqlclient.TransactionPropagation;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -274,8 +273,8 @@ class PgBiTemporalEventStoreIntegrationTest {
             .compose(v -> {
                 eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass(), "test_events", new ObjectMapper());
                 Map<String, Object> payload1 = Map.of("test", "overload1");
-                return eventStore.appendWithTransaction(
-                    "test.overload1", payload1, Instant.now(), TransactionPropagation.CONTEXT);
+                return eventStore.append(
+                    "test.overload1", payload1, Instant.now());
             })
             .compose(event1 -> {
                 testContext.verify(() -> {
@@ -283,8 +282,8 @@ class PgBiTemporalEventStoreIntegrationTest {
                     assertEquals("test.overload1", event1.getEventType());
                 });
                 Map<String, Object> payload2 = Map.of("test", "overload2");
-                return eventStore.appendWithTransaction(
-                    "test.overload2", payload2, Instant.now(), Map.of("header", "value"), TransactionPropagation.CONTEXT);
+                return eventStore.append(
+                    "test.overload2", payload2, Instant.now(), Map.of("header", "value"));
             })
             .compose(event2 -> {
                 testContext.verify(() -> {
@@ -292,8 +291,8 @@ class PgBiTemporalEventStoreIntegrationTest {
                     assertEquals("test.overload2", event2.getEventType());
                 });
                 Map<String, Object> payload3 = Map.of("test", "overload3");
-                return eventStore.appendWithTransaction(
-                    "test.overload3", payload3, Instant.now(), Map.of(), "corr-123", TransactionPropagation.CONTEXT);
+                return eventStore.append(
+                    "test.overload3", payload3, Instant.now(), Map.of(), "corr-123", null, null);
             })
             .compose(event3 -> {
                 testContext.verify(() -> {
@@ -302,7 +301,7 @@ class PgBiTemporalEventStoreIntegrationTest {
                 });
                 Map<String, Object> payload4 = Map.of("test", "overload4");
                 return eventStore.appendWithTransaction(
-                    "test.overload4", payload4, Instant.now(), Map.of(), "corr-456", null, "agg-789", TransactionPropagation.CONTEXT);
+                    "test.overload4", payload4, Instant.now(), Map.of(), "corr-456", null, "agg-789");
             })
             .onSuccess(event4 -> testContext.verify(() -> {
                 assertNotNull(event4);

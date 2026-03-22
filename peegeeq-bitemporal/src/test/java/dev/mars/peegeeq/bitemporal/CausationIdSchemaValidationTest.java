@@ -204,7 +204,6 @@ public class CausationIdSchemaValidationTest {
         // This test ensures the EventStore interface has the appendWithTransaction method
         // with causation_id parameter - compilation proves the method signature exists
         
-        // Test with TransactionPropagation (modern method)
         String eventType = "signature.test.event";
         Map<String, Object> payload = Map.of("test", "signature");
         Instant validTime = Instant.now();
@@ -217,8 +216,7 @@ public class CausationIdSchemaValidationTest {
                         Map.of(),
                         "CORR-123",
                         causationId,
-                        "AGG-123",
-                        io.vertx.sqlclient.TransactionPropagation.CONTEXT)
+                        "AGG-123")
                 .onSuccess(event -> testContext.verify(() -> {
                     assertNotNull(event, "Event should be successfully appended");
                     assertEquals(causationId, event.getCausationId(), "Causation ID should match");
