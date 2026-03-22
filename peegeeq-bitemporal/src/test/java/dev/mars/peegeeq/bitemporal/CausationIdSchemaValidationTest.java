@@ -123,7 +123,7 @@ public class CausationIdSchemaValidationTest {
     void tearDown(VertxTestContext testContext) {
         logger.info("🧹 Cleaning up CausationIdSchemaValidationTest");
 
-        Future<Void> closeStoreFuture = eventStore != null ? eventStore.closeFuture() : Future.succeededFuture();
+        Future<Void> closeStoreFuture = eventStore != null ? eventStore.close() : Future.succeededFuture();
         Future<Void> closeManagerFuture = peeGeeQManager != null ? peeGeeQManager.closeReactive() : Future.succeededFuture();
 
         closeStoreFuture

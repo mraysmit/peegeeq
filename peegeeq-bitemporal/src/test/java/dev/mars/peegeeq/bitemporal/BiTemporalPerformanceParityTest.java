@@ -102,7 +102,7 @@ class BiTemporalPerformanceParityTest {
     void tearDown(VertxTestContext testContext) throws Exception {
         Future<Void> closeFuture = Future.succeededFuture();
         if (eventStore != null) {
-            closeFuture = eventStore.closeFuture();
+            closeFuture = eventStore.close();
             eventStore = null;
         }
 

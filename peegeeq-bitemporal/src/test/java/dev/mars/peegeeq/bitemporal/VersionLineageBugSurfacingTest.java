@@ -254,10 +254,17 @@ class VersionLineageBugSurfacingTest {
                 })
                 .compose(rootId -> {
                     // Step 4: Query the database directly to check version uniqueness
+                    // Use recursive CTE to find full family — flat OR query only works for star topology
                     String sql = """
+                            WITH RECURSIVE family AS (
+                                SELECT event_id FROM bitemporal_event_log WHERE event_id = $1
+                                UNION ALL
+                                SELECT c.event_id FROM bitemporal_event_log c
+                                JOIN family f ON c.previous_version_id = f.event_id
+                            )
                             SELECT version, COUNT(*) as cnt
                             FROM bitemporal_event_log
-                            WHERE event_id = $1 OR previous_version_id = $1
+                            WHERE event_id IN (SELECT event_id FROM family)
                             GROUP BY version
                             HAVING COUNT(*) > 1
                             """;
@@ -321,10 +328,19 @@ class VersionLineageBugSurfacingTest {
                                 final long finalSuccessCount = successCount;
 
                                 // Verify database row count and version sequence
-                                return verificationPool.preparedQuery(
-                                        "SELECT version FROM bitemporal_event_log "
-                                                + "WHERE event_id = $1 OR previous_version_id = $1 "
-                                                + "ORDER BY version ASC")
+                                // Use recursive CTE to find full family — flat OR query only works for star topology
+                                String familySql = """
+                                        WITH RECURSIVE family AS (
+                                            SELECT event_id FROM bitemporal_event_log WHERE event_id = $1
+                                            UNION ALL
+                                            SELECT c.event_id FROM bitemporal_event_log c
+                                            JOIN family f ON c.previous_version_id = f.event_id
+                                        )
+                                        SELECT version FROM bitemporal_event_log
+                                        WHERE event_id IN (SELECT event_id FROM family)
+                                        ORDER BY version ASC
+                                        """;
+                                return verificationPool.preparedQuery(familySql)
                                         .execute(Tuple.of(rootId))
                                         .map(rows -> {
                                             List<Long> versions = new ArrayList<>();

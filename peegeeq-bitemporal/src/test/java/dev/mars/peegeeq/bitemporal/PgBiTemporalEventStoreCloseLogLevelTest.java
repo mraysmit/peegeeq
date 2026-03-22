@@ -52,8 +52,8 @@ import java.util.concurrent.TimeUnit;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Tests that PgBiTemporalEventStore.closeFuture() logs at ERROR level (not WARN)
- * when resource close operations fail. Covers the 3 WARN→ERROR changes in closeFuture():
+ * Tests that PgBiTemporalEventStore.close() logs at ERROR level (not WARN)
+ * when resource close operations fail. Covers the 3 WARN→ERROR changes in close():
  *
  * <ol>
  *   <li>Reactive notification handler close failure</li>
@@ -117,7 +117,7 @@ class PgBiTemporalEventStoreCloseLogLevelTest {
         Future<Void> closeChain = Future.succeededFuture();
 
         if (eventStore != null) {
-            closeChain = closeChain.compose(v -> eventStore.closeFuture()
+            closeChain = closeChain.compose(v -> eventStore.close()
                     .recover(t -> Future.succeededFuture()));
         }
         if (manager != null) {
@@ -137,7 +137,7 @@ class PgBiTemporalEventStoreCloseLogLevelTest {
     @DisplayName("Negative: clean close with DB alive produces no ERROR from close chain")
     void testCleanCloseNoErrorLogs(VertxTestContext testContext) throws InterruptedException {
         logCapture.clear();
-        eventStore.closeFuture()
+        eventStore.close()
                 .onSuccess(v -> testContext.verify(() -> {
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
                     boolean hasCloseError = errors.stream().anyMatch(e ->
@@ -186,7 +186,7 @@ class PgBiTemporalEventStoreCloseLogLevelTest {
                     ownContainer.stop();
                     ownCapture.clear();
 
-                    return ownStore.closeFuture()
+                    return ownStore.close()
                             .compose(v2 -> ownManager.closeReactive().recover(t -> Future.succeededFuture()));
                 })
                 .onComplete(ar -> testContext.verify(() -> {
@@ -211,10 +211,10 @@ class PgBiTemporalEventStoreCloseLogLevelTest {
     @Test
     @DisplayName("Negative: double close produces no ERROR (second close is a no-op)")
     void testDoubleCloseNoError(VertxTestContext testContext) throws InterruptedException {
-        eventStore.closeFuture()
+        eventStore.close()
                 .compose(v -> {
                     logCapture.clear();
-                    return eventStore.closeFuture();
+                    return eventStore.close();
                 })
                 .onSuccess(v -> testContext.verify(() -> {
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);

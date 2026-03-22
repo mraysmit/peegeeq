@@ -105,7 +105,7 @@ class JsonbConversionValidationTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) {
-        Future<Void> closeStoreFuture = eventStore != null ? eventStore.closeFuture() : Future.succeededFuture();
+        Future<Void> closeStoreFuture = eventStore != null ? eventStore.close() : Future.succeededFuture();
         Future<Void> closeManagerFuture = manager != null ? manager.closeReactive() : Future.succeededFuture();
 
         closeStoreFuture
