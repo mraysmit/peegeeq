@@ -148,7 +148,7 @@ class BiTemporalEventStoreExampleTest {
 
         Future<Void> closeChain = Future.succeededFuture();
         if (eventStore != null) {
-            closeChain = closeChain.compose(v -> eventStore.closeFuture());
+            closeChain = closeChain.compose(v -> eventStore.close());
         }
         if (manager != null) {
             closeChain = closeChain.compose(v -> manager.closeReactive());

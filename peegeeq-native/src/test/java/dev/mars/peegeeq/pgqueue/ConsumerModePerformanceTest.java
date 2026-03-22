@@ -30,6 +30,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+import io.vertx.core.Future;
+
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
@@ -100,7 +102,7 @@ public class ConsumerModePerformanceTest {
             factory.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive().await();
         }
         logger.info("🧹 ConsumerModePerformanceTest teardown completed");
     }
@@ -248,7 +250,7 @@ public class ConsumerModePerformanceTest {
                 allProcessed.flag();
             }
             
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send messages
@@ -305,7 +307,7 @@ public class ConsumerModePerformanceTest {
                 allProcessed.flag();
             }
             
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);

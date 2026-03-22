@@ -29,6 +29,7 @@ import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
+import io.vertx.core.Future;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -107,7 +108,7 @@ class QueueFactoryConsumerModeTest {
             factory.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive().await();
         }
         logger.info("Test teardown completed");
     }
@@ -137,11 +138,11 @@ class QueueFactoryConsumerModeTest {
             messageCount.incrementAndGet();
             logger.info("\ud83d\udce8 Received factory test message: {}", message.getPayload());
             methodCtx.completeNow();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send test message
-        producer.send("Factory test message").get(5, TimeUnit.SECONDS);
+        producer.send("Factory test message").await();
 
         // Verify message received
         boolean received = methodCtx.awaitCompletion(5, TimeUnit.SECONDS);
@@ -174,11 +175,11 @@ class QueueFactoryConsumerModeTest {
             messageCount.incrementAndGet();
             logger.info("\ud83d\udce8 Received null config test message: {}", message.getPayload());
             methodCtx.completeNow();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send test message
-        producer.send("Null config test message").get(5, TimeUnit.SECONDS);
+        producer.send("Null config test message").await();
 
         // Verify message received
         boolean received = methodCtx.awaitCompletion(5, TimeUnit.SECONDS);
@@ -282,11 +283,11 @@ class QueueFactoryConsumerModeTest {
             messageCount.incrementAndGet();
             logger.info("\ud83d\udce8 Received backward compatibility test message: {}", message.getPayload());
             methodCtx.completeNow();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send test message
-        producer.send("Backward compatibility test message").get(5, TimeUnit.SECONDS);
+        producer.send("Backward compatibility test message").await();
 
         // Verify message received
         boolean received = methodCtx.awaitCompletion(5, TimeUnit.SECONDS);

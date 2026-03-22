@@ -82,8 +82,8 @@ class DatabaseWorkerVerticleTest {
                 new com.fasterxml.jackson.databind.ObjectMapper()
         );
         
-        // Get the Vertx instance from the event store
-        vertx = eventStore.getVertx();
+        // Get the Vertx instance from the shared Vertx
+        vertx = PgBiTemporalEventStore.getOrCreateSharedVertx();
     }
     
     @AfterEach
@@ -129,7 +129,7 @@ class DatabaseWorkerVerticleTest {
         String tableName = "bitemporal_event_log";
         
         // Deploy the worker verticle
-        PgBiTemporalEventStore.deployDatabaseWorkerVerticles(vertx, 1, tableName)
+        PgBiTemporalEventStore.deployDatabaseWorkerVerticles(1, tableName)
             .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
         
         // Prepare append operation message
@@ -167,7 +167,7 @@ class DatabaseWorkerVerticleTest {
         // Given
         String tableName = "bitemporal_event_log";
 
-        PgBiTemporalEventStore.deployDatabaseWorkerVerticles(vertx, 1, tableName)
+        PgBiTemporalEventStore.deployDatabaseWorkerVerticles(1, tableName)
             .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
 
         JsonObject payload = new JsonObject()
@@ -209,9 +209,9 @@ class DatabaseWorkerVerticleTest {
             new com.fasterxml.jackson.databind.ObjectMapper()
         );
 
-        PgBiTemporalEventStore.deployDatabaseWorkerVerticles(vertx, 1, primaryTable)
+        PgBiTemporalEventStore.deployDatabaseWorkerVerticles(1, primaryTable)
             .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        PgBiTemporalEventStore.deployDatabaseWorkerVerticles(vertx, 1, secondaryTable)
+        PgBiTemporalEventStore.deployDatabaseWorkerVerticles(1, secondaryTable)
             .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
 
         await(eventStore.appendBuilder().eventType("table.primary").payload(new TestEvent("p1", "primary", 1)).validTime(Instant.now()).execute(), 10, TimeUnit.SECONDS);
@@ -238,7 +238,7 @@ class DatabaseWorkerVerticleTest {
             new com.fasterxml.jackson.databind.ObjectMapper()
         );
 
-        PgBiTemporalEventStore.deployDatabaseWorkerVerticles(vertx, 1, primaryTable)
+        PgBiTemporalEventStore.deployDatabaseWorkerVerticles(1, primaryTable)
             .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
 
         JsonObject payload = new JsonObject()

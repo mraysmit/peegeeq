@@ -319,8 +319,8 @@ class PgBiTemporalEventStoreIntegrationTest {
     }
 
     @Test
-    void testAppendReactive(VertxTestContext testContext) throws Exception {
-        logger.info("=== Testing appendReactive ===");
+    void testappend(VertxTestContext testContext) throws Exception {
+        logger.info("=== Testing append ===");
 
         peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
 
@@ -328,12 +328,12 @@ class PgBiTemporalEventStoreIntegrationTest {
             .compose(v -> {
                 eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass(), "test_events", new ObjectMapper());
                 Map<String, Object> payload = Map.of("reactive", "test");
-                return eventStore.appendReactive("test.reactive", payload, Instant.now());
+                return eventStore.append("test.reactive", payload, Instant.now());
             })
             .onSuccess(event -> testContext.verify(() -> {
                 assertNotNull(event);
                 assertEquals("test.reactive", event.getEventType());
-                logger.info("appendReactive test completed successfully");
+                logger.info("append test completed successfully");
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
@@ -345,8 +345,8 @@ class PgBiTemporalEventStoreIntegrationTest {
     }
 
     @Test
-    void testSubscribeReactiveAndUnsubscribe(VertxTestContext testContext) throws Exception {
-        logger.info("=== Testing subscribeReactive and unsubscribe ===");
+    void testSubscribeAndUnsubscribe(VertxTestContext testContext) throws Exception {
+        logger.info("=== Testing subscribe and unsubscribe ===");
 
         Promise<BiTemporalEvent<Map<String, Object>>> notificationPromise = Promise.promise();
 
@@ -355,7 +355,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         peeGeeQManager.start()
             .compose(v -> {
                 eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass(), "test_events", new ObjectMapper());
-                return eventStore.subscribeReactive("test.subscribe", message -> {
+                return eventStore.subscribe("test.subscribe", message -> {
                     notificationPromise.tryComplete(message.getPayload());
                     return Future.<Void>succeededFuture();
                 });
@@ -366,7 +366,7 @@ class PgBiTemporalEventStoreIntegrationTest {
             .onSuccess(received -> testContext.verify(() -> {
                 assertNotNull(received);
                 eventStore.unsubscribe();
-                logger.info("subscribeReactive and unsubscribe test completed successfully");
+                logger.info("subscribe and unsubscribe test completed successfully");
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
@@ -403,7 +403,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         peeGeeQManager.start()
             .compose(v -> {
                 eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass(), "test_events", new ObjectMapper());
-                return eventStore.subscribeReactive("my.channel", message -> {
+                return eventStore.subscribe("my.channel", message -> {
                     String eventType = message.getPayload().getEventType();
                     int dotCount = dotSubscriberCount.incrementAndGet();
                     dotSubscriberEventTypes.add(eventType);
@@ -416,7 +416,7 @@ class PgBiTemporalEventStoreIntegrationTest {
                     return Future.<Void>succeededFuture();
                 });
             })
-            .compose(v -> eventStore.subscribeReactive("my_channel", message -> {
+            .compose(v -> eventStore.subscribe("my_channel", message -> {
                 String eventType = message.getPayload().getEventType();
                 int underscoreCount = underscoreSubscriberCount.incrementAndGet();
                 underscoreSubscriberEventTypes.add(eventType);
@@ -552,7 +552,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         peeGeeQManager.start()
             .compose(v -> {
                 eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass(), "test_events", new ObjectMapper());
-                return eventStore.subscribeReactive("order.created", message -> {
+                return eventStore.subscribe("order.created", message -> {
                     String eventType = message.getPayload().getEventType();
                     receivedEventTypes.add(eventType);
                     logger.info("Received event type: {}", eventType);
@@ -598,7 +598,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         peeGeeQManager.start()
             .compose(v -> {
                 eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass(), "test_events", new ObjectMapper());
-                return eventStore.subscribeReactive(null, message -> {
+                return eventStore.subscribe(null, message -> {
                     String eventType = message.getPayload().getEventType();
                     receivedEventTypes.add(eventType);
                     logger.info("Received event type: {}", eventType);
@@ -647,7 +647,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         peeGeeQManager.start()
             .compose(v -> {
                 eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass(), "test_events", new ObjectMapper());
-                return eventStore.subscribeReactive("order.created", message -> {
+                return eventStore.subscribe("order.created", message -> {
                     orderCreatedEvents.add(message.getPayload().getEventType());
                     logger.info("order.created subscriber received: {}", message.getPayload().getEventType());
                     if (orderCreatedEvents.size() > 1) {
@@ -658,7 +658,7 @@ class PgBiTemporalEventStoreIntegrationTest {
                     return Future.<Void>succeededFuture();
                 });
             })
-            .compose(v -> eventStore.subscribeReactive("payment.received", message -> {
+            .compose(v -> eventStore.subscribe("payment.received", message -> {
                 paymentReceivedEvents.add(message.getPayload().getEventType());
                 logger.info("payment.received subscriber received: {}", message.getPayload().getEventType());
                 if (paymentReceivedEvents.size() > 1) {
@@ -705,7 +705,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         peeGeeQManager.start()
             .compose(v -> {
                 eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass(), "test_events", new ObjectMapper());
-                return eventStore.subscribeReactive("test.event", message -> {
+                return eventStore.subscribe("test.event", message -> {
                     int currentCount = eventCount.incrementAndGet();
                     receivedEventIds.add(message.getPayload().getEventId());
                     logger.info("Received event #{}: {}", eventCount.get(), message.getPayload().getEventId());
@@ -755,7 +755,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         peeGeeQManager.start()
             .compose(v -> {
                 eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass(), "test_events", new ObjectMapper());
-                return eventStore.subscribeReactive("order.*", message -> {
+                return eventStore.subscribe("order.*", message -> {
                     String eventType = message.getPayload().getEventType();
                     receivedEventTypes.add(eventType);
                     logger.info("order.* subscriber received: {}", eventType);
@@ -803,7 +803,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         peeGeeQManager.start()
             .compose(v -> {
                 eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass(), "test_events", new ObjectMapper());
-                return eventStore.subscribeReactive("*.created", message -> {
+                return eventStore.subscribe("*.created", message -> {
                     String eventType = message.getPayload().getEventType();
                     receivedEventTypes.add(eventType);
                     logger.info("*.created subscriber received: {}", eventType);
@@ -851,7 +851,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         peeGeeQManager.start()
             .compose(v -> {
                 eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass(), "test_events", new ObjectMapper());
-                return eventStore.subscribeReactive("order.*.completed", message -> {
+                return eventStore.subscribe("order.*.completed", message -> {
                     String eventType = message.getPayload().getEventType();
                     receivedEventTypes.add(eventType);
                     logger.info("order.*.completed subscriber received: {}", eventType);
@@ -900,7 +900,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         peeGeeQManager.start()
             .compose(v -> {
                 eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass(), "test_events", new ObjectMapper());
-                return eventStore.subscribeReactive("order.*", message -> {
+                return eventStore.subscribe("order.*", message -> {
                     String eventType = message.getPayload().getEventType();
                     receivedEventTypes.add(eventType);
                     logger.info("order.* subscriber received: {}", eventType);
@@ -946,7 +946,7 @@ class PgBiTemporalEventStoreIntegrationTest {
         peeGeeQManager.start()
             .compose(v -> {
                 eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass(), "test_events", new ObjectMapper());
-                return eventStore.subscribeReactive("*.order.*", message -> {
+                return eventStore.subscribe("*.order.*", message -> {
                     String eventType = message.getPayload().getEventType();
                     receivedEventTypes.add(eventType);
                     logger.info("*.order.* subscriber received: {}", eventType);

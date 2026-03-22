@@ -9,6 +9,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpClient;
 import io.vertx.core.json.JsonArray;
@@ -119,7 +120,7 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
     void closeManagedVertx() {
         if (managedVertx != null) {
             logger.info("Closing managed Vertx instance...");
-            managedVertx.close().toCompletionStage().toCompletableFuture().join();
+            managedVertx.close().await();
             logger.info("✓ Managed Vertx instance closed");
         }
     }
@@ -290,9 +291,9 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
         logger.info("      cannot access it after restart due to setup cache being in-memory.");
 
         // Wait a bit to ensure clean state
-        CompletableFuture<Void> delay = new CompletableFuture<>();
-        managedVertx.setTimer(1000, id -> delay.complete(null));
-        delay.join();
+        Promise<Void> delay = Promise.promise();
+        managedVertx.setTimer(1000, id -> delay.complete());
+        delay.future().await();
 
         // Query the database directly to verify subscription was persisted
         try (var connection = java.sql.DriverManager.getConnection(
@@ -357,9 +358,9 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
         logger.info("        due to in-memory setup cache being lost (KNOWN ARCHITECTURAL LIMITATION)");
 
         // Wait a bit to ensure clean state
-        CompletableFuture<Void> delay = new CompletableFuture<>();
-        managedVertx.setTimer(1000, id -> delay.complete(null));
-        delay.join();
+        Promise<Void> delay = Promise.promise();
+        managedVertx.setTimer(1000, id -> delay.complete());
+        delay.future().await();
 
         // Start new server instance (same database) using our managed Vertx
         startServer(managedVertx)
@@ -422,9 +423,9 @@ public class SubscriptionPersistenceAcrossRestartIntegrationTest {
             });
 
         // Wait for server to stop
-        CompletableFuture<Void> delay = new CompletableFuture<>();
-        managedVertx.setTimer(1000, id -> delay.complete(null));
-        delay.join();
+        Promise<Void> delay = Promise.promise();
+        managedVertx.setTimer(1000, id -> delay.complete());
+        delay.future().await();
 
         // Verify database persistence after multiple simulated restarts
         // (We don't need to actually restart the server - just verify the data is still there)

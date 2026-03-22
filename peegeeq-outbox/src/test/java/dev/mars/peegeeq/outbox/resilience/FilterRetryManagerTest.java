@@ -10,6 +10,8 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
 
+import io.vertx.core.Future;
+
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.Map;
@@ -79,9 +81,9 @@ class FilterRetryManagerTest {
         Message<String> message = createTestMessage("msg-1", "payload");
         Predicate<Message<String>> filter = msg -> true;
 
-        CompletableFuture<Boolean> result = retryManager.executeWithRetry(message, filter, circuitBreaker);
+        Future<Boolean> result = retryManager.executeWithRetry(message, filter, circuitBreaker);
 
-        assertTrue(result.get(1, TimeUnit.SECONDS));
+        assertTrue(result.await());
     }
 
     @Test
@@ -89,9 +91,9 @@ class FilterRetryManagerTest {
         Message<String> message = createTestMessage("msg-2", "payload");
         Predicate<Message<String>> filter = msg -> false;
 
-        CompletableFuture<Boolean> result = retryManager.executeWithRetry(message, filter, circuitBreaker);
+        Future<Boolean> result = retryManager.executeWithRetry(message, filter, circuitBreaker);
 
-        assertFalse(result.get(1, TimeUnit.SECONDS));
+        assertFalse(result.await());
     }
 
     @Test
@@ -107,9 +109,9 @@ class FilterRetryManagerTest {
             return true;
         };
 
-        CompletableFuture<Boolean> result = retryManager.executeWithRetry(message, filter, circuitBreaker);
+        Future<Boolean> result = retryManager.executeWithRetry(message, filter, circuitBreaker);
 
-        assertTrue(result.get(2, TimeUnit.SECONDS));
+        assertTrue(result.await());
         assertEquals(2, attempts.get());
     }
 
@@ -123,9 +125,9 @@ class FilterRetryManagerTest {
             throw new RuntimeException("INTENTIONAL TEST FAILURE - Persistent error");
         };
 
-        CompletableFuture<Boolean> result = retryManager.executeWithRetry(message, filter, circuitBreaker);
+        Future<Boolean> result = retryManager.executeWithRetry(message, filter, circuitBreaker);
 
-        assertFalse(result.get(2, TimeUnit.SECONDS));
+        assertFalse(result.await());
         // Initial attempt + 3 retries = 4 total
         assertEquals(4, attempts.get());
     }
@@ -140,10 +142,10 @@ class FilterRetryManagerTest {
         Message<String> message = createTestMessage("msg-5", "payload");
         Predicate<Message<String>> filter = msg -> true;
 
-        CompletableFuture<Boolean> result = retryManager.executeWithRetry(message, filter, circuitBreaker);
+        Future<Boolean> result = retryManager.executeWithRetry(message, filter, circuitBreaker);
 
         // Should reject immediately due to open circuit breaker
-        assertFalse(result.get(1, TimeUnit.SECONDS));
+        assertFalse(result.await());
     }
 
     @Test
@@ -157,8 +159,8 @@ class FilterRetryManagerTest {
             throw new RuntimeException("INTENTIONAL TEST FAILURE - Error requiring backoff");
         };
 
-        CompletableFuture<Boolean> result = retryManager.executeWithRetry(message, filter, circuitBreaker);
-        result.get(2, TimeUnit.SECONDS);
+        Future<Boolean> result = retryManager.executeWithRetry(message, filter, circuitBreaker);
+        result.await();
         
         long duration = System.currentTimeMillis() - startTime;
         
@@ -188,10 +190,10 @@ class FilterRetryManagerTest {
             throw new IllegalArgumentException("Permanent error");
         };
 
-        CompletableFuture<Boolean> result = immediateRejectManager.executeWithRetry(
+        Future<Boolean> result = immediateRejectManager.executeWithRetry(
             message, filter, circuitBreaker);
 
-        assertFalse(result.get(1, TimeUnit.SECONDS));
+        assertFalse(result.await());
         // Should only attempt once (no retries)
         assertEquals(1, attempts.get());
     }
@@ -204,10 +206,10 @@ class FilterRetryManagerTest {
             throw new RuntimeException("INTENTIONAL TEST FAILURE - Error requiring DLQ");
         };
 
-        CompletableFuture<Boolean> result = retryManager.executeWithRetry(message, filter, circuitBreaker);
+        Future<Boolean> result = retryManager.executeWithRetry(message, filter, circuitBreaker);
 
         // Should reject after exhausting retries (DLQ is logged but returns false)
-        assertFalse(result.get(2, TimeUnit.SECONDS));
+        assertFalse(result.await());
     }
 
     @Test
@@ -226,9 +228,9 @@ class FilterRetryManagerTest {
             throw new RuntimeException("INTENTIONAL TEST FAILURE - Error with DLQ disabled");
         };
 
-        CompletableFuture<Boolean> result = noDlqManager.executeWithRetry(message, filter, circuitBreaker);
+        Future<Boolean> result = noDlqManager.executeWithRetry(message, filter, circuitBreaker);
 
-        assertFalse(result.get(2, TimeUnit.SECONDS));
+        assertFalse(result.await());
     }
 
     @Test
@@ -250,8 +252,8 @@ class FilterRetryManagerTest {
             throw new RuntimeException("INTENTIONAL TEST FAILURE - Error testing delay cap");
         };
 
-        CompletableFuture<Boolean> result = cappedManager.executeWithRetry(message, filter, circuitBreaker);
-        result.get(3, TimeUnit.SECONDS);
+        Future<Boolean> result = cappedManager.executeWithRetry(message, filter, circuitBreaker);
+        result.await();
         
         // Initial attempt + maxRetries (5) but one may fail to complete
         assertTrue(attempts.get() >= 5 && attempts.get() <= 6, 
@@ -297,13 +299,13 @@ class FilterRetryManagerTest {
             return true;
         };
 
-        CompletableFuture<Boolean> result1 = retryManager.executeWithRetry(message1, filter1, circuitBreaker);
-        CompletableFuture<Boolean> result2 = retryManager.executeWithRetry(message2, filter2, circuitBreaker);
+        Future<Boolean> result1 = retryManager.executeWithRetry(message1, filter1, circuitBreaker);
+        Future<Boolean> result2 = retryManager.executeWithRetry(message2, filter2, circuitBreaker);
 
-        CompletableFuture.allOf(result1, result2).get(3, TimeUnit.SECONDS);
-        
-        assertTrue(result1.get());
-        assertTrue(result2.get());
+        Future.all(result1, result2).await();
+
+        assertTrue(result1.result());
+        assertTrue(result2.result());
         assertEquals(2, attempts1.get());
         assertEquals(3, attempts2.get());
     }
@@ -329,10 +331,10 @@ class FilterRetryManagerTest {
             throw new IllegalStateException("Critical error requiring immediate DLQ");
         };
 
-        CompletableFuture<Boolean> result = dlqImmediateManager.executeWithRetry(
+        Future<Boolean> result = dlqImmediateManager.executeWithRetry(
             message, filter, circuitBreaker);
 
-        assertFalse(result.get(1, TimeUnit.SECONDS));
+        assertFalse(result.await());
         // Should only attempt once (immediate DLQ)
         assertEquals(1, attempts.get());
     }
@@ -358,10 +360,10 @@ class FilterRetryManagerTest {
             throw new RuntimeException("INTENTIONAL TEST FAILURE - Error requiring retry then DLQ");
         };
 
-        CompletableFuture<Boolean> result = retryThenDlqManager.executeWithRetry(
+        Future<Boolean> result = retryThenDlqManager.executeWithRetry(
             message, filter, circuitBreaker);
 
-        assertFalse(result.get(2, TimeUnit.SECONDS));
+        assertFalse(result.await());
         // Initial attempt + 2 retries = 3 attempts before DLQ
         assertEquals(3, attempts.get());
     }
@@ -386,10 +388,10 @@ class FilterRetryManagerTest {
             throw new IllegalArgumentException("Permanent error matching pattern");
         };
 
-        CompletableFuture<Boolean> result = permanentErrorManager.executeWithRetry(
+        Future<Boolean> result = permanentErrorManager.executeWithRetry(
             message, filter, circuitBreaker);
 
-        assertFalse(result.get(1, TimeUnit.SECONDS));
+        assertFalse(result.await());
         // Pattern-matched permanent errors should get rejected after retries
         assertTrue(attempts.get() >= 1);
     }
@@ -414,10 +416,10 @@ class FilterRetryManagerTest {
             throw new RuntimeException("INTENTIONAL TEST FAILURE - TimeoutException occurred");
         };
 
-        CompletableFuture<Boolean> result = transientErrorManager.executeWithRetry(
+        Future<Boolean> result = transientErrorManager.executeWithRetry(
             message, filter, circuitBreaker);
 
-        assertFalse(result.get(2, TimeUnit.SECONDS));
+        assertFalse(result.await());
         // Initial attempt + 2 retries = 3 attempts
         assertEquals(3, attempts.get());
     }
@@ -444,10 +446,10 @@ class FilterRetryManagerTest {
             throw new IllegalStateException("Permanent error");
         };
 
-        CompletableFuture<Boolean> result1 = multiErrorManager.executeWithRetry(
+        Future<Boolean> result1 = multiErrorManager.executeWithRetry(
             message1, filter1, circuitBreaker);
 
-        assertFalse(result1.get(1, TimeUnit.SECONDS));
+        assertFalse(result1.await());
         assertTrue(attempts1.get() >= 1);
         
         // Test transient error pattern
@@ -459,10 +461,10 @@ class FilterRetryManagerTest {
             throw new RuntimeException("INTENTIONAL TEST FAILURE - Connection error");
         };
 
-        CompletableFuture<Boolean> result2 = multiErrorManager.executeWithRetry(
+        Future<Boolean> result2 = multiErrorManager.executeWithRetry(
             message2, filter2, circuitBreaker);
 
-        assertFalse(result2.get(2, TimeUnit.SECONDS));
+        assertFalse(result2.await());
         // Connection error should match transient pattern and retry
         assertTrue(attempts2.get() >= 1, "Expected at least 1 attempt, got: " + attempts2.get());
     }
@@ -479,15 +481,13 @@ class FilterRetryManagerTest {
         Message<String> message = createTestMessage("msg-null-filter", "payload");
         
         // Null filter should either throw NPE or handle gracefully
-        CompletableFuture<Boolean> result = retryManager.executeWithRetry(message, null, circuitBreaker);
+        Future<Boolean> result = retryManager.executeWithRetry(message, null, circuitBreaker);
         
         // Accept either outcome: exception or completion with false
         try {
-            assertFalse(result.get(1, TimeUnit.SECONDS));
-        } catch (ExecutionException e) {
-            // NPE or other exception is also acceptable
-            assertTrue(e.getCause() instanceof NullPointerException || 
-                       e.getCause() instanceof RuntimeException);
+            assertFalse(result.await());
+        } catch (RuntimeException e) {
+            // NPE or other RuntimeException is also acceptable
         }
     }
 
@@ -499,7 +499,7 @@ class FilterRetryManagerTest {
             throw new RuntimeException("INTENTIONAL TEST FAILURE - Error during shutdown");
         };
 
-        CompletableFuture<Boolean> result = retryManager.executeWithRetry(message, filter, circuitBreaker);
+        Future<Boolean> result = retryManager.executeWithRetry(message, filter, circuitBreaker);
         
         // Give it a moment to start, then shutdown scheduler while retries are in progress
         LockSupport.parkNanos(20_000_000L);
@@ -507,10 +507,9 @@ class FilterRetryManagerTest {
         
         // Should either complete with false or throw RejectedExecutionException
         try {
-            assertFalse(result.get(3, TimeUnit.SECONDS));
-        } catch (ExecutionException e) {
+            assertFalse(result.await());
+        } catch (RejectedExecutionException e) {
             // RejectedExecutionException is acceptable when scheduler is shutdown
-            assertTrue(e.getCause() instanceof RejectedExecutionException);
         }
     }
 
@@ -533,10 +532,10 @@ class FilterRetryManagerTest {
             throw new IllegalArgumentException("Permanent error");
         };
 
-        CompletableFuture<Boolean> result = classificationManager.executeWithRetry(
+        Future<Boolean> result = classificationManager.executeWithRetry(
             message, filter, circuitBreaker);
 
-        assertFalse(result.get(1, TimeUnit.SECONDS));
+        assertFalse(result.await());
         // Should reject immediately without retries for permanent errors
         assertEquals(1, attempts.get());
     }
@@ -588,9 +587,9 @@ class FilterRetryManagerTest {
                 throw new RuntimeException("INTENTIONAL TEST FAILURE - Simulated error for DLQ test");
             };
 
-            CompletableFuture<Boolean> result = manager.executeWithRetry(message, filter, circuitBreaker);
+            Future<Boolean> result = manager.executeWithRetry(message, filter, circuitBreaker);
 
-            assertFalse(result.get(3, TimeUnit.SECONDS));
+            assertFalse(result.await());
             assertEquals(3, attempts.get()); // Initial + 2 retries
 
             // Verify DLQ metrics
@@ -621,9 +620,9 @@ class FilterRetryManagerTest {
                 throw new RuntimeException("INTENTIONAL TEST FAILURE - Critical error");
             };
 
-            CompletableFuture<Boolean> result = manager.executeWithRetry(message, filter, circuitBreaker);
+            Future<Boolean> result = manager.executeWithRetry(message, filter, circuitBreaker);
 
-            assertFalse(result.get(1, TimeUnit.SECONDS));
+            assertFalse(result.await());
             assertEquals(1, attempts.get()); // Only one attempt, immediate DLQ
 
             // Verify DLQ metrics
@@ -653,9 +652,9 @@ class FilterRetryManagerTest {
                 throw new RuntimeException("INTENTIONAL TEST FAILURE - Error with DLQ disabled");
             };
 
-            CompletableFuture<Boolean> result = manager.executeWithRetry(message, filter, circuitBreaker);
+            Future<Boolean> result = manager.executeWithRetry(message, filter, circuitBreaker);
 
-            assertFalse(result.get(2, TimeUnit.SECONDS));
+            assertFalse(result.await());
             assertEquals(2, attempts.get()); // Initial + 1 retry, then reject (no DLQ)
         }
 
@@ -682,9 +681,9 @@ class FilterRetryManagerTest {
                 throw new RuntimeException("INTENTIONAL TEST FAILURE - Error with null DLQ manager");
             };
 
-            CompletableFuture<Boolean> result = manager.executeWithRetry(message, filter, circuitBreaker);
+            Future<Boolean> result = manager.executeWithRetry(message, filter, circuitBreaker);
 
-            assertFalse(result.get(2, TimeUnit.SECONDS));
+            assertFalse(result.await());
             assertEquals(2, attempts.get());
         }
 
@@ -710,8 +709,8 @@ class FilterRetryManagerTest {
             // Send multiple messages
             for (int i = 0; i < 5; i++) {
                 Message<String> message = createTestMessage("msg-multi-" + i, "payload-" + i);
-                CompletableFuture<Boolean> result = manager.executeWithRetry(message, failingFilter, circuitBreaker);
-                assertFalse(result.get(1, TimeUnit.SECONDS));
+                Future<Boolean> result = manager.executeWithRetry(message, failingFilter, circuitBreaker);
+                assertFalse(result.await());
             }
 
             // Verify all messages were sent to DLQ
@@ -742,8 +741,8 @@ class FilterRetryManagerTest {
                 throw new RuntimeException("INTENTIONAL TEST FAILURE - Timeout occurred");
             };
 
-            CompletableFuture<Boolean> result1 = manager.executeWithRetry(transientMsg, transientFilter, circuitBreaker);
-            assertFalse(result1.get(1, TimeUnit.SECONDS));
+            Future<Boolean> result1 = manager.executeWithRetry(transientMsg, transientFilter, circuitBreaker);
+            assertFalse(result1.await());
 
             // Test with permanent error
             Message<String> permanentMsg = createTestMessage("msg-permanent", "payload");
@@ -751,8 +750,8 @@ class FilterRetryManagerTest {
                 throw new RuntimeException("INTENTIONAL TEST FAILURE - Invalid data format");
             };
 
-            CompletableFuture<Boolean> result2 = manager.executeWithRetry(permanentMsg, permanentFilter, circuitBreaker);
-            assertFalse(result2.get(1, TimeUnit.SECONDS));
+            Future<Boolean> result2 = manager.executeWithRetry(permanentMsg, permanentFilter, circuitBreaker);
+            assertFalse(result2.await());
 
             // Both should be in DLQ
             DeadLetterQueueManager.DeadLetterManagerMetrics metrics = dlqManager.getMetrics();
@@ -788,25 +787,27 @@ class FilterRetryManagerTest {
             };
 
             int messageCount = 10;
-            CompletableFuture<?>[] futures = new CompletableFuture[messageCount];
+            CountDownLatch latch = new CountDownLatch(messageCount);
             AtomicInteger successCount = new AtomicInteger(0);
 
             for (int i = 0; i < messageCount; i++) {
                 final int index = i;
-                futures[index] = CompletableFuture.runAsync(() -> {
+                scheduler.execute(() -> {
                     try {
                         Message<String> message = createTestMessage("msg-concurrent-" + index, "payload");
-                        CompletableFuture<Boolean> result = manager.executeWithRetry(message, failingFilter, localCircuitBreaker);
-                        if (!result.get(2, TimeUnit.SECONDS)) {
+                        Future<Boolean> result = manager.executeWithRetry(message, failingFilter, localCircuitBreaker);
+                        if (!result.await()) {
                             successCount.incrementAndGet();
                         }
                     } catch (Exception e) {
                         // Ignore
+                    } finally {
+                        latch.countDown();
                     }
                 });
             }
 
-            CompletableFuture.allOf(futures).get(5, TimeUnit.SECONDS);
+            assertTrue(latch.await(5, TimeUnit.SECONDS), "Concurrent DLQ sends did not complete in time");
             assertEquals(messageCount, successCount.get());
 
             // All messages should be in DLQ
@@ -824,9 +825,9 @@ class FilterRetryManagerTest {
             Message<String> message = createTestMessage("msg-legacy", "payload");
             Predicate<Message<String>> successFilter = msg -> true;
 
-            CompletableFuture<Boolean> result = legacyManager.executeWithRetry(message, successFilter, circuitBreaker);
+            Future<Boolean> result = legacyManager.executeWithRetry(message, successFilter, circuitBreaker);
 
-            assertTrue(result.get(1, TimeUnit.SECONDS));
+            assertTrue(result.await());
         }
     }
 }

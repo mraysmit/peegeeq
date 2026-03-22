@@ -162,7 +162,7 @@ class RetryAndFailureHandlingExampleTest {
     }
     
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws InterruptedException {
+    void tearDown(VertxTestContext testContext) throws Exception {
         logger.info("🧹 Cleaning up Retry and Failure Handling Example Test");
         
         if (queueFactory != null) {

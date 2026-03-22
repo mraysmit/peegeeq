@@ -13,6 +13,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -95,7 +96,7 @@ class ConsumerModePropertyIntegrationTest {
             factory.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive().await();
         }
 
         // Clear properties after each test to prevent interference
@@ -153,17 +154,14 @@ class ConsumerModePropertyIntegrationTest {
                 processedCount.incrementAndGet();
                 logger.info("📨 Property integration processed: {}", message.getPayload());
                 messagesReceived.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Wait for consumer setup, then send
             vertx.setTimer(1000, id -> {
-                try {
-                    producer.send("Property test message 1").get(5, TimeUnit.SECONDS);
-                    producer.send("Property test message 2").get(5, TimeUnit.SECONDS);
-                } catch (Exception e) {
-                    testContext.failNow(e);
-                }
+                producer.send("Property test message 1")
+                    .compose(v -> producer.send("Property test message 2"))
+                    .onFailure(testContext::failNow);
             });
 
             // Wait for message processing with polling interval consideration
@@ -211,18 +209,17 @@ class ConsumerModePropertyIntegrationTest {
                 processedCount.incrementAndGet();
                 logger.info("📨 Batch property processed: {}", message.getPayload());
                 messagesReceived.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Wait for consumer setup, then send
             vertx.setTimer(500, id -> {
-                try {
-                    for (int i = 1; i <= 5; i++) {
-                        producer.send("Batch message " + i).get(5, TimeUnit.SECONDS);
-                    }
-                } catch (Exception e) {
-                    testContext.failNow(e);
+                Future<Void> chain = Future.succeededFuture();
+                for (int i = 1; i <= 5; i++) {
+                    final int idx = i;
+                    chain = chain.compose(v -> producer.send("Batch message " + idx));
                 }
+                chain.onFailure(testContext::failNow);
             });
 
             // Wait for message processing
@@ -268,17 +265,14 @@ class ConsumerModePropertyIntegrationTest {
                 processedCount.incrementAndGet();
                 logger.info("📨 Visibility timeout processed: {}", message.getPayload());
                 messagesReceived.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Wait for consumer setup, then send
             vertx.setTimer(1000, id -> {
-                try {
-                    producer.send("Visibility test message 1").get(5, TimeUnit.SECONDS);
-                    producer.send("Visibility test message 2").get(5, TimeUnit.SECONDS);
-                } catch (Exception e) {
-                    testContext.failNow(e);
-                }
+                producer.send("Visibility test message 1")
+                    .compose(v -> producer.send("Visibility test message 2"))
+                    .onFailure(testContext::failNow);
             });
 
             // Wait for message processing
@@ -325,18 +319,17 @@ class ConsumerModePropertyIntegrationTest {
                 processedCount.incrementAndGet();
                 logger.info("📨 Multiple properties processed: {}", message.getPayload());
                 messagesReceived.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Wait for consumer setup, then send
             vertx.setTimer(1000, id -> {
-                try {
-                    for (int i = 1; i <= 4; i++) {
-                        producer.send("Multi-property message " + i).get(5, TimeUnit.SECONDS);
-                    }
-                } catch (Exception e) {
-                    testContext.failNow(e);
+                Future<Void> chain = Future.succeededFuture();
+                for (int i = 1; i <= 4; i++) {
+                    final int idx = i;
+                    chain = chain.compose(v -> producer.send("Multi-property message " + idx));
                 }
+                chain.onFailure(testContext::failNow);
             });
 
             // Wait for message processing
@@ -383,18 +376,17 @@ class ConsumerModePropertyIntegrationTest {
                 processedCount.incrementAndGet();
                 logger.info("📨 Property override processed: {}", message.getPayload());
                 messagesReceived.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Wait for consumer setup, then send
             vertx.setTimer(500, id -> {
-                try {
-                    for (int i = 1; i <= 3; i++) {
-                        producer.send("Override message " + i).get(5, TimeUnit.SECONDS);
-                    }
-                } catch (Exception e) {
-                    testContext.failNow(e);
+                Future<Void> chain = Future.succeededFuture();
+                for (int i = 1; i <= 3; i++) {
+                    final int idx = i;
+                    chain = chain.compose(v -> producer.send("Override message " + idx));
                 }
+                chain.onFailure(testContext::failNow);
             });
 
             // Wait for message processing - should be faster due to override

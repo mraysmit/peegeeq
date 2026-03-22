@@ -192,7 +192,7 @@ class EventBusDistributionSemanticGapsTest {
 
                     // Deploy worker verticles on the manager's Vertx for event-bus tests
                     return PgBiTemporalEventStore.deployDatabaseWorkerVerticles(
-                            manager.getVertx(), 1, "bitemporal_event_log");
+                            1, "bitemporal_event_log");
                 })
                 .onSuccess(v -> {
                     workersDeployed = true;

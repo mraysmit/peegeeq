@@ -13,6 +13,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -110,7 +111,7 @@ class ConsumerModeFailureTest {
             factory.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive().await();
         }
         logger.info("Test teardown completed");
     }
@@ -141,21 +142,18 @@ class ConsumerModeFailureTest {
                     processedCount.incrementAndGet();
                     logger.info("Successfully processed message: {}", payload);
                     normalMessages.flag();
-                    return CompletableFuture.completedFuture(null);
+                    return Future.succeededFuture();
                 }
             });
 
             // Wait for consumer setup, then send
             vertx.setTimer(500, id -> {
-                try {
-                    producer.send("Normal message 1").get(5, TimeUnit.SECONDS);
-                    producer.send("Message with exception").get(5, TimeUnit.SECONDS);
-                    producer.send("Normal message 2").get(5, TimeUnit.SECONDS);
-                    producer.send("Another exception message").get(5, TimeUnit.SECONDS);
-                    producer.send("Normal message 3").get(5, TimeUnit.SECONDS);
-                } catch (Exception e) {
-                    testContext.failNow(e);
-                }
+                producer.send("Normal message 1")
+                    .compose(v -> producer.send("Message with exception"))
+                    .compose(v -> producer.send("Normal message 2"))
+                    .compose(v -> producer.send("Another exception message"))
+                    .compose(v -> producer.send("Normal message 3"))
+                    .onFailure(testContext::failNow);
             });
 
             // Wait for message processing (longer timeout to account for retries)
@@ -201,25 +199,22 @@ class ConsumerModeFailureTest {
                 consumer1Count.incrementAndGet();
                 logger.info("📨 Consumer 1 received message: {}", message.getPayload());
                 messagesProcessed.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             consumer2.subscribe(message -> {
                 consumer2Count.incrementAndGet();
                 logger.info("📨 Consumer 2 received message: {}", message.getPayload());
                 messagesProcessed.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Wait for consumer setup, then send
             vertx.setTimer(1000, id -> {
-                try {
-                    producer.send("Collision test message 1").get(5, TimeUnit.SECONDS);
-                    producer.send("Collision test message 2").get(5, TimeUnit.SECONDS);
-                    producer.send("Collision test message 3").get(5, TimeUnit.SECONDS);
-                } catch (Exception e) {
-                    testContext.failNow(e);
-                }
+                producer.send("Collision test message 1")
+                    .compose(v -> producer.send("Collision test message 2"))
+                    .compose(v -> producer.send("Collision test message 3"))
+                    .onFailure(testContext::failNow);
             });
 
             // Wait for message processing
@@ -258,18 +253,15 @@ class ConsumerModeFailureTest {
                 processedCount.incrementAndGet();
                 logger.info("📨 Processed message during partial failure test: {}", message.getPayload());
                 messagesReceived.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Wait for consumer setup, then send
             vertx.setTimer(1000, id -> {
-                try {
-                    producer.send("Recovery test message 1").get(5, TimeUnit.SECONDS);
-                    producer.send("Recovery test message 2").get(5, TimeUnit.SECONDS);
-                    producer.send("Recovery test message 3").get(5, TimeUnit.SECONDS);
-                } catch (Exception e) {
-                    testContext.failNow(e);
-                }
+                producer.send("Recovery test message 1")
+                    .compose(v -> producer.send("Recovery test message 2"))
+                    .compose(v -> producer.send("Recovery test message 3"))
+                    .onFailure(testContext::failNow);
             });
 
             // Wait for message processing
@@ -305,24 +297,18 @@ class ConsumerModeFailureTest {
                 lastProcessedMessage.set(message.getPayload());
                 logger.info("📨 Processed message during recovery test: {}", message.getPayload());
                 messagesReceived.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Wait for consumer setup, send first message
             vertx.setTimer(500, id -> {
-                try {
-                    producer.send("Before failure message").get(5, TimeUnit.SECONDS);
-                } catch (Exception e) {
-                    testContext.failNow(e);
-                }
+                producer.send("Before failure message")
+                    .onFailure(testContext::failNow);
 
                 // Send second message after a delay to simulate recovery
                 vertx.setTimer(2000, id2 -> {
-                    try {
-                        producer.send("After recovery message").get(5, TimeUnit.SECONDS);
-                    } catch (Exception e) {
-                        testContext.failNow(e);
-                    }
+                    producer.send("After recovery message")
+                        .onFailure(testContext::failNow);
                 });
             });
 
@@ -359,18 +345,17 @@ class ConsumerModeFailureTest {
                 int count = processedCount.incrementAndGet();
                 logger.debug("📨 Processed load test message {}: {}", count, message.getPayload());
                 messagesReceived.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Wait for consumer setup, then send
             vertx.setTimer(500, id -> {
-                try {
-                    for (int i = 1; i <= 10; i++) {
-                        producer.send("Load test message " + i).get(5, TimeUnit.SECONDS);
-                    }
-                } catch (Exception e) {
-                    testContext.failNow(e);
+                Future<Void> chain = Future.succeededFuture();
+                for (int i = 1; i <= 10; i++) {
+                    final int idx = i;
+                    chain = chain.compose(v -> producer.send("Load test message " + idx));
                 }
+                chain.onFailure(testContext::failNow);
             });
 
             // Wait for message processing

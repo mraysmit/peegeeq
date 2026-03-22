@@ -31,6 +31,7 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
@@ -47,6 +48,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -71,7 +73,6 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag(TestCategories.INTEGRATION)
 @ExtendWith(VertxExtension.class)
 @Testcontainers
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class TransactionalBiTemporalExampleTest {
 
     private static final Logger logger = LoggerFactory.getLogger(TransactionalBiTemporalExampleTest.class);
@@ -85,13 +86,13 @@ public class TransactionalBiTemporalExampleTest {
             .withSharedMemorySize(256 * 1024 * 1024L) // 256MB shared memory
             .withCommand("postgres", "-c", "max_connections=300", "-c", "fsync=off", "-c", "synchronous_commit=off"); // Performance optimizations for tests
 
-    private PeeGeeQManager peeGeeQManager;
-    private EventStore<OrderEvent> orderEventStore;
-    private EventStore<PaymentEvent> paymentEventStore;
-    private final Map<String, String> originalProperties = new HashMap<>();
+    private static PeeGeeQManager peeGeeQManager;
+    private static EventStore<OrderEvent> orderEventStore;
+    private static EventStore<PaymentEvent> paymentEventStore;
+    private static final Map<String, String> originalProperties = new HashMap<>();
 
-    @BeforeEach
-    void setUp(VertxTestContext testContext) throws Exception {
+    @BeforeAll
+    static void setUpClass(VertxTestContext testContext) throws Exception {
         logger.info("=== Setting up Transactional Bi-Temporal Example Test ===");
 
         // Configure PeeGeeQ to use container database
@@ -110,39 +111,47 @@ public class TransactionalBiTemporalExampleTest {
         // Initialize PeeGeeQ Manager
         peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
         peeGeeQManager.start()
-            .compose(v -> cleanupDatabase())
-            .map(v -> {
+            .onSuccess(v -> {
                 logger.info("PeeGeeQ Manager started successfully");
                 BiTemporalEventStoreFactory eventStoreFactory = new BiTemporalEventStoreFactory(peeGeeQManager);
                 orderEventStore = eventStoreFactory.createEventStore(OrderEvent.class, "bitemporal_event_log");
                 paymentEventStore = eventStoreFactory.createEventStore(PaymentEvent.class, "bitemporal_event_log");
                 logger.info("Transactional Bi-Temporal Example Test setup completed");
-                return (Void) null;
+                testContext.completeNow();
             })
+            .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Setup timed out");
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
+    }
+
+    @BeforeEach
+    void cleanBeforeTest(VertxTestContext testContext) {
+        cleanupDatabase()
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
     }
 
-    @AfterEach
-    void tearDown(VertxTestContext testContext) {
+    @AfterAll
+    static void tearDownClass(VertxTestContext testContext) throws Exception {
         logger.info("Cleaning up Transactional Bi-Temporal Example Test");
 
         Future<Void> closeChain = Future.<Void>succeededFuture();
         if (orderEventStore != null) {
-            closeChain = closeChain.compose(v -> orderEventStore.closeFuture());
+            closeChain = closeChain.compose(v -> orderEventStore.close());
         }
         if (paymentEventStore != null) {
-            closeChain = closeChain.compose(v -> paymentEventStore.closeFuture());
+            closeChain = closeChain.compose(v -> paymentEventStore.close());
         }
         if (peeGeeQManager != null) {
-            closeChain = closeChain
-                .compose(v -> cleanupDatabase())
-                .compose(v -> peeGeeQManager.closeReactive());
+            closeChain = closeChain.compose(v -> peeGeeQManager.closeReactive());
         }
 
         closeChain
             .recover(err -> {
-                logger.warn("Transactional Bi-Temporal Example Test cleanup encountered an error: {}", err.getMessage());
+                logger.warn("Cleanup encountered an error: {}", err.getMessage());
                 return Future.<Void>succeededFuture();
             })
             .onSuccess(v -> {
@@ -151,9 +160,11 @@ public class TransactionalBiTemporalExampleTest {
                 testContext.completeNow();
             })
             .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Teardown timed out");
     }
 
-    private void setTestProperty(String key, String value) {
+    private static void setTestProperty(String key, String value) {
         originalProperties.putIfAbsent(key, System.getProperty(key));
         if (value == null) {
             System.clearProperty(key);
@@ -162,7 +173,7 @@ public class TransactionalBiTemporalExampleTest {
         }
     }
 
-    private void restoreTestProperties() {
+    private static void restoreTestProperties() {
         for (Map.Entry<String, String> entry : originalProperties.entrySet()) {
             if (entry.getValue() == null) {
                 System.clearProperty(entry.getKey());
@@ -173,7 +184,7 @@ public class TransactionalBiTemporalExampleTest {
         originalProperties.clear();
     }
 
-    private Future<Void> cleanupDatabase() {
+    private static Future<Void> cleanupDatabase() {
         if (peeGeeQManager == null || peeGeeQManager.getPool() == null) {
             return Future.<Void>succeededFuture();
         }
@@ -191,23 +202,26 @@ public class TransactionalBiTemporalExampleTest {
 
     /**
      * Test 1: Multi-EventStore Transactional Consistency
-     * Demonstrates that multiple event store operations can be coordinated for consistency.
+     * Demonstrates that multiple event store appends are committed atomically
+     * within a single database transaction using pool.withTransaction.
      */
     @Test
-    @Order(1)
     void testMultiEventStoreTransactionalConsistency(VertxTestContext testContext) {
         logger.info("=== Testing Multi-EventStore Transactional Consistency ===");
 
-        // Create test events
         OrderEvent orderEvent = new OrderEvent("order-tx-001", "customer-001", new BigDecimal("100.00"), "PENDING", Instant.now());
         PaymentEvent paymentEvent = new PaymentEvent("payment-tx-001", "order-tx-001", "customer-001", new BigDecimal("100.00"), "CREDIT_CARD", "AUTHORIZED", Instant.now());
 
         Instant validTime = Instant.now();
 
-        // Store events in both event stores
-        Future.all(
-            orderEventStore.appendBuilder().eventType("OrderCreated").payload(orderEvent).validTime(validTime).execute(),
-            paymentEventStore.appendBuilder().eventType("PaymentAuthorized").payload(paymentEvent).validTime(validTime).execute())
+        // Both appends share a single database transaction — atomic commit
+        peeGeeQManager.getPool().withTransaction(conn ->
+            orderEventStore.appendBuilder()
+                .eventType("OrderCreated").payload(orderEvent).validTime(validTime)
+                .inTransaction(conn).execute()
+                .compose(v -> paymentEventStore.appendBuilder()
+                    .eventType("PaymentAuthorized").payload(paymentEvent).validTime(validTime)
+                    .inTransaction(conn).execute()))
             .compose(v -> Future.all(
                 orderEventStore.query(EventQuery.builder().eventType("OrderCreated").build()),
                 paymentEventStore.query(EventQuery.builder().eventType("PaymentAuthorized").build())))
@@ -221,7 +235,7 @@ public class TransactionalBiTemporalExampleTest {
                 assertEquals("payment-tx-001", paymentEvents.get(0).getPayload().getPaymentId());
 
                 logger.info("Multi-EventStore transactional consistency test completed successfully!");
-                logger.info("   Order and payment events stored consistently");
+                logger.info("   Order and payment events committed atomically in single transaction");
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
@@ -232,7 +246,6 @@ public class TransactionalBiTemporalExampleTest {
      * Demonstrates complex business workflows with multiple event types and processing stages.
      */
     @Test
-    @Order(2)
     void testComplexBusinessWorkflows(VertxTestContext testContext) {
         logger.info("=== Testing Complex Business Workflows ===");
 
@@ -271,8 +284,8 @@ public class TransactionalBiTemporalExampleTest {
                 allPaymentEvents.addAll(results.resultAt(3));
                 allPaymentEvents.addAll(results.resultAt(4));
 
-                assertTrue(allOrderEvents.size() >= 3, "Should have at least 3 order events (created, confirmed, shipped)");
-                assertTrue(allPaymentEvents.size() >= 2, "Should have at least 2 payment events (authorized, captured)");
+                assertEquals(3, allOrderEvents.size(), "Should have exactly 3 order events (created, confirmed, shipped)");
+                assertEquals(2, allPaymentEvents.size(), "Should have exactly 2 payment events (authorized, captured)");
 
                 List<BiTemporalEvent<OrderEvent>> orderEventsByType = allOrderEvents.stream()
                     .filter(e -> e.getPayload().getOrderId().equals(orderId))
@@ -292,49 +305,75 @@ public class TransactionalBiTemporalExampleTest {
 
     /**
      * Test 3: Concurrent Processing with Proper Isolation
-     * Demonstrates concurrent processing scenarios with proper transaction isolation.
+     * Demonstrates that concurrent transactions each commit their own batch
+     * atomically with no cross-contamination between batches.
      */
     @Test
-    @Order(3)
     void testConcurrentProcessingWithProperIsolation(VertxTestContext testContext) {
         logger.info("=== Testing Concurrent Processing with Proper Isolation ===");
 
-        int numberOfThreads = 5;
-        int eventsPerThread = 10;
+        int numberOfBatches = 5;
+        int eventsPerBatch = 10;
         Instant baseTime = Instant.now();
-        List<Future<BiTemporalEvent<OrderEvent>>> appendFutures = new ArrayList<>();
+        Pool pool = peeGeeQManager.getPool();
 
-        for (int i = 0; i < numberOfThreads; i++) {
-            final int threadId = i;
-            for (int j = 0; j < eventsPerThread; j++) {
-                String orderId = String.format("concurrent-order-%d-%d", threadId, j);
-                String customerId = String.format("customer-%d", threadId);
-                BigDecimal amount = new BigDecimal(String.valueOf(100 + j));
-                Instant eventTime = baseTime.plus(threadId * 1000L + j * 100L, ChronoUnit.MILLIS);
-                OrderEvent orderEvent = new OrderEvent(orderId, customerId, amount, "PENDING", eventTime);
-                appendFutures.add(orderEventStore.appendBuilder()
-                    .eventType("OrderCreated")
-                    .payload(orderEvent)
-                    .validTime(eventTime)
-                    .execute());
-            }
+        // Each batch runs in its own database transaction for isolation
+        List<Future<Void>> batchFutures = new ArrayList<>();
+        for (int i = 0; i < numberOfBatches; i++) {
+            final int batchId = i;
+            Future<Void> batchFuture = pool.withTransaction(conn -> {
+                Future<Void> chain = Future.succeededFuture();
+                for (int j = 0; j < eventsPerBatch; j++) {
+                    final String orderId = String.format("concurrent-order-%d-%d", batchId, j);
+                    final String customerId = String.format("customer-%d", batchId);
+                    final BigDecimal amount = new BigDecimal(String.valueOf(100 + j));
+                    final Instant eventTime = baseTime.plus(batchId * 1000L + j * 100L, ChronoUnit.MILLIS);
+                    final OrderEvent orderEvent = new OrderEvent(orderId, customerId, amount, "PENDING", eventTime);
+                    chain = chain.compose(v -> orderEventStore.appendBuilder()
+                        .eventType("OrderCreated")
+                        .payload(orderEvent)
+                        .validTime(eventTime)
+                        .inTransaction(conn)
+                        .execute()
+                        .mapEmpty());
+                }
+                return chain;
+            });
+            batchFutures.add(batchFuture);
         }
 
-        Future.all(new ArrayList<>(appendFutures))
+        Future.all(new ArrayList<>(batchFutures))
             .compose(v -> orderEventStore.query(EventQuery.forEventType("OrderCreated")))
             .onSuccess(allEvents -> testContext.verify(() -> {
                 long concurrentEvents = allEvents.stream()
                     .filter(e -> e.getPayload().getOrderId().startsWith("concurrent-order-"))
                     .count();
 
-                assertEquals(numberOfThreads * eventsPerThread, concurrentEvents,
+                assertEquals(numberOfBatches * eventsPerBatch, concurrentEvents,
                     "Should have stored all concurrent events");
-                assertEquals(numberOfThreads * eventsPerThread, appendFutures.size(),
-                    "All concurrent operations should succeed");
+
+                // Verify isolation: each batch has exactly the right events with correct customer
+                for (int i = 0; i < numberOfBatches; i++) {
+                    final int batchId = i;
+                    final String expectedCustomer = String.format("customer-%d", batchId);
+                    final String prefix = "concurrent-order-" + batchId + "-";
+
+                    List<BiTemporalEvent<OrderEvent>> batchEvents = allEvents.stream()
+                        .filter(e -> e.getPayload().getOrderId().startsWith(prefix))
+                        .toList();
+
+                    assertEquals(eventsPerBatch, batchEvents.size(),
+                        "Batch " + batchId + " should have exactly " + eventsPerBatch + " events");
+
+                    boolean allMatchCustomer = batchEvents.stream()
+                        .allMatch(e -> e.getPayload().getCustomerId().equals(expectedCustomer));
+                    assertTrue(allMatchCustomer,
+                        "All events in batch " + batchId + " should belong to " + expectedCustomer);
+                }
 
                 logger.info("Concurrent processing with proper isolation test completed successfully!");
-                logger.info("   Processed {} events across {} logical threads with {} successes",
-                    concurrentEvents, numberOfThreads, appendFutures.size());
+                logger.info("   Processed {} events across {} isolated transactions",
+                    concurrentEvents, numberOfBatches);
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
@@ -342,40 +381,51 @@ public class TransactionalBiTemporalExampleTest {
 
     /**
      * Test 4: Error Handling and Rollback Scenarios
-     * Demonstrates proper error handling and rollback behavior in transactional scenarios.
+     * Demonstrates that when a transaction fails after an event append,
+     * the entire transaction is rolled back and the event is not committed.
      */
     @Test
-    @Order(4)
     void testErrorHandlingAndRollbackScenarios(VertxTestContext testContext) {
         logger.info("=== Testing Error Handling and Rollback Scenarios ===");
 
-        // Test successful transaction first
-        String successOrderId = "rollback-success-001";
-        Instant successTime = Instant.now();
-        OrderEvent successOrder = new OrderEvent(successOrderId, "customer-success", new BigDecimal("100.00"), "PENDING", successTime);
+        String rollbackOrderId = "rollback-order-001";
+        Instant rollbackTime = Instant.now();
+        OrderEvent rollbackOrder = new OrderEvent(rollbackOrderId, "customer-rollback",
+            new BigDecimal("100.00"), "PENDING", rollbackTime);
 
-        // Test error handling with invalid data (this should still work as event stores are append-only)
-        String errorOrderId = "rollback-error-001";
-        Instant errorTime = Instant.now();
-        OrderEvent errorOrder = new OrderEvent(errorOrderId, "customer-error", new BigDecimal("0.00"), "INVALID", errorTime);
-
-        orderEventStore.appendBuilder().eventType("OrderCreated").payload(successOrder).validTime(successTime).execute()
-            .compose(v -> orderEventStore.query(EventQuery.builder().eventType("OrderCreated").build()))
-            .compose(successEvents -> {
-                assertTrue(successEvents.stream().anyMatch(e ->
-                        e.getPayload().getOrderId().equals(successOrderId)),
-                    "Successful order should be stored");
-
-                return orderEventStore.appendBuilder().eventType("OrderCreated").payload(errorOrder).validTime(errorTime).execute();
+        // Append an event inside a transaction, then deliberately fail the transaction.
+        // The event should NOT be committed (rollback).
+        peeGeeQManager.getPool().withTransaction(conn ->
+            orderEventStore.appendBuilder()
+                .eventType("OrderCreated")
+                .payload(rollbackOrder)
+                .validTime(rollbackTime)
+                .inTransaction(conn)
+                .execute()
+                .compose(appendedEvent -> {
+                    logger.info("Event appended within transaction, now causing deliberate failure");
+                    return conn.query("SELECT * FROM non_existent_table_xyz").execute()
+                        .<BiTemporalEvent<OrderEvent>>mapEmpty();
+                }))
+            .<Void>transform(ar -> {
+                if (ar.succeeded()) {
+                    return Future.failedFuture(
+                        "Transaction should have failed due to invalid SQL but it succeeded");
+                }
+                logger.info("Transaction failed as expected: {}", ar.cause().getMessage());
+                // After rollback, verify the event was NOT committed
+                return orderEventStore.query(EventQuery.forEventType("OrderCreated"))
+                    .map(events -> {
+                        boolean eventExists = events.stream()
+                            .anyMatch(e -> e.getPayload().getOrderId().equals(rollbackOrderId));
+                        assertFalse(eventExists,
+                            "Event should NOT exist after transaction rollback");
+                        logger.info("Rollback verified: event was not committed to the database");
+                        return (Void) null;
+                    });
             })
-            .compose(v -> orderEventStore.query(EventQuery.forEventType("OrderCreated")))
-            .onSuccess(allEvents -> testContext.verify(() -> {
-                assertTrue(allEvents.stream().anyMatch(e ->
-                        e.getPayload().getOrderId().equals(errorOrderId)),
-                    "Error order should also be stored in append-only event store");
-
+            .onSuccess(v -> testContext.verify(() -> {
                 logger.info("Error handling and rollback scenarios test completed successfully!");
-                logger.info("   Demonstrated append-only nature and error tolerance");
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
@@ -386,7 +436,6 @@ public class TransactionalBiTemporalExampleTest {
      * Demonstrates performance characteristics under high-throughput scenarios.
      */
     @Test
-    @Order(5)
     void testPerformanceWithHighThroughputScenarios(VertxTestContext testContext) {
         logger.info("=== Testing Performance with High-Throughput Scenarios ===");
 

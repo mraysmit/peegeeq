@@ -41,7 +41,7 @@ import java.util.Map;
  * @since 2025-07-15
  * @version 1.0
  */
-public interface EventStore<T> extends AutoCloseable {
+public interface EventStore<T> {
     
     // ========== BUILDER API (RECOMMENDED) ==========
     
@@ -317,35 +317,6 @@ public interface EventStore<T> extends AutoCloseable {
      */
     Future<List<BiTemporalEvent<T>>> query(EventQuery query);
 
-    // ========== REACTIVE METHODS (Vert.x Future-based) ==========
-
-    /**
-     * Appends a new event to the store (reactive version).
-     *
-     * @param eventType The type of the event
-     * @param payload The event payload
-     * @param validTime When the event actually happened (business time)
-     * @return A Vert.x Future that completes with the stored event
-     */
-    Future<BiTemporalEvent<T>> appendReactive(String eventType, T payload, Instant validTime);
-
-    /**
-     * Queries events based on the provided criteria (reactive version).
-     *
-     * @param query The query criteria
-     * @return A Vert.x Future that completes with the list of matching events
-     */
-    Future<List<BiTemporalEvent<T>>> queryReactive(EventQuery query);
-
-    /**
-     * Subscribes to real-time event notifications (reactive version).
-     *
-     * @param eventType The type of events to subscribe to (null for all types)
-     * @param handler The handler to process incoming events
-     * @return A Vert.x Future that completes when the subscription is established
-     */
-    Future<Void> subscribeReactive(String eventType, MessageHandler<BiTemporalEvent<T>> handler);
-    
     /**
      * Gets a specific event by its ID.
      * 
@@ -416,9 +387,10 @@ public interface EventStore<T> extends AutoCloseable {
     
     /**
      * Closes the event store and releases any resources.
+     *
+     * @return a Future that completes when all resources are released
      */
-    @Override
-    void close();
+    Future<Void> close();
     
     /**
      * Statistics about the event store.

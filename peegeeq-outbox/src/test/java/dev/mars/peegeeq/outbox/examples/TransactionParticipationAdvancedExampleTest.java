@@ -51,8 +51,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
-import java.util.concurrent.TimeUnit;
-
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
@@ -198,7 +196,7 @@ class TransactionParticipationAdvancedExampleTest {
         }
         
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive().await();
         }
         
         // Clear system properties
@@ -221,7 +219,7 @@ class TransactionParticipationAdvancedExampleTest {
         logger.info("Created order: {}", testOrder);
         
         // Demonstrate simple transaction participation
-        CompletableFuture<Void> transactionFuture = vertxPool.getConnection()
+        Future<Void> transactionFuture = vertxPool.getConnection()
             .compose(connection -> {
                 logger.info("✓ Got SqlConnection for simple transaction participation");
                 
@@ -230,24 +228,20 @@ class TransactionParticipationAdvancedExampleTest {
                         logger.info("✓ Transaction started");
                         
                         // Send outbox message within transaction
-                        return Future.fromCompletionStage(
-                            orderProducer.sendInTransaction(testOrder, connection)
-                        ).compose(v -> {
-                            logger.info("✓ Outbox message sent in transaction");
-                            
-                            // Commit the transaction
-                            return transaction.commit();
-                        });
+                        return orderProducer.sendInTransaction(testOrder, connection)
+                            .compose(v -> {
+                                logger.info("✓ Outbox message sent in transaction");
+                                
+                                // Commit the transaction
+                                return transaction.commit();
+                            });
                     })
                     .eventually(() -> connection.close());
             })
-            .mapEmpty()
-            .toCompletionStage()
-            .toCompletableFuture()
-            .thenApply(result -> (Void) null);
+            .mapEmpty();
         
         // Wait for completion
-        assertDoesNotThrow(() -> transactionFuture.get(15, TimeUnit.SECONDS));
+        assertDoesNotThrow(() -> transactionFuture.await());
         logger.info("Simple transaction participation test completed successfully!");
     }
     
@@ -273,7 +267,7 @@ class TransactionParticipationAdvancedExampleTest {
         logger.info("Message Group: {}", messageGroup);
         
         // Demonstrate transaction participation with full metadata
-        CompletableFuture<Void> transactionFuture = vertxPool.getConnection()
+        Future<Void> transactionFuture = vertxPool.getConnection()
             .compose(connection -> {
                 logger.info("✓ Got SqlConnection for metadata transaction participation");
                 
@@ -282,24 +276,20 @@ class TransactionParticipationAdvancedExampleTest {
                         logger.info("✓ Transaction started with metadata");
                         
                         // Send outbox message with full metadata within transaction
-                        return Future.fromCompletionStage(
-                            orderProducer.sendInTransaction(testOrder, headers, correlationId, messageGroup, connection)
-                        ).compose(v -> {
-                            logger.info("✓ Outbox message with metadata sent in transaction");
-                            
-                            // Commit the transaction
-                            return transaction.commit();
-                        });
+                        return orderProducer.sendInTransaction(testOrder, headers, correlationId, messageGroup, connection)
+                            .compose(v -> {
+                                logger.info("✓ Outbox message with metadata sent in transaction");
+                                
+                                // Commit the transaction
+                                return transaction.commit();
+                            });
                     })
                     .eventually(() -> connection.close());
             })
-            .mapEmpty()
-            .toCompletionStage()
-            .toCompletableFuture()
-            .thenApply(result -> (Void) null);
+            .mapEmpty();
         
         // Wait for completion
-        assertDoesNotThrow(() -> transactionFuture.get(15, TimeUnit.SECONDS));
+        assertDoesNotThrow(() -> transactionFuture.await());
         logger.info("Transaction participation with metadata test completed successfully!");
     }
 
@@ -314,7 +304,7 @@ class TransactionParticipationAdvancedExampleTest {
         logger.info("Created order 2: {}", order2);
 
         // Demonstrate multiple operations in same transaction
-        CompletableFuture<Void> transactionFuture = vertxPool.getConnection()
+        Future<Void> transactionFuture = vertxPool.getConnection()
             .compose(connection -> {
                 logger.info("✓ Got SqlConnection for multiple operations");
 
@@ -323,31 +313,26 @@ class TransactionParticipationAdvancedExampleTest {
                         logger.info("✓ Transaction started for multiple operations");
 
                         // Send first outbox message
-                        return Future.fromCompletionStage(
-                            orderProducer.sendInTransaction(order1, connection)
-                        ).compose(v -> {
-                            logger.info("✓ First outbox message sent in transaction");
+                        return orderProducer.sendInTransaction(order1, connection)
+                            .compose(v -> {
+                                logger.info("✓ First outbox message sent in transaction");
 
-                            // Send second outbox message
-                            return Future.fromCompletionStage(
-                                orderProducer.sendInTransaction(order2, connection)
-                            ).compose(v2 -> {
-                                logger.info("✓ Second outbox message sent in transaction");
+                                // Send second outbox message
+                                return orderProducer.sendInTransaction(order2, connection)
+                                    .compose(v2 -> {
+                                        logger.info("✓ Second outbox message sent in transaction");
 
-                                // Commit the transaction - all operations commit together
-                                return transaction.commit();
+                                        // Commit the transaction - all operations commit together
+                                        return transaction.commit();
+                                    });
                             });
-                        });
                     })
                     .eventually(() -> connection.close());
             })
-            .mapEmpty()
-            .toCompletionStage()
-            .toCompletableFuture()
-            .thenApply(result -> (Void) null);
+            .mapEmpty();
 
         // Wait for completion
-        assertDoesNotThrow(() -> transactionFuture.get(20, TimeUnit.SECONDS));
+        assertDoesNotThrow(() -> transactionFuture.await());
         logger.info("Multiple operations in same transaction test completed successfully!");
     }
 
@@ -360,7 +345,7 @@ class TransactionParticipationAdvancedExampleTest {
         logger.info("Created order: {}", testOrder);
 
         // Demonstrate business logic + outbox consistency
-        CompletableFuture<String> businessResult = vertxPool.getConnection()
+        Future<String> businessResult = vertxPool.getConnection()
             .compose(connection -> {
                 logger.info("✓ Got SqlConnection for business logic consistency");
 
@@ -386,25 +371,21 @@ class TransactionParticipationAdvancedExampleTest {
                                 assertEquals(1, result.rowCount(), "Should update exactly 1 row");
 
                                 // Step 3: Send outbox event - guaranteed consistency with business operations
-                                return Future.fromCompletionStage(
-                                    orderProducer.sendInTransaction(testOrder, connection)
-                                ).compose(v -> {
-                                    logger.info("✓ Outbox event sent in same transaction");
+                                return orderProducer.sendInTransaction(testOrder, connection)
+                                    .compose(v -> {
+                                        logger.info("✓ Outbox event sent in same transaction");
 
-                                    // Step 4: Commit everything together
-                                    return transaction.commit()
-                                        .map(ignored -> "Business logic completed with outbox consistency");
-                                });
+                                        // Step 4: Commit everything together
+                                        return transaction.commit()
+                                            .map(ignored -> "Business logic completed with outbox consistency");
+                                    });
                             });
                     })
                     .eventually(() -> connection.close());
-            })
-            .toCompletionStage()
-            .toCompletableFuture()
-            .thenApply(result -> (String) result);
+            });
 
         // Wait for completion and verify result
-        String result = assertDoesNotThrow(() -> businessResult.get(15, TimeUnit.SECONDS));
+        String result = assertDoesNotThrow(() -> businessResult.await());
         assertEquals("Business logic completed with outbox consistency", result);
         logger.info("Business logic with outbox consistency test completed successfully!");
     }
@@ -415,7 +396,7 @@ class TransactionParticipationAdvancedExampleTest {
     private void createTestBusinessTable() throws Exception {
         logger.info("Creating test business table for transaction participation...");
 
-        CompletableFuture<Void> createTableFuture = vertxPool.getConnection()
+        Future<Void> createTableFuture = vertxPool.getConnection()
             .compose(connection -> {
                 String createTableSql = """
                     CREATE TABLE IF NOT EXISTS test_orders (
@@ -434,12 +415,9 @@ class TransactionParticipationAdvancedExampleTest {
                     })
                     .eventually(() -> connection.close());
             })
-            .mapEmpty()
-            .toCompletionStage()
-            .toCompletableFuture()
-            .thenApply(result -> (Void) null);
+            .mapEmpty();
 
-        createTableFuture.get(10, TimeUnit.SECONDS);
+        createTableFuture.await();
         logger.info("✓ Test business table created successfully");
     }
 

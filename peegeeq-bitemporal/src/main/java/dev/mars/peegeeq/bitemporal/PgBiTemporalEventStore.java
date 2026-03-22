@@ -161,7 +161,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                     connectOptions, // Now passed at construction time
                     objectMapper,
                     payloadType,
-                    this::getByIdReactive, // Use pure Vert.x Future method for reactive patterns
+                    this::getById, // Use pure Vert.x Future method for reactive patterns
                     schema,
                     this.tableName);
         } catch (Exception e) {
@@ -259,14 +259,14 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         // Pure Vert.x 5.x implementation - delegate to reactive method with transaction
         // support
         return appendWithTransaction(eventType, payload, validTime, headers, correlationId, causationId, aggregateId)
-                .onComplete(ar -> {
+                .onSuccess(event -> {
                     timing.recordAsQuery();
-                    if (ar.failed()) {
-                        logger.warn("Append operation failed after {}ms: {}", timing.getElapsed().toMillis(),
-                                ar.cause().getMessage());
-                    } else {
-                        logger.debug("Append operation completed in {}ms", timing.getElapsed().toMillis());
-                    }
+                    logger.debug("Append operation completed in {}ms", timing.getElapsed().toMillis());
+                })
+                .onFailure(error -> {
+                    timing.recordAsQuery();
+                    logger.warn("Append operation failed after {}ms: {}", timing.getElapsed().toMillis(),
+                            error.getMessage());
                 });
     }
 
@@ -291,7 +291,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         // Performance monitoring: Track batch operation timing
         var timing = performanceMonitor.startTiming();
 
-        return appendBatchReactive(events)
+        return executeBatchAppend(events)
                 .onSuccess(result -> {
                     timing.recordAsQuery();
                     logger.info("Batch append operation ({} events) completed in {}ms - throughput: {} events/sec",
@@ -305,10 +305,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 });
     }
 
-    /**
-     * Reactive implementation of batch append for maximum performance
-     */
-    private Future<List<BiTemporalEvent<T>>> appendBatchReactive(List<BatchEventData<T>> events) {
+    private Future<List<BiTemporalEvent<T>>> executeBatchAppend(List<BatchEventData<T>> events) {
         // Prepare batch data
         List<Tuple> batchParams = new ArrayList<>();
         List<String> eventIds = new ArrayList<>();
@@ -661,7 +658,16 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             // Use Pool.withTransaction for proper transaction management - following
             // peegeeq-outbox patterns
             return getOrCreateReactivePool().withTransaction(sqlConnection -> {
-                // First, get the next version number
+                // Acquire advisory lock to serialize corrections for the same event family.
+                // This prevents the read-modify-write race where two concurrent corrections
+                // both read the same MAX(version) under READ COMMITTED isolation.
+                // The lock is automatically released when the transaction commits/rolls back.
+                String lockSql = "SELECT pg_advisory_xact_lock(hashtext($1))";
+
+                return sqlConnection.preparedQuery(lockSql)
+                        .execute(Tuple.of(originalEventId))
+                        .compose(lockResult -> {
+                // Now safely get the next version number (serialized by advisory lock)
                 String getVersionSql = """
                         SELECT COALESCE(MAX(version), 0) as max_version
                         FROM %s
@@ -711,6 +717,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                                     return correctionEvent;
                                     });
                         });
+                        }); // end advisory lock compose
             }).onFailure(throwable -> logger.error("Failed to append correction event for {}: {}", originalEventId,
                     throwable.getMessage(), throwable));
 
@@ -794,7 +801,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             Map<String, String> headers, String correlationId,
             String aggregateId,
             io.vertx.sqlclient.SqlConnection connection) {
-        return appendInTransactionReactive(eventType, payload, validTime, headers, correlationId, null, aggregateId,
+        return appendInTransaction(eventType, payload, validTime, headers, correlationId, null, aggregateId,
                 connection);
     }
 
@@ -816,21 +823,6 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     public Future<BiTemporalEvent<T>> appendInTransaction(String eventType, T payload, Instant validTime,
             Map<String, String> headers, String correlationId,
             String causationId, String aggregateId,
-            io.vertx.sqlclient.SqlConnection connection) {
-        return appendInTransactionReactive(eventType, payload, validTime, headers, correlationId, causationId,
-                aggregateId, connection);
-    }
-
-    /**
-     * Internal reactive transactional append method using existing connection and
-     * pure Vert.x Future patterns.
-     * This method follows the exact pattern from the outbox module's
-     * sendInTransactionReactive method.
-     */
-    private Future<BiTemporalEvent<T>> appendInTransactionReactive(String eventType, T payload, Instant validTime,
-            Map<String, String> headers, String correlationId,
-            String causationId,
-            String aggregateId,
             io.vertx.sqlclient.SqlConnection connection) {
         // Comprehensive parameter validation following outbox module patterns
         if (closed) {
@@ -873,7 +865,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             OffsetDateTime transactionTime = OffsetDateTime.now();
 
             logger.debug(
-                    "appendInTransactionReactive: eventType={}, correlationId={}, finalCorrelationId={}, causationId={}, aggregateId={}",
+                    "appendInTransaction: eventType={}, correlationId={}, finalCorrelationId={}, causationId={}, aggregateId={}",
                     eventType, correlationId, finalCorrelationId, causationId, aggregateId);
 
             String sql = """
@@ -936,18 +928,92 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
     @Override
     public Future<List<BiTemporalEvent<T>>> query(EventQuery query) {
-        return queryReactive(query);
+        // Pure Vert.x 5.x implementation with transaction support
+        try {
+            StringBuilder sql = new StringBuilder("""
+                    SELECT event_id, event_type, valid_time, transaction_time, payload, headers,
+                           version, previous_version_id, correlation_id, causation_id, aggregate_id,
+                           is_correction, correction_reason, created_at
+                    FROM %s WHERE 1=1""");
+            List<Object> params = new ArrayList<>();
+            int paramIndex = 1;
+
+            // Build WHERE clause based on query criteria
+            if (query.getEventType().isPresent()) {
+                sql.append(" AND event_type = $").append(paramIndex++);
+                params.add(query.getEventType().get());
+            }
+
+            if (query.getAggregateId().isPresent()) {
+                sql.append(" AND aggregate_id = $").append(paramIndex++);
+                params.add(query.getAggregateId().get());
+            }
+
+            if (query.getCausationId().isPresent()) {
+                sql.append(" AND causation_id = $").append(paramIndex++);
+                params.add(query.getCausationId().get());
+            }
+
+            if (query.getValidTimeRange().isPresent()) {
+                var validRange = query.getValidTimeRange().get();
+                if (validRange.getStart() != null) {
+                    sql.append(" AND valid_time >= $").append(paramIndex++);
+                    params.add(validRange.getStart().atOffset(java.time.ZoneOffset.UTC));
+                }
+                if (validRange.getEnd() != null) {
+                    sql.append(" AND valid_time <= $").append(paramIndex++);
+                    params.add(validRange.getEnd().atOffset(java.time.ZoneOffset.UTC));
+                }
+            }
+
+            if (query.getTransactionTimeRange().isPresent()) {
+                var transactionRange = query.getTransactionTimeRange().get();
+                if (transactionRange.getStart() != null) {
+                    sql.append(" AND transaction_time >= $").append(paramIndex++);
+                    params.add(transactionRange.getStart().atOffset(java.time.ZoneOffset.UTC));
+                }
+                if (transactionRange.getEnd() != null) {
+                    sql.append(" AND transaction_time <= $").append(paramIndex++);
+                    params.add(transactionRange.getEnd().atOffset(java.time.ZoneOffset.UTC));
+                }
+            }
+
+            // Add ordering
+            sql.append(" ORDER BY transaction_time DESC, valid_time DESC");
+
+            // Add limit if specified
+            if (query.getLimit() > 0) {
+                sql.append(" LIMIT $").append(paramIndex);
+                params.add(query.getLimit());
+            }
+
+            Tuple tuple = Tuple.tuple(params);
+
+            // Format SQL with table name
+            String finalSql = sql.toString().formatted(quotedTableName);
+
+            // Use pure Vert.x 5.x reactive query execution with optimal read client for
+            // maximum throughput
+            return getOptimalReadClient().preparedQuery(finalSql)
+                    .execute(tuple)
+                    .map(rows -> {
+                        try {
+                            List<BiTemporalEvent<T>> events = new ArrayList<>();
+                            for (Row row : rows) {
+                                events.add(mapRowToEvent(row));
+                            }
+                            return events;
+                        } catch (Exception e) {
+                            throw new RuntimeException("Failed to map row to event", e);
+                        }
+                    });
+        } catch (Exception e) {
+            return Future.failedFuture(e);
+        }
     }
 
     @Override
     public Future<BiTemporalEvent<T>> getById(String eventId) {
-        return getByIdReactive(eventId);
-    }
-
-    /**
-     * Pure Vert.x 5.x reactive implementation of getById.
-     */
-    private Future<BiTemporalEvent<T>> getByIdReactive(String eventId) {
         if (closed) {
             return Future.failedFuture(new IllegalStateException("Event store is closed"));
         }
@@ -983,40 +1049,43 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
     @Override
     public Future<List<BiTemporalEvent<T>>> getAllVersions(String eventId) {
-        return getAllVersionsReactive(eventId);
-    }
-
-    /**
-     * Pure Vert.x 5.x reactive implementation of getAllVersions.
-     */
-    private Future<List<BiTemporalEvent<T>>> getAllVersionsReactive(String eventId) {
         if (closed) {
             return Future.failedFuture(new IllegalStateException("Event store is closed"));
         }
 
         Objects.requireNonNull(eventId, "Event ID cannot be null");
 
+        // Resolve the root event ID first, so this method works correctly whether
+        // called with a root event ID or a correction's event ID (star model).
         String sql = """
+                WITH root AS (
+                    SELECT COALESCE(
+                        (SELECT previous_version_id FROM %1$s
+                         WHERE event_id = $1 AND previous_version_id IS NOT NULL LIMIT 1),
+                        $1
+                    ) AS root_event_id
+                )
                 SELECT event_id, event_type, valid_time, transaction_time, payload, headers,
                        version, previous_version_id, correlation_id, causation_id, aggregate_id,
                        is_correction, correction_reason, created_at
-                FROM %s
-                WHERE event_id = $1 OR previous_version_id = $1
+                FROM %1$s
+                WHERE event_id = (SELECT root_event_id FROM root)
+                   OR previous_version_id = (SELECT root_event_id FROM root)
                 ORDER BY version ASC
                 """.formatted(quotedTableName);
 
         return getOptimalReadClient().preparedQuery(sql)
                 .execute(Tuple.of(eventId))
                 .map(rows -> {
-                    List<BiTemporalEvent<T>> events = new ArrayList<>();
-                    for (Row row : rows) {
-                        try {
+                    try {
+                        List<BiTemporalEvent<T>> events = new ArrayList<>();
+                        for (Row row : rows) {
                             events.add(mapRowToEvent(row));
-                        } catch (Exception e) {
-                            logger.error("Failed to map row to event: {}", e.getMessage(), e);
                         }
+                        return events;
+                    } catch (Exception e) {
+                        throw new RuntimeException("Failed to map row to event", e);
                     }
-                    return events;
                 });
     }
 
@@ -1139,13 +1208,6 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
     @Override
     public Future<EventStore.EventStoreStats> getStats() {
-        return getStatsReactive();
-    }
-
-    /**
-     * Pure Vert.x 5.x reactive implementation of getStats.
-     */
-    private Future<EventStore.EventStoreStats> getStatsReactive() {
         if (closed) {
             return Future.failedFuture(new IllegalStateException("Event store is closed"));
         }
@@ -1224,17 +1286,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     }
 
     @Override
-    public void close() {
-        closeFuture()
-                .onFailure(e -> logger.warn("Async close failed: {}", e.getMessage(), e));
-    }
-
-    /**
-     * Asynchronously closes the event store, composing all cleanup operations sequentially.
-     *
-     * @return a Future that completes when all resources are released
-     */
-    public Future<Void> closeFuture() {
+    public Future<Void> close() {
         if (closed) {
             return Future.succeededFuture();
         }
@@ -1247,12 +1299,15 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             (key, existing) -> existing == this ? null : existing);
 
         // Compose close operations sequentially: notification handler → reactive pool → pipelined client
+        // Best-effort: attempt all closes even if one fails, but propagate the first error to the caller.
         Future<Void> chain = Future.succeededFuture();
+        java.util.concurrent.atomic.AtomicReference<Throwable> firstError = new java.util.concurrent.atomic.AtomicReference<>();
 
         if (reactiveNotificationHandler != null) {
             chain = chain.compose(v -> reactiveNotificationHandler.stop()
                     .recover(e -> {
                         logger.warn("Error closing reactive notification handler: {}", e.getMessage(), e);
+                        firstError.compareAndSet(null, e);
                         return Future.succeededFuture();
                     }));
         }
@@ -1264,6 +1319,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                     .onSuccess(x -> logger.debug("Closed reactive pool"))
                     .recover(e -> {
                         logger.warn("Error closing reactive pool: {}", e.getMessage(), e);
+                        firstError.compareAndSet(null, e);
                         return Future.succeededFuture();
                     }));
         }
@@ -1275,11 +1331,31 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                     .onSuccess(x -> logger.debug("Closed pipelined client"))
                     .recover(e -> {
                         logger.warn("Error closing pipelined client: {}", e.getMessage(), e);
+                        firstError.compareAndSet(null, e);
                         return Future.succeededFuture();
                     }));
         }
 
-        return chain.onComplete(ar -> logger.info("Bi-temporal event store closed"));
+        return chain.compose(v -> {
+            Throwable error = firstError.get();
+            if (error != null) {
+                logger.warn("Bi-temporal event store closed with errors");
+                return Future.failedFuture(error);
+            }
+            logger.info("Bi-temporal event store closed");
+            return Future.<Void>succeededFuture();
+        });
+    }
+
+    /**
+     * Delegates to {@link #close()}.
+     *
+     * @return a Future that completes when all resources are released
+     * @deprecated Use {@link #close()} instead
+     */
+    @Deprecated
+    public Future<Void> closeFuture() {
+        return close();
     }
 
     /**
@@ -1405,104 +1481,6 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         return objectMapper.readValue(payloadJson, payloadType);
     }
 
-    // ========== REACTIVE METHODS (Vert.x Future-based) ==========
-
-    public Future<BiTemporalEvent<T>> appendReactive(String eventType, T payload, Instant validTime) {
-        return appendWithTransactionInternal(eventType, payload, validTime, Map.of(), null, null, null, null);
-    }
-
-    public Future<List<BiTemporalEvent<T>>> queryReactive(EventQuery query) {
-        // Pure Vert.x 5.x implementation with transaction support
-        try {
-            StringBuilder sql = new StringBuilder("""
-                    SELECT event_id, event_type, valid_time, transaction_time, payload, headers,
-                           version, previous_version_id, correlation_id, causation_id, aggregate_id,
-                           is_correction, correction_reason, created_at
-                    FROM %s WHERE 1=1""");
-            List<Object> params = new ArrayList<>();
-            int paramIndex = 1;
-
-            // Build WHERE clause based on query criteria
-            if (query.getEventType().isPresent()) {
-                sql.append(" AND event_type = $").append(paramIndex++);
-                params.add(query.getEventType().get());
-            }
-
-            if (query.getAggregateId().isPresent()) {
-                sql.append(" AND aggregate_id = $").append(paramIndex++);
-                params.add(query.getAggregateId().get());
-            }
-
-            if (query.getCausationId().isPresent()) {
-                sql.append(" AND causation_id = $").append(paramIndex++);
-                params.add(query.getCausationId().get());
-            }
-
-            if (query.getValidTimeRange().isPresent()) {
-                var validRange = query.getValidTimeRange().get();
-                if (validRange.getStart() != null) {
-                    sql.append(" AND valid_time >= $").append(paramIndex++);
-                    params.add(validRange.getStart().atOffset(java.time.ZoneOffset.UTC));
-                }
-                if (validRange.getEnd() != null) {
-                    sql.append(" AND valid_time <= $").append(paramIndex++);
-                    params.add(validRange.getEnd().atOffset(java.time.ZoneOffset.UTC));
-                }
-            }
-
-            if (query.getTransactionTimeRange().isPresent()) {
-                var transactionRange = query.getTransactionTimeRange().get();
-                if (transactionRange.getStart() != null) {
-                    sql.append(" AND transaction_time >= $").append(paramIndex++);
-                    params.add(transactionRange.getStart().atOffset(java.time.ZoneOffset.UTC));
-                }
-                if (transactionRange.getEnd() != null) {
-                    sql.append(" AND transaction_time <= $").append(paramIndex++);
-                    params.add(transactionRange.getEnd().atOffset(java.time.ZoneOffset.UTC));
-                }
-            }
-
-            // Add ordering
-            sql.append(" ORDER BY transaction_time DESC, valid_time DESC");
-
-            // Add limit if specified
-            if (query.getLimit() > 0) {
-                sql.append(" LIMIT $").append(paramIndex);
-                params.add(query.getLimit());
-            }
-
-            Tuple tuple = Tuple.tuple(params);
-
-            // Format SQL with table name
-            String finalSql = sql.toString().formatted(quotedTableName);
-
-            // Use pure Vert.x 5.x reactive query execution with optimal read client for
-            // maximum throughput
-            return getOptimalReadClient().preparedQuery(finalSql)
-                    .execute(tuple)
-                    .map(rows -> {
-                        List<BiTemporalEvent<T>> events = new ArrayList<>();
-                        for (Row row : rows) {
-                            try {
-                                BiTemporalEvent<T> event = mapRowToEvent(row);
-                                events.add(event);
-                            } catch (Exception e) {
-                                logger.error("Failed to map row to event: {}", e.getMessage(), e);
-                            }
-                        }
-                        return events;
-                    });
-        } catch (Exception e) {
-            return Future.failedFuture(e);
-        }
-    }
-
-    public Future<Void> subscribeReactive(String eventType, MessageHandler<BiTemporalEvent<T>> handler) {
-        // : Ensure notification handler is started before subscription
-        return ensureNotificationHandlerStarted()
-                .compose(v -> reactiveNotificationHandler.subscribe(eventType, null, handler));
-    }
-
     /**
      * Creates PgConnectOptions from PeeGeeQManager configuration.
      * This follows the pure Vert.x 5.x pattern for proper connection configuration.
@@ -1589,7 +1567,13 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
                 // CRITICAL PERFORMANCE FIX: Enable command pipelining for maximum throughput
                 // Research-based optimized default: 1024 for high-throughput scenarios
-                int pipeliningLimit = Integer.parseInt(System.getProperty("peegeeq.database.pipelining.limit", "1024"));
+                int pipeliningLimit;
+                try {
+                    pipeliningLimit = Integer.parseInt(System.getProperty("peegeeq.database.pipelining.limit", "1024"));
+                } catch (NumberFormatException e) {
+                    logger.warn("Invalid peegeeq.database.pipelining.limit value, using default 1024");
+                    pipeliningLimit = 1024;
+                }
                 connectOptions.setPipeliningLimit(pipeliningLimit);
 
                 logger.info("Configured PostgreSQL pipelining limit: {}", pipeliningLimit);
@@ -1616,8 +1600,14 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 // scenarios
                 // Based on performance test failures, bitemporal workloads need larger wait
                 // queues
-                int waitQueueMultiplier = Integer
-                        .parseInt(System.getProperty("peegeeq.database.pool.wait-queue-multiplier", "10"));
+                int waitQueueMultiplier;
+                try {
+                    waitQueueMultiplier = Integer
+                            .parseInt(System.getProperty("peegeeq.database.pool.wait-queue-multiplier", "10"));
+                } catch (NumberFormatException e) {
+                    logger.warn("Invalid peegeeq.database.pool.wait-queue-multiplier value, using default 10");
+                    waitQueueMultiplier = 10;
+                }
                 poolOptions.setMaxWaitQueueSize(maxPoolSize * waitQueueMultiplier);
 
                 // Connection timeout and idle timeout for reliability
@@ -1627,7 +1617,13 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 // PERFORMANCE OPTIMIZATION: Configure event loop size for better concurrency
                 // By default, Vert.x uses 2 * CPU cores event loops, but we can optimize for
                 // database workloads
-                int eventLoopSize = Integer.parseInt(System.getProperty("peegeeq.database.event.loop.size", "0"));
+                int eventLoopSize;
+                try {
+                    eventLoopSize = Integer.parseInt(System.getProperty("peegeeq.database.event.loop.size", "0"));
+                } catch (NumberFormatException e) {
+                    logger.warn("Invalid peegeeq.database.event.loop.size value, using default 0");
+                    eventLoopSize = 0;
+                }
                 if (eventLoopSize > 0) {
                     poolOptions.setEventLoopSize(eventLoopSize);
                     logger.info("Configured event loop size: {}", eventLoopSize);
@@ -1689,29 +1685,6 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     }
 
     /**
-     * Gets the optimal client for high-performance write operations (pipelined
-     * client if available).
-     * WARNING: This bypasses transactions for maximum throughput. Use only for
-     * performance-critical scenarios
-     * where individual SQL statements are atomic and transaction boundaries are not
-     * required.
-     *
-     * @return SqlClient optimized for high-performance writes
-     */
-    private SqlClient getHighPerformanceWriteClient() {
-        // Ensure pool is initialized first
-        getOrCreateReactivePool();
-
-        // Use pipelined client for maximum write throughput if available
-        if (pipelinedClient != null) {
-            return pipelinedClient;
-        }
-
-        // Fallback to pool for compatibility
-        return reactivePool;
-    }
-
-    /**
      * Gets the configured pool size from PeeGeeQManager configuration.
      * Falls back to a reasonable default if not configured.
      *
@@ -1721,9 +1694,13 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         // Check system property first (allows runtime tuning)
         String systemPoolSize = System.getProperty("peegeeq.database.pool.max-size");
         if (systemPoolSize != null) {
-            int size = Integer.parseInt(systemPoolSize);
-            logger.info("Using system property pool size: {}", size);
-            return size;
+            try {
+                int size = Integer.parseInt(systemPoolSize);
+                logger.info("Using system property pool size: {}", size);
+                return size;
+            } catch (NumberFormatException e) {
+                logger.warn("Invalid peegeeq.database.pool.max-size value '{}', falling back to configuration/default", systemPoolSize);
+            }
         }
 
         try {
@@ -1762,14 +1739,26 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                     VertxOptions vertxOptions = new VertxOptions();
 
                     // Configure event loop pool size for database-intensive workloads
-                    int eventLoopSize = Integer.parseInt(System.getProperty("peegeeq.database.event.loop.size", "0"));
+                    int eventLoopSize;
+                    try {
+                        eventLoopSize = Integer.parseInt(System.getProperty("peegeeq.database.event.loop.size", "0"));
+                    } catch (NumberFormatException e) {
+                        logger.warn("Invalid peegeeq.database.event.loop.size value, using default 0");
+                        eventLoopSize = 0;
+                    }
                     if (eventLoopSize > 0) {
                         vertxOptions.setEventLoopPoolSize(eventLoopSize);
                         logger.info("CRITICAL: Configured Vertx event loop pool size: {}", eventLoopSize);
                     }
 
                     // Configure worker pool size for blocking operations
-                    int workerPoolSize = Integer.parseInt(System.getProperty("peegeeq.database.worker.pool.size", "0"));
+                    int workerPoolSize;
+                    try {
+                        workerPoolSize = Integer.parseInt(System.getProperty("peegeeq.database.worker.pool.size", "0"));
+                    } catch (NumberFormatException e) {
+                        logger.warn("Invalid peegeeq.database.worker.pool.size value, using default 0");
+                        workerPoolSize = 0;
+                    }
                     if (workerPoolSize > 0) {
                         vertxOptions.setWorkerPoolSize(workerPoolSize);
                         logger.info("CRITICAL: Configured Vertx worker pool size: {}", workerPoolSize);
@@ -2073,16 +2062,18 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      * Note: This is a static method that affects all PgBiTemporalEventStore
      * instances.
      */
-    public static void closeSharedVertx() {
+    public static Future<Void> closeSharedVertx() {
         if (sharedVertx != null) {
             synchronized (PgBiTemporalEventStore.class) {
                 if (sharedVertx != null) {
-                    sharedVertx.close();
+                    Vertx ref = sharedVertx;
                     sharedVertx = null;
-                    logger.info("Closed shared Vertx instance for bi-temporal event store");
+                    return ref.close()
+                            .onSuccess(v -> logger.info("Closed shared Vertx instance for bi-temporal event store"));
                 }
             }
         }
+        return Future.succeededFuture();
     }
 
     private static String resolveEventBusClientKey(String clientId) {
@@ -2215,19 +2206,21 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      * IMPORTANT: This method should only be called during testing when you need to
      * force recreation of connection pools with updated configuration.
      */
-    public void clearInstancePools() {
+    public Future<Void> clearInstancePools() {
+        Future<Void> chain = Future.succeededFuture();
         synchronized (this) {
             if (reactivePool != null) {
-                // Close existing pool
-                reactivePool.close();
+                Pool poolRef = reactivePool;
                 reactivePool = null;
+                chain = chain.compose(v -> poolRef.close());
             }
             if (pipelinedClient != null) {
-                // Close existing pipelined client
-                pipelinedClient.close();
+                SqlClient clientRef = pipelinedClient;
                 pipelinedClient = null;
+                chain = chain.compose(v -> clientRef.close());
             }
         }
+        return chain;
     }
 
     /**

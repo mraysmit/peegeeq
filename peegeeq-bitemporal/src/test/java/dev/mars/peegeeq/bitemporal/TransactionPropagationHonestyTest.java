@@ -428,7 +428,7 @@ class TransactionPropagationHonestyTest {
          * the same instance provided by PeeGeeQManager — proving no hidden
          * resource creation.
          */
-        Vertx storeVertx = eventStore.getVertx();
+        Vertx storeVertx = PgBiTemporalEventStore.getOrCreateSharedVertx();
         Vertx managerVertx = manager.getVertx();
 
         testContext.verify(() -> {

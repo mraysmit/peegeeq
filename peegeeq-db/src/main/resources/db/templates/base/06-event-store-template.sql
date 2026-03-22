@@ -32,6 +32,12 @@ BEGIN
             (version > 1 AND previous_version_id IS NOT NULL)
         )
     );
+
+    -- Unique index to enforce version uniqueness within each correction family.
+    -- Prevents concurrent corrections from inserting duplicate version numbers.
+    CREATE UNIQUE INDEX idx_event_store_version_family_unique
+        ON {schema}.event_store_template(COALESCE(previous_version_id, event_id), version);
+
     RAISE LOG 'Created event_store_template table' USING DETAIL = 'PGQINF0552';
 END
 $$;

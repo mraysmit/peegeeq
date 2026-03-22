@@ -6,6 +6,7 @@ import dev.mars.peegeeq.rest.PeeGeeQRestServer;
 import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpClient;
 import io.vertx.core.http.HttpClientRequest;
@@ -239,9 +240,9 @@ public class SSEReconnectionIntegrationTest {
         if (responseRef.get() != null) {
             responseRef.get().request().connection().close();
             logger.info("🔌 Closed SSE connection for Test 1");
-            CompletableFuture<Void> delay = new CompletableFuture<>();
-            vertx.setTimer(500, id -> delay.complete(null));
-            delay.join();
+            Promise<Void> delay = Promise.promise();
+            vertx.setTimer(500, id -> delay.complete());
+            delay.future().await();
         }
         
         testContext.completeNow();
@@ -341,9 +342,9 @@ public class SSEReconnectionIntegrationTest {
         if (responseRef.get() != null) {
             responseRef.get().request().connection().close();
             logger.info("🔌 Closed SSE connection");
-            CompletableFuture<Void> delay = new CompletableFuture<>();
-            vertx.setTimer(500, id -> delay.complete(null));
-            delay.join();
+            Promise<Void> delay = Promise.promise();
+            vertx.setTimer(500, id -> delay.complete());
+            delay.future().await();
         }
 
         testContext.completeNow();
@@ -396,9 +397,9 @@ public class SSEReconnectionIntegrationTest {
         if (responseRef.get() != null) {
             responseRef.get().request().connection().close();
             logger.info("🔌 Closed SSE connection");
-            CompletableFuture<Void> delay = new CompletableFuture<>();
-            vertx.setTimer(500, id -> delay.complete(null));
-            delay.join();
+            Promise<Void> delay = Promise.promise();
+            vertx.setTimer(500, id -> delay.complete());
+            delay.future().await();
         }
 
         testContext.completeNow();

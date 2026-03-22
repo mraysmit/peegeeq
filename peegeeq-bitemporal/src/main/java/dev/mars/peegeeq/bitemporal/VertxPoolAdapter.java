@@ -20,6 +20,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.pgclient.PgBuilder;
@@ -199,7 +200,7 @@ public class VertxPoolAdapter {
      * Closes the shared Vertx instance. Delegates to PgBiTemporalEventStore.
      * This should only be called during application shutdown.
      */
-    public static void closeSharedVertx() {
-        PgBiTemporalEventStore.closeSharedVertx();
+    public static Future<Void> closeSharedVertx() {
+        return PgBiTemporalEventStore.closeSharedVertx();
     }
 }

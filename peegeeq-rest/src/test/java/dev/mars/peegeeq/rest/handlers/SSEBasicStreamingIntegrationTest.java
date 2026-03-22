@@ -7,6 +7,7 @@ import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpClient;
 import io.vertx.core.http.HttpClientRequest;
@@ -298,9 +299,9 @@ class SSEBasicStreamingIntegrationTest {
             responseRef.get().request().connection().close();
             logger.info("🔌 Closed SSE connection for Test 1");
             // Wait for connection to fully close
-            CompletableFuture<Void> delay = new CompletableFuture<>();
-            vertx.setTimer(500, id -> delay.complete(null));
-            delay.join();
+            Promise<Void> delay = Promise.promise();
+            vertx.setTimer(500, id -> delay.complete());
+            delay.future().await();
         }
 
         testContext.completeNow();
@@ -363,9 +364,9 @@ class SSEBasicStreamingIntegrationTest {
             responseRef.get().request().connection().close();
             logger.info("🔌 Closed SSE connection for Test 2");
             // Wait for connection to fully close
-            CompletableFuture<Void> delay = new CompletableFuture<>();
-            vertx.setTimer(500, id -> delay.complete(null));
-            delay.join();
+            Promise<Void> delay = Promise.promise();
+            vertx.setTimer(500, id -> delay.complete());
+            delay.future().await();
         }
 
         testContext.completeNow();
@@ -435,9 +436,9 @@ class SSEBasicStreamingIntegrationTest {
             responseRef.get().request().connection().close();
             logger.info("🔌 Closed SSE connection for Test 3");
             // Wait for connection to fully close
-            CompletableFuture<Void> delay = new CompletableFuture<>();
-            vertx.setTimer(500, id -> delay.complete(null));
-            delay.join();
+            Promise<Void> delay = Promise.promise();
+            vertx.setTimer(500, id -> delay.complete());
+            delay.future().await();
         }
 
         testContext.completeNow();
@@ -504,9 +505,9 @@ class SSEBasicStreamingIntegrationTest {
             responseRef.get().request().connection().close();
             logger.info("🔌 Closed SSE connection for Test 4");
             // Wait for connection to fully close
-            CompletableFuture<Void> delay = new CompletableFuture<>();
-            vertx.setTimer(500, id -> delay.complete(null));
-            delay.join();
+            Promise<Void> delay = Promise.promise();
+            vertx.setTimer(500, id -> delay.complete());
+            delay.future().await();
         }
 
         testContext.completeNow();

@@ -73,7 +73,7 @@ BiTemporalEvent<OrderEvent> event = eventStore.append(
 ).join();
 
 // Or use the reactive API with Vert.x Future
-Future<BiTemporalEvent<OrderEvent>> futureEvent = eventStore.appendReactive(
+Future<BiTemporalEvent<OrderEvent>> futureEvent = eventStore.append(
     "OrderCreated", order, validTime
 );
 ```
@@ -109,7 +109,7 @@ List<BiTemporalEvent<OrderEvent>> recentEvents = eventStore.query(
 ).join();
 
 // Reactive query with Vert.x Future
-Future<List<BiTemporalEvent<OrderEvent>>> futureEvents = eventStore.queryReactive(
+Future<List<BiTemporalEvent<OrderEvent>>> futureEvents = eventStore.query(
     EventQuery.forEventType("OrderCreated")
 );
 ```
@@ -186,7 +186,7 @@ eventStore.subscribe("*.created", event -> {  // Matches order.created, payment.
 }).join();
 
 // Reactive subscription with Vert.x Future
-Future<Void> subscription = eventStore.subscribeReactive("OrderCreated", event -> {
+Future<Void> subscription = eventStore.subscribe("OrderCreated", event -> {
     System.out.println("Reactive: " + event.getEventType());
     return CompletableFuture.completedFuture(null);
 });

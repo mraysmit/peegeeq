@@ -6,6 +6,7 @@ import dev.mars.peegeeq.rest.PeeGeeQRestServer;
 import dev.mars.peegeeq.runtime.PeeGeeQRuntime;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpClient;
 import io.vertx.core.http.HttpClientRequest;
@@ -214,16 +215,16 @@ public class SSEBatchingIntegrationTest {
             .onFailure(testContext::failNow);
         
         // Wait for connection to be established
-        CompletableFuture<Void> delay1 = new CompletableFuture<>();
-        vertx.setTimer(1000, id -> delay1.complete(null));
-        delay1.join();
+        Promise<Void> delay1 = Promise.promise();
+        vertx.setTimer(1000, id -> delay1.complete());
+        delay1.future().await();
         
         // Send exactly batchSize messages
         for (int i = 1; i <= batchSize; i++) {
             sendMessage(vertx, "batch-test-" + i, 100);
-            CompletableFuture<Void> delay2 = new CompletableFuture<>();
-            vertx.setTimer(100, id -> delay2.complete(null));
-            delay2.join();
+            Promise<Void> delay2 = Promise.promise();
+            vertx.setTimer(100, id -> delay2.complete());
+            delay2.future().await();
         }
         
         logger.info("✓ Sent {} messages via REST API", batchSize);
@@ -244,9 +245,9 @@ public class SSEBatchingIntegrationTest {
         
         // Close connection
         responseRef.get().request().connection().close();
-        CompletableFuture<Void> delay3 = new CompletableFuture<>();
-        vertx.setTimer(500, id -> delay3.complete(null));
-        delay3.join();
+        Promise<Void> delay3 = Promise.promise();
+        vertx.setTimer(500, id -> delay3.complete());
+        delay3.future().await();
         
         testContext.completeNow();
     }
@@ -304,18 +305,18 @@ public class SSEBatchingIntegrationTest {
             .onFailure(testContext::failNow);
 
         // Wait for connection to be established
-        CompletableFuture<Void> delay1 = new CompletableFuture<>();
-        vertx.setTimer(1000, id -> delay1.complete(null));
-        delay1.join();
+        Promise<Void> delay1 = Promise.promise();
+        vertx.setTimer(1000, id -> delay1.complete());
+        delay1.future().await();
 
         long sendStartTime = System.currentTimeMillis();
 
         // Send fewer messages than batch size
         for (int i = 1; i <= messagesToSend; i++) {
             sendMessage(vertx, "timeout-test-" + i, 200);
-            CompletableFuture<Void> delay2 = new CompletableFuture<>();
-            vertx.setTimer(100, id -> delay2.complete(null));
-            delay2.join();
+            Promise<Void> delay2 = Promise.promise();
+            vertx.setTimer(100, id -> delay2.complete());
+            delay2.future().await();
         }
 
         logger.info("✓ Sent {} messages (less than batch size {})", messagesToSend, batchSize);
@@ -340,9 +341,9 @@ public class SSEBatchingIntegrationTest {
 
         // Close connection
         responseRef.get().request().connection().close();
-        CompletableFuture<Void> delay3 = new CompletableFuture<>();
-        vertx.setTimer(500, id -> delay3.complete(null));
-        delay3.join();
+        Promise<Void> delay3 = Promise.promise();
+        vertx.setTimer(500, id -> delay3.complete());
+        delay3.future().await();
 
         testContext.completeNow();
     }
@@ -389,16 +390,16 @@ public class SSEBatchingIntegrationTest {
             .onFailure(testContext::failNow);
 
         // Wait for connection to be established
-        CompletableFuture<Void> delay1 = new CompletableFuture<>();
-        vertx.setTimer(1000, id -> delay1.complete(null));
-        delay1.join();
+        Promise<Void> delay1 = Promise.promise();
+        vertx.setTimer(1000, id -> delay1.complete());
+        delay1.future().await();
 
         // Send messages
         for (int i = 1; i <= messagesToSend; i++) {
             sendMessage(vertx, "single-test-" + i, 300);
-            CompletableFuture<Void> delay2 = new CompletableFuture<>();
-            vertx.setTimer(200, id -> delay2.complete(null));
-            delay2.join();
+            Promise<Void> delay2 = Promise.promise();
+            vertx.setTimer(200, id -> delay2.complete());
+            delay2.future().await();
         }
 
         logger.info("✓ Sent {} messages via REST API", messagesToSend);
@@ -415,9 +416,9 @@ public class SSEBatchingIntegrationTest {
 
         // Close connection
         responseRef.get().request().connection().close();
-        CompletableFuture<Void> delay3 = new CompletableFuture<>();
-        vertx.setTimer(500, id -> delay3.complete(null));
-        delay3.join();
+        Promise<Void> delay3 = Promise.promise();
+        vertx.setTimer(500, id -> delay3.complete());
+        delay3.future().await();
 
         testContext.completeNow();
     }
