@@ -189,7 +189,7 @@ class BiTemporalEventStoreExampleTest {
 
         // Create event store with unique table name for test isolation
         logger.info("Creating bi-temporal event store for TradeEvent");
-        BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager);
+        BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager.getVertx(), manager);
         eventStore = factory.createEventStore(TradeEvent.class, "bitemporal_event_log");
         logger.info("Bi-temporal event store created successfully");
         logger.info("=== Setup completed ===");

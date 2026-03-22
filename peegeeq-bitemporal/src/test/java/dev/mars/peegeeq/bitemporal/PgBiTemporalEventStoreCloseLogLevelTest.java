@@ -27,6 +27,7 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
+import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -72,13 +73,15 @@ class PgBiTemporalEventStoreCloseLogLevelTest {
     @SuppressWarnings("resource")
     static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
+    private Vertx vertx;
     private PeeGeeQManager manager;
     private PgBiTemporalEventStore<JsonObject> eventStore;
     private LogCaptureAppender logCapture;
     private ch.qos.logback.classic.Logger eventStoreLogger;
 
     @BeforeEach
-    void setUp(VertxTestContext testContext) throws InterruptedException {
+    void setUp(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
+        this.vertx = vertx;
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
 
         setSystemProperties();
@@ -96,7 +99,7 @@ class PgBiTemporalEventStoreCloseLogLevelTest {
         manager.start()
                 .compose(v -> {
                     eventStore = new PgBiTemporalEventStore<>(
-                            manager, JsonObject.class, "bitemporal_log_level_test",
+                            vertx, manager, JsonObject.class, "bitemporal_log_level_test",
                             new ObjectMapper());
                     return Future.succeededFuture();
                 })
@@ -176,7 +179,7 @@ class PgBiTemporalEventStoreCloseLogLevelTest {
         ownManager.start()
                 .compose(v -> {
                     PgBiTemporalEventStore<JsonObject> ownStore = new PgBiTemporalEventStore<>(
-                            ownManager, JsonObject.class, "bitemporal_log_level_test2",
+                            vertx, ownManager, JsonObject.class, "bitemporal_log_level_test2",
                             new ObjectMapper());
 
                     // Stop the database to cause close failures

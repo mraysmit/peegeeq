@@ -188,7 +188,7 @@ class TransactionPropagationHonestyTest {
                 .compose(v -> setupPool.close())
                 .compose(v -> manager.start())
                 .onSuccess(v -> {
-                    BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager);
+                    BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(vertx, manager);
                     eventStore = (PgBiTemporalEventStore<TestPayload>) factory.createEventStore(
                             TestPayload.class, "bitemporal_event_log");
                     testContext.completeNow();

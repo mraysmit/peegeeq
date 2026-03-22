@@ -145,7 +145,7 @@ class ReactiveNotificationTest {
         manager.start()
             .compose(v -> {
                 // Create factory and event store
-                factory = new BiTemporalEventStoreFactory(manager);
+                factory = new BiTemporalEventStoreFactory(vertx, manager);
                 eventStore = factory.createEventStore(TestEvent.class, "bitemporal_event_log");
 
                 // Warm up to activate reactive notification handler

@@ -174,7 +174,7 @@ public abstract class FundsCustodyTestBase {
         manager.start();
 
         // Create event stores
-        factory = new BiTemporalEventStoreFactory(manager);
+        factory = new BiTemporalEventStoreFactory(vertx, manager);
         tradeEventStore = factory.createEventStore(TradeEvent.class, "bitemporal_event_log");
         cancellationEventStore = factory.createEventStore(TradeCancelledEvent.class, "bitemporal_event_log");
         navEventStore = factory.createEventStore(NAVEvent.class, "bitemporal_event_log");

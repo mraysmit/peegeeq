@@ -104,7 +104,7 @@ public class FinancialFabricConfig {
             ObjectMapper cloudEventObjectMapper) {
 
         log.info("Creating Trading Event Store");
-        BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager, cloudEventObjectMapper);
+        BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager.getVertx(), manager, cloudEventObjectMapper);
         return (PgBiTemporalEventStore<TradeEvent>) factory.createEventStore(TradeEvent.class, "bitemporal_event_log");
     }
 
@@ -119,7 +119,7 @@ public class FinancialFabricConfig {
             ObjectMapper cloudEventObjectMapper) {
 
         log.info("Creating Settlement Event Store");
-        BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager, cloudEventObjectMapper);
+        BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager.getVertx(), manager, cloudEventObjectMapper);
         return (PgBiTemporalEventStore<SettlementInstructionEvent>) factory.createEventStore(SettlementInstructionEvent.class, "bitemporal_event_log");
     }
 
@@ -134,7 +134,7 @@ public class FinancialFabricConfig {
             ObjectMapper cloudEventObjectMapper) {
 
         log.info("Creating Cash Event Store");
-        BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager, cloudEventObjectMapper);
+        BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager.getVertx(), manager, cloudEventObjectMapper);
         return (PgBiTemporalEventStore<CashMovementEvent>) factory.createEventStore(CashMovementEvent.class, "bitemporal_event_log");
     }
 
@@ -149,7 +149,7 @@ public class FinancialFabricConfig {
             ObjectMapper cloudEventObjectMapper) {
 
         log.info("Creating Position Event Store");
-        BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager, cloudEventObjectMapper);
+        BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager.getVertx(), manager, cloudEventObjectMapper);
         return (PgBiTemporalEventStore<PositionUpdateEvent>) factory.createEventStore(PositionUpdateEvent.class, "bitemporal_event_log");
     }
 
@@ -164,7 +164,7 @@ public class FinancialFabricConfig {
             ObjectMapper cloudEventObjectMapper) {
 
         log.info("Creating Regulatory Event Store");
-        BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager, cloudEventObjectMapper);
+        BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager.getVertx(), manager, cloudEventObjectMapper);
         return (PgBiTemporalEventStore<RegulatoryReportEvent>) factory.createEventStore(RegulatoryReportEvent.class, "bitemporal_event_log");
     }
 

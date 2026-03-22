@@ -35,7 +35,6 @@ import io.vertx.core.DeploymentOptions;
 import io.vertx.core.Future;
 import io.vertx.core.ThreadingModel;
 import io.vertx.core.Vertx;
-import io.vertx.core.VertxOptions;
 import io.vertx.core.VerticleBase;
 import io.vertx.core.json.JsonObject;
 import io.vertx.pgclient.PgBuilder;
@@ -79,6 +78,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     private static final String DEFAULT_EVENT_BUS_CLIENT_KEY = "__default__";
     private static final String DB_OPERATION_ADDRESS_PREFIX = "peegeeq.database.operations.";
 
+    private final Vertx vertx;
     private final PeeGeeQManager peeGeeQManager;
     private final ObjectMapper objectMapper;
     private final Class<T> payloadType;
@@ -99,9 +99,6 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     // Performance monitoring
     private final SimplePerformanceMonitor performanceMonitor;
 
-    // Shared Vertx instance for proper context management
-    private static volatile Vertx sharedVertx;
-
     // Event-bus worker operations are routed by store instance key to avoid
     // cross-instance contamination when multiple event stores exist in one JVM.
     private static final Map<String, PgBiTemporalEventStore<?>> eventBusInstanceRegistry = new ConcurrentHashMap<>();
@@ -111,28 +108,31 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     /**
      * Creates a new PgBiTemporalEventStore with default pool.
      *
+     * @param vertx          The Vert.x instance (caller-owned, not closed by this class)
      * @param peeGeeQManager The PeeGeeQ manager for database access
      * @param payloadType    The class type of the event payload
      * @param tableName      The name of the database table to use for event storage
      * @param objectMapper   The JSON object mapper
      */
-    public PgBiTemporalEventStore(PeeGeeQManager peeGeeQManager, Class<T> payloadType,
+    public PgBiTemporalEventStore(Vertx vertx, PeeGeeQManager peeGeeQManager, Class<T> payloadType,
             String tableName, ObjectMapper objectMapper) {
-        this(peeGeeQManager, payloadType, tableName, objectMapper, null);
+        this(vertx, peeGeeQManager, payloadType, tableName, objectMapper, null);
     }
 
     /**
      * Creates a new PgBiTemporalEventStore with specified pool.
      *
+     * @param vertx          The Vert.x instance (caller-owned, not closed by this class)
      * @param peeGeeQManager The PeeGeeQ manager for database access
      * @param payloadType    The class type of the event payload
      * @param tableName      The name of the database table to use for event storage
      * @param objectMapper   The JSON object mapper
      * @param clientId       The client ID for pool lookup, or null for default pool
      */
-    public PgBiTemporalEventStore(PeeGeeQManager peeGeeQManager, Class<T> payloadType,
+    public PgBiTemporalEventStore(Vertx vertx, PeeGeeQManager peeGeeQManager, Class<T> payloadType,
             String tableName, ObjectMapper objectMapper, String clientId) {
         logger.debug("PgBiTemporalEventStore constructor starting for table: {}", tableName);
+        this.vertx = Objects.requireNonNull(vertx, "Vertx instance cannot be null");
         this.peeGeeQManager = Objects.requireNonNull(peeGeeQManager, "PeeGeeQ manager cannot be null");
         this.payloadType = Objects.requireNonNull(payloadType, "Payload type cannot be null");
         this.tableName = validateTableName(Objects.requireNonNull(tableName, "Table name cannot be null"));
@@ -156,7 +156,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             // Following peegeeq-native patterns - all dependencies required at construction
             String schema = peeGeeQManager.getConfiguration().getDatabaseConfig().getSchema();
             this.reactiveNotificationHandler = new ReactiveNotificationHandler<T>(
-                    getOrCreateSharedVertx(),
+                    this.vertx,
                     connectOptions, // Now passed at construction time
                     objectMapper,
                     payloadType,
@@ -343,11 +343,10 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 RETURNING event_id, transaction_time
                 """.formatted(quotedTableName);
 
-        Vertx vertx = getOrCreateSharedVertx();
         Pool pool = getOrCreateReactivePool();
 
         // Execute on Vert.x context for consistency with other operations
-        return executeOnVertxContext(vertx, () -> pool.preparedQuery(sql).executeBatch(batchParams)
+        return executeOnVertxContext(this.vertx, () -> pool.preparedQuery(sql).executeBatch(batchParams)
                 .map(rowSet -> {
                     List<BiTemporalEvent<T>> results = new ArrayList<>();
 
@@ -459,11 +458,10 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
             // Use cached reactive infrastructure
             Pool pool = getOrCreateReactivePool();
-            Vertx vertx = getOrCreateSharedVertx();
 
             // Own-transaction: starts a fresh transaction on the internal pool.
             // This does NOT participate in any externally-started transaction.
-            Future<BiTemporalEvent<T>> transactionFuture = executeOnVertxContext(vertx,
+            Future<BiTemporalEvent<T>> transactionFuture = executeOnVertxContext(this.vertx,
                     () -> pool.withTransaction(client -> {
                         String sql = """
                                 INSERT INTO %s
@@ -1529,7 +1527,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 reactivePool = PgBuilder.pool()
                         .with(poolOptions)
                         .connectingTo(connectOptions)
-                        .using(getOrCreateSharedVertx())
+                        .using(this.vertx)
                         .build();
 
                 // CRITICAL PERFORMANCE OPTIMIZATION: Create pooled SqlClient for pipelined
@@ -1539,7 +1537,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 pipelinedClient = PgBuilder.client()
                         .with(poolOptions)
                         .connectingTo(connectOptions)
-                        .using(getOrCreateSharedVertx())
+                        .using(this.vertx)
                         .build();
 
                 logger.info(
@@ -1548,7 +1546,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                         eventLoopSize > 0 ? eventLoopSize : "default", pipeliningLimit);
 
                 // Start performance monitoring with periodic logging
-                performanceMonitor.startPeriodicLogging(getOrCreateSharedVertx(), 10000); // Log every 10 seconds
+                performanceMonitor.startPeriodicLogging(this.vertx, 10000); // Log every 10 seconds
 
                 return reactivePool;
 
@@ -1620,60 +1618,12 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     }
 
     /**
-     * Gets or creates a shared Vertx instance for context management.
-     * This provides a consistent Vertx context for internal pool operations.
-     * Note: operations on this internal Vertx do not participate in transactions
-     * started on a different Vertx instance. For genuine transaction participation,
-     * use {@link #appendInTransaction} with an explicit SqlConnection.
+     * Returns the Vertx instance used by this event store.
      *
-     * @return The shared Vertx instance
+     * @return The Vertx instance
      */
-    static Vertx getOrCreateSharedVertx() {
-        if (sharedVertx == null) {
-            synchronized (PgBiTemporalEventStore.class) {
-                if (sharedVertx == null) {
-                    // CRITICAL PERFORMANCE FIX: Configure Vertx with optimized options for database
-                    // workloads
-                    VertxOptions vertxOptions = new VertxOptions();
-
-                    // Configure event loop pool size for database-intensive workloads
-                    int eventLoopSize;
-                    try {
-                        eventLoopSize = Integer.parseInt(System.getProperty("peegeeq.database.event.loop.size", "0"));
-                    } catch (NumberFormatException e) {
-                        logger.warn("Invalid peegeeq.database.event.loop.size value, using default 0");
-                        eventLoopSize = 0;
-                    }
-                    if (eventLoopSize > 0) {
-                        vertxOptions.setEventLoopPoolSize(eventLoopSize);
-                        logger.info("CRITICAL: Configured Vertx event loop pool size: {}", eventLoopSize);
-                    }
-
-                    // Configure worker pool size for blocking operations
-                    int workerPoolSize;
-                    try {
-                        workerPoolSize = Integer.parseInt(System.getProperty("peegeeq.database.worker.pool.size", "0"));
-                    } catch (NumberFormatException e) {
-                        logger.warn("Invalid peegeeq.database.worker.pool.size value, using default 0");
-                        workerPoolSize = 0;
-                    }
-                    if (workerPoolSize > 0) {
-                        vertxOptions.setWorkerPoolSize(workerPoolSize);
-                        logger.info("CRITICAL: Configured Vertx worker pool size: {}", workerPoolSize);
-                    }
-
-                    // Optimize for high-throughput database operations
-                    vertxOptions.setPreferNativeTransport(true);
-
-                    sharedVertx = Vertx.vertx(vertxOptions);
-                    logger.info(
-                            "Created HIGH-PERFORMANCE shared Vertx instance for bi-temporal event store (event-loops: {}, workers: {})",
-                            eventLoopSize > 0 ? eventLoopSize : "default",
-                            workerPoolSize > 0 ? workerPoolSize : "default");
-                }
-            }
-        }
-        return sharedVertx;
+    public Vertx getVertx() {
+        return vertx;
     }
 
     /**
@@ -1728,13 +1678,14 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      * This method should be called during application startup to maximize database
      * performance.
      *
+     * @param vertx     The Vert.x instance to deploy verticles on
      * @param instances Number of verticle instances to deploy (defaults to CPU
      *                  cores if <= 0)
      * @param tableName Table name to use for database operations
      * @return Future that completes when all verticles are deployed
      */
-    public static Future<String> deployDatabaseWorkerVerticles(int instances, String tableName) {
-        Vertx vertx = getOrCreateSharedVertx();
+    public static Future<String> deployDatabaseWorkerVerticles(Vertx vertx, int instances, String tableName) {
+        Objects.requireNonNull(vertx, "Vertx instance cannot be null");
         String normalizedTableName = validateTableName(tableName);
         String operationAddress = databaseOperationAddress(normalizedTableName);
 
@@ -1766,7 +1717,6 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      * This distributes the work across multiple event loops for maximum throughput.
      */
     private Future<JsonObject> sendDatabaseOperation(String targetTableName, JsonObject operation) {
-        Vertx vertx = getOrCreateSharedVertx();
         String operationAddress = databaseOperationAddress(targetTableName);
 
         // Generate unique request ID for tracking
@@ -1779,7 +1729,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         // Send operation to worker verticles via Event Bus
         // The Event Bus will automatically distribute requests across available
         // verticle instances
-        return vertx.eventBus().<JsonObject>request(operationAddress, operation)
+        return this.vertx.eventBus().<JsonObject>request(operationAddress, operation)
                 .map(message -> {
                     JsonObject result = message.body();
                     logger.debug("Database operation '{}' completed with requestId '{}'",
@@ -1954,26 +1904,6 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         }
     }
 
-    /**
-     * Closes the shared Vertx instance. This should only be called during
-     * application shutdown.
-     * Note: This is a static method that affects all PgBiTemporalEventStore
-     * instances.
-     */
-    public static Future<Void> closeSharedVertx() {
-        if (sharedVertx != null) {
-            synchronized (PgBiTemporalEventStore.class) {
-                if (sharedVertx != null) {
-                    Vertx ref = sharedVertx;
-                    sharedVertx = null;
-                    return ref.close()
-                            .onSuccess(v -> logger.info("Closed shared Vertx instance for bi-temporal event store"));
-                }
-            }
-        }
-        return Future.succeededFuture();
-    }
-
     private static String resolveEventBusClientKey(String clientId) {
         if (clientId == null || clientId.trim().isEmpty()) {
             return DEFAULT_EVENT_BUS_CLIENT_KEY;
@@ -2091,9 +2021,6 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     public static void clearCachedPools() {
         synchronized (PgBiTemporalEventStore.class) {
             eventBusInstanceRegistry.clear();
-
-            // Note: We don't close sharedVertx here as it may be in use by other components
-            // Individual instances will recreate their pools on next access
         }
     }
 

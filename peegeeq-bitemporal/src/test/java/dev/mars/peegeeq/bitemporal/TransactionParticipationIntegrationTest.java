@@ -23,6 +23,7 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
+import io.vertx.core.Vertx;
 import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnectOptions;
 
@@ -68,6 +69,7 @@ public class TransactionParticipationIntegrationTest {
     }
     
     private PeeGeeQManager peeGeeQManager;
+    private Vertx vertx;
     private PgBiTemporalEventStore<TestEvent> eventStore;
     
     @BeforeEach
@@ -93,8 +95,10 @@ public class TransactionParticipationIntegrationTest {
         peeGeeQManager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         peeGeeQManager.start();
 
+        vertx = Vertx.vertx();
+
         // Create the bitemporal event store using factory pattern
-        BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(peeGeeQManager);
+        BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(vertx, peeGeeQManager);
         eventStore = (PgBiTemporalEventStore<TestEvent>) factory.createEventStore(TestEvent.class, "bitemporal_event_log");
 
         // Create a test business table for transaction testing

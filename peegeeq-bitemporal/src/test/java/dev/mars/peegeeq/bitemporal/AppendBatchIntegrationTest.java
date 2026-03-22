@@ -149,7 +149,7 @@ class AppendBatchIntegrationTest {
         cleanupDatabase()
             .compose(v -> manager.start())
             .compose(v -> {
-                factory = new BiTemporalEventStoreFactory(manager);
+                factory = new BiTemporalEventStoreFactory(vertx, manager);
                 eventStore = (PgBiTemporalEventStore<TestEvent>) factory.createEventStore(TestEvent.class, "bitemporal_event_log");
                 return Future.succeededFuture();
             })

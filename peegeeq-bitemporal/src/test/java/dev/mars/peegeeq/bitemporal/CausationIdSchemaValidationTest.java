@@ -35,6 +35,7 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 
@@ -75,6 +76,7 @@ public class CausationIdSchemaValidationTest {
         return container;
     }
     
+    private Vertx vertx;
     private PeeGeeQManager peeGeeQManager;
     private PgBiTemporalEventStore<Map<String, Object>> eventStore;
 
@@ -84,7 +86,8 @@ public class CausationIdSchemaValidationTest {
     }
     
     @BeforeEach
-    void setUp(VertxTestContext testContext) throws Exception {
+    void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
+        this.vertx = vertx;
         logger.info("🧪 Setting up CausationIdSchemaValidationTest");
 
         // Initialize database schema using centralized schema initializer
@@ -106,7 +109,7 @@ public class CausationIdSchemaValidationTest {
         peeGeeQManager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         peeGeeQManager.start()
                 .map(v -> {
-                    BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(peeGeeQManager);
+                    BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(vertx, peeGeeQManager);
                     Class<Map<String, Object>> mapClass = mapClass();
                     eventStore = (PgBiTemporalEventStore<Map<String, Object>>) factory.createEventStore(mapClass, "bitemporal_event_log");
                     logger.info("Setup completed successfully");

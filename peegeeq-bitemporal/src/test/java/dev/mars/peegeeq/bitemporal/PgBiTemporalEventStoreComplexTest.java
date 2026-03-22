@@ -177,7 +177,7 @@ class PgBiTemporalEventStoreComplexTest {
             .compose(v -> setupPool.close())
             .compose(v -> manager.start())
             .onSuccess(v -> {
-                factory = new BiTemporalEventStoreFactory(manager);
+                factory = new BiTemporalEventStoreFactory(vertx, manager);
                 eventStore = (PgBiTemporalEventStore<TestEvent>) factory.createEventStore(TestEvent.class, "bitemporal_event_log");
                 testContext.completeNow();
             })
@@ -568,7 +568,7 @@ class PgBiTemporalEventStoreComplexTest {
         String correlationId = "corr-eb-" + System.nanoTime();
         String causationId = "cause-eb-" + System.nanoTime();
 
-        PgBiTemporalEventStore.deployDatabaseWorkerVerticles(1, "bitemporal_event_log")
+        PgBiTemporalEventStore.deployDatabaseWorkerVerticles(vertx, 1, "bitemporal_event_log")
             .compose(v -> eventStore.appendBuilder()
                 .eventType("EventBusCausation")
                 .payload(new TestEvent("evt-bus", "payload", 77))

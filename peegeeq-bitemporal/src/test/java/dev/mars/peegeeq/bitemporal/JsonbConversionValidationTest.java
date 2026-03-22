@@ -25,6 +25,7 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
+import io.vertx.core.Vertx;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.*;
@@ -68,12 +69,14 @@ class JsonbConversionValidationTest {
         return container;
     }
 
+    private Vertx vertx;
     private PeeGeeQManager manager;
     private PgBiTemporalEventStore<TestEvent> eventStore;
     private final Map<String, String> originalProperties = new HashMap<>();
 
     @BeforeEach
-    void setUp(VertxTestContext testContext) throws Exception {
+    void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
+        this.vertx = vertx;
         // Set system properties for test configuration
         setTestProperty("peegeeq.database.host", postgres.getHost());
         setTestProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
@@ -92,7 +95,7 @@ class JsonbConversionValidationTest {
         manager.start()
             .compose(v -> initializeSchema())
                 .map(v -> {
-                    eventStore = new PgBiTemporalEventStore<>(manager, TestEvent.class, "test_events", new ObjectMapper());
+                    eventStore = new PgBiTemporalEventStore<>(vertx, manager, TestEvent.class, "test_events", new ObjectMapper());
                     logger.info("Test setup complete - Bi-temporal event store ready for JSONB validation");
                     return (Void) null;
                 })

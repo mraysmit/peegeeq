@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
+import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
@@ -73,6 +74,7 @@ class VersionLineageIntegrationTest {
         return container;
     }
 
+    private Vertx vertx;
     private PeeGeeQManager peeGeeQManager;
     private PgBiTemporalEventStore<Map<String, Object>> eventStore;
 
@@ -82,7 +84,8 @@ class VersionLineageIntegrationTest {
     }
 
     @BeforeEach
-    void setUp(VertxTestContext testContext) throws Exception {
+    void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
+        this.vertx = vertx;
         PeeGeeQTestSchemaInitializer.cleanupTestData(postgres, SchemaComponent.BITEMPORAL);
         testContext.completeNow();
     }
@@ -131,7 +134,7 @@ class VersionLineageIntegrationTest {
         return peeGeeQManager.start()
             .map(v -> {
                 eventStore = new PgBiTemporalEventStore<>(
-                    peeGeeQManager, mapClass(), "bitemporal_event_log", new ObjectMapper());
+                    vertx, peeGeeQManager, mapClass(), "bitemporal_event_log", new ObjectMapper());
                 return eventStore;
             });
     }
