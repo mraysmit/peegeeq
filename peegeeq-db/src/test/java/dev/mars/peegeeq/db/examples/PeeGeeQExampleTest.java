@@ -21,6 +21,9 @@ import dev.mars.peegeeq.db.SharedPostgresTestExtension;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -30,9 +33,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -49,14 +50,12 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests demonstrate comprehensive PeeGeeQ production deployment patterns.
  */
 @Tag(TestCategories.INTEGRATION)
-@ExtendWith(SharedPostgresTestExtension.class)
+@ExtendWith({SharedPostgresTestExtension.class, VertxExtension.class})
 public class PeeGeeQExampleTest {
 
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQExampleTest.class);
 
     private PeeGeeQManager manager;
-    private ExecutorService executorService;
-    private ScheduledExecutorService scheduledExecutorService;
 
     @BeforeEach
     void setUp() {
@@ -64,37 +63,27 @@ public class PeeGeeQExampleTest {
 
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
-        // Configure system properties for container
         configureSystemPropertiesForContainer(postgres);
-        
-        // Initialize services
-        executorService = Executors.newFixedThreadPool(4);
-        scheduledExecutorService = Executors.newScheduledThreadPool(2);
         
         logger.info("✓ PeeGeeQ Example Test setup completed");
     }
     
     @AfterEach
-    void tearDown() {
+    void tearDown(VertxTestContext testContext) throws InterruptedException {
         logger.info("Tearing down PeeGeeQ Example Test");
         
         if (manager != null) {
-            try {
-                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
-            } catch (Exception e) {
-                logger.warn("Error closing PeeGeeQ Manager", e);
-            }
+            manager.closeReactive()
+                .recover(t -> Future.succeededFuture())
+                .onComplete(v -> {
+                    logger.info("✓ PeeGeeQ Example Test teardown completed");
+                    testContext.completeNow();
+                });
+        } else {
+            logger.info("✓ PeeGeeQ Example Test teardown completed");
+            testContext.completeNow();
         }
-        
-        if (executorService != null) {
-            executorService.shutdown();
-        }
-        
-        if (scheduledExecutorService != null) {
-            scheduledExecutorService.shutdown();
-        }
-        
-        logger.info("✓ PeeGeeQ Example Test teardown completed");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -102,34 +91,31 @@ public class PeeGeeQExampleTest {
      * Validates health checks, metrics, and monitoring capabilities
      */
     @Test
-    void testProductionReadinessFeatures() throws Exception {
+    void testProductionReadinessFeatures(VertxTestContext testContext) throws InterruptedException {
         logger.info("=== Testing Production Readiness Features ===");
         
-        // Initialize PeeGeeQ Manager with production configuration
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
-        
-        // Start the manager
-        manager.start();
-        logger.info("PeeGeeQ Manager started successfully");
-        
-        // Test health checks
-        PeeGeeQManager.SystemStatus systemStatus = manager.getSystemStatus()
-            .toCompletionStage().toCompletableFuture().join();
-        assertNotNull(systemStatus, "System status should not be null");
-        assertNotNull(systemStatus.getHealthStatus(), "Health status should not be null");
-        logger.info("Health status retrieved: {}", systemStatus.getHealthStatus().getStatus());
+        manager.start()
+            .compose(v -> manager.getSystemStatus())
+            .onSuccess(systemStatus -> testContext.verify(() -> {
+                assertNotNull(systemStatus, "System status should not be null");
+                assertNotNull(systemStatus.getHealthStatus(), "Health status should not be null");
+                logger.info("Health status retrieved: {}", systemStatus.getHealthStatus().getStatus());
 
-        // Test metrics
-        assertNotNull(systemStatus.getMetricsSummary(), "Metrics summary should not be null");
-        logger.info("Metrics system operational");
-        
-        // Test configuration
-        PeeGeeQConfiguration config = manager.getConfiguration();
-        assertNotNull(config, "Configuration should not be null");
-        assertEquals("test", config.getProfile());
-        logger.info("Configuration validated for profile: {}", config.getProfile());
-        
-        logger.info("Production readiness features validated successfully");
+                assertNotNull(systemStatus.getMetricsSummary(), "Metrics summary should not be null");
+                logger.info("Metrics system operational");
+                
+                PeeGeeQConfiguration config = manager.getConfiguration();
+                assertNotNull(config, "Configuration should not be null");
+                assertEquals("test", config.getProfile());
+                logger.info("Configuration validated for profile: {}", config.getProfile());
+                
+                logger.info("Production readiness features validated successfully");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -192,23 +178,32 @@ public class PeeGeeQExampleTest {
      * Validates all PeeGeeQ capabilities in a production-like environment
      */
     @Test
-    void testFeatureDemonstrations() throws Exception {
+    void testFeatureDemonstrations(VertxTestContext testContext) throws InterruptedException {
         logger.info("=== Testing Feature Demonstrations ===");
         
-        // Initialize and start PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
-        manager.start();
-        
-        // Demonstrate health monitoring
-        demonstrateHealthMonitoring();
-        
-        // Demonstrate metrics collection
-        demonstrateMetricsCollection();
-        
-        // Demonstrate configuration features
-        demonstrateConfigurationFeatures();
-        
-        logger.info("Feature demonstrations validated successfully");
+        manager.start()
+            .compose(v -> manager.getSystemStatus())
+            .onSuccess(systemStatus -> testContext.verify(() -> {
+                // Health monitoring
+                assertNotNull(systemStatus.getHealthStatus());
+                logger.info("Health monitoring demonstrated: {}", systemStatus.getHealthStatus().getStatus());
+                
+                // Metrics collection
+                assertNotNull(systemStatus.getMetricsSummary());
+                logger.info("Metrics collection demonstrated");
+                
+                // Configuration
+                PeeGeeQConfiguration config = manager.getConfiguration();
+                assertNotNull(config);
+                logger.info("Configuration features demonstrated for profile: {}", config.getProfile());
+                
+                logger.info("Feature demonstrations validated successfully");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     // Helper methods that replicate the original example's functionality
@@ -262,38 +257,6 @@ public class PeeGeeQExampleTest {
         assertNotNull(System.getProperty("peegeeq.database.name"));
         assertEquals("true", System.getProperty("peegeeq.metrics.enabled"));
         assertEquals("true", System.getProperty("peegeeq.health.enabled"));
-    }
-    
-    /**
-     * Demonstrates health monitoring capabilities.
-     */
-    private void demonstrateHealthMonitoring() {
-        logger.info("Demonstrating health monitoring...");
-        PeeGeeQManager.SystemStatus systemStatus = manager.getSystemStatus()
-            .toCompletionStage().toCompletableFuture().join();
-        assertNotNull(systemStatus.getHealthStatus());
-        logger.info("Health monitoring demonstrated: {}", systemStatus.getHealthStatus().getStatus());
-    }
-    
-    /**
-     * Demonstrates metrics collection capabilities.
-     */
-    private void demonstrateMetricsCollection() {
-        logger.info("Demonstrating metrics collection...");
-        PeeGeeQManager.SystemStatus systemStatus = manager.getSystemStatus()
-            .toCompletionStage().toCompletableFuture().join();
-        assertNotNull(systemStatus.getMetricsSummary());
-        logger.info("Metrics collection demonstrated");
-    }
-    
-    /**
-     * Demonstrates configuration features.
-     */
-    private void demonstrateConfigurationFeatures() {
-        logger.info("Demonstrating configuration features...");
-        PeeGeeQConfiguration config = manager.getConfiguration();
-        assertNotNull(config);
-        logger.info("Configuration features demonstrated for profile: {}", config.getProfile());
     }
 }
 

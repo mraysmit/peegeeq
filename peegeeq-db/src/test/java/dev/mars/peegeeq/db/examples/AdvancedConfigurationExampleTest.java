@@ -5,6 +5,9 @@ import dev.mars.peegeeq.db.SharedPostgresTestExtension;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -16,6 +19,7 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.junit.jupiter.api.parallel.Isolated;
 
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -35,7 +39,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.INTEGRATION)
 @Isolated // Avoids parallel interference on System properties used by this example
-@ExtendWith(SharedPostgresTestExtension.class)
+@ExtendWith({SharedPostgresTestExtension.class, VertxExtension.class})
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
 public class AdvancedConfigurationExampleTest {
 
@@ -49,7 +53,7 @@ public class AdvancedConfigurationExampleTest {
     private static final String MONITORING_ENABLED_KEY = "PEEGEEQ_MONITORING_ENABLED";
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp() {
         logger.info("Setting up Advanced Configuration Example Test");
 
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
@@ -67,17 +71,23 @@ public class AdvancedConfigurationExampleTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) throws InterruptedException {
         logger.info("Tearing down Advanced Configuration Example Test");
 
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive()
+                .recover(t -> Future.succeededFuture())
+                .onComplete(v -> {
+                    clearTestProperties();
+                    logger.info("✓ Advanced Configuration Example Test teardown completed");
+                    testContext.completeNow();
+                });
+        } else {
+            clearTestProperties();
+            logger.info("✓ Advanced Configuration Example Test teardown completed");
+            testContext.completeNow();
         }
-
-        // Clear all test properties
-        clearTestProperties();
-
-        logger.info("✓ Advanced Configuration Example Test teardown completed");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -205,44 +215,55 @@ public class AdvancedConfigurationExampleTest {
      * Validates database connection pool optimization and tuning
      */
     @Test
-    void testDatabaseConnectionPooling() throws Exception {
+    void testDatabaseConnectionPooling(VertxTestContext testContext) throws InterruptedException {
         logger.info("=== Testing Database Connection Pooling ===");
 
-        // Test different pool configurations
         String[] environments = {"development", "staging", "production"};
 
+        Future<Void> chain = Future.succeededFuture();
         for (String environment : environments) {
-            logger.info("--- Testing {} Pool Configuration ---", environment.toUpperCase());
+            chain = chain.compose(v -> {
+                logger.info("--- Testing {} Pool Configuration ---", environment.toUpperCase());
 
-            // Configure for specific environment
-            System.setProperty("peegeeq.database.pool.min-size", String.valueOf(getMinPoolSize(environment)));
-            System.setProperty("peegeeq.database.pool.max-size", String.valueOf(getMaxPoolSize(environment)));
-            System.setProperty("peegeeq.database.pool.connection-timeout", String.valueOf(getConnectionTimeout(environment)));
-            System.setProperty("peegeeq.database.pool.idle-timeout", String.valueOf(getIdleTimeout(environment)));
-            System.setProperty("peegeeq.database.pool.max-lifetime", String.valueOf(getMaxLifetime(environment)));
+                System.setProperty("peegeeq.database.pool.min-size", String.valueOf(getMinPoolSize(environment)));
+                System.setProperty("peegeeq.database.pool.max-size", String.valueOf(getMaxPoolSize(environment)));
+                System.setProperty("peegeeq.database.pool.connection-timeout", String.valueOf(getConnectionTimeout(environment)));
+                System.setProperty("peegeeq.database.pool.idle-timeout", String.valueOf(getIdleTimeout(environment)));
+                System.setProperty("peegeeq.database.pool.max-lifetime", String.valueOf(getMaxLifetime(environment)));
 
-            // Initialize PeeGeeQ Manager with pool configuration
-            PeeGeeQConfiguration config = new PeeGeeQConfiguration(environment);
-            manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-            manager.start();
+                PeeGeeQConfiguration config = new PeeGeeQConfiguration(environment);
+                manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
+                return manager.start()
+                    .compose(started -> {
+                        testContext.verify(() -> {
+                            assertNotNull(manager, "PeeGeeQ Manager should be initialized");
+                            assertTrue(manager.isStarted(), "PeeGeeQ Manager should be started");
+                        });
 
-            // Validate pool is working
-            assertNotNull(manager, "PeeGeeQ Manager should be initialized");
-            assertTrue(manager.isStarted(), "PeeGeeQ Manager should be started");
+                        logger.info("{} Pool Configuration validated:", environment);
+                        logger.info("   Min Pool Size: {}", getMinPoolSize(environment));
+                        logger.info("   Max Pool Size: {}", getMaxPoolSize(environment));
+                        logger.info("   Connection Timeout: {}ms", getConnectionTimeout(environment));
+                        logger.info("   Idle Timeout: {}ms", getIdleTimeout(environment));
+                        logger.info("   Max Lifetime: {}ms", getMaxLifetime(environment));
 
-            logger.info("{} Pool Configuration validated:", environment);
-            logger.info("   Min Pool Size: {}", getMinPoolSize(environment));
-            logger.info("   Max Pool Size: {}", getMaxPoolSize(environment));
-            logger.info("   Connection Timeout: {}ms", getConnectionTimeout(environment));
-            logger.info("   Idle Timeout: {}ms", getIdleTimeout(environment));
-            logger.info("   Max Lifetime: {}ms", getMaxLifetime(environment));
-
-            // Cleanup for next iteration
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
-            manager = null;
+                        return manager.closeReactive();
+                    })
+                    .compose(closed -> {
+                        manager = null;
+                        return Future.succeededFuture();
+                    });
+            });
         }
 
-        logger.info("Database connection pooling validated successfully");
+        chain
+            .onSuccess(v -> {
+                logger.info("Database connection pooling validated successfully");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
     }
 
     /**
