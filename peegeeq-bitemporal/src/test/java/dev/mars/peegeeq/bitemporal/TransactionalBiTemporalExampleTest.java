@@ -29,6 +29,7 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
+import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Pool;
@@ -86,13 +87,15 @@ public class TransactionalBiTemporalExampleTest {
             .withSharedMemorySize(256 * 1024 * 1024L) // 256MB shared memory
             .withCommand("postgres", "-c", "max_connections=300", "-c", "fsync=off", "-c", "synchronous_commit=off"); // Performance optimizations for tests
 
+    private static Vertx vertx;
     private static PeeGeeQManager peeGeeQManager;
     private static EventStore<OrderEvent> orderEventStore;
     private static EventStore<PaymentEvent> paymentEventStore;
     private static final Map<String, String> originalProperties = new HashMap<>();
 
     @BeforeAll
-    static void setUpClass(VertxTestContext testContext) throws Exception {
+    static void setUpClass(Vertx vertx, VertxTestContext testContext) throws Exception {
+        TransactionalBiTemporalExampleTest.vertx = vertx;
         logger.info("=== Setting up Transactional Bi-Temporal Example Test ===");
 
         // Configure PeeGeeQ to use container database
@@ -113,7 +116,7 @@ public class TransactionalBiTemporalExampleTest {
         peeGeeQManager.start()
             .onSuccess(v -> {
                 logger.info("PeeGeeQ Manager started successfully");
-                BiTemporalEventStoreFactory eventStoreFactory = new BiTemporalEventStoreFactory(peeGeeQManager);
+                BiTemporalEventStoreFactory eventStoreFactory = new BiTemporalEventStoreFactory(vertx, peeGeeQManager);
                 orderEventStore = eventStoreFactory.createEventStore(OrderEvent.class, "bitemporal_event_log");
                 paymentEventStore = eventStoreFactory.createEventStore(PaymentEvent.class, "bitemporal_event_log");
                 logger.info("Transactional Bi-Temporal Example Test setup completed");

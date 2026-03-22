@@ -11,6 +11,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
+import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
@@ -57,6 +58,7 @@ class PgBiTemporalEventStorePerformanceTest {
             .withSharedMemorySize(256 * 1024 * 1024L)
             .withReuse(false);
 
+    private Vertx vertx;
     private PeeGeeQManager peeGeeQManager;
     private PgBiTemporalEventStore<Map<String, Object>> eventStore;
     private final Map<String, String> originalProperties = new HashMap<>();
@@ -70,7 +72,8 @@ class PgBiTemporalEventStorePerformanceTest {
     }
 
     @BeforeEach
-    void setUp(VertxTestContext testContext) throws Exception {
+    void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
+        this.vertx = vertx;
         logger.info("Setting up performance test...");
         configureSystemPropertiesForContainer(postgres);
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
@@ -79,7 +82,7 @@ class PgBiTemporalEventStorePerformanceTest {
         peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
         peeGeeQManager.start()
             .onSuccess(v -> {
-                eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass(), "perf_test_events", new ObjectMapper());
+                eventStore = new PgBiTemporalEventStore<>(vertx, peeGeeQManager, mapClass(), "perf_test_events", new ObjectMapper());
                 logger.info("Performance test setup completed");
                 testContext.completeNow();
             })

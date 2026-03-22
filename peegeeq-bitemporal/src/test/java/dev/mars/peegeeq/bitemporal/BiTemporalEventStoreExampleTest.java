@@ -27,6 +27,7 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
+import io.vertx.core.Vertx;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -102,11 +103,13 @@ class BiTemporalEventStoreExampleTest {
         .withSharedMemorySize(256 * 1024 * 1024L) // 256MB shared memory
         .withCommand("postgres", "-c", "max_connections=300", "-c", "fsync=off", "-c", "synchronous_commit=off"); // Performance optimizations for tests
     
+    private Vertx vertx;
     private PeeGeeQManager manager;
     private EventStore<OrderEvent> eventStore;
 
     @BeforeEach
-    void setUp(VertxTestContext testContext) throws Exception {
+    void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
+        this.vertx = vertx;
         logger.info("=== Setting up Bi-Temporal Event Store Example Test ===");
 
         // Configure PeeGeeQ to use container database
@@ -130,7 +133,7 @@ class BiTemporalEventStoreExampleTest {
         manager.start()
                 .compose(v -> {
                     logger.info("PeeGeeQ Manager started successfully");
-                    BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager);
+                    BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(vertx, manager);
                     eventStore = factory.createEventStore(OrderEvent.class, "bitemporal_event_log");
                     return cleanupDatabase();
                 })

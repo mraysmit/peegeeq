@@ -26,6 +26,7 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
+import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
@@ -78,11 +79,13 @@ class VertxPerformanceOptimizationValidationTest {
         return container;
     }
 
+    private Vertx vertx;
     private PeeGeeQManager manager;
     private PgBiTemporalEventStore<TestEvent> eventStore;
 
     @BeforeEach
-    void setUp(VertxTestContext testContext) {
+    void setUp(Vertx vertx, VertxTestContext testContext) {
+        this.vertx = vertx;
         logger.info("Setting up Vert.x 5.x performance optimization validation test");
 
         // Set database connection properties from TestContainers
@@ -113,7 +116,7 @@ class VertxPerformanceOptimizationValidationTest {
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start()
             .onSuccess(v -> {
-                eventStore = new PgBiTemporalEventStore<>(manager, TestEvent.class, "bitemporal_event_log", new ObjectMapper());
+                eventStore = new PgBiTemporalEventStore<>(vertx, manager, TestEvent.class, "bitemporal_event_log", new ObjectMapper());
                 logger.info("Test setup completed with optimized configuration");
                 testContext.completeNow();
             })

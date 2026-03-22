@@ -88,6 +88,7 @@ class EventBusDistributionSemanticGapsTest {
         return container;
     }
 
+    private Vertx vertx;
     private PeeGeeQManager manager;
     /**
      * Single event store instance used by all tests.
@@ -148,7 +149,8 @@ class EventBusDistributionSemanticGapsTest {
     }
 
     @BeforeEach
-    void setUp(VertxTestContext testContext) throws Exception {
+    void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
+        this.vertx = vertx;
         // Ensure event bus distribution is OFF during setup
         System.clearProperty("peegeeq.database.use.event.bus.distribution");
 
@@ -184,13 +186,13 @@ class EventBusDistributionSemanticGapsTest {
                             .compose(r -> setupPool.close());
                 })
                 .compose(v -> {
-                    BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager);
+                    BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(vertx, manager);
                     eventStore = (PgBiTemporalEventStore<TestPayload>) factory.createEventStore(
                             TestPayload.class, "bitemporal_event_log");
 
                     // Deploy worker verticles on the manager's Vertx for event-bus tests
                     return PgBiTemporalEventStore.deployDatabaseWorkerVerticles(
-                            1, "bitemporal_event_log");
+                            vertx, 1, "bitemporal_event_log");
                 })
                 .onSuccess(v -> {
                     workersDeployed = true;

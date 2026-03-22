@@ -20,7 +20,6 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
-import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.pgclient.PgBuilder;
@@ -50,25 +49,14 @@ public class VertxPoolAdapter {
     private volatile Pool pool;
 
     /**
-     * Creates a new VertxPoolAdapter with a shared Vertx instance.
-     *
-     * @param peeGeeQManager The PeeGeeQ manager to extract configuration from
-     */
-    public VertxPoolAdapter(PeeGeeQManager peeGeeQManager) {
-        this.vertx = PgBiTemporalEventStore.getOrCreateSharedVertx();
-        this.peeGeeQManager = peeGeeQManager;
-        logger.debug("Created VertxPoolAdapter for bi-temporal event store");
-    }
-
-    /**
      * Creates a new VertxPoolAdapter with explicit Vertx instance.
      *
      * @param vertx The Vertx instance to use
      * @param peeGeeQManager The PeeGeeQ manager to extract configuration from
      */
     public VertxPoolAdapter(Vertx vertx, PeeGeeQManager peeGeeQManager) {
-        this.vertx = vertx;
-        this.peeGeeQManager = peeGeeQManager;
+        this.vertx = java.util.Objects.requireNonNull(vertx, "Vertx instance cannot be null");
+        this.peeGeeQManager = java.util.Objects.requireNonNull(peeGeeQManager, "PeeGeeQManager cannot be null");
         logger.debug("Created VertxPoolAdapter with explicit Vertx instance");
     }
 
@@ -194,13 +182,5 @@ public class VertxPoolAdapter {
                     .onSuccess(v -> logger.debug("Vert.x pool closed gracefully for bi-temporal event store"))
                     .onFailure(error -> logger.warn("Bi-temporal pool close failed: {}", error.getMessage()));
         }
-    }
-
-    /**
-     * Closes the shared Vertx instance. Delegates to PgBiTemporalEventStore.
-     * This should only be called during application shutdown.
-     */
-    public static Future<Void> closeSharedVertx() {
-        return PgBiTemporalEventStore.closeSharedVertx();
     }
 }

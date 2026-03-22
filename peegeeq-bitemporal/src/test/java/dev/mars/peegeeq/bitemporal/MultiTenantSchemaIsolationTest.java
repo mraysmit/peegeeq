@@ -29,6 +29,7 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
+import io.vertx.core.Vertx;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
@@ -72,13 +73,15 @@ class MultiTenantSchemaIsolationTest {
         return container;
     }
 
+    private Vertx vertx;
     private PeeGeeQManager managerTenantA;
     private PeeGeeQManager managerTenantB;
     private BiTemporalEventStoreFactory factoryTenantA;
     private BiTemporalEventStoreFactory factoryTenantB;
 
     @BeforeEach
-    void setUp(VertxTestContext testContext) {
+    void setUp(Vertx vertx, VertxTestContext testContext) {
+        this.vertx = vertx;
         logger.info("========== SETUP STARTING ==========");
 
         // Initialize two separate tenant schemas
@@ -124,8 +127,8 @@ class MultiTenantSchemaIsolationTest {
         managerTenantA.start()
                 .compose(v -> managerTenantB.start())
                 .map(v -> {
-                    factoryTenantA = new BiTemporalEventStoreFactory(managerTenantA, objectMapper);
-                    factoryTenantB = new BiTemporalEventStoreFactory(managerTenantB, objectMapper);
+                    factoryTenantA = new BiTemporalEventStoreFactory(vertx, managerTenantA, objectMapper);
+                    factoryTenantB = new BiTemporalEventStoreFactory(vertx, managerTenantB, objectMapper);
                     logger.info("========== SETUP COMPLETED ==========");
                     return (Void) null;
                 })

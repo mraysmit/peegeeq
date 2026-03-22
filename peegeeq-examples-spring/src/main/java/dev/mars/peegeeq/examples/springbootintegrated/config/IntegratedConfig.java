@@ -148,7 +148,7 @@ public class IntegratedConfig {
     @Bean
     public BiTemporalEventStoreFactory biTemporalEventStoreFactory(PeeGeeQManager manager) {
         logger.info("Creating BiTemporalEventStoreFactory");
-        return new BiTemporalEventStoreFactory(manager);
+        return new BiTemporalEventStoreFactory(manager.getVertx(), manager);
     }
     
     /**

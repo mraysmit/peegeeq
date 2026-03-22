@@ -90,7 +90,7 @@ public final class PeeGeeQRuntime {
         PeeGeeQDatabaseSetupService delegate;
         if (config.isBiTemporalEventStoreEnabled()) {
             delegate = new PeeGeeQDatabaseSetupService(
-                    manager -> new BiTemporalEventStoreFactory(manager)
+                    manager -> new BiTemporalEventStoreFactory(manager.getVertx(), manager)
             );
             logger.debug("Bi-temporal event store factory enabled");
         } else {

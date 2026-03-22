@@ -131,7 +131,7 @@ public class BiTemporalTxConfig {
     @Bean
     public BiTemporalEventStoreFactory eventStoreFactory(PeeGeeQManager manager) {
         logger.info("Creating BiTemporalEventStoreFactory for multi-store coordination");
-        BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager);
+        BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager.getVertx(), manager);
         logger.info("BiTemporalEventStoreFactory created successfully");
         return factory;
     }

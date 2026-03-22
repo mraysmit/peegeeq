@@ -88,7 +88,7 @@ class BiTemporalPerformanceParityTest {
         cleanupDatabase()
             .compose(v -> manager.start())
             .compose(v -> {
-                BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager);
+                BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(vertx, manager);
                 eventStore = (PgBiTemporalEventStore<Map<String, Object>>) factory.createEventStore(mapClass(), "bitemporal_event_log");
                 return Future.succeededFuture();
             })

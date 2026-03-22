@@ -27,6 +27,7 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
+import io.vertx.core.Vertx;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -74,12 +75,14 @@ class BiTemporalQueryEdgeCasesTest {
         return container;
     }
     
+    private Vertx vertx;
     private PeeGeeQManager manager;
     private BiTemporalEventStoreFactory eventStoreFactory;
     private EventStore<OrderEvent> eventStore;
     
     @BeforeEach
-    void setUp(VertxTestContext testContext) throws Exception {
+    void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
+        this.vertx = vertx;
         logger.info("Setting up bi-temporal query edge cases test...");
         
         // Set system properties for PeeGeeQ configuration - following exact pattern
@@ -105,7 +108,7 @@ class BiTemporalQueryEdgeCasesTest {
         manager.start()
                 .map(v -> {
                     logger.info("PeeGeeQ Manager started");
-                    eventStoreFactory = new BiTemporalEventStoreFactory(manager);
+                    eventStoreFactory = new BiTemporalEventStoreFactory(vertx, manager);
                     eventStore = eventStoreFactory.createEventStore(OrderEvent.class, "bitemporal_event_log");
                     logger.info("Bi-temporal event store created");
                     logger.info("Bi-temporal query edge cases test setup completed");

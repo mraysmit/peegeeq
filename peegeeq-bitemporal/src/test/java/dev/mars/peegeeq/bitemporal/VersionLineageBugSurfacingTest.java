@@ -169,7 +169,7 @@ class VersionLineageBugSurfacingTest {
                 .compose(v -> setupPool.close())
                 .compose(v -> manager.start())
                 .onSuccess(v -> {
-                    factory = new BiTemporalEventStoreFactory(manager);
+                    factory = new BiTemporalEventStoreFactory(vertx, manager);
                     eventStore = (PgBiTemporalEventStore<TestEvent>) factory.createEventStore(
                             TestEvent.class, "bitemporal_event_log");
                     testContext.completeNow();

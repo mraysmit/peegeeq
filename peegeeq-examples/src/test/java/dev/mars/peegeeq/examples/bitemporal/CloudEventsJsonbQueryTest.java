@@ -114,7 +114,7 @@ public class CloudEventsJsonbQueryTest {
             .orElseThrow(() -> new IllegalStateException("Pool not found"));
 
         // Create bi-temporal event store for CloudEvents
-        BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager);
+        BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager.getVertx(), manager);
         eventStore = factory.createEventStore(CloudEvent.class, "bitemporal_event_log");
 
         logger.info("Setup complete - ready for CloudEvents JSONB query tests");

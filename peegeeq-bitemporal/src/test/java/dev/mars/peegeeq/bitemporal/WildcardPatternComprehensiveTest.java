@@ -62,11 +62,13 @@ class WildcardPatternComprehensiveTest {
             .withReuse(false);
 
     private static PeeGeeQManager peeGeeQManager;
+    private static Vertx vertx;
     private static PgBiTemporalEventStore<Map<String, Object>> eventStore;
     private static final Map<String, String> originalProperties = new HashMap<>();
 
     @BeforeAll
-    static void setUp(VertxTestContext testContext) throws Exception {
+    static void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
+        WildcardPatternComprehensiveTest.vertx = vertx;
         logger.info("Setting up wildcard pattern comprehensive test...");
         configureSystemPropertiesForContainer(postgres);
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
@@ -76,7 +78,7 @@ class WildcardPatternComprehensiveTest {
         peeGeeQManager.start()
             .onSuccess(v -> {
                 Class<Map<String, Object>> mapClass = mapClass();
-                eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "wildcard_test_events", new ObjectMapper());
+                eventStore = new PgBiTemporalEventStore<>(vertx, peeGeeQManager, mapClass, "wildcard_test_events", new ObjectMapper());
                 logger.info("Wildcard pattern test setup completed");
                 testContext.completeNow();
             })
@@ -347,7 +349,6 @@ class WildcardPatternComprehensiveTest {
         String uniquePattern = prefix + pattern;
         String uniqueEventType = prefix + eventType;
 
-        Vertx vertx = PgBiTemporalEventStore.getOrCreateSharedVertx();
         AtomicReference<BiTemporalEvent<Map<String, Object>>> received = new AtomicReference<>();
         Promise<Void> notified = Promise.promise();
 

@@ -93,7 +93,7 @@ public class ReactiveBiTemporalConfig {
     @Bean
     public BiTemporalEventStoreFactory biTemporalEventStoreFactory(PeeGeeQManager manager) {
         logger.info("Creating BiTemporalEventStoreFactory for reactive application");
-        return new BiTemporalEventStoreFactory(manager);
+        return new BiTemporalEventStoreFactory(manager.getVertx(), manager);
     }
     
     /**

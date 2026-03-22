@@ -3,6 +3,7 @@ package dev.mars.peegeeq.bitemporal;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Vertx;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
 
@@ -60,7 +61,7 @@ class BiTemporalFactoryTest {
     @Test
     void testFactoryRejectsQualifiedTableName() {
         PeeGeeQManager manager = new PeeGeeQManager(new PeeGeeQConfiguration());
-        BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager);
+        BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(Vertx.vertx(), manager);
 
         IllegalArgumentException exception = assertThrows(IllegalArgumentException.class,
                 () -> factory.createEventStore(String.class, "tenant_a.bitemporal_event_log"));
@@ -72,7 +73,7 @@ class BiTemporalFactoryTest {
     @Test
     void testFactoryRejectsInvalidTableIdentifier() {
         PeeGeeQManager manager = new PeeGeeQManager(new PeeGeeQConfiguration());
-        BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(manager);
+        BiTemporalEventStoreFactory factory = new BiTemporalEventStoreFactory(Vertx.vertx(), manager);
 
         assertThrows(IllegalArgumentException.class,
                 () -> factory.createEventStore(String.class, "bad-table-name"));

@@ -23,6 +23,7 @@ import dev.mars.peegeeq.api.EventStoreFactory;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.util.PostgreSqlIdentifierValidator;
 import io.cloudevents.jackson.JsonFormat;
+import io.vertx.core.Vertx;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -42,16 +43,19 @@ public class BiTemporalEventStoreFactory implements EventStoreFactory {
 
     private static final Logger logger = LoggerFactory.getLogger(BiTemporalEventStoreFactory.class);
 
+    private final Vertx vertx;
     private final PeeGeeQManager peeGeeQManager;
     private final ObjectMapper objectMapper;
 
     /**
      * Creates a new BiTemporalEventStoreFactory.
      *
+     * @param vertx          The Vert.x instance (caller-owned)
      * @param peeGeeQManager The PeeGeeQ manager for database access
      * @param objectMapper   The JSON object mapper
      */
-    public BiTemporalEventStoreFactory(PeeGeeQManager peeGeeQManager, ObjectMapper objectMapper) {
+    public BiTemporalEventStoreFactory(Vertx vertx, PeeGeeQManager peeGeeQManager, ObjectMapper objectMapper) {
+        this.vertx = Objects.requireNonNull(vertx, "Vertx instance cannot be null");
         this.peeGeeQManager = Objects.requireNonNull(peeGeeQManager, "PeeGeeQ manager cannot be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "Object mapper cannot be null");
     }
@@ -59,10 +63,11 @@ public class BiTemporalEventStoreFactory implements EventStoreFactory {
     /**
      * Creates a new BiTemporalEventStoreFactory with default ObjectMapper.
      *
+     * @param vertx          The Vert.x instance (caller-owned)
      * @param peeGeeQManager The PeeGeeQ manager for database access
      */
-    public BiTemporalEventStoreFactory(PeeGeeQManager peeGeeQManager) {
-        this(peeGeeQManager, createDefaultObjectMapper());
+    public BiTemporalEventStoreFactory(Vertx vertx, PeeGeeQManager peeGeeQManager) {
+        this(vertx, peeGeeQManager, createDefaultObjectMapper());
     }
 
     /**
@@ -85,7 +90,7 @@ public class BiTemporalEventStoreFactory implements EventStoreFactory {
         logger.info("Creating bi-temporal event store for payload type: {} using table: {}",
                 payloadType.getSimpleName(), normalizedTableName);
 
-        return new PgBiTemporalEventStore<>(peeGeeQManager, payloadType, normalizedTableName, objectMapper);
+        return new PgBiTemporalEventStore<>(vertx, peeGeeQManager, payloadType, normalizedTableName, objectMapper);
     }
 
     private String validateTableName(String tableName) {

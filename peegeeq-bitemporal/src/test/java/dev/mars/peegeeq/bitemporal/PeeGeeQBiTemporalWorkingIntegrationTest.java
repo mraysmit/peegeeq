@@ -85,6 +85,7 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
         return container;
     }
     
+    private Vertx vertx;
     private PeeGeeQManager manager;
     private BiTemporalEventStoreFactory eventStoreFactory;
     private EventStore<OrderEvent> eventStore;
@@ -95,7 +96,8 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
     private MessageConsumer<OrderEvent> consumer;
 
     @BeforeEach
-    void setUp(VertxTestContext testContext) throws Exception {
+    void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
+        this.vertx = vertx;
         logger.info("Setting up working integration test...");
         
         // Set system properties for PeeGeeQ configuration
@@ -122,7 +124,7 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
                 logger.info("PeeGeeQ Manager started");
                 
                 // Create bi-temporal event store
-                eventStoreFactory = new BiTemporalEventStoreFactory(manager);
+                eventStoreFactory = new BiTemporalEventStoreFactory(vertx, manager);
                 eventStore = eventStoreFactory.createEventStore(OrderEvent.class, "bitemporal_event_log");
                 logger.info("Bi-temporal event store created");
                 

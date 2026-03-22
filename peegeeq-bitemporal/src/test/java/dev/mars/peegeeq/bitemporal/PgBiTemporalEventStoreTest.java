@@ -76,6 +76,7 @@ class PgBiTemporalEventStoreTest {
     }
     
     private PeeGeeQManager manager;
+    private Vertx vertx;
     private BiTemporalEventStoreFactory factory;
     private EventStore<TestEvent> eventStore;
     
@@ -206,8 +207,10 @@ class PgBiTemporalEventStoreTest {
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start();
 
+        vertx = Vertx.vertx();
+
         // Create factory and event store
-        factory = new BiTemporalEventStoreFactory(manager);
+        factory = new BiTemporalEventStoreFactory(vertx, manager);
         eventStore = factory.createEventStore(TestEvent.class, "bitemporal_event_log");
     }
     
@@ -631,7 +634,7 @@ class PgBiTemporalEventStoreTest {
     @Test
     void testConstructorRejectsSchemaQualifiedTableName() {
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
-            () -> new PgBiTemporalEventStore<>(manager, TestEvent.class, "public.bitemporal_event_log", new ObjectMapper()));
+            () -> new PgBiTemporalEventStore<>(vertx, manager, TestEvent.class, "public.bitemporal_event_log", new ObjectMapper()));
 
         assertTrue(error.getMessage().contains("unqualified"),
             "Expected schema-qualified table name to be rejected");
@@ -640,7 +643,7 @@ class PgBiTemporalEventStoreTest {
     @Test
     void testConstructorRejectsUnsafeTableNameCharacters() {
         assertThrows(IllegalArgumentException.class,
-            () -> new PgBiTemporalEventStore<>(manager, TestEvent.class,
+            () -> new PgBiTemporalEventStore<>(vertx, manager, TestEvent.class,
                 "bitemporal_event_log;DROP TABLE bitemporal_event_log;--", new ObjectMapper()));
     }
 
@@ -652,23 +655,22 @@ class PgBiTemporalEventStoreTest {
 
         assertTrue(Arrays.stream(constructors)
             .anyMatch(constructor -> Arrays.equals(constructor.getParameterTypes(), new Class<?>[] {
+                Vertx.class,
                 PeeGeeQManager.class,
                 Class.class,
                 String.class,
                 ObjectMapper.class
-            })), "Expected 4-argument convenience constructor");
+            })), "Expected 5-argument convenience constructor");
 
         assertTrue(Arrays.stream(constructors)
             .anyMatch(constructor -> Arrays.equals(constructor.getParameterTypes(), new Class<?>[] {
+                Vertx.class,
                 PeeGeeQManager.class,
                 Class.class,
                 String.class,
                 ObjectMapper.class,
-                String.class,
-                Vertx.class,
-                Pool.class,
-                PgConnectOptions.class
-            })), "Expected 8-argument explicit constructor with connect options");
+                String.class
+            })), "Expected 6-argument explicit constructor with clientId");
     }
 }
 
