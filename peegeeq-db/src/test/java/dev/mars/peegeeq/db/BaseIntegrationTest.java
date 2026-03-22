@@ -95,7 +95,7 @@ public abstract class BaseIntegrationTest {
         
         // Start manager with proper error handling
         try {
-            manager.start();
+            awaitFuture(manager.start());
             logger.info("PeeGeeQ Manager started successfully for profile: {}", testProfile);
         } catch (Exception e) {
             logger.error("Failed to start PeeGeeQ Manager for profile: {}", testProfile, e);

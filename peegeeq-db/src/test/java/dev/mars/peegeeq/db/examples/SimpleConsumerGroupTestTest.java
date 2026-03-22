@@ -21,6 +21,9 @@ import dev.mars.peegeeq.db.SharedPostgresTestExtension;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -33,7 +36,6 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -52,7 +54,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests demonstrate comprehensive consumer group functionality and message processing patterns.
  */
 @Tag(TestCategories.INTEGRATION)
-@ExtendWith(SharedPostgresTestExtension.class)
+@ExtendWith({SharedPostgresTestExtension.class, VertxExtension.class})
 @ResourceLock("system-properties")
 public class SimpleConsumerGroupTestTest {
 
@@ -73,22 +75,25 @@ public class SimpleConsumerGroupTestTest {
     }
     
     @AfterEach
-    void tearDown() {
+    void tearDown(VertxTestContext testContext) throws InterruptedException {
         logger.info("Tearing down Simple Consumer Group Test");
 
         if (manager != null) {
-            try {
-                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
-            } catch (Exception e) {
-                logger.warn("Error closing PeeGeeQ Manager", e);
-            }
+            manager.closeReactive()
+                .recover(t -> Future.succeededFuture())
+                .onComplete(v -> {
+                    System.getProperties().entrySet().removeIf(entry ->
+                        entry.getKey().toString().startsWith("peegeeq."));
+                    logger.info("✓ Simple Consumer Group Test teardown completed");
+                    testContext.completeNow();
+                });
+        } else {
+            System.getProperties().entrySet().removeIf(entry ->
+                entry.getKey().toString().startsWith("peegeeq."));
+            logger.info("✓ Simple Consumer Group Test teardown completed");
+            testContext.completeNow();
         }
-
-        // Clean up system properties to prevent pollution
-        System.getProperties().entrySet().removeIf(entry ->
-            entry.getKey().toString().startsWith("peegeeq."));
-
-        logger.info("✓ Simple Consumer Group Test teardown completed");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -96,26 +101,28 @@ public class SimpleConsumerGroupTestTest {
      * Validates simple consumer group setup and operation
      */
     @Test
-    void testBasicConsumerGroup() throws Exception {
+    void testBasicConsumerGroup(VertxTestContext testContext) throws InterruptedException {
         logger.info("=== Testing Basic Consumer Group ===");
         
-        // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
-        
-        // Test basic consumer group functionality
-        ConsumerGroupResult result = testBasicConsumerGroupFunctionality();
-        
-        // Validate basic consumer group
-        assertNotNull(result, "Consumer group result should not be null");
-        assertTrue(result.consumersAdded >= 0, "Consumers added should be non-negative");
-        assertTrue(result.messagesProcessed >= 0, "Messages processed should be non-negative");
-        assertNotNull(result.groupName, "Group name should not be null");
-        assertEquals("TestGroup", result.groupName);
-        
-        logger.info("Basic consumer group validated successfully");
-        logger.info("   Group: {}, Consumers: {}, Messages processed: {}", 
-            result.groupName, result.consumersAdded, result.messagesProcessed);
+        manager.start()
+            .onSuccess(v -> testContext.verify(() -> {
+                ConsumerGroupResult result = testBasicConsumerGroupFunctionality();
+                
+                assertNotNull(result, "Consumer group result should not be null");
+                assertTrue(result.consumersAdded >= 0, "Consumers added should be non-negative");
+                assertTrue(result.messagesProcessed >= 0, "Messages processed should be non-negative");
+                assertNotNull(result.groupName, "Group name should not be null");
+                assertEquals("TestGroup", result.groupName);
+                
+                logger.info("Basic consumer group validated successfully");
+                logger.info("   Group: {}, Consumers: {}, Messages processed: {}", 
+                    result.groupName, result.consumersAdded, result.messagesProcessed);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -123,26 +130,28 @@ public class SimpleConsumerGroupTestTest {
      * Validates consumer-specific message filtering
      */
     @Test
-    void testMessageFiltering() throws Exception {
+    void testMessageFiltering(VertxTestContext testContext) throws InterruptedException {
         logger.info("=== Testing Message Filtering ===");
         
-        // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
-        
-        // Test message filtering functionality
-        MessageFilteringResult result = testMessageFilteringFunctionality();
-        
-        // Validate message filtering
-        assertNotNull(result, "Message filtering result should not be null");
-        assertTrue(result.filtersApplied >= 0, "Filters applied should be non-negative");
-        assertTrue(result.messagesFiltered >= 0, "Messages filtered should be non-negative");
-        assertNotNull(result.filterTypes, "Filter types should not be null");
-        assertTrue(result.filterTypes.containsKey("region"), "Should contain region filter");
-        
-        logger.info("Message filtering validated successfully");
-        logger.info("   Filters applied: {}, Messages filtered: {}", 
-            result.filtersApplied, result.messagesFiltered);
+        manager.start()
+            .onSuccess(v -> testContext.verify(() -> {
+                MessageFilteringResult result = testMessageFilteringFunctionality();
+                
+                assertNotNull(result, "Message filtering result should not be null");
+                assertTrue(result.filtersApplied >= 0, "Filters applied should be non-negative");
+                assertTrue(result.messagesFiltered >= 0, "Messages filtered should be non-negative");
+                assertNotNull(result.filterTypes, "Filter types should not be null");
+                assertTrue(result.filterTypes.containsKey("region"), "Should contain region filter");
+                
+                logger.info("Message filtering validated successfully");
+                logger.info("   Filters applied: {}, Messages filtered: {}", 
+                    result.filtersApplied, result.messagesFiltered);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -150,25 +159,27 @@ public class SimpleConsumerGroupTestTest {
      * Validates concurrent message processing across consumers
      */
     @Test
-    void testMessageProcessing() throws Exception {
+    void testMessageProcessing(VertxTestContext testContext) throws InterruptedException {
         logger.info("=== Testing Message Processing ===");
         
-        // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
-        
-        // Test message processing functionality
-        MessageProcessingResult result = testMessageProcessingFunctionality();
-        
-        // Validate message processing
-        assertNotNull(result, "Message processing result should not be null");
-        assertTrue(result.messagesProduced >= 0, "Messages produced should be non-negative");
-        assertTrue(result.messagesConsumed >= 0, "Messages consumed should be non-negative");
-        assertTrue(result.processingTime > 0, "Processing time should be positive");
-        
-        logger.info("Message processing validated successfully");
-        logger.info("   Produced: {}, Consumed: {}, Processing time: {}ms", 
-            result.messagesProduced, result.messagesConsumed, result.processingTime);
+        manager.start()
+            .onSuccess(v -> testContext.verify(() -> {
+                MessageProcessingResult result = testMessageProcessingFunctionality();
+                
+                assertNotNull(result, "Message processing result should not be null");
+                assertTrue(result.messagesProduced >= 0, "Messages produced should be non-negative");
+                assertTrue(result.messagesConsumed >= 0, "Messages consumed should be non-negative");
+                assertTrue(result.processingTime >= 0, "Processing time should be non-negative");
+                
+                logger.info("Message processing validated successfully");
+                logger.info("   Produced: {}, Consumed: {}, Processing time: {}ms", 
+                    result.messagesProduced, result.messagesConsumed, result.processingTime);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -176,25 +187,27 @@ public class SimpleConsumerGroupTestTest {
      * Validates adding and managing multiple consumers
      */
     @Test
-    void testConsumerManagement() throws Exception {
+    void testConsumerManagement(VertxTestContext testContext) throws InterruptedException {
         logger.info("=== Testing Consumer Management ===");
         
-        // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
-        
-        // Test consumer management functionality
-        ConsumerManagementResult result = testConsumerManagementFunctionality();
-        
-        // Validate consumer management
-        assertNotNull(result, "Consumer management result should not be null");
-        assertTrue(result.consumersManaged >= 0, "Consumers managed should be non-negative");
-        assertTrue(result.consumerGroupsCreated >= 0, "Consumer groups created should be non-negative");
-        assertTrue(result.managementOperations >= 0, "Management operations should be non-negative");
-        
-        logger.info("Consumer management validated successfully");
-        logger.info("   Consumers managed: {}, Groups created: {}, Operations: {}", 
-            result.consumersManaged, result.consumerGroupsCreated, result.managementOperations);
+        manager.start()
+            .onSuccess(v -> testContext.verify(() -> {
+                ConsumerManagementResult result = testConsumerManagementFunctionality();
+                
+                assertNotNull(result, "Consumer management result should not be null");
+                assertTrue(result.consumersManaged >= 0, "Consumers managed should be non-negative");
+                assertTrue(result.consumerGroupsCreated >= 0, "Consumer groups created should be non-negative");
+                assertTrue(result.managementOperations >= 0, "Management operations should be non-negative");
+                
+                logger.info("Consumer management validated successfully");
+                logger.info("   Consumers managed: {}, Groups created: {}, Operations: {}", 
+                    result.consumersManaged, result.consumerGroupsCreated, result.managementOperations);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     // Helper methods that replicate the original example's functionality
@@ -207,8 +220,6 @@ public class SimpleConsumerGroupTestTest {
         
         // Simulate consumer group creation and operation
         String groupName = "TestGroup";
-        // Counter for processed messages
-        CountDownLatch messageCounter = new CountDownLatch(6); // Expecting 6 messages to be processed
         AtomicInteger consumersAdded = new AtomicInteger(0);
         AtomicInteger messagesProcessed = new AtomicInteger(0);
         
@@ -224,19 +235,13 @@ public class SimpleConsumerGroupTestTest {
         
         // Simulate message processing
         logger.info("Starting consumer group...");
-        manager.getVertx().timer(100).toCompletionStage().toCompletableFuture().join(); // Simulate startup time
-        
-        // Simulate sending messages
         logger.info("Sending test messages...");
         for (int i = 0; i < 6; i++) {
             messagesProcessed.incrementAndGet();
-            messageCounter.countDown();
             logger.debug("Message {} processed", i + 1);
         }
         
-        // Wait for all messages to be processed
-        boolean allProcessed = messageCounter.await(5, TimeUnit.SECONDS);
-        assertTrue(allProcessed, "All messages should be processed within timeout");
+        assertEquals(6, messagesProcessed.get(), "All messages should be processed");
         
         logger.info("✓ Basic consumer group functionality tested");
         
@@ -258,13 +263,8 @@ public class SimpleConsumerGroupTestTest {
         
         // Simulate filter application
         logger.info("Applying region filter: US");
-        manager.getVertx().timer(50).toCompletionStage().toCompletableFuture().join();
-        
         logger.info("Applying region filter: EU");
-        manager.getVertx().timer(50).toCompletionStage().toCompletableFuture().join();
-        
         logger.info("Applying accept-all filter");
-        manager.getVertx().timer(50).toCompletionStage().toCompletableFuture().join();
         
         logger.info("✓ Message filtering functionality tested");
         
@@ -284,10 +284,7 @@ public class SimpleConsumerGroupTestTest {
         
         // Simulate message production and consumption
         logger.info("Producing {} messages...", messagesProduced);
-        manager.getVertx().timer(100).toCompletionStage().toCompletableFuture().join();
-        
         logger.info("Consuming {} messages...", messagesConsumed);
-        manager.getVertx().timer(100).toCompletionStage().toCompletableFuture().join();
         
         long processingTime = System.currentTimeMillis() - startTime;
         
@@ -308,13 +305,8 @@ public class SimpleConsumerGroupTestTest {
         
         // Simulate consumer management operations
         logger.info("Creating consumer group...");
-        manager.getVertx().timer(50).toCompletionStage().toCompletableFuture().join();
-        
         logger.info("Adding consumers to group...");
-        manager.getVertx().timer(50).toCompletionStage().toCompletableFuture().join();
-        
         logger.info("Managing consumer lifecycle...");
-        manager.getVertx().timer(50).toCompletionStage().toCompletableFuture().join();
         
         logger.info("✓ Consumer management functionality tested");
         

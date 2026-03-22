@@ -21,6 +21,9 @@ import dev.mars.peegeeq.db.SharedPostgresTestExtension;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -35,6 +38,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -51,7 +55,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests demonstrate comprehensive performance analysis and optimization patterns.
  */
 @Tag(TestCategories.PERFORMANCE)
-@ExtendWith(SharedPostgresTestExtension.class)
+@ExtendWith({SharedPostgresTestExtension.class, VertxExtension.class})
 @ResourceLock("system-properties")
 public class PerformanceComparisonExampleTest {
 
@@ -73,22 +77,25 @@ public class PerformanceComparisonExampleTest {
     }
     
     @AfterEach
-    void tearDown() {
+    void tearDown(VertxTestContext testContext) throws InterruptedException {
         logger.info("Tearing down Performance Comparison Example Test");
 
         if (manager != null) {
-            try {
-                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
-            } catch (Exception e) {
-                logger.warn("Error closing PeeGeeQ Manager", e);
-            }
+            manager.closeReactive()
+                .recover(t -> Future.succeededFuture())
+                .onComplete(v -> {
+                    System.getProperties().entrySet().removeIf(entry ->
+                        entry.getKey().toString().startsWith("peegeeq."));
+                    logger.info("✓ Performance Comparison Example Test teardown completed");
+                    testContext.completeNow();
+                });
+        } else {
+            System.getProperties().entrySet().removeIf(entry ->
+                entry.getKey().toString().startsWith("peegeeq."));
+            logger.info("✓ Performance Comparison Example Test teardown completed");
+            testContext.completeNow();
         }
-
-        // Clean up system properties to prevent pollution
-        System.getProperties().entrySet().removeIf(entry ->
-            entry.getKey().toString().startsWith("peegeeq."));
-
-        logger.info("✓ Performance Comparison Example Test teardown completed");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -96,21 +103,28 @@ public class PerformanceComparisonExampleTest {
      * Validates different thread, batch size, and polling configurations
      */
     @Test
-    void testConfigurationTesting() throws Exception {
+    void testConfigurationTesting(VertxTestContext testContext) throws InterruptedException {
         logger.info("=== Testing Configuration Testing ===");
         
-        // Test different configurations
-        PerformanceResult singleThreaded = testConfiguration("Single-Threaded", 1, 1, "PT1S");
-        assertNotNull(singleThreaded, "Single-threaded result should not be null");
-        assertEquals("Single-Threaded", singleThreaded.configName);
-        assertEquals(1, singleThreaded.threads);
-        
-        PerformanceResult multiThreaded = testConfiguration("Multi-Threaded", 2, 1, "PT1S");
-        assertNotNull(multiThreaded, "Multi-threaded result should not be null");
-        assertEquals("Multi-Threaded", multiThreaded.configName);
-        assertEquals(2, multiThreaded.threads);
-        
-        logger.info("Configuration testing validated successfully");
+        testConfiguration("Single-Threaded", 1, 1, "PT1S")
+            .compose(singleThreaded -> {
+                testContext.verify(() -> {
+                    assertNotNull(singleThreaded, "Single-threaded result should not be null");
+                    assertEquals("Single-Threaded", singleThreaded.configName);
+                    assertEquals(1, singleThreaded.threads);
+                });
+                return testConfiguration("Multi-Threaded", 2, 1, "PT1S");
+            })
+            .onSuccess(multiThreaded -> testContext.verify(() -> {
+                assertNotNull(multiThreaded, "Multi-threaded result should not be null");
+                assertEquals("Multi-Threaded", multiThreaded.configName);
+                assertEquals(2, multiThreaded.threads);
+                logger.info("Configuration testing validated successfully");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
     }
 
     /**
@@ -118,19 +132,21 @@ public class PerformanceComparisonExampleTest {
      * Validates throughput, latency, and processing time metrics
      */
     @Test
-    void testPerformanceMeasurement() throws Exception {
+    void testPerformanceMeasurement(VertxTestContext testContext) throws InterruptedException {
         logger.info("=== Testing Performance Measurement ===");
         
-        PerformanceResult result = testConfiguration("Measurement-Test", 2, 5, "PT0.5S");
-        
-        // Validate performance metrics
-        assertNotNull(result, "Performance result should not be null");
-        assertTrue(result.totalTimeMs > 0, "Total time should be positive");
-        assertTrue(result.throughput >= 0, "Throughput should be non-negative");
-        assertTrue(result.processedCount >= 0, "Processed count should be non-negative");
-        
-        logger.info("Performance measurement validated successfully");
-        logger.info("   Total time: {}ms, Throughput: {:.2f} msg/sec", result.totalTimeMs, result.throughput);
+        testConfiguration("Measurement-Test", 2, 5, "PT0.5S")
+            .onSuccess(result -> testContext.verify(() -> {
+                assertNotNull(result, "Performance result should not be null");
+                assertTrue(result.totalTimeMs > 0, "Total time should be positive");
+                assertTrue(result.throughput >= 0, "Throughput should be non-negative");
+                assertTrue(result.processedCount >= 0, "Processed count should be non-negative");
+                logger.info("Performance measurement validated successfully");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
     }
 
     /**
@@ -138,22 +154,26 @@ public class PerformanceComparisonExampleTest {
      * Validates side-by-side performance comparison
      */
     @Test
-    void testComparisonAnalysis() throws Exception {
+    void testComparisonAnalysis(VertxTestContext testContext) throws InterruptedException {
         logger.info("=== Testing Comparison Analysis ===");
         
-        // Test multiple configurations for comparison
         List<PerformanceResult> results = new ArrayList<>();
-        results.add(testConfiguration("Config-A", 1, 1, "PT1S"));
-        results.add(testConfiguration("Config-B", 2, 5, "PT0.5S"));
-        
-        // Validate comparison analysis
-        assertFalse(results.isEmpty(), "Results list should not be empty");
-        assertEquals(2, results.size(), "Should have 2 results for comparison");
-        
-        // Display comparison
-        displayPerformanceComparison(results.toArray(new PerformanceResult[0]));
-        
-        logger.info("Comparison analysis validated successfully");
+        testConfiguration("Config-A", 1, 1, "PT1S")
+            .compose(resultA -> {
+                results.add(resultA);
+                return testConfiguration("Config-B", 2, 5, "PT0.5S");
+            })
+            .onSuccess(resultB -> testContext.verify(() -> {
+                results.add(resultB);
+                assertFalse(results.isEmpty(), "Results list should not be empty");
+                assertEquals(2, results.size(), "Should have 2 results for comparison");
+                displayPerformanceComparison(results.toArray(new PerformanceResult[0]));
+                logger.info("Comparison analysis validated successfully");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
     }
 
     /**
@@ -180,51 +200,38 @@ public class PerformanceComparisonExampleTest {
     /**
      * Tests a specific configuration and measures performance.
      */
-    private PerformanceResult testConfiguration(String configName, int threads, int batchSize, String pollingInterval) throws Exception {
+    private Future<PerformanceResult> testConfiguration(String configName, int threads, int batchSize, String pollingInterval) {
         logger.info("\n=== Testing Configuration: {} ===", configName);
         logger.info("🔧 Threads: {}, Batch Size: {}, Polling Interval: {}", threads, batchSize, pollingInterval);
 
-        // Re-configure database properties to ensure they're set (in case other tests modified them)
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
         configureSystemPropertiesForContainer(postgres);
-
-        // Set performance-specific system properties
         configureSystemProperties(threads, batchSize, pollingInterval);
 
         Instant startTime = Instant.now();
 
-        try {
-            // Initialize PeeGeeQ Manager
-            manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
-            manager.start();
-            
-            // Simulate performance test
-            manager.getVertx().timer(100).toCompletionStage().toCompletableFuture().join(); // Brief simulation
-            
-            Instant endTime = Instant.now();
-            long totalTimeMs = Duration.between(startTime, endTime).toMillis();
-            
-            // Calculate simulated metrics
-            int processedCount = TEST_MESSAGE_COUNT;
-            double throughput = (TEST_MESSAGE_COUNT * 1000.0) / Math.max(totalTimeMs, 1);
-            
-            PerformanceResult result = new PerformanceResult(
-                configName, threads, batchSize, pollingInterval,
-                true, processedCount, totalTimeMs, 50L, 
-                totalTimeMs - 50L, throughput, 15.0
-            );
-            
-            logger.info("📊 Results for {}: {} messages in {}ms (throughput: {:.2f} msg/sec)", 
-                configName, processedCount, totalTimeMs, throughput);
-            
-            return result;
-            
-        } finally {
-            if (manager != null) {
-                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
-                manager = null;
-            }
-        }
+        PeeGeeQManager mgr = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
+        return mgr.start()
+            .compose(v -> {
+                Instant endTime = Instant.now();
+                long totalTimeMs = Duration.between(startTime, endTime).toMillis();
+                int processedCount = TEST_MESSAGE_COUNT;
+                double throughput = (TEST_MESSAGE_COUNT * 1000.0) / Math.max(totalTimeMs, 1);
+
+                PerformanceResult result = new PerformanceResult(
+                    configName, threads, batchSize, pollingInterval,
+                    true, processedCount, totalTimeMs, 50L,
+                    totalTimeMs - 50L, throughput, 15.0
+                );
+
+                logger.info("📊 Results for {}: {} messages in {}ms",
+                    configName, processedCount, totalTimeMs);
+
+                return mgr.closeReactive().map(closed -> result);
+            })
+            .recover(t -> mgr.closeReactive()
+                .recover(closeErr -> Future.succeededFuture())
+                .compose(v -> Future.failedFuture(t)));
     }
     
     /**
