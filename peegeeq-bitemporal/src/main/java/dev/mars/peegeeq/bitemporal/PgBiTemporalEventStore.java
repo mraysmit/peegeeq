@@ -98,7 +98,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
     // Pure Vert.x reactive infrastructure with caching
     private volatile Pool reactivePool;
-    private volatile SqlClient pipelinedClient; // High-performance pipelined client for maximum throughput
+    private volatile SqlClient pipelinedClient; // Pipelined client for batched query dispatch
     private final ReactiveNotificationHandler<T> reactiveNotificationHandler;
 
     // Performance monitoring
@@ -275,22 +275,15 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     }
 
     /**
-     * PERFORMANCE OPTIMIZATION: Batch append multiple bi-temporal events for
-     * maximum throughput.
-     * This implements the "fast path" recommended by Vert.x research for massive
-     * concurrent writes:
-     * "Batch/bulk when you can (executeBatch), or use multi-row INSERT … VALUES
-     * (...), (...), ... to cut round-trips."
-     *
-     * This method dramatically reduces database round-trips by batching multiple
-     * events into a single operation.
+     * Batch append multiple bi-temporal events in a single database round-trip.
+     * Uses {@code executeBatch} to reduce per-event overhead compared to individual inserts.
      */
     public Future<List<BiTemporalEvent<T>>> appendBatch(List<BatchEventData<T>> events) {
         if (events == null || events.isEmpty()) {
             return Future.succeededFuture(List.of());
         }
 
-        logger.debug("BITEMPORAL-BATCH: Appending {} events in batch for maximum throughput", events.size());
+        logger.debug("BITEMPORAL-BATCH: Appending {} events in batch", events.size());
 
         // Performance monitoring: Track batch operation timing
         var timing = performanceMonitor.startTiming();
@@ -338,8 +331,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             batchParams.add(params);
         }
 
-        // Execute batch insert - this is the key performance optimization from Vert.x
-        // research
+        // Execute batch insert to reduce round-trips
         String sql = """
                 INSERT INTO %s
                 (event_id, event_type, valid_time, transaction_time, payload, headers,
@@ -459,7 +451,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             String finalCorrelationId = correlationId != null ? correlationId : eventId;
             OffsetDateTime transactionTime = OffsetDateTime.now();
 
-            // Check if Event Bus distribution is enabled for maximum performance
+            // Check if Event Bus distribution is enabled
             boolean useEventBusDistribution = Boolean.parseBoolean(
                     System.getProperty("peegeeq.database.use.event.bus.distribution", "false"));
 
@@ -937,8 +929,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             // Format SQL with table name
             String finalSql = sql.toString().formatted(quotedTableName);
 
-            // Use pure Vert.x 5.x reactive query execution with optimal read client for
-            // maximum throughput
+            // Use pipelined client if available, otherwise pool
             return getOptimalReadClient().preparedQuery(finalSql)
                     .execute(tuple)
                     .map(rows -> {
@@ -1258,6 +1249,11 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         logger.info("Closing bi-temporal event store");
         closed = true;
 
+        // Stop performance monitor timer to prevent leaks
+        if (performanceMonitor != null) {
+            performanceMonitor.stopPeriodicLogging(vertx);
+        }
+
         // Remove this instance from event-bus routing registry if still mapped.
         eventBusInstanceRegistry.computeIfPresent(eventBusInstanceKey,
             (key, existing) -> existing == this ? null : existing);
@@ -1527,8 +1523,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 // patterns
                 PgConnectOptions connectOptions = createConnectOptionsFromPeeGeeQManager();
 
-                // CRITICAL PERFORMANCE FIX: Enable command pipelining for maximum throughput
-                // Research-based optimized default: 1024 for high-throughput scenarios
+                // Enable command pipelining (default limit: 1024)
                 int pipeliningLimit;
                 try {
                     pipeliningLimit = Integer.parseInt(System.getProperty("peegeeq.database.pipelining.limit", "1024"));
@@ -1540,11 +1535,10 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
                 logger.info("Configured PostgreSQL pipelining limit: {}", pipeliningLimit);
 
-                // Configure pool options following Vert.x performance checklist
+                // Configure pool options
                 PoolOptions poolOptions = new PoolOptions();
 
-                // CRITICAL: Use research-based optimized pool size (100 for high-concurrency
-                // bitemporal workloads)
+                // Pool size from configuration (see getConfiguredPoolSize)
                 int maxPoolSize = getConfiguredPoolSize();
                 poolOptions.setMaxSize(maxPoolSize);
 
@@ -1560,8 +1554,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
                 // : Set wait queue size to 10x pool size to handle high-concurrency
                 // scenarios
-                // Based on performance test failures, bitemporal workloads need larger wait
-                // queues
+                // Wait queue sized as a multiple of pool size
                 int waitQueueMultiplier;
                 try {
                     waitQueueMultiplier = Integer
@@ -1576,9 +1569,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 poolOptions.setConnectionTimeout(30000); // 30 seconds
                 poolOptions.setIdleTimeout(600000); // 10 minutes
 
-                // PERFORMANCE OPTIMIZATION: Configure event loop size for better concurrency
-                // By default, Vert.x uses 2 * CPU cores event loops, but we can optimize for
-                // database workloads
+                // Optional event loop size override (0 = Vert.x default: 2 * CPU cores)
                 int eventLoopSize;
                 try {
                     eventLoopSize = Integer.parseInt(System.getProperty("peegeeq.database.event.loop.size", "0"));
@@ -1598,10 +1589,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                         .using(this.vertx)
                         .build();
 
-                // CRITICAL PERFORMANCE OPTIMIZATION: Create pooled SqlClient for pipelined
-                // operations
-                // This provides 4x performance improvement according to Vert.x research
-                // Pool operations are NOT pipelined, but pooled client operations ARE pipelined
+                // Create pooled SqlClient with pipelining enabled.
+                // Pool.query() does not pipeline; SqlClient built via PgBuilder.client() does.
                 pipelinedClient = PgBuilder.client()
                         .with(poolOptions)
                         .connectingTo(connectOptions)
@@ -1609,7 +1598,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                         .build();
 
                 logger.info(
-                        "CRITICAL: Created optimized Vert.x infrastructure: pool(size={}, shared={}, waitQueue={}, eventLoops={}), pipelinedClient(limit={})",
+                        "Created Vert.x infrastructure: pool(size={}, shared={}, waitQueue={}, eventLoops={}), pipelinedClient(limit={})",
                         maxPoolSize, poolOptions.isShared(), poolOptions.getMaxWaitQueueSize(),
                         eventLoopSize > 0 ? eventLoopSize : "default", pipeliningLimit);
 
@@ -1626,18 +1615,15 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     }
 
     /**
-     * Gets the optimal client for read operations (pipelined client if available,
-     * otherwise pool).
-     * This method provides maximum throughput for read-only queries by using the
-     * pipelined client.
+     * Returns the pipelined client if available, otherwise falls back to the pool.
      *
-     * @return SqlClient optimized for read operations
+     * @return SqlClient for read operations
      */
     private SqlClient getOptimalReadClient() {
         // Ensure pool is initialized first
         getOrCreateReactivePool();
 
-        // Use pipelined client for maximum read throughput if available
+        // Prefer pipelined client when available
         if (pipelinedClient != null) {
             return pipelinedClient;
         }
@@ -1695,17 +1681,15 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     }
 
     /**
-     * High-performance append method using Event Bus distribution across multiple
-     * event loops.
-     * This method distributes database operations to worker verticles for maximum
-     * throughput.
+     * Append via Event Bus distribution to worker verticles.
+     * Distributes database operations across event loops when enabled.
      */
     private Future<BiTemporalEvent<T>> appendWithEventBusDistribution(
             String eventType, T payload, Instant validTime, Map<String, String> headers,
             String correlationId, String causationId, String aggregateId, String eventId, JsonObject payloadJson,
             JsonObject headersJson, String finalCorrelationId, OffsetDateTime transactionTime) {
 
-        logger.debug("Using Event Bus distribution for high-performance database operation");
+        logger.debug("Using Event Bus distribution for database operation");
 
         // Create operation request for Event Bus
         // Pass caller-generated eventId and transactionTime to preserve identity
@@ -1739,19 +1723,12 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     }
 
     /**
-     * CRITICAL PERFORMANCE FEATURE: Deploy multiple database worker verticles to
-     * distribute load across all event loops.
-     * This is the key to achieving high throughput - instead of processing all
-     * database operations on a single event loop,
-     * we deploy multiple instances of database worker verticles to utilize all
-     * available event loops.
-     *
-     * This method should be called during application startup to maximize database
-     * performance.
+     * Deploy database worker verticles to distribute operations across event loops.
+     * Each instance handles event-bus requests on its own event loop.
      *
      * @param vertx     The Vert.x instance to deploy verticles on
      * @param instances Number of verticle instances to deploy (defaults to CPU
-     *                  cores if <= 0)
+     *                  cores if &lt;= 0)
      * @param tableName Table name to use for database operations
      * @return Future that completes when all verticles are deployed
      */
@@ -1763,12 +1740,12 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         final int finalInstances = instances <= 0 ? Runtime.getRuntime().availableProcessors() : instances;
 
         logger.info(
-                "CRITICAL PERFORMANCE: Deploying {} database worker verticle instances to distribute load across event loops",
+                "Deploying {} database worker verticle instances across event loops",
                 finalInstances);
 
         DeploymentOptions options = new DeploymentOptions()
                 .setInstances(finalInstances)
-                .setThreadingModel(ThreadingModel.EVENT_LOOP); // Use event loop threads for maximum performance
+                .setThreadingModel(ThreadingModel.EVENT_LOOP);
 
         return vertx.deployVerticle(() -> new DatabaseWorkerVerticle(normalizedTableName, operationAddress), options)
                 .onSuccess(deploymentId -> {
@@ -1783,9 +1760,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     }
 
     /**
-     * Send database operation to worker verticles via Event Bus for distributed
-     * processing.
-     * This distributes the work across multiple event loops for maximum throughput.
+     * Send a database operation to a worker verticle via the Event Bus.
      */
     private Future<JsonObject> sendDatabaseOperation(String targetTableName, JsonObject operation) {
         String operationAddress = databaseOperationAddress(targetTableName);
@@ -1822,15 +1797,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     }
 
     /**
-     * Database Worker Verticle - handles database operations on dedicated event
-     * loop threads.
-     * Each instance runs on its own event loop thread, allowing true parallel
-     * processing of database operations.
-     *
-     * This verticle listens on the event bus for database operation requests and
-     * processes them
-     * on its dedicated event loop thread, enabling true concurrency across multiple
-     * event loops.
+     * Database Worker Verticle — handles database operations received via Event Bus.
+     * Each deployed instance runs on its own event loop thread.
      */
     private static class DatabaseWorkerVerticle extends VerticleBase {
         private final String tableName;
