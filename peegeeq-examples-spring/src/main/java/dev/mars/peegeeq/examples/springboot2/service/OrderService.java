@@ -112,8 +112,7 @@ public class OrderService {
                 String orderId = order.getId();
 
                 // Step 1: Send outbox event using sendInTransaction()
-                return Future.fromCompletionStage(
-                    orderEventProducer.sendInTransaction(
+                return orderEventProducer.sendInTransaction(
                         new OrderCreatedEvent(request),
                         connection
                     )
@@ -136,24 +135,21 @@ public class OrderService {
                 })
                 .compose(id -> {
                     // Step 4: Send additional events using same connection
-                    return Future.fromCompletionStage(
-                        orderEventProducer.sendInTransaction(
+                    return orderEventProducer.sendInTransaction(
                             new OrderValidatedEvent(id),
                             connection
                         )
-                    ).compose(v ->
-                        Future.fromCompletionStage(
-                            orderEventProducer.sendInTransaction(
+                    .compose(v ->
+                        orderEventProducer.sendInTransaction(
                                 new InventoryReservedEvent(id, request.getItems()),
                                 connection
                             )
-                        )
                     ).map(v -> id);
                 })
                 .onSuccess(id -> log.info("Order {} created successfully with all events", id))
                 .onFailure(error -> log.error("❌ Order creation failed, transaction will rollback: {}", error.getMessage()));
 
-            }).toCompletionStage().toCompletableFuture()
+            })
         );
     }
 
@@ -192,12 +188,10 @@ public class OrderService {
                 String orderId = order.getId();
 
                 // Step 1: Send outbox event
-                return Future.fromCompletionStage(
-                    orderEventProducer.sendInTransaction(
+                return orderEventProducer.sendInTransaction(
                         new OrderCreatedEvent(request),
                         connection
                     )
-                )
                 .compose(v -> {
                     log.debug("Order created event sent, performing business validation");
 
@@ -237,7 +231,7 @@ public class OrderService {
                     }
                 });
 
-            }).toCompletionStage().toCompletableFuture()
+            })
         );
     }
 
@@ -259,12 +253,10 @@ public class OrderService {
                 String orderId = order.getId();
 
                 // Step 1: Send outbox event
-                return Future.fromCompletionStage(
-                    orderEventProducer.sendInTransaction(
+                return orderEventProducer.sendInTransaction(
                         new OrderCreatedEvent(request),
                         connection
                     )
-                )
                 .compose(v -> {
                     log.debug("Order created event sent, saving order to database");
                     // Step 2: Save order (this will fail for certain customer IDs)
@@ -292,7 +284,7 @@ public class OrderService {
                     }
                 });
 
-            }).toCompletionStage().toCompletableFuture()
+            })
         );
     }
 
@@ -314,9 +306,7 @@ public class OrderService {
                 String orderId = order.getId();
 
                 // All operations in the same transaction
-                return Future.fromCompletionStage(
-                    orderEventProducer.sendInTransaction(new OrderCreatedEvent(request), connection)
-                )
+                return orderEventProducer.sendInTransaction(new OrderCreatedEvent(request), connection)
                 .compose(v -> orderRepository.save(order, connection))
                 .compose(savedOrder -> {
                     // Convert springboot.model.OrderItem to springboot2.model.OrderItem
@@ -326,17 +316,13 @@ public class OrderService {
                             .collect(java.util.stream.Collectors.toList());
                     return orderItemRepository.saveAll(orderId, items, connection);
                 })
-                .compose(v -> Future.fromCompletionStage(
-                    orderEventProducer.sendInTransaction(new OrderValidatedEvent(orderId), connection)
-                ))
-                .compose(v -> Future.fromCompletionStage(
-                    orderEventProducer.sendInTransaction(new InventoryReservedEvent(orderId, request.getItems()), connection)
-                ))
+                .compose(v -> orderEventProducer.sendInTransaction(new OrderValidatedEvent(orderId), connection))
+                .compose(v -> orderEventProducer.sendInTransaction(new InventoryReservedEvent(orderId, request.getItems()), connection))
                 .map(v -> orderId)
                 .onSuccess(id -> log.info("TRANSACTION SUCCESS: Order {} and all events committed together", id))
                 .onFailure(error -> log.error("❌ TRANSACTION ROLLBACK: All operations rolled back due to failure: {}", error.getMessage()));
 
-            }).toCompletionStage().toCompletableFuture()
+            })
         );
     }
 
@@ -361,7 +347,7 @@ public class OrderService {
                         }
                     })
                     .onFailure(error -> log.error("Error finding order {}: {}", orderId, error.getMessage()));
-            }).toCompletionStage().toCompletableFuture()
+            }).toCompletionStage()
         );
     }
 
@@ -386,7 +372,7 @@ public class OrderService {
                         }
                     })
                     .onFailure(error -> log.error("Error finding order for customer {}: {}", customerId, error.getMessage()));
-            }).toCompletionStage().toCompletableFuture()
+            }).toCompletionStage()
         );
     }
 
@@ -410,7 +396,7 @@ public class OrderService {
                         log.info("Order {} validated successfully", orderId);
                         return Future.succeededFuture();
                     });
-            }).toCompletionStage().toCompletableFuture()
+            }).toCompletionStage()
         ).then();
     }
 

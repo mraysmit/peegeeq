@@ -37,6 +37,7 @@ import java.util.Map;
 import java.util.UUID;
 
 import java.util.concurrent.CompletionStage;
+import io.vertx.core.Future;
 
 /**
  * REST Controller for Advanced Bi-Temporal Event Store Transaction Coordination.
@@ -114,12 +115,12 @@ public class OrderController {
      * coordination with automatic rollback on any failure.
      */
     @PostMapping("/orders")
-    public CompletableFuture<ResponseEntity<OrderProcessingResult>> processOrder(
+    public Future<ResponseEntity<OrderProcessingResult>> processOrder(
             @RequestBody OrderProcessingRequest request) {
         logger.info("Processing order request: {}", request.getOrderId());
         
         return orderProcessingService.processCompleteOrder(request)
-            .thenApply(result -> {
+            .map(result -> {
                 if (result.isSuccess()) {
                     logger.info("Order processing successful: {}", result.getOrderId());
                     return ResponseEntity.ok(result);
@@ -128,7 +129,7 @@ public class OrderController {
                     return ResponseEntity.badRequest().body(result);
                 }
             })
-            .exceptionally(throwable -> {
+            .otherwise(throwable -> {
                 logger.error("Order processing exception: {}", throwable.getMessage(), throwable);
                 return ResponseEntity.internalServerError().body(
                     new OrderProcessingResult(
@@ -150,45 +151,45 @@ public class OrderController {
      * the complete order lifecycle from multiple bi-temporal event stores.
      */
     @GetMapping("/orders/{orderId}/history")
-    public CompletableFuture<ResponseEntity<Map<String, Object>>> getOrderHistory(@PathVariable String orderId) {
+    public Future<ResponseEntity<Map<String, Object>>> getOrderHistory(@PathVariable String orderId) {
         logger.info("Getting order history for: {}", orderId);
         
         // Normalize async query results to CompletableFuture for consistent composition.
-        CompletableFuture<List<BiTemporalEvent<OrderEvent>>> orderEvents = 
+        Future<List<BiTemporalEvent<OrderEvent>>> orderEvents = 
             toCompletableFuture(orderEventStore.query(EventQuery.forAggregate(orderId)));
         
-        CompletableFuture<List<BiTemporalEvent<InventoryEvent>>> inventoryEvents =
+        Future<List<BiTemporalEvent<InventoryEvent>>> inventoryEvents =
             toCompletableFuture(inventoryEventStore.query(EventQuery.builder()
                 .headerFilters(Map.of("orderId", orderId))
                 .build()));
 
-        CompletableFuture<List<BiTemporalEvent<PaymentEvent>>> paymentEvents =
+        Future<List<BiTemporalEvent<PaymentEvent>>> paymentEvents =
             toCompletableFuture(paymentEventStore.query(EventQuery.builder()
                 .headerFilters(Map.of("orderId", orderId))
                 .build()));
 
-        CompletableFuture<List<BiTemporalEvent<AuditEvent>>> auditEvents =
+        Future<List<BiTemporalEvent<AuditEvent>>> auditEvents =
             toCompletableFuture(auditEventStore.query(EventQuery.builder()
                 .headerFilters(Map.of("entityId", orderId))
                 .build()));
         
-        return CompletableFuture.allOf(orderEvents, inventoryEvents, paymentEvents, auditEvents)
-            .thenApply(v -> {
+        return Future.all(orderEvents, inventoryEvents, paymentEvents, auditEvents)
+            .map(v -> {
                 Map<String, Object> history = Map.of(
                     "orderId", orderId,
-                    "orderEvents", orderEvents.join(),
-                    "inventoryEvents", inventoryEvents.join(),
-                    "paymentEvents", paymentEvents.join(),
-                    "auditEvents", auditEvents.join()
+                    "orderEvents", orderEvents.result(),
+                    "inventoryEvents", inventoryEvents.result(),
+                    "paymentEvents", paymentEvents.result(),
+                    "auditEvents", auditEvents.result()
                 );
                 
                 logger.info("Retrieved order history for: {} - {} total events", orderId,
-                    orderEvents.join().size() + inventoryEvents.join().size() + 
-                    paymentEvents.join().size() + auditEvents.join().size());
+                    orderEvents.result().size() + inventoryEvents.result().size() + 
+                    paymentEvents.result().size() + auditEvents.result().size());
                 
                 return ResponseEntity.ok(history);
             })
-            .exceptionally(throwable -> {
+            .otherwise(throwable -> {
                 logger.error("Failed to get order history for: {} - {}", orderId, throwable.getMessage(), throwable);
                 return ResponseEntity.internalServerError().body(
                     Map.of("error", "Failed to retrieve order history: " + throwable.getMessage())
@@ -196,12 +197,12 @@ public class OrderController {
             });
     }
 
-    private static <T> CompletableFuture<T> toCompletableFuture(CompletionStage<T> stage) {
-        return stage.toCompletableFuture();
+    private static <T> Future<T> toCompletableFuture(CompletionStage<T> stage) {
+        return Future.fromCompletionStage(stage);
     }
 
-    private static <T> CompletableFuture<T> toCompletableFuture(io.vertx.core.Future<T> future) {
-        return future.toCompletionStage().toCompletableFuture();
+    private static <T> Future<T> toCompletableFuture(io.vertx.core.Future<T> future) {
+        return future;
     }
     
     /**
@@ -211,7 +212,7 @@ public class OrderController {
      * the multi-event store transaction coordination patterns.
      */
     @PostMapping("/demo/sample-order")
-    public CompletableFuture<ResponseEntity<OrderProcessingResult>> createSampleOrder() {
+    public Future<ResponseEntity<OrderProcessingResult>> createSampleOrder() {
         logger.info("Creating sample order for demonstration");
         
         String orderId = "ORDER-" + UUID.randomUUID().toString().substring(0, 8);
@@ -254,43 +255,43 @@ public class OrderController {
      * bi-temporal event stores to provide operational insights.
      */
     @GetMapping("/demo/stats")
-    public CompletableFuture<ResponseEntity<Map<String, Object>>> getStats() {
+    public Future<ResponseEntity<Map<String, Object>>> getStats() {
         logger.info("Getting statistics across all event stores");
         
-        CompletableFuture<EventStore.EventStoreStats> orderStats = toCompletableFuture(orderEventStore.getStats());
-        CompletableFuture<EventStore.EventStoreStats> inventoryStats = toCompletableFuture(inventoryEventStore.getStats());
-        CompletableFuture<EventStore.EventStoreStats> paymentStats = toCompletableFuture(paymentEventStore.getStats());
-        CompletableFuture<EventStore.EventStoreStats> auditStats = toCompletableFuture(auditEventStore.getStats());
+        Future<EventStore.EventStoreStats> orderStats = toCompletableFuture(orderEventStore.getStats());
+        Future<EventStore.EventStoreStats> inventoryStats = toCompletableFuture(inventoryEventStore.getStats());
+        Future<EventStore.EventStoreStats> paymentStats = toCompletableFuture(paymentEventStore.getStats());
+        Future<EventStore.EventStoreStats> auditStats = toCompletableFuture(auditEventStore.getStats());
         
-        return CompletableFuture.allOf(orderStats, inventoryStats, paymentStats, auditStats)
-            .thenApply(v -> {
+        return Future.all(orderStats, inventoryStats, paymentStats, auditStats)
+            .map(v -> {
                 Map<String, Object> stats = Map.of(
                     "orderStore", Map.of(
-                        "totalEvents", orderStats.join().getTotalEvents(),
-                        "totalCorrections", orderStats.join().getTotalCorrections(),
-                        "eventCountsByType", orderStats.join().getEventCountsByType()
+                        "totalEvents", orderStats.result().getTotalEvents(),
+                        "totalCorrections", orderStats.result().getTotalCorrections(),
+                        "eventCountsByType", orderStats.result().getEventCountsByType()
                     ),
                     "inventoryStore", Map.of(
-                        "totalEvents", inventoryStats.join().getTotalEvents(),
-                        "totalCorrections", inventoryStats.join().getTotalCorrections(),
-                        "eventCountsByType", inventoryStats.join().getEventCountsByType()
+                        "totalEvents", inventoryStats.result().getTotalEvents(),
+                        "totalCorrections", inventoryStats.result().getTotalCorrections(),
+                        "eventCountsByType", inventoryStats.result().getEventCountsByType()
                     ),
                     "paymentStore", Map.of(
-                        "totalEvents", paymentStats.join().getTotalEvents(),
-                        "totalCorrections", paymentStats.join().getTotalCorrections(),
-                        "eventCountsByType", paymentStats.join().getEventCountsByType()
+                        "totalEvents", paymentStats.result().getTotalEvents(),
+                        "totalCorrections", paymentStats.result().getTotalCorrections(),
+                        "eventCountsByType", paymentStats.result().getEventCountsByType()
                     ),
                     "auditStore", Map.of(
-                        "totalEvents", auditStats.join().getTotalEvents(),
-                        "totalCorrections", auditStats.join().getTotalCorrections(),
-                        "eventCountsByType", auditStats.join().getEventCountsByType()
+                        "totalEvents", auditStats.result().getTotalEvents(),
+                        "totalCorrections", auditStats.result().getTotalCorrections(),
+                        "eventCountsByType", auditStats.result().getEventCountsByType()
                     )
                 );
                 
                 logger.info("Retrieved statistics across all event stores");
                 return ResponseEntity.ok(stats);
             })
-            .exceptionally(throwable -> {
+            .otherwise(throwable -> {
                 logger.error("Failed to get statistics: {}", throwable.getMessage(), throwable);
                 return ResponseEntity.internalServerError().body(
                     Map.of("error", "Failed to retrieve statistics: " + throwable.getMessage())

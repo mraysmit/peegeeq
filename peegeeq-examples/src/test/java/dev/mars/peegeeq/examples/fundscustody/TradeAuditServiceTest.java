@@ -59,8 +59,8 @@ class TradeAuditServiceTest extends FundsCustodyTestBase {
         );
 
         String tradeId = tradeService.recordTrade(tradeRequest)
-            .thenApply(event -> event.getPayload().tradeId())
-            .toCompletableFuture().get();
+            .map(event -> event.getPayload().tradeId())
+            .await();
 
         vertx.setTimer(100, id1 -> {
             try {
@@ -72,7 +72,7 @@ class TradeAuditServiceTest extends FundsCustodyTestBase {
                 );
 
                 tradeService.cancelTrade(tradeId, cancelRequest)
-                    .toCompletableFuture().get();
+                    .await();
                 
                 vertx.setTimer(100, id2 -> {
                     try {
@@ -82,7 +82,7 @@ class TradeAuditServiceTest extends FundsCustodyTestBase {
                         
                         List<CorrectionAudit> corrections = auditService
                             .getCorrectionsInPeriod(fundId, periodStart, periodEnd)
-                            .toCompletableFuture().get();
+                            .await();
                         
                         // Verify
                         assertNotNull(corrections);
@@ -135,7 +135,7 @@ class TradeAuditServiceTest extends FundsCustodyTestBase {
                         
                         List<CorrectionAudit> corrections = auditService
                             .getCorrectionsAffectingValidPeriod(fundId, validStart, validEnd)
-                            .toCompletableFuture().get();
+                            .await();
                         
                         // Verify - should only include September trades
                         assertNotNull(corrections);
@@ -177,7 +177,7 @@ class TradeAuditServiceTest extends FundsCustodyTestBase {
                         // Query correction history
                         List<CorrectionAudit> history = auditService
                             .getTradeCorrectionHistory(tradeId)
-                            .toCompletableFuture().get();
+                            .await();
                         
                         // Verify
                         assertNotNull(history);
@@ -233,7 +233,7 @@ class TradeAuditServiceTest extends FundsCustodyTestBase {
                                                 // Query changes between time1 and time2 (should show 1 new trade)
                                                 ChangeReport changes1 = auditService
                                                     .getChangesBetween(fundId, time1, time2)
-                                                    .toCompletableFuture().get();
+                                                    .await();
                                                 
                                                 assertNotNull(changes1);
                                                 assertTrue(changes1.hasNewTrades());
@@ -244,7 +244,7 @@ class TradeAuditServiceTest extends FundsCustodyTestBase {
                                                 // Query changes between time2 and time3 (should show 1 new trade + 1 correction)
                                                 ChangeReport changes2 = auditService
                                                     .getChangesBetween(fundId, time2, time3)
-                                                    .toCompletableFuture().get();
+                                                    .await();
                                                 
                                                 assertNotNull(changes2);
                                                 assertTrue(changes2.hasChanges());
@@ -285,7 +285,7 @@ class TradeAuditServiceTest extends FundsCustodyTestBase {
         
         List<CorrectionAudit> corrections = auditService
             .getCorrectionsInPeriod(fundId, periodStart, periodEnd)
-            .toCompletableFuture().get();
+            .await();
         
         assertNotNull(corrections);
         assertTrue(corrections.isEmpty());
@@ -308,13 +308,13 @@ class TradeAuditServiceTest extends FundsCustodyTestBase {
         );
 
         return tradeService.recordTrade(request)
-            .thenApply(event -> event.getPayload().tradeId())
-            .toCompletableFuture().get();
+            .map(event -> event.getPayload().tradeId())
+            .await();
     }
 
     private void cancelTrade(String tradeId, String reason) throws Exception {
         CancellationRequest request = new CancellationRequest(reason, "auditor1");
-        tradeService.cancelTrade(tradeId, request).toCompletableFuture().get();
+        tradeService.cancelTrade(tradeId, request).await();
     }
 }
 

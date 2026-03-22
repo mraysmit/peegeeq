@@ -47,7 +47,7 @@ public class RegulatoryQueryService {
      * Generate MiFID II transaction report for a specific date.
      * Returns all trades executed on that date with full audit trail.
      */
-    public CompletableFuture<MiFIDIIReport> generateMiFIDIIReport(Instant reportDate) {
+    public Future<MiFIDIIReport> generateMiFIDIIReport(Instant reportDate) {
         log.info("Generating MiFID II report for date: {}", reportDate);
         
         Instant startOfDay = reportDate.truncatedTo(ChronoUnit.DAYS);
@@ -60,7 +60,7 @@ public class RegulatoryQueryService {
                 .includeCorrections(true)
                 .sortOrder(EventQuery.SortOrder.VALID_TIME_ASC)
                 .build()
-        )).thenApply(events -> {
+        )).map(events -> {
             MiFIDIIReport report = new MiFIDIIReport();
             report.reportDate = reportDate;
             report.generatedAt = Instant.now();
@@ -93,12 +93,12 @@ public class RegulatoryQueryService {
      * Get complete audit trail for regulatory investigation.
      * Returns all events across all domains for a specific correlation ID.
      */
-    public CompletableFuture<RegulatoryAuditTrail> getRegulatoryAuditTrail(
+    public Future<RegulatoryAuditTrail> getRegulatoryAuditTrail(
             String correlationId) {
         log.info("Generating regulatory audit trail for correlation ID: {}", correlationId);
         
         // Query trading events
-        CompletableFuture<List<BiTemporalEvent<TradeEvent>>> tradingEvents = 
+        Future<List<BiTemporalEvent<TradeEvent>>> tradingEvents = 
             toCompletableFuture(tradingEventStore.query(
                 EventQuery.builder()
                     .correlationId(correlationId)
@@ -108,7 +108,7 @@ public class RegulatoryQueryService {
             ));
         
         // Query regulatory events
-        CompletableFuture<List<BiTemporalEvent<RegulatoryReportEvent>>> regulatoryEvents = 
+        Future<List<BiTemporalEvent<RegulatoryReportEvent>>> regulatoryEvents = 
             toCompletableFuture(regulatoryEventStore.query(
                 EventQuery.builder()
                     .correlationId(correlationId)
@@ -117,13 +117,13 @@ public class RegulatoryQueryService {
                     .build()
             ));
         
-        return CompletableFuture.allOf(tradingEvents, regulatoryEvents)
-            .thenApply(v -> {
+        return Future.all(tradingEvents, regulatoryEvents)
+            .map(v -> {
                 RegulatoryAuditTrail trail = new RegulatoryAuditTrail();
                 trail.correlationId = correlationId;
                 trail.generatedAt = Instant.now();
-                trail.tradingEvents = tradingEvents.join();
-                trail.regulatoryEvents = regulatoryEvents.join();
+                trail.tradingEvents = tradingEvents.result();
+                trail.regulatoryEvents = regulatoryEvents.result();
                 trail.totalEvents = trail.tradingEvents.size() + trail.regulatoryEvents.size();
                 
                 log.info("Generated regulatory audit trail: {} total events", trail.totalEvents);
@@ -134,7 +134,7 @@ public class RegulatoryQueryService {
     /**
      * Get all regulatory reports submitted within a time range.
      */
-    public CompletableFuture<List<BiTemporalEvent<RegulatoryReportEvent>>> getRegulatoryReports(
+    public Future<List<BiTemporalEvent<RegulatoryReportEvent>>> getRegulatoryReports(
             Instant startTime, Instant endTime) {
         log.info("Querying regulatory reports between {} and {}", startTime, endTime);
         
@@ -151,7 +151,7 @@ public class RegulatoryQueryService {
      * Get all trade corrections within a time range.
      * Used for regulatory oversight of trade amendments.
      */
-    public CompletableFuture<List<BiTemporalEvent<TradeEvent>>> getTradeCorrections(
+    public Future<List<BiTemporalEvent<TradeEvent>>> getTradeCorrections(
             Instant startTime, Instant endTime) {
         log.info("Querying trade corrections between {} and {}", startTime, endTime);
         
@@ -161,7 +161,7 @@ public class RegulatoryQueryService {
                 .includeCorrections(true)
                 .sortOrder(EventQuery.SortOrder.TRANSACTION_TIME_ASC)
                 .build()
-        )).thenApply(events -> 
+        )).map(events -> 
             events.stream()
                 .filter(BiTemporalEvent::isCorrection)
                 .collect(Collectors.toList())
@@ -172,7 +172,7 @@ public class RegulatoryQueryService {
      * Reconstruct trade as it was reported to regulator at a specific time.
      * Uses transaction time to show what was known at that point.
      */
-    public CompletableFuture<BiTemporalEvent<TradeEvent>> getTradeAsReportedAt(
+    public Future<BiTemporalEvent<TradeEvent>> getTradeAsReportedAt(
             String tradeId, Instant reportingTime) {
         log.info("Reconstructing trade {} as reported at {}", tradeId, reportingTime);
         
@@ -183,7 +183,7 @@ public class RegulatoryQueryService {
                 .sortOrder(EventQuery.SortOrder.TRANSACTION_TIME_DESC)
                 .limit(1)
                 .build()
-        )).thenApply(events -> {
+        )).map(events -> {
             if (events.isEmpty()) {
                 log.warn("No trade found for {} as reported at {}", tradeId, reportingTime);
                 return null;
@@ -196,7 +196,7 @@ public class RegulatoryQueryService {
      * Get all trades that were corrected after initial reporting.
      * Used for regulatory compliance monitoring.
      */
-    public CompletableFuture<List<String>> getTradesWithCorrections(
+    public Future<List<String>> getTradesWithCorrections(
             Instant startTime, Instant endTime) {
         log.info("Querying trades with corrections between {} and {}", startTime, endTime);
         
@@ -206,7 +206,7 @@ public class RegulatoryQueryService {
                 .includeCorrections(true)
                 .sortOrder(EventQuery.SortOrder.VALID_TIME_ASC)
                 .build()
-        )).thenApply(events -> {
+        )).map(events -> {
             Set<String> tradesWithCorrections = new HashSet<>();
             
             for (BiTemporalEvent<TradeEvent> event : events) {
@@ -223,24 +223,24 @@ public class RegulatoryQueryService {
     /**
      * Generate compliance report showing all regulatory submissions.
      */
-    public CompletableFuture<ComplianceReport> generateComplianceReport(
+    public Future<ComplianceReport> generateComplianceReport(
             Instant startTime, Instant endTime) {
         log.info("Generating compliance report between {} and {}", startTime, endTime);
         
-        CompletableFuture<List<BiTemporalEvent<RegulatoryReportEvent>>> reports = 
+        Future<List<BiTemporalEvent<RegulatoryReportEvent>>> reports = 
             getRegulatoryReports(startTime, endTime);
         
-        CompletableFuture<List<BiTemporalEvent<TradeEvent>>> corrections = 
+        Future<List<BiTemporalEvent<TradeEvent>>> corrections = 
             getTradeCorrections(startTime, endTime);
         
-        return CompletableFuture.allOf(reports, corrections)
-            .thenApply(v -> {
+        return Future.all(reports, corrections)
+            .map(v -> {
                 ComplianceReport report = new ComplianceReport();
                 report.startTime = startTime;
                 report.endTime = endTime;
                 report.generatedAt = Instant.now();
-                report.regulatoryReports = reports.join();
-                report.tradeCorrections = corrections.join();
+                report.regulatoryReports = reports.result();
+                report.tradeCorrections = corrections.result();
                 report.totalReports = report.regulatoryReports.size();
                 report.totalCorrections = report.tradeCorrections.size();
                 
@@ -250,12 +250,12 @@ public class RegulatoryQueryService {
             });
     }
 
-    private static <T> CompletableFuture<T> toCompletableFuture(CompletionStage<T> stage) {
-        return stage.toCompletableFuture();
+    private static <T> Future<T> toCompletableFuture(CompletionStage<T> stage) {
+        return Future.fromCompletionStage(stage);
     }
 
-    private static <T> CompletableFuture<T> toCompletableFuture(Future<T> future) {
-        return future.toCompletionStage().toCompletableFuture();
+    private static <T> Future<T> toCompletableFuture(Future<T> future) {
+        return future;
     }
     
     /**

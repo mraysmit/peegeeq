@@ -15,6 +15,8 @@ import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -90,13 +92,13 @@ class MultiConfigurationIntegrationTest {
         configManager.registerConfiguration("reliable", "test");
         configManager.registerConfiguration("test", "test");
 
-        configManager.start();
+        configManager.startReactive().await();
     }
 
     @AfterEach
     void tearDown() {
         if (configManager != null) {
-            configManager.close();
+            configManager.closeReactive().await();
         }
         if (postgres != null) {
             postgres.stop();
@@ -237,7 +239,7 @@ class MultiConfigurationIntegrationTest {
             consumer.subscribe(message -> {
                 totalProcessed.incrementAndGet();
                 checkpoint.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             });
 
             // Send messages (reduced count)
@@ -273,7 +275,7 @@ class MultiConfigurationIntegrationTest {
 
         consumer.subscribe(message -> {
             checkpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send batch of messages (reduced count)
@@ -306,16 +308,16 @@ class MultiConfigurationIntegrationTest {
             logger.info("Real-time processed: {} (latency: {}ms)",
                 message.getPayload().getEventId(), latency);
             checkpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send real-time messages (reduced count)
         for (int i = 1; i <= 3; i++) {
             RealTimeEvent event = new RealTimeEvent("RT-" + i, System.currentTimeMillis(), "Real-time event " + i);
             producer.send(event, Map.of("priority", "HIGH"), "correlation-" + i, "realtime-" + i);
-            CompletableFuture<Void> delay = new CompletableFuture<>();
-            vertx.setTimer(100, id -> delay.complete(null));
-            delay.join();
+            Promise<Void> delay = Promise.promise();
+            vertx.setTimer(100, id -> delay.complete());
+            delay.future().await();
         }
 
         // Increased timeout for more reliable testing
@@ -341,7 +343,7 @@ class MultiConfigurationIntegrationTest {
             logger.info("Critical processed: {} (importance: {})",
                 message.getPayload().getEventId(), message.getPayload().getImportanceLevel());
             checkpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send critical messages (reduced count)

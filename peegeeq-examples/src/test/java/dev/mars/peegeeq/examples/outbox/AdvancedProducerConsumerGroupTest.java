@@ -44,6 +44,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.core.Promise;
 import java.util.Map;
 import java.util.Set;
 
@@ -171,7 +172,7 @@ class AdvancedProducerConsumerGroupTest {
             }
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive().await();
         }
 
         // Clean up system properties
@@ -198,14 +199,11 @@ class AdvancedProducerConsumerGroupTest {
             Map<String, String> headers = createRoutingHeaders(messageId);
 
             producer.send(event, headers, "correlation-" + messageId, getMessageGroup(headers))
-                .whenComplete((result, error) -> {
-                    if (error != null) {
-                        testContext.failNow(error);
-                        return;
-                    }
+                .onSuccess(result -> {
                     sentMessages.incrementAndGet();
                     sendCheckpoint.flag();
-                });
+                })
+                .onFailure(testContext::failNow);
         }
         
         // Wait for all messages to be sent
@@ -545,9 +543,9 @@ class AdvancedProducerConsumerGroupTest {
             counter.incrementAndGet();
 
             // Simulate minimal processing time using Vert.x timer
-            CompletableFuture<Void> future = new CompletableFuture<>();
-            vertx.setTimer(10, id -> future.complete(null));
-            return future;
+            Promise<Void> future = Promise.promise();
+            vertx.setTimer(10, id -> future.complete());
+            return future.future();
         };
     }
 
@@ -559,9 +557,9 @@ class AdvancedProducerConsumerGroupTest {
             counter.incrementAndGet();
 
             // Simulate processing time based on priority using Vert.x timer
-            CompletableFuture<Void> future = new CompletableFuture<>();
-            vertx.setTimer(processingTime, id -> future.complete(null));
-            return future;
+            Promise<Void> future = Promise.promise();
+            vertx.setTimer(processingTime, id -> future.complete());
+            return future.future();
         };
     }
 
@@ -573,9 +571,9 @@ class AdvancedProducerConsumerGroupTest {
             counter.incrementAndGet();
 
             // Analytics processing is typically fast using Vert.x timer
-            CompletableFuture<Void> future = new CompletableFuture<>();
-            vertx.setTimer(5, id -> future.complete(null));
-            return future;
+            Promise<Void> future = Promise.promise();
+            vertx.setTimer(5, id -> future.complete());
+            return future.future();
         };
     }
 
@@ -587,9 +585,9 @@ class AdvancedProducerConsumerGroupTest {
             counter.incrementAndGet();
 
             // Simulate minimal processing time using Vert.x timer
-            CompletableFuture<Void> future = new CompletableFuture<>();
-            vertx.setTimer(10, id -> future.complete(null));
-            return future;
+            Promise<Void> future = Promise.promise();
+            vertx.setTimer(10, id -> future.complete());
+            return future.future();
         };
     }
 
@@ -609,7 +607,7 @@ class AdvancedProducerConsumerGroupTest {
                     "source", "test-service"
                 );
 
-                producer.send(event, headers, "regional-" + region + "-" + i, region).join();
+                producer.send(event, headers, "regional-" + region + "-" + i, region).await();
             }
         }
 
@@ -630,7 +628,7 @@ class AdvancedProducerConsumerGroupTest {
                 "source", "test-service"
             );
 
-            producer.send(event, headers, "high-priority-" + i, "HIGH").join();
+            producer.send(event, headers, "high-priority-" + i, "HIGH").await();
         }
 
         // Send normal priority messages
@@ -643,7 +641,7 @@ class AdvancedProducerConsumerGroupTest {
                 "source", "test-service"
             );
 
-            producer.send(event, headers, "normal-priority-" + i, "NORMAL").join();
+            producer.send(event, headers, "normal-priority-" + i, "NORMAL").await();
         }
 
         logger.info("Sent {} high priority and {} normal priority messages",
@@ -664,7 +662,7 @@ class AdvancedProducerConsumerGroupTest {
                 "source", "test-service"
             );
 
-            producer.send(event, headers, "us-premium-" + i, "US-PREMIUM").join();
+            producer.send(event, headers, "us-premium-" + i, "US-PREMIUM").await();
         }
 
         // Send EU High Priority messages (should match high-priority consumer)
@@ -677,7 +675,7 @@ class AdvancedProducerConsumerGroupTest {
                 "source", "test-service"
             );
 
-            producer.send(event, headers, "eu-high-" + i, "EU-HIGH").join();
+            producer.send(event, headers, "eu-high-" + i, "EU-HIGH").await();
         }
 
         // Send various other messages (should only match audit consumer)
@@ -685,7 +683,7 @@ class AdvancedProducerConsumerGroupTest {
             OrderEvent event = createOrderEvent(i);
             Map<String, String> headers = createRoutingHeaders(i);
 
-            producer.send(event, headers, "mixed-" + i, getMessageGroup(headers)).join();
+            producer.send(event, headers, "mixed-" + i, getMessageGroup(headers)).await();
         }
 
         logger.info("Sent complex filtering test messages");
@@ -704,7 +702,7 @@ class AdvancedProducerConsumerGroupTest {
                 "source", "test-service"
             );
 
-            producer.send(event, headers, "simple-" + i, "SIMPLE").join();
+            producer.send(event, headers, "simple-" + i, "SIMPLE").await();
         }
 
         logger.info("Sent {} simple messages", messageCount);

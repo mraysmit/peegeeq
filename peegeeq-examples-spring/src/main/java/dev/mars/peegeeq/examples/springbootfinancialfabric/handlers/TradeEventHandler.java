@@ -14,6 +14,7 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 
 import java.util.concurrent.atomic.AtomicLong;
+import io.vertx.core.Future;
 
 /**
  * Event handler for trading domain events.
@@ -48,7 +49,7 @@ public class TradeEventHandler {
         // The subscribe method filters by eventType pattern
         tradingEventStore.subscribe(null, null, new MessageHandler<BiTemporalEvent<TradeEvent>>() {
             @Override
-            public CompletableFuture<Void> handle(Message<BiTemporalEvent<TradeEvent>> message) {
+            public Future<Void> handle(Message<BiTemporalEvent<TradeEvent>> message) {
                 return handleTradingEvent(message.getPayload());
             }
         }).onComplete(ar -> {
@@ -78,7 +79,7 @@ public class TradeEventHandler {
      * Handles all trading events asynchronously.
      * Routes to specific handlers based on event type pattern.
      */
-    private CompletableFuture<Void> handleTradingEvent(BiTemporalEvent<TradeEvent> event) {
+    private Future<Void> handleTradingEvent(BiTemporalEvent<TradeEvent> event) {
         eventsProcessed.incrementAndGet();
         
         String eventType = event.getEventType();
@@ -98,7 +99,7 @@ public class TradeEventHandler {
             }
         } catch (Exception e) {
             log.error("Error processing trading event: {} for trade: {}", eventType, trade.getTradeId(), e);
-            return CompletableFuture.failedFuture(e);
+            return Future.failedFuture(e);
         }
     }
     
@@ -106,7 +107,7 @@ public class TradeEventHandler {
      * Handles trade capture events.
      * Pattern: trading.{asset-class}.capture.completed
      */
-    private CompletableFuture<Void> handleTradeCapture(BiTemporalEvent<TradeEvent> event) {
+    private Future<Void> handleTradeCapture(BiTemporalEvent<TradeEvent> event) {
         captureEventsProcessed.incrementAndGet();
         
         TradeEvent trade = event.getPayload();
@@ -136,7 +137,7 @@ public class TradeEventHandler {
      * Handles trade confirmation events.
      * Pattern: trading.{asset-class}.confirmation.matched
      */
-    private CompletableFuture<Void> handleTradeConfirmation(BiTemporalEvent<TradeEvent> event) {
+    private Future<Void> handleTradeConfirmation(BiTemporalEvent<TradeEvent> event) {
         confirmationEventsProcessed.incrementAndGet();
         
         TradeEvent trade = event.getPayload();

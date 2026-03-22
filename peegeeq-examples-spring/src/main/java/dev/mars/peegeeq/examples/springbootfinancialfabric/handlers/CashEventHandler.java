@@ -14,6 +14,7 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 
 import java.util.concurrent.atomic.AtomicLong;
+import io.vertx.core.Future;
 
 /**
  * Event handler for cash management domain events.
@@ -45,7 +46,7 @@ public class CashEventHandler {
         
         cashEventStore.subscribe(null, null, new MessageHandler<BiTemporalEvent<CashMovementEvent>>() {
             @Override
-            public CompletableFuture<Void> handle(Message<BiTemporalEvent<CashMovementEvent>> message) {
+            public Future<Void> handle(Message<BiTemporalEvent<CashMovementEvent>> message) {
                 return handleCashEvent(message.getPayload());
             }
         }).onComplete(ar -> {
@@ -74,7 +75,7 @@ public class CashEventHandler {
     /**
      * Handles all cash events asynchronously.
      */
-    private CompletableFuture<Void> handleCashEvent(BiTemporalEvent<CashMovementEvent> event) {
+    private Future<Void> handleCashEvent(BiTemporalEvent<CashMovementEvent> event) {
         eventsProcessed.incrementAndGet();
         
         String eventType = event.getEventType();
@@ -87,19 +88,19 @@ public class CashEventHandler {
                 return handleCashMovement(event);
             } else {
                 log.warn("Unknown cash event type: {}", eventType);
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture(null);
             }
         } catch (Exception e) {
             log.error("Error processing cash event: {} for movement: {}", 
                     eventType, cashMovement.getMovementId(), e);
-            return CompletableFuture.failedFuture(e);
+            return Future.failedFuture(e);
         }
     }
     
     /**
      * Handles cash movement events.
      */
-    private CompletableFuture<Void> handleCashMovement(BiTemporalEvent<CashMovementEvent> event) {
+    private Future<Void> handleCashMovement(BiTemporalEvent<CashMovementEvent> event) {
         movementEventsProcessed.incrementAndGet();
         
         CashMovementEvent cashMovement = event.getPayload();
@@ -124,7 +125,7 @@ public class CashEventHandler {
         // 4. Notify treasury team
         notifyTreasuryTeam(cashMovement);
         
-        return CompletableFuture.completedFuture(null);
+        return Future.succeededFuture(null);
     }
     
     // Simulated async processing methods

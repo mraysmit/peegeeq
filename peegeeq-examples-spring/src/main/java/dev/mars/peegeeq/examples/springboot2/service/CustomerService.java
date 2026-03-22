@@ -71,7 +71,7 @@ public class CustomerService {
         return adapter.toMono(
             cp.withConnection("peegeeq-main", connection -> 
                 customerRepository.save(customer, connection)
-            ).toCompletionStage().toCompletableFuture()
+            )
         );
     }
     
@@ -86,7 +86,7 @@ public class CustomerService {
             cp.withConnection("peegeeq-main", connection -> 
                 customerRepository.findById(id, connection)
                     .map(opt -> opt.orElse(null))
-            ).toCompletionStage().toCompletableFuture()
+            )
         );
     }
     
@@ -101,7 +101,7 @@ public class CustomerService {
         return adapter.toMono(
             cp.withConnection("peegeeq-main", connection -> 
                 customerRepository.update(customer, connection)
-            ).toCompletionStage().toCompletableFuture()
+            )
         );
     }
     
@@ -115,7 +115,7 @@ public class CustomerService {
         return adapter.toMonoVoid(
             cp.withConnection("peegeeq-main", connection -> 
                 customerRepository.deleteById(id, connection)
-            ).toCompletionStage().toCompletableFuture()
+            )
         );
     }
     
@@ -131,7 +131,7 @@ public class CustomerService {
             adapter.toMono(
                 cp.withConnection("peegeeq-main", connection -> 
                     customerRepository.findAll(page, size, connection)
-                ).toCompletionStage().toCompletableFuture()
+                )
             ).flatMapMany(Flux::fromIterable)
         );
     }
@@ -147,7 +147,7 @@ public class CustomerService {
             adapter.toMono(
                 cp.withConnection("peegeeq-main", connection -> 
                     customerRepository.searchByName(name, connection)
-                ).toCompletionStage().toCompletableFuture()
+                )
             ).flatMapMany(Flux::fromIterable)
         );
     }
@@ -162,7 +162,7 @@ public class CustomerService {
         return adapter.toMono(
             cp.withConnection("peegeeq-main", connection -> 
                 customerRepository.existsByEmail(email, connection)
-            ).toCompletionStage().toCompletableFuture()
+            )
         );
     }
     
@@ -176,7 +176,7 @@ public class CustomerService {
         return adapter.toMono(
             cp.withConnection("peegeeq-main", connection -> 
                 customerRepository.count(connection)
-            ).toCompletionStage().toCompletableFuture()
+            )
         );
     }
 }

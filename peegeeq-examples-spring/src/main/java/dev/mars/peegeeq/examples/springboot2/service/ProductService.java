@@ -74,7 +74,7 @@ public class ProductService {
         return adapter.toMono(
             cp.withConnection("peegeeq-main", connection -> 
                 productRepository.save(product, connection)
-            ).toCompletionStage().toCompletableFuture()
+            )
         );
     }
     
@@ -89,7 +89,7 @@ public class ProductService {
             cp.withConnection("peegeeq-main", connection -> 
                 productRepository.findById(id, connection)
                     .map(opt -> opt.orElse(null))
-            ).toCompletionStage().toCompletableFuture()
+            )
         );
     }
     
@@ -104,7 +104,7 @@ public class ProductService {
             cp.withConnection("peegeeq-main", connection -> 
                 productRepository.findByIdWithCategory(id, connection)
                     .map(opt -> opt.orElse(null))
-            ).toCompletionStage().toCompletableFuture()
+            )
         );
     }
     
@@ -119,7 +119,7 @@ public class ProductService {
             adapter.toMono(
                 cp.withConnection("peegeeq-main", connection -> 
                     productRepository.findAll(connection)
-                ).toCompletionStage().toCompletableFuture()
+                )
             ).flatMapMany(Flux::fromIterable)
         );
     }
@@ -135,7 +135,7 @@ public class ProductService {
         return adapter.toMono(
             cp.withTransaction("peegeeq-main", connection -> 
                 productRepository.saveAll(products, connection)
-            ).toCompletionStage().toCompletableFuture()
+            )
         );
     }
     
@@ -149,7 +149,7 @@ public class ProductService {
         return adapter.toMono(
             cp.withConnection("peegeeq-main", connection -> 
                 productRepository.updatePriceIfChanged(id, newPrice, connection)
-            ).toCompletionStage().toCompletableFuture()
+            )
         );
     }
     
@@ -163,7 +163,7 @@ public class ProductService {
         return adapter.toMonoVoid(
             cp.withConnection("peegeeq-main", connection -> 
                 productRepository.deactivate(id, connection)
-            ).toCompletionStage().toCompletableFuture()
+            )
         );
     }
     
@@ -177,7 +177,7 @@ public class ProductService {
         return adapter.toMono(
             cp.withConnection("peegeeq-main", connection -> 
                 productRepository.countByCategory(connection)
-            ).toCompletionStage().toCompletableFuture()
+            )
         );
     }
     
@@ -192,7 +192,7 @@ public class ProductService {
             adapter.toMono(
                 cp.withConnection("peegeeq-main", connection -> 
                     productRepository.findByCategory(categoryId, connection)
-                ).toCompletionStage().toCompletableFuture()
+                )
             ).flatMapMany(Flux::fromIterable)
         );
     }
@@ -208,7 +208,7 @@ public class ProductService {
             adapter.toMono(
                 cp.withConnection("peegeeq-main", connection -> 
                     productRepository.findByPriceRange(minPrice, maxPrice, connection)
-                ).toCompletionStage().toCompletableFuture()
+                )
             ).flatMapMany(Flux::fromIterable)
         );
     }

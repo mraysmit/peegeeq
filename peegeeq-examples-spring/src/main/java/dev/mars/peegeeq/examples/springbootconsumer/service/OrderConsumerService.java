@@ -143,7 +143,7 @@ public class OrderConsumerService {
      * 4. Update consumer metrics
      * 5. Return CompletableFuture for acknowledgment
      */
-    private CompletableFuture<Void> processMessage(Message<OrderEvent> message) {
+    private Future<Void> processMessage(Message<OrderEvent> message) {
         OrderEvent event = message.getPayload();
         Map<String, String> headers = message.getHeaders();
         
@@ -155,7 +155,7 @@ public class OrderConsumerService {
             log.debug("Message filtered out: orderId={}, status={}", 
                 event.getOrderId(), event.getStatus());
             messagesFiltered.incrementAndGet();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture(null);
         }
         
         // Process message in transaction
@@ -203,10 +203,8 @@ public class OrderConsumerService {
                         return updateConsumerMetrics(connection);
                     });
             })
-            .toCompletionStage()
-            .toCompletableFuture()
-            .thenApply(v -> (Void) null)
-            .exceptionally(ex -> {
+            .map(v -> (Void) null)
+            .otherwise(ex -> {
                 log.error("❌ Failed to process message: orderId={}", event.getOrderId(), ex);
                 messagesFailed.incrementAndGet();
                 if (ex instanceof RuntimeException) {
@@ -251,9 +249,8 @@ public class OrderConsumerService {
                         ))
                         .map(result -> null);
                 })
-                .toCompletionStage()
-                .toCompletableFuture()
-                .join();
+                
+                .toCompletionStage().toCompletableFuture().join();
         } catch (Exception e) {
             log.warn("Failed to update consumer status", e);
         }

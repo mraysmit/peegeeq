@@ -26,6 +26,7 @@ import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.ext.web.client.WebClientOptions;
+import io.vertx.core.Promise;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -118,13 +119,13 @@ public class RestApiExampleTest {
         restServer = new PeeGeeQRestServer(restConfig, setupService);
         
         String deploymentId = vertx.deployVerticle(restServer)
-                .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+                .await();
         logger.info("\u2713 REST server deployed with ID: {}", deploymentId);
         
         // Give server a moment to fully initialize
-        CompletableFuture<Void> delay = new CompletableFuture<>();
-        vertx.setTimer(500, id -> delay.complete(null));
-        delay.join();
+        Promise<Void> delay = Promise.promise();
+        vertx.setTimer(500, id -> delay.complete());
+        delay.future().await();
         
         logger.info("✓ REST API Example Test setup completed on port {}", REST_PORT);
     }
@@ -144,7 +145,7 @@ public class RestApiExampleTest {
 
         if (vertx != null) {
             try {
-                vertx.close().toCompletionStage().toCompletableFuture().join();
+                vertx.close().await();
                 logger.info("✓ Vert.x closed");
             } catch (Exception e) {
                 logger.warn("⚠ Error during Vert.x cleanup", e);
@@ -169,25 +170,17 @@ public class RestApiExampleTest {
     void testHealthAndMetrics() throws Exception {
         logger.info("=== Testing Health and Metrics ===");
 
-        CompletableFuture<JsonObject> future = new CompletableFuture<>();
-
-        client.get(REST_PORT, "localhost", "/health")
+        JsonObject health = client.get(REST_PORT, "localhost", "/health")
                 .send()
-                .onSuccess(response -> {
+                .map(response -> {
                     logger.info("Health check response status: {}", response.statusCode());
                     if (response.statusCode() == 200) {
-                        JsonObject body = response.bodyAsJsonObject();
-                        future.complete(body);
+                        return response.bodyAsJsonObject();
                     } else {
-                        future.complete(new JsonObject().put("status", "DOWN").put("code", response.statusCode()));
+                        return new JsonObject().put("status", "DOWN").put("code", response.statusCode());
                     }
                 })
-                .onFailure(err -> {
-                    logger.error("Health check failed", err);
-                    future.completeExceptionally(err);
-                });
-
-        JsonObject health = future.get(5, TimeUnit.SECONDS);
+                .await();
         
         assertNotNull(health, "Health response should not be null");
         logger.info("✓ Health check response: {}", health.encodePrettily());
@@ -220,24 +213,16 @@ public class RestApiExampleTest {
                         .put("createSchema", true)
                         .put("validateConnection", true));
 
-        CompletableFuture<Integer> future = new CompletableFuture<>();
-
-        // POST to setup endpoint
-        client.post(REST_PORT, "localhost", "/api/v1/setup")
+        Integer statusCode = client.post(REST_PORT, "localhost", "/api/v1/setup")
                 .putHeader("Content-Type", "application/json")
                 .sendJsonObject(setupRequest)
-                .onSuccess(response -> {
+                .map(response -> {
                     logger.info("Setup response status: {}, body: {}", 
                             response.statusCode(), 
                             response.bodyAsString());
-                    future.complete(response.statusCode());
+                    return response.statusCode();
                 })
-                .onFailure(err -> {
-                    logger.error("Setup request failed", err);
-                    future.completeExceptionally(err);
-                });
-
-        Integer statusCode = future.get(10, TimeUnit.SECONDS);
+                .await();
         
         // Accept 200 (OK), 201 (Created), 400 (if already exists), or 404 (endpoint may vary)
         assertTrue(statusCode >= 200 && statusCode < 500, 
@@ -255,23 +240,15 @@ public class RestApiExampleTest {
         logger.info("=== Testing Queue Operations ===");
 
         // Test listing queues
-        CompletableFuture<JsonObject> listFuture = new CompletableFuture<>();
-
-        client.get(REST_PORT, "localhost", "/api/v1/queues")
+        JsonObject listResult = client.get(REST_PORT, "localhost", "/api/v1/queues")
                 .send()
-                .onSuccess(response -> {
+                .map(response -> {
                     logger.info("Queue list response status: {}", response.statusCode());
-                    JsonObject result = new JsonObject()
+                    return new JsonObject()
                             .put("statusCode", response.statusCode())
                             .put("body", response.bodyAsString());
-                    listFuture.complete(result);
                 })
-                .onFailure(err -> {
-                    logger.error("Queue list failed", err);
-                    listFuture.completeExceptionally(err);
-                });
-
-        JsonObject listResult = listFuture.get(5, TimeUnit.SECONDS);
+                .await();
         int listStatus = listResult.getInteger("statusCode");
         
         // Accept 200 (success) or 404 (endpoint may be at different path)
@@ -285,21 +262,14 @@ public class RestApiExampleTest {
                         .put("orderId", "order-12345")
                         .put("amount", 99.99));
 
-        CompletableFuture<Integer> sendFuture = new CompletableFuture<>();
-
-        client.post(REST_PORT, "localhost", "/api/v1/queues/test-queue/messages")
+        Integer sendStatus = client.post(REST_PORT, "localhost", "/api/v1/queues/test-queue/messages")
                 .putHeader("Content-Type", "application/json")
                 .sendJsonObject(message)
-                .onSuccess(response -> {
+                .map(response -> {
                     logger.info("Queue send response status: {}", response.statusCode());
-                    sendFuture.complete(response.statusCode());
+                    return response.statusCode();
                 })
-                .onFailure(err -> {
-                    logger.error("Queue send failed", err);
-                    sendFuture.completeExceptionally(err);
-                });
-
-        Integer sendStatus = sendFuture.get(5, TimeUnit.SECONDS);
+                .await();
         logger.info("✓ Queue operations tested. List status: {}, Send status: {}", listStatus, sendStatus);
     }
 
@@ -312,23 +282,15 @@ public class RestApiExampleTest {
         logger.info("=== Testing Event Store Operations ===");
 
         // Test listing event stores
-        CompletableFuture<JsonObject> future = new CompletableFuture<>();
-
-        client.get(REST_PORT, "localhost", "/api/v1/events")
+        JsonObject result = client.get(REST_PORT, "localhost", "/api/v1/events")
                 .send()
-                .onSuccess(response -> {
+                .map(response -> {
                     logger.info("Event store response status: {}", response.statusCode());
-                    JsonObject result = new JsonObject()
+                    return new JsonObject()
                             .put("statusCode", response.statusCode())
                             .put("body", response.bodyAsString());
-                    future.complete(result);
                 })
-                .onFailure(err -> {
-                    logger.error("Event store request failed", err);
-                    future.completeExceptionally(err);
-                });
-
-        JsonObject result = future.get(5, TimeUnit.SECONDS);
+                .await();
         int statusCode = result.getInteger("statusCode");
 
         // Event store endpoint should respond
@@ -344,21 +306,14 @@ public class RestApiExampleTest {
                         .put("customerId", "customer-456")
                         .put("amount", 150.00));
 
-        CompletableFuture<Integer> appendFuture = new CompletableFuture<>();
-
-        client.post(REST_PORT, "localhost", "/api/v1/events")
+        Integer appendStatus = client.post(REST_PORT, "localhost", "/api/v1/events")
                 .putHeader("Content-Type", "application/json")
                 .sendJsonObject(event)
-                .onSuccess(response -> {
+                .map(response -> {
                     logger.info("Event append response status: {}", response.statusCode());
-                    appendFuture.complete(response.statusCode());
+                    return response.statusCode();
                 })
-                .onFailure(err -> {
-                    logger.error("Event append failed", err);
-                    appendFuture.completeExceptionally(err);
-                });
-
-        Integer appendStatus = appendFuture.get(5, TimeUnit.SECONDS);
+                .await();
         logger.info("✓ Event store operations tested. List status: {}, Append status: {}", 
                 statusCode, appendStatus);
     }
@@ -372,23 +327,15 @@ public class RestApiExampleTest {
         logger.info("=== Testing Consumer Group Management ===");
 
         // Test listing consumer groups
-        CompletableFuture<JsonObject> future = new CompletableFuture<>();
-
-        client.get(REST_PORT, "localhost", "/api/v1/consumer-groups")
+        JsonObject result = client.get(REST_PORT, "localhost", "/api/v1/consumer-groups")
                 .send()
-                .onSuccess(response -> {
+                .map(response -> {
                     logger.info("Consumer groups response status: {}", response.statusCode());
-                    JsonObject result = new JsonObject()
+                    return new JsonObject()
                             .put("statusCode", response.statusCode())
                             .put("body", response.bodyAsString());
-                    future.complete(result);
                 })
-                .onFailure(err -> {
-                    logger.error("Consumer groups request failed", err);
-                    future.completeExceptionally(err);
-                });
-
-        JsonObject result = future.get(5, TimeUnit.SECONDS);
+                .await();
         int statusCode = result.getInteger("statusCode");
 
         // Consumer groups endpoint should respond
@@ -403,21 +350,14 @@ public class RestApiExampleTest {
                         .put("batchSize", 10)
                         .put("maxRetries", 3));
 
-        CompletableFuture<Integer> createFuture = new CompletableFuture<>();
-
-        client.post(REST_PORT, "localhost", "/api/v1/consumer-groups")
+        Integer createStatus = client.post(REST_PORT, "localhost", "/api/v1/consumer-groups")
                 .putHeader("Content-Type", "application/json")
                 .sendJsonObject(consumerGroup)
-                .onSuccess(response -> {
+                .map(response -> {
                     logger.info("Create consumer group response status: {}", response.statusCode());
-                    createFuture.complete(response.statusCode());
+                    return response.statusCode();
                 })
-                .onFailure(err -> {
-                    logger.error("Create consumer group failed", err);
-                    createFuture.completeExceptionally(err);
-                });
-
-        Integer createStatus = createFuture.get(5, TimeUnit.SECONDS);
+                .await();
         logger.info("✓ Consumer group management tested. List status: {}, Create status: {}", 
                 statusCode, createStatus);
     }

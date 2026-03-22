@@ -17,6 +17,8 @@ import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -511,14 +513,14 @@ class EventSourcingCQRSDemoTest {
         if (manager != null) {
             try {
                 System.out.println("🔄 Closing PeeGeeQ manager...");
-                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+                manager.closeReactive().await();
                 System.out.println("PeeGeeQ manager closed successfully");
 
                 // CRITICAL: Wait for all resources to be fully released
                 // This prevents connection pool exhaustion between tests
-                CompletableFuture<Void> delay = new CompletableFuture<>();
-                vertx.setTimer(3000, id -> delay.complete(null));
-                delay.join();
+                Promise<Void> delay = Promise.promise();
+                vertx.setTimer(3000, id -> delay.complete());
+                delay.future().await();
                 System.out.println("⏱️ Resource cleanup wait completed");
             } catch (Exception e) {
                 System.err.println("⚠️ Error during manager cleanup: " + e.getMessage());
@@ -658,7 +660,7 @@ class EventSourcingCQRSDemoTest {
 
             // 🚨 TEST-ONLY: Flag checkpoint for test synchronization
             commandCheckpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Event store - stores events for replay (the heart of event sourcing)
@@ -680,7 +682,7 @@ class EventSourcingCQRSDemoTest {
             eventsStored.incrementAndGet();
             // 🚨 TEST-ONLY: Flag checkpoint for test synchronization
             eventCheckpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send commands to demonstrate event sourcing
@@ -893,7 +895,7 @@ class EventSourcingCQRSDemoTest {
             }
 
             commandCheckpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // READ SIDE - Event processing (updates read models for queries)
@@ -925,7 +927,7 @@ class EventSourcingCQRSDemoTest {
             readModelAggregate.applyEvent(event);
             eventsProcessed.incrementAndGet();
             eventCheckpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send commands for CQRS demonstration
@@ -972,9 +974,9 @@ class EventSourcingCQRSDemoTest {
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Should process all commands and events");
 
         // Small delay to ensure all async read model updates complete
-        CompletableFuture<Void> delay = new CompletableFuture<>();
-        vertx.setTimer(500, id -> delay.complete(null));
-        delay.join();
+        Promise<Void> delay = Promise.promise();
+        vertx.setTimer(500, id -> delay.complete());
+        delay.future().await();
 
         // Verify CQRS separation - both sides processed the same number of operations
         assertEquals(4, commandsProcessed.get(), "Should have processed 4 commands");

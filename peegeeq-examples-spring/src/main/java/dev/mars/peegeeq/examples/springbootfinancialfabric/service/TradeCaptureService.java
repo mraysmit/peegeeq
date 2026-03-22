@@ -68,7 +68,7 @@ public class TradeCaptureService {
      * @param connection Database connection for transactional consistency
      * @return CompletableFuture containing the created CloudEvent
      */
-    public CompletableFuture<CloudEvent> captureTrade(
+    public Future<CloudEvent> captureTrade(
             TradeEvent tradeEvent,
             String correlationId,
             String causationId,
@@ -98,14 +98,14 @@ public class TradeCaptureService {
                     .aggregateId(tradeEvent.getTradeId())
                     .inTransaction(connection)
                     .execute())
-                .thenApply(biTemporalEvent -> {
+                .map(biTemporalEvent -> {
                     log.info("Trade captured successfully: tradeId={}, eventId={}, cloudEventId={}",
                         tradeEvent.getTradeId(), biTemporalEvent.getEventId(), cloudEvent.getId());
                     return cloudEvent;  // Return the CloudEvent for external use
                 });
         } catch (JsonProcessingException e) {
             log.error("Failed to serialize trade event: tradeId={}", tradeEvent.getTradeId(), e);
-            return CompletableFuture.failedFuture(new RuntimeException("Failed to serialize trade event", e));
+            return Future.failedFuture(new RuntimeException("Failed to serialize trade event", e));
         }
     }
     
@@ -119,7 +119,7 @@ public class TradeCaptureService {
      * @param connection Database connection for transactional consistency
      * @return CompletableFuture containing the created CloudEvent
      */
-    public CompletableFuture<CloudEvent> confirmTrade(
+    public Future<CloudEvent> confirmTrade(
             String tradeId,
             String correlationId,
             String causationId,
@@ -158,23 +158,23 @@ public class TradeCaptureService {
                     .aggregateId(tradeId)
                     .inTransaction(connection)
                     .execute())
-                .thenApply(biTemporalEvent -> {
+                .map(biTemporalEvent -> {
                     log.info("Trade confirmed successfully: tradeId={}, eventId={}, cloudEventId={}",
                         tradeId, biTemporalEvent.getEventId(), cloudEvent.getId());
                     return cloudEvent;  // Return the CloudEvent for external use
                 });
         } catch (JsonProcessingException e) {
             log.error("Failed to serialize trade confirmation: tradeId={}", tradeId, e);
-            return CompletableFuture.failedFuture(new RuntimeException("Failed to serialize trade confirmation", e));
+            return Future.failedFuture(new RuntimeException("Failed to serialize trade confirmation", e));
         }
     }
 
-    private static <T> CompletableFuture<T> toCompletableFuture(CompletionStage<T> stage) {
-        return stage.toCompletableFuture();
+    private static <T> Future<T> toCompletableFuture(CompletionStage<T> stage) {
+        return Future.fromCompletionStage(stage);
     }
 
-    private static <T> CompletableFuture<T> toCompletableFuture(Future<T> future) {
-        return future.toCompletionStage().toCompletableFuture();
+    private static <T> Future<T> toCompletableFuture(Future<T> future) {
+        return future;
     }
 }
 

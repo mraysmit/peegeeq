@@ -41,10 +41,11 @@ import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
+import io.vertx.core.Future;
+
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.Arrays;
-import java.util.concurrent.TimeUnit;
 
 /**
  * Integration test for the Reactive Order Service using StepVerifier.
@@ -100,7 +101,7 @@ class OrderServiceTest {
     }
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp() {
         logger.info("=== Setting up application-specific tables ===");
 
         // Create orders table for this specific test
@@ -137,7 +138,7 @@ class OrderServiceTest {
                         logger.info("Application-specific schema created successfully");
                         return (Void) null;
                     });
-            }).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
+            }).await();
 
         logger.info("=== Application-specific schema setup complete ===");
     }

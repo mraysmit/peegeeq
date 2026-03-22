@@ -28,6 +28,7 @@ import org.springframework.web.bind.annotation.*;
 
 import java.time.Instant;
 import java.util.List;
+import io.vertx.core.Future;
 
 
 /**
@@ -73,16 +74,16 @@ public class OrderController {
      * @return CompletableFuture with order ID
      */
     @PostMapping("/orders")
-    public CompletableFuture<ResponseEntity<String>> createOrder(@RequestBody CreateOrderRequest request) {
+    public Future<ResponseEntity<String>> createOrder(@RequestBody CreateOrderRequest request) {
         logger.info("REST: Creating order for customer: {} amount: {}", 
             request.getCustomerId(), request.getAmount());
         
         return orderService.createOrder(request)
-            .thenApply(orderId -> {
+            .map(orderId -> {
                 logger.info("REST: Order created successfully: {}", orderId);
                 return ResponseEntity.ok(orderId);
             })
-            .exceptionally(error -> {
+            .otherwise(error -> {
                 logger.error("REST: Failed to create order", error);
                 return ResponseEntity.internalServerError().body("Failed to create order: " + error.getMessage());
             });
@@ -95,15 +96,15 @@ public class OrderController {
      * @return CompletableFuture with order history
      */
     @GetMapping("/orders/{orderId}/history")
-    public CompletableFuture<ResponseEntity<OrderResponse>> getOrderHistory(@PathVariable String orderId) {
+    public Future<ResponseEntity<OrderResponse>> getOrderHistory(@PathVariable String orderId) {
         logger.info("REST: Retrieving order history: {}", orderId);
         
         return orderService.getOrderHistory(orderId)
-            .thenApply(response -> {
+            .map(response -> {
                 logger.info("REST: Order history retrieved: {} events", response.getHistory().size());
                 return ResponseEntity.ok(response);
             })
-            .exceptionally(error -> {
+            .otherwise(error -> {
                 logger.error("REST: Failed to retrieve order history: {}", orderId, error);
                 return ResponseEntity.internalServerError().build();
             });
@@ -116,16 +117,16 @@ public class OrderController {
      * @return CompletableFuture with list of order events
      */
     @GetMapping("/customers/{customerId}/orders")
-    public CompletableFuture<ResponseEntity<List<BiTemporalEvent<OrderEvent>>>> getCustomerOrders(
+    public Future<ResponseEntity<List<BiTemporalEvent<OrderEvent>>>> getCustomerOrders(
             @PathVariable String customerId) {
         logger.info("REST: Retrieving orders for customer: {}", customerId);
         
         return orderService.getCustomerOrders(customerId)
-            .thenApply(orders -> {
+            .map(orders -> {
                 logger.info("REST: Found {} orders for customer: {}", orders.size(), customerId);
                 return ResponseEntity.ok(orders);
             })
-            .exceptionally(error -> {
+            .otherwise(error -> {
                 logger.error("REST: Failed to retrieve customer orders: {}", customerId, error);
                 return ResponseEntity.internalServerError().build();
             });
@@ -138,7 +139,7 @@ public class OrderController {
      * @return CompletableFuture with events as of that time
      */
     @GetMapping("/orders")
-    public CompletableFuture<ResponseEntity<List<BiTemporalEvent<OrderEvent>>>> getOrdersAsOfTime(
+    public Future<ResponseEntity<List<BiTemporalEvent<OrderEvent>>>> getOrdersAsOfTime(
             @RequestParam(required = false) String asOf) {
         
         if (asOf != null) {
@@ -146,19 +147,19 @@ public class OrderController {
             logger.info("REST: Querying orders as of time: {}", validTime);
             
             return orderService.getOrdersAsOfTime(validTime)
-                .thenApply(orders -> {
+                .map(orders -> {
                     logger.info("REST: Found {} orders as of time: {}", orders.size(), validTime);
                     return ResponseEntity.ok(orders);
                 })
-                .exceptionally(error -> {
+                .otherwise(error -> {
                     logger.error("REST: Failed to query orders as of time: {}", validTime, error);
                     return ResponseEntity.internalServerError().build();
                 });
         } else {
             logger.info("REST: Querying all orders");
             return orderService.getOrdersAsOfTime(Instant.now())
-                .thenApply(ResponseEntity::ok)
-                .exceptionally(error -> {
+                .map(ResponseEntity::ok)
+                .otherwise(error -> {
                     logger.error("REST: Failed to query all orders", error);
                     return ResponseEntity.internalServerError().build();
                 });

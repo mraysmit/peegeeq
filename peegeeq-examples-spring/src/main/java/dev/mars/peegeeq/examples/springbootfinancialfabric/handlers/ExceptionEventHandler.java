@@ -16,6 +16,7 @@ import java.util.Map;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
+import io.vertx.core.Future;
 
 /**
  * Centralized exception event handler for cross-domain failure handling.
@@ -98,7 +99,7 @@ public class ExceptionEventHandler {
     private void subscribeToEventStore(PgBiTemporalEventStore<?> eventStore, String domain) {
         eventStore.subscribe(null, null, (MessageHandler) new MessageHandler<BiTemporalEvent<?>>() {
             @Override
-            public CompletableFuture<Void> handle(Message<BiTemporalEvent<?>> message) {
+            public Future<Void> handle(Message<BiTemporalEvent<?>> message) {
                 BiTemporalEvent<?> event = message.getPayload();
 
                 // Wildcard pattern matching: check if event type ends with ".failed"
@@ -106,7 +107,7 @@ public class ExceptionEventHandler {
                     return handleFailureEvent(event, domain);
                 }
 
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture(null);
             }
         }).onSuccess(v ->
             log.info("Successfully subscribed to {} events for exception handling", domain)
@@ -130,7 +131,7 @@ public class ExceptionEventHandler {
      * Centralized failure event handler.
      * Handles failures from all domains using the same logic.
      */
-    private CompletableFuture<Void> handleFailureEvent(BiTemporalEvent<?> event, String domain) {
+    private Future<Void> handleFailureEvent(BiTemporalEvent<?> event, String domain) {
         totalExceptionsHandled.incrementAndGet();
         exceptionsByDomain.get(domain).incrementAndGet();
         
@@ -171,11 +172,11 @@ public class ExceptionEventHandler {
             // 5. Trigger automated remediation if applicable
             triggerAutomatedRemediation(exceptionRecord);
             
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture(null);
             
         } catch (Exception e) {
             log.error("Error handling failure event: {}", eventType, e);
-            return CompletableFuture.failedFuture(e);
+            return Future.failedFuture(e);
         }
     }
     

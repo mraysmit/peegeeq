@@ -25,6 +25,7 @@ import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.sqlclient.Row;
@@ -125,7 +126,7 @@ public class PaymentProcessorServiceTest {
                         log.info("Application-specific schema created successfully");
                         return (Void) null;
                     });
-            }).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
+            }).await();
 
         log.info("=== Application-specific schema setup complete ===");
     }
@@ -153,12 +154,12 @@ public class PaymentProcessorServiceTest {
         PaymentEvent event = new PaymentEvent(
             "PAY-001", "ORDER-001", new BigDecimal("100.00"), "USD", "CREDIT_CARD", false
         );
-        producer.send(event).get(5, TimeUnit.SECONDS);
+        producer.send(event).await();
         
         // Wait for processing
-        CompletableFuture<Void> delay = new CompletableFuture<>();
+        Promise<Void> delay = Promise.promise();
         vertx.setTimer(2000, id -> delay.complete(null));
-        delay.join();
+        delay.future().await();
         
         // Verify payment was stored in database
         boolean paymentExists = databaseService.getConnectionProvider()
@@ -170,9 +171,7 @@ public class PaymentProcessorServiceTest {
                         return row.getLong(0) > 0;
                     });
             })
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get(5, TimeUnit.SECONDS);
+            .await();
         
         assertTrue(paymentExists, "Payment should be stored in database");
         assertTrue(processorService.getPaymentsProcessed() > 0, "Payments processed count should increase");

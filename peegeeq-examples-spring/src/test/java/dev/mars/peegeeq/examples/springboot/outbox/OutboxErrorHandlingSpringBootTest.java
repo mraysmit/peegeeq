@@ -17,6 +17,8 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -26,7 +28,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.ArrayList;
 import java.util.List;
-
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -86,7 +87,7 @@ class OutboxErrorHandlingSpringBootTest {
     private final List<MessageConsumer<?>> activeConsumers = new ArrayList<>();
 
     @AfterEach
-    void tearDown(Vertx vertx) throws InterruptedException {
+    void tearDown(Vertx vertx) {
         logger.info("Cleaning up test resources...");
         
         // Close all active consumers first
@@ -110,9 +111,9 @@ class OutboxErrorHandlingSpringBootTest {
         activeProducers.clear();
         
         // Wait for connections to be released
-        CompletableFuture<Void> delay = new CompletableFuture<>();
-        vertx.setTimer(2000, id -> delay.complete(null));
-        delay.join();
+        Promise<Void> delay = Promise.promise();
+        vertx.setTimer(2000, id -> delay.complete());
+        delay.future().await();
     }
 
     @Test
@@ -141,18 +142,18 @@ class OutboxErrorHandlingSpringBootTest {
             if (attempt < 3) {
                 // Fail the first 2 attempts (simulating transient error)
                 logger.info("INTENTIONAL FAILURE: Simulating transient error on attempt {}", attempt);
-                return CompletableFuture.failedFuture(
+                return Future.failedFuture(
                     new RuntimeException("Simulated transient error, attempt " + attempt));
             } else {
                 // Succeed on the 3rd attempt
                 logger.info("SUCCESS: Processing succeeded on attempt {}", attempt);
                 successCheckpoint.flag();
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             }
         });
         
         // Send message
-        producer.send("Transient error test message").get(5, TimeUnit.SECONDS);
+        producer.send("Transient error test message").await();
         
         // Wait for eventual success
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 
@@ -189,21 +190,21 @@ class OutboxErrorHandlingSpringBootTest {
             int attempt = attemptCount.incrementAndGet();
             logger.info("INTENTIONAL FAILURE: Processing attempt {} - permanent error", attempt);
             attemptCheckpoint.flag();
-            return CompletableFuture.failedFuture(
+            return Future.failedFuture(
                 new RuntimeException("Simulated permanent error"));
         });
         
         // Send message
-        producer.send("Permanent error test message").get(5, TimeUnit.SECONDS);
+        producer.send("Permanent error test message").await();
         
         // Wait for all retry attempts
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 
             "Should attempt processing multiple times");
         
         // Verify max retries were attempted
-        CompletableFuture<Void> retryDelay = new CompletableFuture<>();
-        vertx.setTimer(2000, id -> retryDelay.complete(null));
-        retryDelay.join();
+        Promise<Void> retryDelay = Promise.promise();
+        vertx.setTimer(2000, id -> retryDelay.complete());
+        retryDelay.future().await();
         int finalAttempts = attemptCount.get();
         assertTrue(finalAttempts >= 4, 
             "Should have at least 4 attempts (initial + 3 retries), was " + finalAttempts);
@@ -242,25 +243,25 @@ class OutboxErrorHandlingSpringBootTest {
                 
                 if (attempt < 2) {
                     logger.info("INTENTIONAL FAILURE: Transient error on attempt {}", attempt);
-                    return CompletableFuture.failedFuture(
+                    return Future.failedFuture(
                         new RuntimeException("Transient error"));
                 } else {
                     logger.info("SUCCESS: Transient message succeeded on attempt {}", attempt);
                     transientCheckpoint.flag();
-                    return CompletableFuture.completedFuture(null);
+                    return Future.succeededFuture();
                 }
             } else {
                 int attempt = permanentAttempts.incrementAndGet();
                 logger.info("INTENTIONAL FAILURE: Permanent error on attempt {}", attempt);
                 permanentCheckpoint.flag();
-                return CompletableFuture.failedFuture(
+                return Future.failedFuture(
                     new RuntimeException("Permanent error"));
             }
         });
         
         // Send both types of messages
-        producer.send("transient error message").get(5, TimeUnit.SECONDS);
-        producer.send("permanent error message").get(5, TimeUnit.SECONDS);
+        producer.send("transient error message").await();
+        producer.send("permanent error message").await();
         
         // Wait for outcomes
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 

@@ -45,7 +45,7 @@ public class TradeHistoryQueryService {
      * Get complete audit trail for a specific trade.
      * Returns all events (including corrections) in chronological order.
      */
-    public CompletableFuture<TradeAuditTrail> getTradeAuditTrail(String tradeId) {
+    public Future<TradeAuditTrail> getTradeAuditTrail(String tradeId) {
         log.info("Querying audit trail for trade: {}", tradeId);
         
         return toCompletableFuture(tradingEventStore.query(
@@ -54,7 +54,7 @@ public class TradeHistoryQueryService {
                 .includeCorrections(true)
                 .sortOrder(EventQuery.SortOrder.TRANSACTION_TIME_ASC)
                 .build()
-        )).thenApply(events -> {
+        )).map(events -> {
             log.debug("Found {} events for trade: {}", events.size(), tradeId);
             return new TradeAuditTrail(tradeId, events);
         });
@@ -64,7 +64,7 @@ public class TradeHistoryQueryService {
      * Get trade state as it was known at a specific point in time.
      * Uses transaction time (system time) for point-in-time reconstruction.
      */
-    public CompletableFuture<BiTemporalEvent<TradeEvent>> getTradeAsOfTime(
+    public Future<BiTemporalEvent<TradeEvent>> getTradeAsOfTime(
             String tradeId, Instant asOfTime) {
         log.info("Querying trade {} as of {}", tradeId, asOfTime);
         
@@ -75,7 +75,7 @@ public class TradeHistoryQueryService {
                 .sortOrder(EventQuery.SortOrder.TRANSACTION_TIME_DESC)
                 .limit(1)
                 .build()
-        )).thenApply(events -> {
+        )).map(events -> {
             if (events.isEmpty()) {
                 log.warn("No trade found for {} as of {}", tradeId, asOfTime);
                 return null;
@@ -88,7 +88,7 @@ public class TradeHistoryQueryService {
      * Get all trades executed within a specific time range (valid time).
      * Used for daily/monthly reporting.
      */
-    public CompletableFuture<List<BiTemporalEvent<TradeEvent>>> getTradesByExecutionTime(
+    public Future<List<BiTemporalEvent<TradeEvent>>> getTradesByExecutionTime(
             Instant startTime, Instant endTime) {
         log.info("Querying trades executed between {} and {}", startTime, endTime);
         
@@ -104,7 +104,7 @@ public class TradeHistoryQueryService {
     /**
      * Get all trades for a specific counterparty.
      */
-    public CompletableFuture<List<BiTemporalEvent<TradeEvent>>> getTradesByCounterparty(
+    public Future<List<BiTemporalEvent<TradeEvent>>> getTradesByCounterparty(
             String counterparty) {
         log.info("Querying trades for counterparty: {}", counterparty);
         
@@ -114,7 +114,7 @@ public class TradeHistoryQueryService {
                 .sortOrder(EventQuery.SortOrder.VALID_TIME_DESC)
                 .limit(1000)
                 .build()
-        )).thenApply(events -> 
+        )).map(events -> 
             events.stream()
                 .filter(event -> counterparty.equals(event.getPayload().getCounterparty()))
                 .collect(Collectors.toList())
@@ -125,7 +125,7 @@ public class TradeHistoryQueryService {
      * Get all trade corrections for a specific trade.
      * Shows the complete amendment history.
      */
-    public CompletableFuture<List<BiTemporalEvent<TradeEvent>>> getTradeCorrections(
+    public Future<List<BiTemporalEvent<TradeEvent>>> getTradeCorrections(
             String tradeId) {
         log.info("Querying corrections for trade: {}", tradeId);
         
@@ -135,7 +135,7 @@ public class TradeHistoryQueryService {
                 .includeCorrections(true)
                 .sortOrder(EventQuery.SortOrder.TRANSACTION_TIME_ASC)
                 .build()
-        )).thenApply(events -> 
+        )).map(events -> 
             events.stream()
                 .filter(BiTemporalEvent::isCorrection)
                 .collect(Collectors.toList())
@@ -146,7 +146,7 @@ public class TradeHistoryQueryService {
      * Get all confirmed trades within a time range.
      * Used for settlement processing.
      */
-    public CompletableFuture<List<BiTemporalEvent<TradeEvent>>> getConfirmedTrades(
+    public Future<List<BiTemporalEvent<TradeEvent>>> getConfirmedTrades(
             Instant startTime, Instant endTime) {
         log.info("Querying confirmed trades between {} and {}", startTime, endTime);
         
@@ -162,7 +162,7 @@ public class TradeHistoryQueryService {
     /**
      * Get trades by instrument within a time range.
      */
-    public CompletableFuture<List<BiTemporalEvent<TradeEvent>>> getTradesByInstrument(
+    public Future<List<BiTemporalEvent<TradeEvent>>> getTradesByInstrument(
             String instrument, Instant startTime, Instant endTime) {
         log.info("Querying trades for instrument {} between {} and {}", 
                 instrument, startTime, endTime);
@@ -173,7 +173,7 @@ public class TradeHistoryQueryService {
                 .validTimeRange(new TemporalRange(startTime, endTime))
                 .sortOrder(EventQuery.SortOrder.VALID_TIME_ASC)
                 .build()
-        )).thenApply(events -> 
+        )).map(events -> 
             events.stream()
                 .filter(event -> instrument.equals(event.getPayload().getInstrument()))
                 .collect(Collectors.toList())
@@ -183,7 +183,7 @@ public class TradeHistoryQueryService {
     /**
      * Get today's trades (valid time = today).
      */
-    public CompletableFuture<List<BiTemporalEvent<TradeEvent>>> getTodaysTrades() {
+    public Future<List<BiTemporalEvent<TradeEvent>>> getTodaysTrades() {
         Instant startOfDay = Instant.now().truncatedTo(ChronoUnit.DAYS);
         Instant endOfDay = startOfDay.plus(1, ChronoUnit.DAYS);
         
@@ -195,12 +195,12 @@ public class TradeHistoryQueryService {
     /**
      * Get trade statistics for a time period.
      */
-    public CompletableFuture<TradeStatistics> getTradeStatistics(
+    public Future<TradeStatistics> getTradeStatistics(
             Instant startTime, Instant endTime) {
         log.info("Calculating trade statistics between {} and {}", startTime, endTime);
         
         return getTradesByExecutionTime(startTime, endTime)
-            .thenApply(events -> {
+            .map(events -> {
                 TradeStatistics stats = new TradeStatistics();
                 stats.totalTrades = events.size();
                 stats.startTime = startTime;
@@ -279,12 +279,12 @@ public class TradeHistoryQueryService {
         }
     }
 
-    private <T> CompletableFuture<T> toCompletableFuture(CompletionStage<T> stage) {
-        return stage.toCompletableFuture();
+    private <T> Future<T> toCompletableFuture(CompletionStage<T> stage) {
+        return Future.fromCompletionStage(stage);
     }
 
-    private <T> CompletableFuture<T> toCompletableFuture(Future<T> future) {
-        return future.toCompletionStage().toCompletableFuture();
+    private <T> Future<T> toCompletableFuture(Future<T> future) {
+        return future;
     }
 }
 

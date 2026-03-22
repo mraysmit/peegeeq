@@ -141,15 +141,7 @@ class BiTemporalEventStoreExampleTest {
     }
 
     private <T> T await(io.vertx.core.Future<T> future) {
-        return await(future, 5, TimeUnit.SECONDS);
-    }
-
-    private <T> T await(io.vertx.core.Future<T> future, long timeout, TimeUnit unit) {
-        try {
-            return future.toCompletionStage().toCompletableFuture().get(timeout, unit);
-        } catch (Exception e) {
-            throw new RuntimeException("Timed out waiting for async operation", e);
-        }
+        return future.await();
     }
     
     @BeforeEach
@@ -223,7 +215,7 @@ class BiTemporalEventStoreExampleTest {
         if (manager != null) {
             try {
                 logger.info("Stopping PeeGeeQ manager");
-                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+                manager.closeReactive().await();
                 logger.info("PeeGeeQ manager stopped successfully");
             } catch (Exception e) {
                 logger.error("Error stopping PeeGeeQ manager", e);

@@ -28,6 +28,8 @@ import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import io.cloudevents.CloudEvent;
 import io.cloudevents.core.builder.CloudEventBuilder;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -146,7 +148,7 @@ public class CloudEventsExample {
         logger.info("=== CloudEvents Messaging ===");
         
         // Set up consumer to process CloudEvents
-        CompletableFuture<CloudEvent> receivedEventFuture = new CompletableFuture<>();
+        Promise<CloudEvent> receivedEventPromise = Promise.promise();
         
         consumer.subscribe(message -> {
             try {
@@ -159,12 +161,12 @@ public class CloudEventsExample {
                 String priority = (String) event.getExtension("priority");
                 logger.info("Event metadata - correlationId: {}, priority: {}", correlationId, priority);
                 
-                receivedEventFuture.complete(event);
-                return CompletableFuture.completedFuture(null);
+                receivedEventPromise.complete(event);
+                return Future.succeededFuture();
             } catch (Exception e) {
                 logger.error("Error processing CloudEvent", e);
-                receivedEventFuture.completeExceptionally(e);
-                return CompletableFuture.failedFuture(e);
+                receivedEventPromise.fail(e);
+                return Future.failedFuture(e);
             }
         });
         
@@ -184,11 +186,11 @@ public class CloudEventsExample {
         logger.info("Sending CloudEvent: id={}, type={}", eventToSend.getId(), eventToSend.getType());
         
         // Send the CloudEvent through outbox
-        producer.send(eventToSend, Map.of("priority", "HIGH")).get();
+        producer.send(eventToSend, Map.of("priority", "HIGH")).await();
         logger.info("CloudEvent sent successfully");
         
         // Wait for the event to be received and processed
-        CloudEvent receivedEvent = receivedEventFuture.get();
+        CloudEvent receivedEvent = receivedEventPromise.future().await();
         logger.info("CloudEvent processing completed: id={}", receivedEvent.getId());
     }
     

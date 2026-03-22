@@ -68,7 +68,7 @@ public class CashManagementService {
      * @param connection Database connection for transactional consistency
      * @return CompletableFuture containing the created CloudEvent
      */
-    public CompletableFuture<CloudEvent> recordCashMovement(
+    public Future<CloudEvent> recordCashMovement(
             CashMovementEvent cashMovementEvent,
             String correlationId,
             String causationId,
@@ -102,23 +102,23 @@ public class CashManagementService {
                     .aggregateId(cashMovementEvent.getMovementId())
                     .inTransaction(connection)
                     .execute())
-                .thenApply(biTemporalEvent -> {
+                .map(biTemporalEvent -> {
                     log.info("Cash movement recorded successfully: movementId={}, eventId={}, cloudEventId={}",
                         cashMovementEvent.getMovementId(), biTemporalEvent.getEventId(), cloudEvent.getId());
                     return cloudEvent;  // Return the CloudEvent for external use
                 });
         } catch (JsonProcessingException e) {
             log.error("Failed to serialize cash movement: movementId={}", cashMovementEvent.getMovementId(), e);
-            return CompletableFuture.failedFuture(new RuntimeException("Failed to serialize cash movement", e));
+            return Future.failedFuture(new RuntimeException("Failed to serialize cash movement", e));
         }
     }
 
-    private static <T> CompletableFuture<T> toCompletableFuture(CompletionStage<T> stage) {
-        return stage.toCompletableFuture();
+    private static <T> Future<T> toCompletableFuture(CompletionStage<T> stage) {
+        return Future.fromCompletionStage(stage);
     }
 
-    private static <T> CompletableFuture<T> toCompletableFuture(Future<T> future) {
-        return future.toCompletionStage().toCompletableFuture();
+    private static <T> Future<T> toCompletableFuture(Future<T> future) {
+        return future;
     }
 }
 

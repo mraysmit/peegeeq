@@ -43,8 +43,6 @@ import org.slf4j.LoggerFactory;
 import java.math.BigDecimal;
 import java.util.Arrays;
 
-import java.util.concurrent.TimeUnit;
-
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -58,7 +56,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * - Event publishing through outbox pattern
  * - Transactional rollback scenarios
  * - Business validation logic
- * - Reactive operations with CompletableFuture
+ * - Reactive operations with Vert.x Future
  * 
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-09-09
@@ -140,7 +138,7 @@ class OrderServiceTest {
                         logger.info("Application-specific schema created successfully");
                         return (Void) null;
                     });
-            }).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
+            }).await();
 
         logger.info("=== Application-specific schema setup complete ===");
     }
@@ -154,8 +152,7 @@ class OrderServiceTest {
         
         CreateOrderRequest request = createValidOrderRequest();
         
-        CompletableFuture<String> future = orderService.createOrder(request);
-        String orderId = future.get(10, TimeUnit.SECONDS);
+        String orderId = orderService.createOrder(request).await();
         
         assertNotNull(orderId, "Order ID should not be null");
         assertFalse(orderId.isEmpty(), "Order ID should not be empty");
@@ -180,11 +177,9 @@ class OrderServiceTest {
             )
         );
         
-        CompletableFuture<String> future = orderService.createOrderWithBusinessValidation(request);
-        
         // Should complete exceptionally due to business validation failure
         Exception exception = assertThrows(Exception.class, () -> {
-            future.get(10, TimeUnit.SECONDS);
+            orderService.createOrderWithBusinessValidation(request).await();
         });
         
         assertTrue(exception.getMessage().contains("Order amount exceeds maximum limit") ||
@@ -212,11 +207,9 @@ class OrderServiceTest {
             )
         );
         
-        CompletableFuture<String> future = orderService.createOrderWithBusinessValidation(request);
-        
         // Should complete exceptionally due to invalid customer
         Exception exception = assertThrows(Exception.class, () -> {
-            future.get(10, TimeUnit.SECONDS);
+            orderService.createOrderWithBusinessValidation(request).await();
         });
         
         assertTrue(exception.getMessage().contains("Invalid customer ID") ||
@@ -244,11 +237,9 @@ class OrderServiceTest {
             )
         );
         
-        CompletableFuture<String> future = orderService.createOrderWithDatabaseConstraints(request);
-        
         // Should complete exceptionally due to database constraint violation
         Exception exception = assertThrows(Exception.class, () -> {
-            future.get(10, TimeUnit.SECONDS);
+            orderService.createOrderWithDatabaseConstraints(request).await();
         });
         
         assertTrue(exception.getMessage().contains("Database constraint violation") ||
@@ -268,8 +259,7 @@ class OrderServiceTest {
         
         CreateOrderRequest request = createValidOrderRequest();
         
-        CompletableFuture<String> future = orderService.createOrderWithMultipleEvents(request);
-        String orderId = future.get(10, TimeUnit.SECONDS);
+        String orderId = orderService.createOrderWithMultipleEvents(request).await();
         
         assertNotNull(orderId, "Order ID should not be null");
         assertFalse(orderId.isEmpty(), "Order ID should not be empty");

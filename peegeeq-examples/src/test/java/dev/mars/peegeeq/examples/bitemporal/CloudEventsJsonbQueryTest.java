@@ -83,7 +83,7 @@ public class CloudEventsJsonbQueryTest {
 
     private static <T> T await(io.vertx.core.Future<T> future) {
         try {
-            return future.toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
+            return future.await();
         } catch (Exception e) {
             throw new RuntimeException("Timed out waiting for async operation", e);
         }
@@ -123,7 +123,7 @@ public class CloudEventsJsonbQueryTest {
     @AfterAll
     static void teardown() throws Exception {
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive().await();
         }
         // Clear system properties
         System.getProperties().entrySet().removeIf(entry ->
@@ -313,18 +313,9 @@ public class CloudEventsJsonbQueryTest {
                     "WHERE payload->>'type' = $1 " +
                     "ORDER BY transaction_time";
 
-        CompletableFuture<RowSet<Row>> future = new CompletableFuture<>();
-        pool.preparedQuery(sql)
+        RowSet<Row> rows = pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of("backoffice.trade.new.v1"))
-            .onComplete(ar -> {
-                if (ar.succeeded()) {
-                    future.complete(ar.result());
-                } else {
-                    future.completeExceptionally(ar.cause());
-                }
-            });
-
-        RowSet<Row> rows = future.get(5, TimeUnit.SECONDS);
+            .await();
         int count = 0;
         for (Row row : rows) {
             count++;
@@ -350,18 +341,9 @@ public class CloudEventsJsonbQueryTest {
                     "WHERE payload->>'correlationid' = $1 " +
                     "ORDER BY valid_time";
 
-        CompletableFuture<RowSet<Row>> future = new CompletableFuture<>();
-        pool.preparedQuery(sql)
+        RowSet<Row> rows = pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of("TRD-001"))
-            .onComplete(ar -> {
-                if (ar.succeeded()) {
-                    future.complete(ar.result());
-                } else {
-                    future.completeExceptionally(ar.cause());
-                }
-            });
-
-        RowSet<Row> rows = future.get(5, TimeUnit.SECONDS);
+            .await();
         int count = 0;
         for (Row row : rows) {
             count++;
@@ -386,18 +368,9 @@ public class CloudEventsJsonbQueryTest {
                     "WHERE payload->>'bookingsystem' = $1 " +
                     "ORDER BY transaction_time";
 
-        CompletableFuture<RowSet<Row>> future = new CompletableFuture<>();
-        pool.preparedQuery(sql)
+        RowSet<Row> rows = pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of("Murex"))
-            .onComplete(ar -> {
-                if (ar.succeeded()) {
-                    future.complete(ar.result());
-                } else {
-                    future.completeExceptionally(ar.cause());
-                }
-            });
-
-        RowSet<Row> rows = future.get(5, TimeUnit.SECONDS);
+            .await();
         int count = 0;
         for (Row row : rows) {
             count++;
@@ -423,18 +396,9 @@ public class CloudEventsJsonbQueryTest {
                     "WHERE (payload->'data'->>'notionalAmount')::numeric > $1 " +
                     "ORDER BY (payload->'data'->>'notionalAmount')::numeric DESC";
 
-        CompletableFuture<RowSet<Row>> future = new CompletableFuture<>();
-        pool.preparedQuery(sql)
+        RowSet<Row> rows = pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of(new BigDecimal("100000")))
-            .onComplete(ar -> {
-                if (ar.succeeded()) {
-                    future.complete(ar.result());
-                } else {
-                    future.completeExceptionally(ar.cause());
-                }
-            });
-
-        RowSet<Row> rows = future.get(5, TimeUnit.SECONDS);
+            .await();
         int count = 0;
         for (Row row : rows) {
             count++;
@@ -463,18 +427,9 @@ public class CloudEventsJsonbQueryTest {
                     "AND payload->'data'->>'status' = $2 " +
                     "ORDER BY transaction_time";
 
-        CompletableFuture<RowSet<Row>> future = new CompletableFuture<>();
-        pool.preparedQuery(sql)
+        RowSet<Row> rows = pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of("Goldman Sachs", "AFFIRMED"))
-            .onComplete(ar -> {
-                if (ar.succeeded()) {
-                    future.complete(ar.result());
-                } else {
-                    future.completeExceptionally(ar.cause());
-                }
-            });
-
-        RowSet<Row> rows = future.get(5, TimeUnit.SECONDS);
+            .await();
         int count = 0;
         for (Row row : rows) {
             count++;
@@ -504,18 +459,9 @@ public class CloudEventsJsonbQueryTest {
                     "AND valid_time < $2 " +
                     "ORDER BY valid_time";
 
-        CompletableFuture<RowSet<Row>> future = new CompletableFuture<>();
-        pool.preparedQuery(sql)
+        RowSet<Row> rows = pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of("DTCC", cutoffTime.atOffset(java.time.ZoneOffset.UTC)))
-            .onComplete(ar -> {
-                if (ar.succeeded()) {
-                    future.complete(ar.result());
-                } else {
-                    future.completeExceptionally(ar.cause());
-                }
-            });
-
-        RowSet<Row> rows = future.get(5, TimeUnit.SECONDS);
+            .await();
         int count = 0;
         for (Row row : rows) {
             count++;
@@ -541,18 +487,9 @@ public class CloudEventsJsonbQueryTest {
                     "WHERE payload->>'source' = $1 " +
                     "ORDER BY transaction_time";
 
-        CompletableFuture<RowSet<Row>> future = new CompletableFuture<>();
-        pool.preparedQuery(sql)
+        RowSet<Row> rows = pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of("https://backoffice.example.com/affirmation"))
-            .onComplete(ar -> {
-                if (ar.succeeded()) {
-                    future.complete(ar.result());
-                } else {
-                    future.completeExceptionally(ar.cause());
-                }
-            });
-
-        RowSet<Row> rows = future.get(5, TimeUnit.SECONDS);
+            .await();
         int count = 0;
         for (Row row : rows) {
             count++;
@@ -581,18 +518,9 @@ public class CloudEventsJsonbQueryTest {
                     "AND payload->'data'->>'side' = $2 " +
                     "ORDER BY transaction_time";
 
-        CompletableFuture<RowSet<Row>> future = new CompletableFuture<>();
-        pool.preparedQuery(sql)
+        RowSet<Row> rows = pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of("AAPL", "BUY"))
-            .onComplete(ar -> {
-                if (ar.succeeded()) {
-                    future.complete(ar.result());
-                } else {
-                    future.completeExceptionally(ar.cause());
-                }
-            });
-
-        RowSet<Row> rows = future.get(5, TimeUnit.SECONDS);
+            .await();
         int count = 0;
         for (Row row : rows) {
             count++;
@@ -621,18 +549,9 @@ public class CloudEventsJsonbQueryTest {
                     "GROUP BY payload->'data'->>'counterparty' " +
                     "ORDER BY total_notional DESC";
 
-        CompletableFuture<RowSet<Row>> future = new CompletableFuture<>();
-        pool.preparedQuery(sql)
+        RowSet<Row> rows = pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of("backoffice.trade.new.v1"))
-            .onComplete(ar -> {
-                if (ar.succeeded()) {
-                    future.complete(ar.result());
-                } else {
-                    future.completeExceptionally(ar.cause());
-                }
-            });
-
-        RowSet<Row> rows = future.get(5, TimeUnit.SECONDS);
+            .await();
         int count = 0;
         for (Row row : rows) {
             count++;
@@ -665,20 +584,11 @@ public class CloudEventsJsonbQueryTest {
                     "AND payload->>'clearinghouse' = $2 " +
                     "ORDER BY valid_time DESC";
 
-        CompletableFuture<RowSet<Row>> future = new CompletableFuture<>();
-        pool.preparedQuery(sql)
+        RowSet<Row> rows = pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of(
                 pointInTime.atOffset(java.time.ZoneOffset.UTC),
                 "DTCC"))
-            .onComplete(ar -> {
-                if (ar.succeeded()) {
-                    future.complete(ar.result());
-                } else {
-                    future.completeExceptionally(ar.cause());
-                }
-            });
-
-        RowSet<Row> rows = future.get(5, TimeUnit.SECONDS);
+            .await();
         int count = 0;
         for (Row row : rows) {
             count++;
@@ -710,18 +620,9 @@ public class CloudEventsJsonbQueryTest {
                     "WHERE payload->>'correlationid' = $1 " +
                     "ORDER BY valid_time ASC";
 
-        CompletableFuture<RowSet<Row>> future = new CompletableFuture<>();
-        pool.preparedQuery(sql)
+        RowSet<Row> rows = pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of("TRD-001"))
-            .onComplete(ar -> {
-                if (ar.succeeded()) {
-                    future.complete(ar.result());
-                } else {
-                    future.completeExceptionally(ar.cause());
-                }
-            });
-
-        RowSet<Row> rows = future.get(5, TimeUnit.SECONDS);
+            .await();
 
         logger.info("=== Trade Lifecycle for TRD-001 ===");
         int count = 0;
@@ -763,18 +664,9 @@ public class CloudEventsJsonbQueryTest {
                     "AND payload->>'type' = $2 " +
                     "ORDER BY payload->'data'->>'settlementDate'";
 
-        CompletableFuture<RowSet<Row>> future = new CompletableFuture<>();
-        pool.preparedQuery(sql)
+        RowSet<Row> rows = pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of("2025-10-18", "backoffice.trade.new.v1"))
-            .onComplete(ar -> {
-                if (ar.succeeded()) {
-                    future.complete(ar.result());
-                } else {
-                    future.completeExceptionally(ar.cause());
-                }
-            });
-
-        RowSet<Row> rows = future.get(5, TimeUnit.SECONDS);
+            .await();
         int count = 0;
         for (Row row : rows) {
             count++;
@@ -807,18 +699,9 @@ public class CloudEventsJsonbQueryTest {
                     "AND payload->>'type' = $3 " +
                     "ORDER BY transaction_time";
 
-        CompletableFuture<RowSet<Row>> future = new CompletableFuture<>();
-        pool.preparedQuery(sql)
+        RowSet<Row> rows = pool.preparedQuery(sql)
             .execute(io.vertx.sqlclient.Tuple.of("Murex", "DTCC", "backoffice.trade.new.v1"))
-            .onComplete(ar -> {
-                if (ar.succeeded()) {
-                    future.complete(ar.result());
-                } else {
-                    future.completeExceptionally(ar.cause());
-                }
-            });
-
-        RowSet<Row> rows = future.get(5, TimeUnit.SECONDS);
+            .await();
         int count = 0;
         for (Row row : rows) {
             count++;

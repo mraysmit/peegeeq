@@ -38,10 +38,10 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import io.vertx.core.Future;
+
 import java.math.BigDecimal;
 import java.util.Arrays;
-
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -137,7 +137,7 @@ class TransactionalConsistencyTest {
                         logger.info("Application-specific schema created successfully");
                         return (Void) null;
                     });
-            }).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
+            }).await();
 
         logger.info("=== Application-specific schema setup complete ===");
     }
@@ -153,8 +153,7 @@ class TransactionalConsistencyTest {
         
         CreateOrderRequest request = createValidOrderRequest();
         
-        CompletableFuture<String> future = orderService.createOrderWithMultipleEvents(request);
-        String orderId = future.get(15, TimeUnit.SECONDS);
+        String orderId = orderService.createOrderWithMultipleEvents(request).await();
         
         assertNotNull(orderId, "Order ID should not be null for successful transaction");
         assertFalse(orderId.isEmpty(), "Order ID should not be empty for successful transaction");
@@ -182,10 +181,8 @@ class TransactionalConsistencyTest {
             )
         );
         
-        CompletableFuture<String> future = orderService.createOrderWithBusinessValidation(request);
-        
         Exception exception = assertThrows(Exception.class, () -> {
-            future.get(15, TimeUnit.SECONDS);
+            orderService.createOrderWithBusinessValidation(request).await();
         });
         
         assertTrue(exception.getMessage().contains("Order amount exceeds maximum limit") ||
@@ -216,10 +213,8 @@ class TransactionalConsistencyTest {
             )
         );
         
-        CompletableFuture<String> future = orderService.createOrderWithBusinessValidation(request);
-        
         Exception exception = assertThrows(Exception.class, () -> {
-            future.get(15, TimeUnit.SECONDS);
+            orderService.createOrderWithBusinessValidation(request).await();
         });
         
         assertTrue(exception.getMessage().contains("Invalid customer ID") ||
@@ -250,10 +245,8 @@ class TransactionalConsistencyTest {
             )
         );
         
-        CompletableFuture<String> future = orderService.createOrderWithDatabaseConstraints(request);
-        
         Exception exception = assertThrows(Exception.class, () -> {
-            future.get(15, TimeUnit.SECONDS);
+            orderService.createOrderWithDatabaseConstraints(request).await();
         });
         
         assertTrue(exception.getMessage().contains("Database constraint violation") ||
@@ -276,8 +269,7 @@ class TransactionalConsistencyTest {
         
         CreateOrderRequest request = createValidOrderRequest();
         
-        CompletableFuture<String> future = orderService.createOrderWithMultipleEvents(request);
-        String orderId = future.get(15, TimeUnit.SECONDS);
+        String orderId = orderService.createOrderWithMultipleEvents(request).await();
         
         assertNotNull(orderId, "Order ID should not be null when multiple events succeed");
         assertFalse(orderId.isEmpty(), "Order ID should not be empty when multiple events succeed");
@@ -301,8 +293,7 @@ class TransactionalConsistencyTest {
         // Test 1: Successful scenario
         logger.info(">> Test 1: Successful transaction scenario");
         CreateOrderRequest successRequest = createValidOrderRequest();
-        CompletableFuture<String> successFuture = orderService.createOrder(successRequest);
-        String successOrderId = successFuture.get(15, TimeUnit.SECONDS);
+        String successOrderId = orderService.createOrder(successRequest).await();
         assertNotNull(successOrderId);
         logger.info("Success scenario: Database and outbox committed together");
         
@@ -315,8 +306,7 @@ class TransactionalConsistencyTest {
                 new OrderItem("item-1", "Very Expensive Item", 1, new BigDecimal("20000"))
             )
         );
-        CompletableFuture<String> businessFailFuture = orderService.createOrderWithBusinessValidation(businessFailRequest);
-        assertThrows(Exception.class, () -> businessFailFuture.get(15, TimeUnit.SECONDS));
+        assertThrows(Exception.class, () -> orderService.createOrderWithBusinessValidation(businessFailRequest).await());
         logger.info("Business failure scenario: Database and outbox rolled back together");
         
         // Test 3: Database constraint failure scenario
@@ -329,8 +319,7 @@ class TransactionalConsistencyTest {
                 new OrderItem("item-2", "Test Item 2", 1, new BigDecimal("39.99"))
             )
         );
-        CompletableFuture<String> constraintFailFuture = orderService.createOrderWithDatabaseConstraints(constraintFailRequest);
-        assertThrows(Exception.class, () -> constraintFailFuture.get(15, TimeUnit.SECONDS));
+        assertThrows(Exception.class, () -> orderService.createOrderWithDatabaseConstraints(constraintFailRequest).await());
         logger.info("Constraint failure scenario: Database and outbox rolled back together");
         
         logger.info("🎉 COMPREHENSIVE TRANSACTIONAL CONSISTENCY VERIFIED!");

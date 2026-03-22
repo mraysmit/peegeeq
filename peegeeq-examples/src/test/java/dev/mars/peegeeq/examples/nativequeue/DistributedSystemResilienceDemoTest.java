@@ -19,6 +19,8 @@ import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -316,16 +318,9 @@ class DistributedSystemResilienceDemoTest {
                     // Calculate exponential backoff delay
                     long delay = (long) (baseDelayMs * Math.pow(backoffMultiplier, attempt - 1));
 
-                    // Use CompletableFuture for delay
                     try {
-                        CompletableFuture.runAsync(() -> {
-                            try {
-                                Thread.sleep(delay);
-                            } catch (InterruptedException e) {
-                                Thread.currentThread().interrupt();
-                            }
-                        }).get();
-                    } catch (Exception e) {
+                        Thread.sleep(delay);
+                    } catch (InterruptedException e) {
                         Thread.currentThread().interrupt();
                         break;
                     }
@@ -393,7 +388,7 @@ class DistributedSystemResilienceDemoTest {
 
         if (manager != null) {
             try {
-                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+                manager.closeReactive().await();
             } catch (Exception e) {
                 System.err.println("⚠️ Error during manager cleanup: " + e.getMessage());
             }
@@ -447,7 +442,7 @@ class DistributedSystemResilienceDemoTest {
 
             requestsProcessed.incrementAndGet();
             requestCheckpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Response collector
@@ -461,40 +456,32 @@ class DistributedSystemResilienceDemoTest {
             responses.put(response.requestId, response);
             responsesReceived.incrementAndGet();
             responseCheckpoint.flag();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send requests to trigger circuit breaker
         System.out.println("📤 Sending requests to trigger circuit breaker...");
 
-        List<CompletableFuture<Void>> sendTasks = new ArrayList<>();
+        List<Future<Void>> sendTasks = new ArrayList<>();
         for (int i = 1; i <= 10; i++) {
             final int requestId = i;
-            CompletableFuture<Void> sendTask = CompletableFuture.runAsync(() -> {
-                Map<String, Object> params = new HashMap<>();
-                params.put("amount", 100.0 * requestId);
-                params.put("customerId", "CUST-" + requestId);
+            Map<String, Object> params = new HashMap<>();
+            params.put("amount", 100.0 * requestId);
+            params.put("customerId", "CUST-" + requestId);
 
-                ServiceRequest request = new ServiceRequest(
-                    "req-" + String.format("%03d", requestId),
-                    "payment-service",
-                    "processPayment",
-                    params,
-                    1000, // 1 second timeout
-                    2     // 2 retries
-                );
-                requestProducer.send(request);
-
-                // Small delay to see circuit breaker behavior progression
-                CompletableFuture<Void> delay = new CompletableFuture<>();
-                vertx.setTimer(50, id -> delay.complete(null));
-                delay.join();
-            });
-            sendTasks.add(sendTask);
+            ServiceRequest request = new ServiceRequest(
+                "req-" + String.format("%03d", requestId),
+                "payment-service",
+                "processPayment",
+                params,
+                1000, // 1 second timeout
+                2     // 2 retries
+            );
+            sendTasks.add(requestProducer.send(request));
         }
 
         // Wait for all sends to complete
-        CompletableFuture.allOf(sendTasks.toArray(new CompletableFuture[0])).join();
+        Future.all(sendTasks).await();
 
         // Wait for all processing
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Should process all requests and responses");

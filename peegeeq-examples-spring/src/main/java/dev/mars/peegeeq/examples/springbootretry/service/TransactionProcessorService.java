@@ -114,7 +114,7 @@ public class TransactionProcessorService {
     /**
      * Process transaction message with retry logic.
      */
-    private CompletableFuture<Void> processTransaction(Message<TransactionEvent> message) {
+    private Future<Void> processTransaction(Message<TransactionEvent> message) {
         TransactionEvent event = message.getPayload();
         
         log.debug("Processing transaction: transactionId={}, amount={}", 
@@ -188,10 +188,8 @@ public class TransactionProcessorService {
                         return Future.succeededFuture();
                     });
             })
-            .toCompletionStage()
-            .toCompletableFuture()
-            .thenApply(v -> (Void) null)
-            .exceptionally(ex -> {
+            .map(v -> (Void) null)
+            .otherwise(ex -> {
                 log.error("❌ Failed to process transaction: transactionId={}", event.getTransactionId(), ex);
                 transactionsFailed.incrementAndGet();
                 

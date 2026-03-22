@@ -24,6 +24,7 @@ import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.BeforeAll;
@@ -151,7 +152,7 @@ class OrderControllerTest {
                         logger.info("Application-specific schema created successfully");
                         return (Void) null;
                     });
-            }).toCompletionStage().toCompletableFuture().get(30, java.util.concurrent.TimeUnit.SECONDS);
+            }).await();
 
         logger.info("=== Application-specific schema setup complete ===");
     }
@@ -208,9 +209,9 @@ class OrderControllerTest {
             url, HttpMethod.POST, entity, CreateOrderResponse.class);
 
         // Wait a bit for async processing to complete
-        CompletableFuture<Void> delay = new CompletableFuture<>();
-        vertx.setTimer(100, id -> delay.complete(null));
-        delay.join();
+        Promise<Void> delay = Promise.promise();
+        vertx.setTimer(100, id -> delay.complete());
+        delay.future().await();
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertNotNull(response.getBody());
@@ -273,9 +274,9 @@ class OrderControllerTest {
             url, HttpMethod.POST, entity, CreateOrderResponse.class);
 
         // Wait a bit for async processing to complete
-        CompletableFuture<Void> delay = new CompletableFuture<>();
-        vertx.setTimer(100, id -> delay.complete(null));
-        delay.join();
+        Promise<Void> delay = Promise.promise();
+        vertx.setTimer(100, id -> delay.complete());
+        delay.future().await();
 
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
         assertNotNull(response.getBody());
@@ -313,9 +314,9 @@ class OrderControllerTest {
             url, HttpMethod.POST, entity, CreateOrderResponse.class);
 
         // Wait a bit for async processing to complete
-        CompletableFuture<Void> delay = new CompletableFuture<>();
-        vertx.setTimer(100, id -> delay.complete(null));
-        delay.join();
+        Promise<Void> delay = Promise.promise();
+        vertx.setTimer(100, id -> delay.complete());
+        delay.future().await();
 
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
         assertNotNull(response.getBody());
@@ -353,9 +354,9 @@ class OrderControllerTest {
             url, HttpMethod.POST, entity, CreateOrderResponse.class);
 
         // Wait a bit for async processing to complete
-        CompletableFuture<Void> delay = new CompletableFuture<>();
-        vertx.setTimer(100, id -> delay.complete(null));
-        delay.join();
+        Promise<Void> delay = Promise.promise();
+        vertx.setTimer(100, id -> delay.complete());
+        delay.future().await();
 
         assertEquals(HttpStatus.INTERNAL_SERVER_ERROR, response.getStatusCode());
         assertNotNull(response.getBody());
@@ -385,9 +386,9 @@ class OrderControllerTest {
             url, HttpMethod.POST, entity, CreateOrderResponse.class);
 
         // Wait a bit for async processing to complete
-        CompletableFuture<Void> delay = new CompletableFuture<>();
-        vertx.setTimer(100, id -> delay.complete(null));
-        delay.join();
+        Promise<Void> delay = Promise.promise();
+        vertx.setTimer(100, id -> delay.complete());
+        delay.future().await();
 
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertNotNull(response.getBody());

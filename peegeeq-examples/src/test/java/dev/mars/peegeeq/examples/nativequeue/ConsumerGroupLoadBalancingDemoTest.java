@@ -25,6 +25,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.core.Promise;
 import java.time.Instant;
 import java.util.*;
 
@@ -183,7 +184,7 @@ class ConsumerGroupLoadBalancingDemoTest {
         
         if (manager != null) {
             try {
-                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+                manager.closeReactive().await();
             } catch (Exception e) {
                 System.err.println("⚠️ Error during manager cleanup: " + e.getMessage());
             }
@@ -248,7 +249,7 @@ class ConsumerGroupLoadBalancingDemoTest {
                 WorkItem work = message.getPayload();
                 long startTime = System.currentTimeMillis();
 
-                CompletableFuture<Void> future = new CompletableFuture<>();
+                Promise<Void> future = Promise.promise();
                 vertx.setTimer(work.processingTimeMs, timerId -> {
                     long processingTime = System.currentTimeMillis() - startTime;
                     metrics.processedCount.incrementAndGet();
@@ -258,9 +259,9 @@ class ConsumerGroupLoadBalancingDemoTest {
                                      " (processing time: " + processingTime + "ms)");
 
                     processedCheckpoint.flag();
-                    future.complete(null);
+                    future.complete();
                 });
-                return future;
+                return future.future();
             };
 
             // 🔄 **Add Consumer without Filter**: Enables automatic round-robin distribution
@@ -350,7 +351,7 @@ class ConsumerGroupLoadBalancingDemoTest {
 
                 // Simulate processing time inversely proportional to weight
                 int processingTime = work.processingTimeMs / weights[consumerIndex];
-                CompletableFuture<Void> future = new CompletableFuture<>();
+                Promise<Void> future = Promise.promise();
                 vertx.setTimer(processingTime, timerId -> {
                     long actualProcessingTime = System.currentTimeMillis() - startTime;
                     metrics.processedCount.incrementAndGet();
@@ -361,9 +362,9 @@ class ConsumerGroupLoadBalancingDemoTest {
                                      " (processing time: " + actualProcessingTime + "ms)");
 
                     processedCheckpoint.flag();
-                    future.complete(null);
+                    future.complete();
                 });
-                return future;
+                return future.future();
             });
         }
 
@@ -472,7 +473,7 @@ class ConsumerGroupLoadBalancingDemoTest {
                 WorkItem work = message.getPayload();
                 long startTime = System.currentTimeMillis();
 
-                CompletableFuture<Void> future = new CompletableFuture<>();
+                Promise<Void> future = Promise.promise();
                 vertx.setTimer(work.processingTimeMs, timerId -> {
                     long processingTime = System.currentTimeMillis() - startTime;
                     metrics.processedCount.incrementAndGet();
@@ -483,9 +484,9 @@ class ConsumerGroupLoadBalancingDemoTest {
                                      " (processing time: " + processingTime + "ms)");
 
                     processedCheckpoint.flag();
-                    future.complete(null);
+                    future.complete();
                 });
-                return future;
+                return future.future();
             };
 
             // 🔗 **Add Consumer with Session Filter**: Only processes messages for this session
@@ -592,7 +593,7 @@ class ConsumerGroupLoadBalancingDemoTest {
                 long startTime = System.currentTimeMillis();
 
                 // Simulate different processing speeds
-                CompletableFuture<Void> future = new CompletableFuture<>();
+                Promise<Void> future = Promise.promise();
                 vertx.setTimer(processingDelays[consumerIndex], timerId -> {
                     long processingTime = System.currentTimeMillis() - startTime;
                     metrics.processedCount.incrementAndGet();
@@ -610,9 +611,9 @@ class ConsumerGroupLoadBalancingDemoTest {
                                      "avg: " + String.format("%.1f", avgTime) + "ms)");
 
                     processedCheckpoint.flag();
-                    future.complete(null);
+                    future.complete();
                 });
-                return future;
+                return future.future();
             });
         }
 

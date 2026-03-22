@@ -21,6 +21,7 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.core.Promise;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
@@ -154,9 +155,9 @@ public class ShutdownTest {
             logger.info("Container started: {}", postgres.getJdbcUrl());
 
             // Simulate some work
-            CompletableFuture<Void> delay = new CompletableFuture<>();
-            vertx.setTimer(1000, id -> delay.complete(null));
-            delay.join();
+            Promise<Void> delay = Promise.promise();
+            vertx.setTimer(1000, id -> delay.complete());
+            delay.future().await();
 
         } catch (Exception e) {
             logger.error("Error in test", e);

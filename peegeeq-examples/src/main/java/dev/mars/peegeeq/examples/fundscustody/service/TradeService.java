@@ -8,6 +8,7 @@ import dev.mars.peegeeq.examples.fundscustody.events.TradeCancelledEvent;
 import dev.mars.peegeeq.examples.fundscustody.events.TradeEvent;
 import dev.mars.peegeeq.examples.fundscustody.model.CancellationRequest;
 import dev.mars.peegeeq.examples.fundscustody.model.TradeRequest;
+import io.vertx.core.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,7 +31,7 @@ import java.util.stream.Collectors;
  *   <li>Aggregate ID = Fund ID (enables efficient querying by fund)</li>
  * </ul>
  * 
- * <p>All methods return CompletableFuture to maintain async/non-blocking behavior.
+ * <p>All methods return Future to maintain async/non-blocking behavior.
  * No Spring dependencies - plain Java with constructor injection.
  */
 public class TradeService {
@@ -65,7 +66,7 @@ public class TradeService {
      * @param request trade details
      * @return future containing the stored event
      */
-    public CompletableFuture<BiTemporalEvent<TradeEvent>> recordTrade(TradeRequest request) {
+    public Future<BiTemporalEvent<TradeEvent>> recordTrade(TradeRequest request) {
         Trade trade = request.toDomain();
         TradeEvent event = TradeEvent.from(trade);
         
@@ -87,7 +88,7 @@ public class TradeService {
             null,
             null,
             "TRADE:" + trade.fundId()  // Aggregate by trade stream for this fund
-        ).toCompletionStage().toCompletableFuture();
+        );
     }
     
     /**
@@ -104,13 +105,13 @@ public class TradeService {
      * @param request cancellation details
      * @return future containing the cancellation event
      */
-    public CompletableFuture<BiTemporalEvent<TradeCancelledEvent>> cancelTrade(
+    public Future<BiTemporalEvent<TradeCancelledEvent>> cancelTrade(
             String tradeId, CancellationRequest request) {
         
         return findTradeById(tradeId)
-            .thenCompose(originalTrade -> {
+            .compose(originalTrade -> {
                 if (originalTrade == null) {
-                    return CompletableFuture.failedFuture(
+                    return Future.failedFuture(
                         new IllegalArgumentException("Trade not found: " + tradeId));
                 }
                 
@@ -142,7 +143,7 @@ public class TradeService {
                     null,
                     null,
                     "CANCELLATION:" + original.fundId()  // Separate stream for cancellations
-                ).toCompletionStage().toCompletableFuture();
+                );
             });
     }
     
@@ -152,10 +153,9 @@ public class TradeService {
      * @param fundId fund identifier
      * @return future containing list of trade events
      */
-    public CompletableFuture<List<BiTemporalEvent<TradeEvent>>> queryTradesByFund(String fundId) {
+    public Future<List<BiTemporalEvent<TradeEvent>>> queryTradesByFund(String fundId) {
         logger.debug("Querying trades for fund {}", fundId);
-        return tradeEventStore.query(EventQuery.forAggregate("TRADE:" + fundId))
-            .toCompletionStage().toCompletableFuture();
+        return tradeEventStore.query(EventQuery.forAggregate("TRADE:" + fundId));
     }
     
     /**
@@ -174,7 +174,7 @@ public class TradeService {
      * @param cutoffTime cutoff time for same-day confirmation (e.g., 18:00)
      * @return future containing list of late trade events
      */
-    public CompletableFuture<List<BiTemporalEvent<TradeEvent>>> getLateTradeConfirmations(
+    public Future<List<BiTemporalEvent<TradeEvent>>> getLateTradeConfirmations(
             String fundId, LocalDate tradingDay, LocalTime cutoffTime) {
         
         Instant cutoffDateTime = tradingDay.atTime(cutoffTime).toInstant(ZoneOffset.UTC);
@@ -183,7 +183,7 @@ public class TradeService {
             fundId, tradingDay, cutoffTime);
         
         return queryTradesByFund(fundId)
-            .thenApply(trades -> trades.stream()
+            .map(trades -> trades.stream()
                 .filter(trade -> {
                     // Trade date is on the trading day
                     LocalDate tradeDate = LocalDate.ofInstant(
@@ -207,12 +207,11 @@ public class TradeService {
      * @param tradeId trade identifier
      * @return future containing the trade event, or null if not found
      */
-    private CompletableFuture<BiTemporalEvent<TradeEvent>> findTradeById(String tradeId) {
+    private Future<BiTemporalEvent<TradeEvent>> findTradeById(String tradeId) {
         // Query only TradeExecuted events and filter by tradeId in payload
         // This is inefficient but works across all funds
         return tradeEventStore.query(EventQuery.forEventType("TradeExecuted"))
-            .toCompletionStage().toCompletableFuture()
-            .thenApply(trades -> trades.stream()
+            .map(trades -> trades.stream()
                 .filter(trade -> tradeId.equals(trade.getPayload().tradeId()))
                 .findFirst()
                 .orElse(null)

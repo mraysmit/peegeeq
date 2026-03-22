@@ -24,6 +24,7 @@ import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.client.HttpResponse;
 import io.vertx.ext.web.client.WebClient;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.core.Promise;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -93,18 +94,16 @@ public class ServiceDiscoveryExampleTest {
             serviceManagerDeploymentId = vertx.deployVerticle(new PeeGeeQServiceManager(SERVICE_MANAGER_PORT))
                 .onSuccess(id -> logger.info("Service Manager deployed for testing"))
                 .onFailure(throwable -> logger.error("❌ Failed to deploy Service Manager", throwable))
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get(20, TimeUnit.SECONDS);
+                    .await();
         } catch (Exception e) {
             logger.error("Failed to deploy Service Manager: " + e.getMessage());
             // Don't fail the test, just log the error
         }
 
         // Wait for Service Manager to be ready
-        CompletableFuture<Void> delay = new CompletableFuture<>();
-        vertx.setTimer(2000, id -> delay.complete(null));
-        delay.join();
+        Promise<Void> delay = Promise.promise();
+        vertx.setTimer(2000, id -> delay.complete());
+        delay.future().await();
     }
     
     @AfterEach
@@ -116,9 +115,7 @@ public class ServiceDiscoveryExampleTest {
                 vertx.undeploy(serviceManagerDeploymentId)
                     .onSuccess(v -> logger.info("Service Manager undeployed"))
                     .onFailure(throwable -> logger.error("❌ Failed to undeploy Service Manager", throwable))
-                    .toCompletionStage()
-                    .toCompletableFuture()
-                    .get(10, TimeUnit.SECONDS);
+                    .await();
             } catch (Exception e) {
                 logger.error("Failed to undeploy Service Manager: " + e.getMessage());
             }
@@ -131,9 +128,7 @@ public class ServiceDiscoveryExampleTest {
         if (vertx != null) {
             try {
                 vertx.close()
-                    .toCompletionStage()
-                    .toCompletableFuture()
-                    .get(10, TimeUnit.SECONDS);
+                    .await();
             } catch (Exception e) {
                 logger.error("Failed to close Vertx: " + e.getMessage());
             }
@@ -151,9 +146,7 @@ public class ServiceDiscoveryExampleTest {
         try {
             HttpResponse<Buffer> response = client.get(SERVICE_MANAGER_PORT, "localhost", "/health")
                 .send()
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get(10, TimeUnit.SECONDS);
+                    .await();
 
             int statusCode = response.statusCode();
             logger.info("Health check status code: {}", statusCode);
@@ -197,9 +190,7 @@ public class ServiceDiscoveryExampleTest {
         try {
             HttpResponse<Buffer> response = client.post(SERVICE_MANAGER_PORT, "localhost", "/api/v1/instances/register")
                 .sendJsonObject(instance)
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get(15, TimeUnit.SECONDS);
+                    .await();
 
             int statusCode = response.statusCode();
             logger.info("Instance registration status code: {}", statusCode);
@@ -224,9 +215,7 @@ public class ServiceDiscoveryExampleTest {
         try {
             HttpResponse<Buffer> response = client.get(SERVICE_MANAGER_PORT, "localhost", "/api/v1/instances")
                 .send()
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get(10, TimeUnit.SECONDS);
+                    .await();
 
             int statusCode = response.statusCode();
             logger.info("Instance listing status code: {}", statusCode);
@@ -259,9 +248,7 @@ public class ServiceDiscoveryExampleTest {
         try {
             HttpResponse<Buffer> response = client.get(SERVICE_MANAGER_PORT, "localhost", "/api/v1/federated/overview")
                 .send()
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get(10, TimeUnit.SECONDS);
+                    .await();
 
             int statusCode = response.statusCode();
             logger.info("Federated overview status code: {}", statusCode);
@@ -290,9 +277,7 @@ public class ServiceDiscoveryExampleTest {
         try {
             HttpResponse<Buffer> response = client.get(SERVICE_MANAGER_PORT, "localhost", "/api/v1/federated/metrics")
                 .send()
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get(10, TimeUnit.SECONDS);
+                    .await();
 
             int statusCode = response.statusCode();
             logger.info("Federated metrics status code: {}", statusCode);
@@ -332,9 +317,7 @@ public class ServiceDiscoveryExampleTest {
         try {
             HttpResponse<Buffer> response = client.get(SERVICE_MANAGER_PORT, "localhost", "/api/v1/instances?environment=production")
                 .send()
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get(10, TimeUnit.SECONDS);
+                    .await();
 
             int statusCode = response.statusCode();
             logger.info("Production filtering status code: {}", statusCode);
@@ -375,9 +358,7 @@ public class ServiceDiscoveryExampleTest {
         try {
             HttpResponse<Buffer> response = client.delete(SERVICE_MANAGER_PORT, "localhost", "/api/v1/instances/" + instanceToDeregister + "/deregister")
                 .send()
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get(10, TimeUnit.SECONDS);
+                    .await();
 
             int statusCode = response.statusCode();
             logger.info("Instance deregistration status code: {}", statusCode);
@@ -418,9 +399,7 @@ public class ServiceDiscoveryExampleTest {
         try {
             client.post(SERVICE_MANAGER_PORT, "localhost", "/api/v1/instances/register")
                 .sendJsonObject(instance)
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get(10, TimeUnit.SECONDS);
+                    .await();
             logger.info("Test instance registered: {}", instanceId);
         } catch (Exception e) {
             logger.warn("⚠️ Failed to register test instance: {}", instanceId);

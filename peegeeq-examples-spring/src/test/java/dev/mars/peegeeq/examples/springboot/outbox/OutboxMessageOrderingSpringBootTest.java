@@ -19,6 +19,8 @@ import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
@@ -82,7 +84,7 @@ public class OutboxMessageOrderingSpringBootTest {
     }
 
     @AfterEach
-    void tearDown(Vertx vertx) throws InterruptedException {
+    void tearDown(Vertx vertx) {
         logger.info("🧹 Cleaning up Message Ordering Spring Boot Test");
         
         // Close all active consumers first
@@ -109,9 +111,9 @@ public class OutboxMessageOrderingSpringBootTest {
         
         // Wait for connections to be fully released before next test
         logger.info("⏳ Waiting for connections to be released...");
-        CompletableFuture<Void> delay = new CompletableFuture<>();
+        Promise<Void> delay = Promise.promise();
         vertx.setTimer(2000, id -> delay.complete(null));
-        delay.join();
+        delay.future().await();
         
         logger.info("Cleanup complete");
     }
@@ -142,7 +144,7 @@ public class OutboxMessageOrderingSpringBootTest {
             processedOrder.add(order.getSequence());
             logger.info("📦 Processed message sequence: {}", order.getSequence());
             checkpoint.flag();
-            return java.util.concurrent.CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
         
         // Create producer
@@ -153,10 +155,10 @@ public class OutboxMessageOrderingSpringBootTest {
         logger.info("📤 Sending 10 messages in sequence");
         for (int i = 1; i <= 10; i++) {
             OrderMessage message = new OrderMessage("order-" + i, i, "Item " + i);
-            producer.send(message).join();
-            CompletableFuture<Void> sendDelay = new CompletableFuture<>();
+            producer.send(message).await();
+            Promise<Void> sendDelay = Promise.promise();
             vertx.setTimer(10, id -> sendDelay.complete(null));
-            sendDelay.join(); // Small delay to ensure different timestamps
+            sendDelay.future().await(); // Small delay to ensure different timestamps
         }
         
         // Wait for all messages to be processed
@@ -207,7 +209,7 @@ public class OutboxMessageOrderingSpringBootTest {
                 .add(order.getSequence());
             logger.info("📦 Processed message sequence: {} for group: {}", order.getSequence(), group);
             checkpoint.flag();
-            return java.util.concurrent.CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
         
         // Create producer
@@ -224,12 +226,12 @@ public class OutboxMessageOrderingSpringBootTest {
                 OrderMessage message = new OrderMessage("order-" + sequence, sequence, "Item " + sequence);
                 message.setCustomerId(customer);
                 // Send with message_group parameter
-                producer.send(message, null, null, customer).join();
+                producer.send(message, null, null, customer).await();
                 logger.info("   Sent sequence {} for {}", sequence, customer);
                 sequence++;
-                CompletableFuture<Void> sendDelay = new CompletableFuture<>();
+                Promise<Void> sendDelay = Promise.promise();
                 vertx.setTimer(10, id -> sendDelay.complete(null));
-                sendDelay.join(); // Small delay to ensure different timestamps
+                sendDelay.future().await(); // Small delay to ensure different timestamps
             }
         }
         
@@ -285,7 +287,7 @@ public class OutboxMessageOrderingSpringBootTest {
             totalProcessed.incrementAndGet();
             logger.info("📦 Processed message for group: {} (total: {})", group, totalProcessed.get());
             checkpoint.flag();
-            return java.util.concurrent.CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
         
         // Create producer
@@ -300,7 +302,7 @@ public class OutboxMessageOrderingSpringBootTest {
             String group = groups[i % groups.length];
             OrderMessage message = new OrderMessage("order-" + i, i, "Item " + i);
             message.setCustomerId(group);
-            producer.send(message, null, null, group).join();
+            producer.send(message, null, null, group).await();
         }
         
         // Wait for all messages to be processed

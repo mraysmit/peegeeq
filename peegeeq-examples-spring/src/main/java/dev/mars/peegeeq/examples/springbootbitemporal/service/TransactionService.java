@@ -35,6 +35,7 @@ import java.util.UUID;
 
 import java.util.concurrent.CompletionStage;
 import java.util.stream.Collectors;
+import io.vertx.core.Future;
 
 /**
  * Service for managing financial transactions using bi-temporal event store.
@@ -68,7 +69,7 @@ public class TransactionService {
      * @param request Transaction request
      * @return CompletableFuture with the recorded event
      */
-    public CompletableFuture<BiTemporalEvent<TransactionEvent>> recordTransaction(TransactionRequest request) {
+    public Future<BiTemporalEvent<TransactionEvent>> recordTransaction(TransactionRequest request) {
         String transactionId = UUID.randomUUID().toString();
 
         TransactionEvent event = new TransactionEvent(
@@ -93,13 +94,8 @@ public class TransactionService {
                 .headers(java.util.Collections.emptyMap())
                 .aggregateId(request.getAccountId())
                 .execute())
-            .whenComplete((result, error) -> {
-                if (error != null) {
-                    logger.error("Failed to record transaction: {}", transactionId, error);
-                } else {
-                    logger.info("Transaction recorded successfully: {}", transactionId);
-                }
-            });
+            .onSuccess(result -> logger.info("Transaction recorded successfully: {}", transactionId))
+            .onFailure(error -> logger.error("Failed to record transaction: {}", transactionId, error));
     }
     
     /**
@@ -108,11 +104,11 @@ public class TransactionService {
      * @param accountId Account identifier
      * @return CompletableFuture with account history
      */
-    public CompletableFuture<AccountHistoryResponse> getAccountHistory(String accountId) {
+    public Future<AccountHistoryResponse> getAccountHistory(String accountId) {
         logger.info("Retrieving transaction history for account: {}", accountId);
 
         return queryTransactionsByAccount(accountId)
-            .thenApply(accountTransactions -> {
+            .map(accountTransactions -> {
                 logger.info("Found {} transactions for account: {}", accountTransactions.size(), accountId);
                 return new AccountHistoryResponse(accountId, accountTransactions);
             });
@@ -126,7 +122,7 @@ public class TransactionService {
      * @param accountId Account identifier
      * @return CompletableFuture with list of bi-temporal transaction events for the account
      */
-    public CompletableFuture<List<BiTemporalEvent<TransactionEvent>>> queryTransactionsByAccount(String accountId) {
+    public Future<List<BiTemporalEvent<TransactionEvent>>> queryTransactionsByAccount(String accountId) {
         return toCompletableFuture(eventStore.query(EventQuery.forAggregate(accountId)));
     }
 
@@ -139,7 +135,7 @@ public class TransactionService {
      * @param eventType Event type (e.g., "TransactionRecorded", "TransactionCorrected")
      * @return CompletableFuture with list of bi-temporal transaction events matching both criteria
      */
-    public CompletableFuture<List<BiTemporalEvent<TransactionEvent>>> queryTransactionsByAccountAndType(String accountId, String eventType) {
+    public Future<List<BiTemporalEvent<TransactionEvent>>> queryTransactionsByAccountAndType(String accountId, String eventType) {
         return toCompletableFuture(eventStore.query(EventQuery.forAggregateAndType(accountId, eventType)));
     }
 
@@ -151,7 +147,7 @@ public class TransactionService {
      * @param accountId Account identifier
      * @return CompletableFuture with list of recorded (non-corrected) transactions
      */
-    public CompletableFuture<List<BiTemporalEvent<TransactionEvent>>> queryRecordedTransactions(String accountId) {
+    public Future<List<BiTemporalEvent<TransactionEvent>>> queryRecordedTransactions(String accountId) {
         return queryTransactionsByAccountAndType(accountId, "TransactionRecorded");
     }
 
@@ -163,7 +159,7 @@ public class TransactionService {
      * @param accountId Account identifier
      * @return CompletableFuture with list of transaction corrections
      */
-    public CompletableFuture<List<BiTemporalEvent<TransactionEvent>>> queryCorrectedTransactions(String accountId) {
+    public Future<List<BiTemporalEvent<TransactionEvent>>> queryCorrectedTransactions(String accountId) {
         return queryTransactionsByAccountAndType(accountId, "TransactionCorrected");
     }
     
@@ -174,12 +170,12 @@ public class TransactionService {
      * @param asOf Point in time for balance calculation
      * @return CompletableFuture with the balance
      */
-    public CompletableFuture<BigDecimal> getAccountBalance(String accountId, Instant asOf) {
+    public Future<BigDecimal> getAccountBalance(String accountId, Instant asOf) {
         logger.info("Calculating balance for account: {} as of: {}", accountId, asOf);
 
         // Use domain-specific query method - maintains async chain
         return queryTransactionsByAccount(accountId)
-            .thenApply(transactions -> {
+            .map(transactions -> {
                 BigDecimal balance = transactions.stream()
                     .filter(event -> !event.getValidTime().isAfter(asOf))
                     .map(event -> {
@@ -205,7 +201,7 @@ public class TransactionService {
      * @param request Correction request
      * @return CompletableFuture with the correction event
      */
-    public CompletableFuture<BiTemporalEvent<TransactionEvent>> correctTransaction(
+    public Future<BiTemporalEvent<TransactionEvent>> correctTransaction(
             String transactionId, TransactionCorrectionRequest request) {
         
         logger.info("Correcting transaction: {} with new amount: {} reason: {}",
@@ -213,7 +209,7 @@ public class TransactionService {
         
         // Find the original transaction
         return toCompletableFuture(eventStore.query(EventQuery.all()))
-            .thenCompose(events -> {
+            .compose(events -> {
                 BiTemporalEvent<TransactionEvent> original = events.stream()
                     .filter(event -> transactionId.equals(event.getPayload().getTransactionId()))
                     .findFirst()
@@ -237,22 +233,17 @@ public class TransactionService {
                         .headers(java.util.Collections.emptyMap())
                         .aggregateId(original.getAggregateId())
                         .execute())
-                    .whenComplete((result, error) -> {
-                        if (error != null) {
-                            logger.error("Failed to correct transaction: {}", transactionId, error);
-                        } else {
-                            logger.info("Transaction corrected successfully: {}", transactionId);
-                        }
-                    });
+                    .onSuccess(result -> logger.info("Transaction corrected successfully: {}", transactionId))
+                    .onFailure(error -> logger.error("Failed to correct transaction: {}", transactionId, error));
             });
     }
 
-    private static <T> CompletableFuture<T> toCompletableFuture(CompletionStage<T> stage) {
-        return stage.toCompletableFuture();
+    private static <T> Future<T> toCompletableFuture(CompletionStage<T> stage) {
+        return Future.fromCompletionStage(stage);
     }
 
-    private static <T> CompletableFuture<T> toCompletableFuture(io.vertx.core.Future<T> future) {
-        return future.toCompletionStage().toCompletableFuture();
+    private static <T> Future<T> toCompletableFuture(io.vertx.core.Future<T> future) {
+        return future;
     }
     
     /**
@@ -261,12 +252,12 @@ public class TransactionService {
      * @param transactionId Transaction identifier
      * @return CompletableFuture with all versions
      */
-    public CompletableFuture<List<BiTemporalEvent<TransactionEvent>>> getTransactionVersions(String transactionId) {
+    public Future<List<BiTemporalEvent<TransactionEvent>>> getTransactionVersions(String transactionId) {
         logger.info("Retrieving all versions of transaction: {}", transactionId);
 
         // First find the account ID from any version of the transaction
         return toCompletableFuture(eventStore.query(EventQuery.all()))
-            .thenCompose(events -> {
+            .compose(events -> {
                 // Find the account ID
                 String accountId = events.stream()
                     .filter(event -> transactionId.equals(event.getPayload().getTransactionId()))
@@ -276,7 +267,7 @@ public class TransactionService {
 
                 // Use domain-specific query to get all transactions for this account - maintains async chain
                 return queryTransactionsByAccount(accountId)
-                    .thenApply(accountEvents -> {
+                    .map(accountEvents -> {
                         List<BiTemporalEvent<TransactionEvent>> versions = accountEvents.stream()
                             .filter(event -> transactionId.equals(event.getPayload().getTransactionId()))
                             .collect(Collectors.toList());

@@ -16,6 +16,7 @@ import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.json.JsonObject;
+import io.vertx.core.Future;
 import org.junit.jupiter.api.*;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
@@ -326,7 +327,7 @@ class MicroservicesCommunicationDemoTest {
 
         if (manager != null) {
             try {
-                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+                manager.closeReactive().await();
             } catch (Exception e) {
                 System.err.println("⚠️ Error during manager cleanup: " + e.getMessage());
             }
@@ -387,7 +388,7 @@ class MicroservicesCommunicationDemoTest {
             }
 
             requestLatch.countDown();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Response handler - collects responses
@@ -400,7 +401,7 @@ class MicroservicesCommunicationDemoTest {
             responses.put(response.correlationId, response);
             responsesReceived.incrementAndGet();
             responseLatch.countDown();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         });
 
         // Send requests to different services

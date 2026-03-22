@@ -68,7 +68,7 @@ public class PositionService {
      * @param connection Database connection for transactional consistency
      * @return CompletableFuture containing the created CloudEvent
      */
-    public CompletableFuture<CloudEvent> recordPositionUpdate(
+    public Future<CloudEvent> recordPositionUpdate(
             PositionUpdateEvent positionUpdateEvent,
             String correlationId,
             String causationId,
@@ -102,23 +102,23 @@ public class PositionService {
                     .aggregateId(positionUpdateEvent.getUpdateId())
                     .inTransaction(connection)
                     .execute())
-                .thenApply(biTemporalEvent -> {
+                .map(biTemporalEvent -> {
                     log.info("Position update recorded successfully: updateId={}, eventId={}, cloudEventId={}",
                         positionUpdateEvent.getUpdateId(), biTemporalEvent.getEventId(), cloudEvent.getId());
                     return cloudEvent;  // Return the CloudEvent for external use
                 });
         } catch (JsonProcessingException e) {
             log.error("Failed to serialize position update: updateId={}", positionUpdateEvent.getUpdateId(), e);
-            return CompletableFuture.failedFuture(new RuntimeException("Failed to serialize position update", e));
+            return Future.failedFuture(new RuntimeException("Failed to serialize position update", e));
         }
     }
 
-    private static <T> CompletableFuture<T> toCompletableFuture(CompletionStage<T> stage) {
-        return stage.toCompletableFuture();
+    private static <T> Future<T> toCompletableFuture(CompletionStage<T> stage) {
+        return Future.fromCompletionStage(stage);
     }
 
-    private static <T> CompletableFuture<T> toCompletableFuture(Future<T> future) {
-        return future.toCompletionStage().toCompletableFuture();
+    private static <T> Future<T> toCompletableFuture(Future<T> future) {
+        return future;
     }
 }
 

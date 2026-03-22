@@ -76,7 +76,7 @@ public class TradeProducerController {
             Instant.now()
         );
         
-        producerService.sendTradeEvent(event).join();
+        producerService.sendTradeEvent(event).toCompletionStage().toCompletableFuture().join();
         
         return ResponseEntity.ok(Map.of(
             "eventId", eventId,
@@ -111,7 +111,7 @@ public class TradeProducerController {
             Instant.now()
         );
         
-        producerService.sendTradeEvent(event).join();
+        producerService.sendTradeEvent(event).toCompletionStage().toCompletableFuture().join();
         
         return ResponseEntity.ok(Map.of(
             "eventId", eventId,
@@ -146,7 +146,7 @@ public class TradeProducerController {
             Instant.now()
         );
         
-        producerService.sendTradeEvent(event).join();
+        producerService.sendTradeEvent(event).toCompletionStage().toCompletableFuture().join();
         
         return ResponseEntity.ok(Map.of(
             "eventId", eventId,

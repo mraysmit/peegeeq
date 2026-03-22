@@ -114,7 +114,7 @@ public class PaymentProcessorService {
      * 3. Throw exception on failure (PeeGeeQ will retry)
      * 4. Return CompletableFuture for acknowledgment
      */
-    private CompletableFuture<Void> processPayment(Message<PaymentEvent> message) {
+    private Future<Void> processPayment(Message<PaymentEvent> message) {
         PaymentEvent event = message.getPayload();
         
         log.debug("Processing payment: paymentId={}, amount={}", 
@@ -174,10 +174,8 @@ public class PaymentProcessorService {
                         return Future.succeededFuture();
                     });
             })
-            .toCompletionStage()
-            .toCompletableFuture()
-            .thenApply(v -> (Void) null)
-            .exceptionally(ex -> {
+            .map(v -> (Void) null)
+            .otherwise(ex -> {
                 log.error("❌ Failed to process payment: paymentId={}", event.getPaymentId(), ex);
                 paymentsFailed.incrementAndGet();
                 

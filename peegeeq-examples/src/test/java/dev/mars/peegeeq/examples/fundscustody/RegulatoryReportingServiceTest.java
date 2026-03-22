@@ -36,7 +36,7 @@ class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
                     // Generate regulatory snapshot
                     RegulatoryReport report = regulatoryService
                         .getRegulatorySnapshot(fundId, reportingDate, "AIFMD")
-                        .toCompletableFuture().get();
+                        .await();
                     
                     assertNotNull(report);
                     assertEquals(fundId, report.fundId());
@@ -76,7 +76,7 @@ class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
                     // Generate AIFMD report
                     RegulatoryReport report = regulatoryService
                         .getAIFMDReport(fundId, reportingDate)
-                        .toCompletableFuture().get();
+                        .await();
                     
                     assertNotNull(report);
                     assertEquals("AIFMD", report.reportType());
@@ -115,14 +115,14 @@ class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
                     new BigDecimal("50000"),
                     Currency.USD,
                     "nav-calc"
-                ).toCompletableFuture().get();
+                ).await();
                 
                 vertx.setTimer(100, id2 -> {
                     try {
                         // Generate MiFID II transaction report
                         RegulatoryReport report = regulatoryService
                             .getMiFIDTransactionReport(fundId, tradingDay)
-                            .toCompletableFuture().get();
+                            .await();
                         
                         assertNotNull(report);
                         assertEquals(fundId, report.fundId());
@@ -165,7 +165,7 @@ class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
             new BigDecimal("100000.00"),
             Currency.USD,
             "nav-calc"
-        ).toCompletableFuture().get();
+        ).await();
 
         vertx.setTimer(200, id1 -> {
             try {
@@ -177,7 +177,7 @@ class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
                         // Generate report (captures state at this point)
                         RegulatoryReport report1 = regulatoryService
                             .getRegulatorySnapshot(fundId, reportingDate, "AIFMD")
-                            .toCompletableFuture().get();
+                            .await();
                         
                         vertx.setTimer(100, id3 -> {
                             try {
@@ -190,14 +190,14 @@ class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
                                     new BigDecimal("100000.00"),
                                     Currency.USD,
                                     "nav-auditor"
-                                ).toCompletableFuture().get();
+                                ).await();
 
                                 vertx.setTimer(200, id4 -> {
                                     try {
                                         // Generate new report (should show corrected data)
                                         RegulatoryReport report2 = regulatoryService
                                             .getRegulatorySnapshot(fundId, reportingDate, "AIFMD")
-                                            .toCompletableFuture().get();
+                                            .await();
                                         
                                         // Verify reports show different NAV values
                                         assertNotNull(report1.navSnapshot());
@@ -237,7 +237,7 @@ class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
         // Generate report with no data
         RegulatoryReport report = regulatoryService
             .getRegulatorySnapshot(fundId, reportingDate, "AIFMD")
-            .toCompletableFuture().get();
+            .await();
         
         assertNotNull(report);
         assertEquals(fundId, report.fundId());
@@ -267,7 +267,7 @@ class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
                 // Generate MiFID report for trading day
                 RegulatoryReport report = regulatoryService
                     .getMiFIDTransactionReport(fundId, tradingDay)
-                    .toCompletableFuture().get();
+                    .await();
                 
                 assertNotNull(report);
                 assertNotNull(report.tradesInPeriod());
@@ -294,7 +294,7 @@ class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
             new BigDecimal("100000.00"),
             Currency.USD,
             "nav-calculator"
-        ).toCompletableFuture().get();
+        ).await();
 
         vertx.setTimer(200, id1 -> {
             try {
@@ -338,7 +338,7 @@ class RegulatoryReportingServiceTest extends FundsCustodyTestBase {
             "BROKER-A"
         );
 
-        tradeService.recordTrade(request).toCompletableFuture().get();
+        tradeService.recordTrade(request).await();
     }
 }
 

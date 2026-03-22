@@ -23,6 +23,8 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import io.vertx.core.Future;
 
 
 /**
@@ -33,7 +35,7 @@ import java.util.List;
  * 
  * Key Features:
  * - Converts CompletableFuture to Mono with proper error handling
- * - Converts CompletableFuture<Void> to Mono<Void>
+ * - Converts Future<Void> to Mono<Void>
  * - Converts multiple CompletableFutures to Flux
  * - Provides consistent error logging and handling
  * - Maintains reactive stream semantics
@@ -70,26 +72,26 @@ public class ReactiveOutboxAdapter {
      * @param <T> The type of the result
      * @return A Mono that completes with the future's result
      */
-    public <T> Mono<T> toMono(CompletableFuture<T> future) {
-        return Mono.fromFuture(future)
-            .doOnError(error -> log.error("Error in reactive adapter while converting CompletableFuture to Mono", error))
-            .doOnSuccess(result -> log.trace("Successfully converted CompletableFuture to Mono with result: {}", result));
+    public <T> Mono<T> toMono(Future<T> future) {
+        return Mono.fromCompletionStage(future.toCompletionStage())
+            .doOnError(error -> log.error("Error in reactive adapter while converting Future to Mono", error))
+            .doOnSuccess(result -> log.trace("Successfully converted Future to Mono with result: {}", result));
     }
 
     /**
-     * Converts a CompletableFuture<Void> to a Mono<Void>.
+     * Converts a Future<Void> to a Mono<Void>.
      * 
      * This is a specialized version for void operations, commonly used with
      * transactional operations that don't return a value.
      * 
-     * @param future The CompletableFuture<Void> to convert
+     * @param future The Future<Void> to convert
      * @return A Mono<Void> that completes when the future completes
      */
-    public Mono<Void> toMonoVoid(CompletableFuture<Void> future) {
-        return Mono.fromFuture(future)
+    public Mono<Void> toMonoVoid(Future<Void> future) {
+        return Mono.fromCompletionStage(future.toCompletionStage())
             .then()
-            .doOnError(error -> log.error("Error in reactive adapter while converting CompletableFuture<Void> to Mono<Void>", error))
-            .doOnSuccess(v -> log.trace("Successfully converted CompletableFuture<Void> to Mono<Void>"));
+            .doOnError(error -> log.error("Error in reactive adapter while converting Future<Void> to Mono<Void>", error))
+            .doOnSuccess(v -> log.trace("Successfully converted Future<Void> to Mono<Void>"));
     }
 
     /**
@@ -103,7 +105,7 @@ public class ReactiveOutboxAdapter {
      * @param <T> The type of the results
      * @return A Flux that emits the results of all futures
      */
-    public <T> Flux<T> toFlux(List<CompletableFuture<T>> futures) {
+    public <T> Flux<T> toFlux(List<Future<T>> futures) {
         return Flux.fromIterable(futures)
             .flatMap(this::toMono)
             .doOnError(error -> log.error("Error in reactive adapter while converting CompletableFutures to Flux", error))
@@ -119,11 +121,15 @@ public class ReactiveOutboxAdapter {
      * @param futures The CompletableFutures to wait for
      * @return A Mono<Void> that completes when all futures complete
      */
-    public Mono<Void> allOf(CompletableFuture<?>... futures) {
-        return Mono.fromFuture(CompletableFuture.allOf(futures))
+    public Mono<Void> allOf(Future<?>... futures) {
+        CompletableFuture<?>[] cfs = new CompletableFuture[futures.length];
+        for (int i = 0; i < futures.length; i++) {
+            cfs[i] = futures[i].toCompletionStage().toCompletableFuture();
+        }
+        return Mono.fromFuture(CompletableFuture.allOf(cfs))
             .then()
-            .doOnError(error -> log.error("Error in reactive adapter while waiting for all CompletableFutures", error))
-            .doOnSuccess(v -> log.trace("All {} CompletableFutures completed successfully", futures.length));
+            .doOnError(error -> log.error("Error in reactive adapter while waiting for all Futures", error))
+            .doOnSuccess(v -> log.trace("All {} Futures completed successfully", futures.length));
     }
 
     /**
@@ -137,12 +143,17 @@ public class ReactiveOutboxAdapter {
      * @return A Mono that completes with the first future's result
      */
     @SafeVarargs
-    public final <T> Mono<T> anyOf(CompletableFuture<T>... futures) {
-        CompletableFuture<T> anyFuture = (CompletableFuture<T>) CompletableFuture.anyOf(futures);
+    public final <T> Mono<T> anyOf(Future<T>... futures) {
+        CompletableFuture<?>[] cfs = new CompletableFuture[futures.length];
+        for (int i = 0; i < futures.length; i++) {
+            cfs[i] = futures[i].toCompletionStage().toCompletableFuture();
+        }
+        @SuppressWarnings("unchecked")
+        CompletableFuture<T> anyFuture = (CompletableFuture<T>) CompletableFuture.anyOf(cfs);
         
         return Mono.fromFuture(anyFuture)
-            .doOnError(error -> log.error("Error in reactive adapter while racing CompletableFutures", error))
-            .doOnSuccess(result -> log.trace("First CompletableFuture completed with result: {}", result));
+            .doOnError(error -> log.error("Error in reactive adapter while racing Futures", error))
+            .doOnSuccess(result -> log.trace("First Future completed with result: {}", result));
     }
 
     /**
@@ -156,8 +167,8 @@ public class ReactiveOutboxAdapter {
      * @param <T> The type of the result
      * @return A Mono that completes with the future's result or fallback
      */
-    public <T> Mono<T> toMonoWithFallback(CompletableFuture<T> future, java.util.function.Function<Throwable, T> errorHandler) {
-        return Mono.fromFuture(future)
+    public <T> Mono<T> toMonoWithFallback(Future<T> future, java.util.function.Function<Throwable, T> errorHandler) {
+        return Mono.fromCompletionStage(future.toCompletionStage())
             .onErrorResume(error -> {
                 log.warn("Error in CompletableFuture, applying fallback handler", error);
                 try {

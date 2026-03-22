@@ -42,6 +42,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import java.util.Map;
 import java.util.Set;
 
@@ -156,7 +158,7 @@ class ConsumerGroupResilienceTest {
             producer.close();
         }
         if (manager != null) {
-            manager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            manager.closeReactive().await();
         }
 
         // Clear system properties
@@ -368,16 +370,16 @@ class ConsumerGroupResilienceTest {
                 failCount.incrementAndGet();
                 System.out.println(" **INTENTIONAL TEST FAILURE**  Simulating processing failure for order " + orderId);
                 logger.debug("[FailingConsumer]  INTENTIONAL TEST FAILURE - Simulated failure for order: {}", orderId);
-                return CompletableFuture.failedFuture(
+                return Future.failedFuture(
                     new RuntimeException(" INTENTIONAL TEST FAILURE: Simulated processing failure for order " + orderId));
             }
 
             successCount.incrementAndGet();
 
             // Simulate processing delay using Vert.x timer
-            CompletableFuture<Void> future = new CompletableFuture<>();
-            vertx.setTimer(100, id -> future.complete(null));
-            return future;
+            Promise<Void> future = Promise.promise();
+            vertx.setTimer(100, id -> future.complete());
+            return future.future();
         };
     }
 
@@ -389,9 +391,9 @@ class ConsumerGroupResilienceTest {
             recoveredCount.incrementAndGet();
 
             // Simulate recovery processing delay using Vert.x timer
-            CompletableFuture<Void> future = new CompletableFuture<>();
-            vertx.setTimer(50, id -> future.complete(null));
-            return future;
+            Promise<Void> future = Promise.promise();
+            vertx.setTimer(50, id -> future.complete());
+            return future.future();
         };
     }
 
@@ -403,9 +405,9 @@ class ConsumerGroupResilienceTest {
             processedCount.incrementAndGet();
 
             // Simulate filter processing delay using Vert.x timer
-            CompletableFuture<Void> future = new CompletableFuture<>();
-            vertx.setTimer(25, id -> future.complete(null));
-            return future;
+            Promise<Void> future = Promise.promise();
+            vertx.setTimer(25, id -> future.complete());
+            return future.future();
         };
     }
 
@@ -422,9 +424,9 @@ class ConsumerGroupResilienceTest {
             processedCount.incrementAndGet();
 
             // Simulate monitoring processing delay using Vert.x timer
-            CompletableFuture<Void> future = new CompletableFuture<>();
-            vertx.setTimer(delay, id -> future.complete(null));
-            return future;
+            Promise<Void> future = Promise.promise();
+            vertx.setTimer(delay, id -> future.complete());
+            return future.future();
         };
     }
 
@@ -466,7 +468,7 @@ class ConsumerGroupResilienceTest {
                 "source", "failure-test"
             );
 
-            producer.send(event, headers, "failure-test-" + i, "US").join();
+            producer.send(event, headers, "failure-test-" + i, "US").await();
         }
 
         logger.info("Sent 20 failure test messages");
@@ -489,7 +491,7 @@ class ConsumerGroupResilienceTest {
                 "source", "filter-test"
             );
 
-            producer.send(event, headers, "filter-test-" + i, region).join();
+            producer.send(event, headers, "filter-test-" + i, region).await();
         }
 
         logger.info("Sent 10 filter test messages");
@@ -508,7 +510,7 @@ class ConsumerGroupResilienceTest {
                 "source", "monitoring-test"
             );
 
-            producer.send(event, headers, "monitoring-test-" + i, "US").join();
+            producer.send(event, headers, "monitoring-test-" + i, "US").await();
         }
 
         logger.info("Sent 15 monitoring test messages");

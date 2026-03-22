@@ -14,6 +14,7 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
 
 import java.util.concurrent.atomic.AtomicLong;
+import io.vertx.core.Future;
 
 /**
  * Event handler for settlement domain events.
@@ -46,7 +47,7 @@ public class SettlementEventHandler {
         
         settlementEventStore.subscribe(null, null, new MessageHandler<BiTemporalEvent<SettlementInstructionEvent>>() {
             @Override
-            public CompletableFuture<Void> handle(Message<BiTemporalEvent<SettlementInstructionEvent>> message) {
+            public Future<Void> handle(Message<BiTemporalEvent<SettlementInstructionEvent>> message) {
                 return handleSettlementEvent(message.getPayload());
             }
         }).onComplete(ar -> {
@@ -75,7 +76,7 @@ public class SettlementEventHandler {
     /**
      * Handles all settlement events asynchronously.
      */
-    private CompletableFuture<Void> handleSettlementEvent(BiTemporalEvent<SettlementInstructionEvent> event) {
+    private Future<Void> handleSettlementEvent(BiTemporalEvent<SettlementInstructionEvent> event) {
         eventsProcessed.incrementAndGet();
         
         String eventType = event.getEventType();
@@ -95,14 +96,14 @@ public class SettlementEventHandler {
         } catch (Exception e) {
             log.error("Error processing settlement event: {} for instruction: {}", 
                     eventType, instruction.getInstructionId(), e);
-            return CompletableFuture.failedFuture(e);
+            return Future.failedFuture(e);
         }
     }
     
     /**
      * Handles settlement instruction submitted events.
      */
-    private CompletableFuture<Void> handleSettlementSubmitted(BiTemporalEvent<SettlementInstructionEvent> event) {
+    private Future<Void> handleSettlementSubmitted(BiTemporalEvent<SettlementInstructionEvent> event) {
         submittedEventsProcessed.incrementAndGet();
         
         SettlementInstructionEvent instruction = event.getPayload();
@@ -129,7 +130,7 @@ public class SettlementEventHandler {
     /**
      * Handles settlement confirmation events.
      */
-    private CompletableFuture<Void> handleSettlementConfirmed(BiTemporalEvent<SettlementInstructionEvent> event) {
+    private Future<Void> handleSettlementConfirmed(BiTemporalEvent<SettlementInstructionEvent> event) {
         confirmedEventsProcessed.incrementAndGet();
         
         SettlementInstructionEvent instruction = event.getPayload();
