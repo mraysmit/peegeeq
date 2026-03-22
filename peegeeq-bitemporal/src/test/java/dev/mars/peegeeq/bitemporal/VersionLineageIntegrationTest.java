@@ -623,10 +623,8 @@ class VersionLineageIntegrationTest {
     }
 
     /**
-     * appendCorrection for a non-existent originalEventId is rejected by the database.
-     * The check constraint chk_previous_version requires (version=1, previous_version_id IS NULL)
-     * but a correction always sets previous_version_id. Since no prior versions exist,
-     * MAX(version) is 0, so nextVersion=1, which violates the constraint.
+     * appendCorrection for a non-existent originalEventId is rejected with
+     * IllegalArgumentException before reaching the database.
      */
     @Test
     void appendCorrectionForNonExistentRootIsRejectedByConstraint(VertxTestContext testContext) throws Exception {
@@ -636,10 +634,12 @@ class VersionLineageIntegrationTest {
             .compose(store -> store.appendCorrection(fakeRootId, "orphan.correction",
                     Map.of("orphan", true), Instant.now(), "Correcting phantom event"))
             .onSuccess(event -> testContext.verify(() ->
-                fail("Should have been rejected by chk_previous_version constraint")))
+                fail("Should have been rejected for non-existent event")))
             .onFailure(err -> testContext.verify(() -> {
-                assertTrue(err.getMessage().contains("chk_previous_version"),
-                    "Expected chk_previous_version constraint violation, got: " + err.getMessage());
+                assertInstanceOf(IllegalArgumentException.class, err,
+                    "Expected IllegalArgumentException, got: " + err.getClass().getName());
+                assertTrue(err.getMessage().contains("Cannot correct non-existent event"),
+                    "Expected 'Cannot correct non-existent event' message, got: " + err.getMessage());
                 testContext.completeNow();
             }));
 

@@ -561,11 +561,41 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 return sqlConnection.preparedQuery(lockSql)
                         .execute(Tuple.of(originalEventId))
                         .compose(lockResult -> {
-                // Now safely get the next version number (serialized by advisory lock)
+                // Verify the original event exists before proceeding
+                String existsSql = "SELECT 1 FROM %s WHERE event_id = $1 LIMIT 1".formatted(quotedTableName);
+
+                return sqlConnection.preparedQuery(existsSql)
+                        .execute(Tuple.of(originalEventId))
+                        .compose(existsRows -> {
+                            if (existsRows.size() == 0) {
+                                return Future.failedFuture(new IllegalArgumentException(
+                                        "Cannot correct non-existent event: " + originalEventId));
+                            }
+
+                // Get the max version across the entire correction family.
+                // Must walk up to the root and then down to all descendants
+                // to avoid duplicate version numbers in fan-out topologies.
                 String getVersionSql = """
-                        SELECT COALESCE(MAX(version), 0) as max_version
-                        FROM %s
-                        WHERE event_id = $1 OR previous_version_id = $1
+                        WITH RECURSIVE ancestors AS (
+                            SELECT event_id, previous_version_id
+                            FROM %1$s WHERE event_id = $1
+                            UNION ALL
+                            SELECT p.event_id, p.previous_version_id
+                            FROM %1$s p JOIN ancestors a ON a.previous_version_id = p.event_id
+                        ),
+                        root AS (
+                            SELECT COALESCE(
+                                (SELECT event_id FROM ancestors WHERE previous_version_id IS NULL LIMIT 1),
+                                $1
+                            ) AS root_event_id
+                        ),
+                        family AS (
+                            SELECT root_event_id AS event_id FROM root
+                            UNION ALL
+                            SELECT c.event_id FROM %1$s c JOIN family f ON c.previous_version_id = f.event_id
+                        )
+                        SELECT COALESCE(MAX(e.version), 0) as max_version
+                        FROM %1$s e WHERE e.event_id IN (SELECT event_id FROM family)
                         """.formatted(quotedTableName);
 
                 return sqlConnection.preparedQuery(getVersionSql)
@@ -611,6 +641,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                                     return correctionEvent;
                                     });
                         });
+                        }); // end exists check compose
                         }); // end advisory lock compose
             }).onFailure(throwable -> logger.error("Failed to append correction event for {}: {}", originalEventId,
                     throwable.getMessage(), throwable));
@@ -949,22 +980,41 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
         Objects.requireNonNull(eventId, "Event ID cannot be null");
 
-        // Resolve the root event ID first, so this method works correctly whether
-        // called with a root event ID or a correction's event ID (star model).
+        // Walk up the correction chain to find the root, then walk down to collect all descendants.
+        // Uses RECURSIVE CTE to handle chains of arbitrary depth (A→B→C→D...).
         String sql = """
-                WITH root AS (
+                WITH RECURSIVE ancestors AS (
+                    SELECT event_id, previous_version_id
+                    FROM %1$s
+                    WHERE event_id = $1
+
+                    UNION ALL
+
+                    SELECT p.event_id, p.previous_version_id
+                    FROM %1$s p
+                    JOIN ancestors a ON a.previous_version_id = p.event_id
+                ),
+                root AS (
                     SELECT COALESCE(
-                        (SELECT previous_version_id FROM %1$s
-                         WHERE event_id = $1 AND previous_version_id IS NOT NULL LIMIT 1),
+                        (SELECT event_id FROM ancestors WHERE previous_version_id IS NULL LIMIT 1),
                         $1
                     ) AS root_event_id
+                ),
+                family AS (
+                    SELECT root_event_id AS event_id
+                    FROM root
+
+                    UNION ALL
+
+                    SELECT c.event_id
+                    FROM %1$s c
+                    JOIN family f ON c.previous_version_id = f.event_id
                 )
                 SELECT event_id, event_type, valid_time, transaction_time, payload, headers,
                        version, previous_version_id, correlation_id, causation_id, aggregate_id,
                        is_correction, correction_reason, created_at
                 FROM %1$s
-                WHERE event_id = (SELECT root_event_id FROM root)
-                   OR previous_version_id = (SELECT root_event_id FROM root)
+                WHERE event_id IN (SELECT event_id FROM family)
                 ORDER BY version ASC
                 """.formatted(quotedTableName);
 
@@ -1314,8 +1364,10 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         // Deserialize payload using native/outbox-compatible wrapper semantics.
         T payload = parsePayloadFromJsonString(payloadJson);
 
-        // Deserialize headers
+        // Deserialize headers, filtering out null-valued entries from JSONB
+        @SuppressWarnings("unchecked")
         Map<String, String> headers = objectMapper.readValue(headersJson, Map.class);
+        headers.values().removeIf(Objects::isNull);
 
         return new SimpleBiTemporalEvent<>(
                 eventId, eventType, payload, validTime, transactionTime,

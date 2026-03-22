@@ -51,6 +51,8 @@ import dev.mars.peegeeq.api.tracing.TraceContextUtil;
 import dev.mars.peegeeq.api.tracing.AsyncTraceUtils;
 import io.vertx.core.json.JsonObject;
 import io.vertx.sqlclient.Pool;
+import io.vertx.sqlclient.Row;
+import io.vertx.sqlclient.Tuple;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -254,6 +256,7 @@ public class PeeGeeQManager implements AutoCloseable {
         return Future.succeededFuture()
             .compose(v -> publishLifecycleEvent("database.validating"))
             .compose(v -> validateDatabaseConnectivity())
+            .compose(v -> validateRequiredTables())
             .compose(v -> publishLifecycleEvent("database.ready"))
             .compose(v -> startAllComponents())
             .compose(v -> publishLifecycleEvent("components.started"))
@@ -667,6 +670,46 @@ public class PeeGeeQManager implements AutoCloseable {
             logger.error("Database connectivity validation failed: {}", throwable.getMessage());
             return Future.failedFuture(new RuntimeException("Database startup validation failed", throwable));
         });
+    }
+
+    private static final List<String> REQUIRED_TABLES = List.of(
+            "outbox", "queue_messages", "dead_letter_queue", "outbox_topic_subscriptions");
+
+    /**
+     * Validates that all required core tables exist in the configured schema.
+     * Fails fast with a clear error listing any missing tables.
+     */
+    private Future<Void> validateRequiredTables() {
+        String schema = configuration.getDatabaseConfig().getSchema();
+        logger.info("Validating required tables exist in schema '{}'...", schema);
+
+        String sql = """
+                SELECT table_name FROM information_schema.tables
+                WHERE table_schema = $1
+                """;
+
+        return pool.withConnection(connection ->
+            connection.preparedQuery(sql)
+                .execute(Tuple.of(schema))
+                .map(rows -> {
+                    java.util.Set<String> found = new java.util.HashSet<>();
+                    for (Row row : rows) {
+                        found.add(row.getString("table_name"));
+                    }
+
+                    List<String> missing = REQUIRED_TABLES.stream()
+                            .filter(t -> !found.contains(t))
+                            .toList();
+
+                    if (!missing.isEmpty()) {
+                        throw new IllegalStateException(
+                                "Database required tables missing in schema '" + schema + "': " + missing);
+                    }
+
+                    logger.info("All required tables validated successfully");
+                    return (Void) null;
+                })
+        );
     }
 
     /**

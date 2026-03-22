@@ -218,7 +218,11 @@ public class EventStoreAppendBuilder<T> {
      * @throws IllegalStateException if required fields are missing
      */
     public Future<BiTemporalEvent<T>> execute() {
-        validate();
+        try {
+            validate();
+        } catch (IllegalStateException e) {
+            return Future.failedFuture(e);
+        }
         
         // Correction event
         if (originalEventId != null) {
@@ -257,8 +261,8 @@ public class EventStoreAppendBuilder<T> {
      * @throws IllegalStateException if required fields are missing
      */
     private void validate() {
-        if (eventType == null) {
-            throw new IllegalStateException("eventType is required");
+        if (eventType == null || eventType.isBlank()) {
+            throw new IllegalStateException("eventType is required and cannot be blank");
         }
         if (payload == null) {
             throw new IllegalStateException("payload is required");
