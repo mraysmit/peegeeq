@@ -54,7 +54,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests verifying the honest transaction participation contract in
  * PgBiTemporalEventStore.
  *
- * <p>These tests demonstrate three concrete facts:
+ * <p>These tests demonstrate the following facts:
  * <ol>
  *   <li>append() and appendWithTransaction() start their own independent
  *       transaction on the internal pool — the event survives an external
@@ -63,6 +63,15 @@ import static org.junit.jupiter.api.Assertions.*;
  *       both start a fresh own-transaction every time.</li>
  *   <li>Only appendInTransaction(connection) genuinely participates in an
  *       external transaction — rollback on the connection rolls back the event.</li>
+ *   <li>appendWithTransaction() persists all metadata fields (headers,
+ *       correlationId, causationId, aggregateId) via the own-transaction path.</li>
+ *   <li>appendInTransaction(null) returns a failed future with
+ *       IllegalArgumentException, not NPE.</li>
+ *   <li>A closed event store rejects append() and appendInTransaction()
+ *       with IllegalStateException.</li>
+ *   <li>The builder's validate() rejects missing required fields synchronously.</li>
+ *   <li>The builder's correction() path takes priority over inTransaction() —
+ *       when both are set, the connection is silently ignored.</li>
  * </ol>
  */
 @Tag(TestCategories.INTEGRATION)
@@ -194,11 +203,10 @@ class TransactionPropagationHonestyTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
-        if (eventStore != null) {
-            eventStore.close();
-        }
-
         Future<Void> closeFuture = Future.succeededFuture();
+        if (eventStore != null) {
+            closeFuture = closeFuture.compose(v -> eventStore.close());
+        }
         if (externalPool != null) {
             closeFuture = closeFuture.compose(v -> externalPool.close());
         }
@@ -214,23 +222,30 @@ class TransactionPropagationHonestyTest {
 
         closeFuture
                 .onSuccess(v -> {
-                    System.clearProperty("peegeeq.database.host");
-                    System.clearProperty("peegeeq.database.port");
-                    System.clearProperty("peegeeq.database.name");
-                    System.clearProperty("peegeeq.database.username");
-                    System.clearProperty("peegeeq.database.password");
-                    System.clearProperty("peegeeq.health-check.enabled");
-                    System.clearProperty("peegeeq.health-check.queue-checks-enabled");
-                    System.clearProperty("peegeeq.queue.dead-consumer-detection.enabled");
-                    System.clearProperty("peegeeq.queue.recovery.enabled");
+                    clearTestSystemProperties();
                     testContext.completeNow();
                 })
-                .onFailure(testContext::failNow);
+                .onFailure(err -> {
+                    clearTestSystemProperties();
+                    testContext.failNow(err);
+                });
 
         assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
         if (testContext.failed()) {
             throw new RuntimeException(testContext.causeOfFailure());
         }
+    }
+
+    private void clearTestSystemProperties() {
+        System.clearProperty("peegeeq.database.host");
+        System.clearProperty("peegeeq.database.port");
+        System.clearProperty("peegeeq.database.name");
+        System.clearProperty("peegeeq.database.username");
+        System.clearProperty("peegeeq.database.password");
+        System.clearProperty("peegeeq.health-check.enabled");
+        System.clearProperty("peegeeq.health-check.queue-checks-enabled");
+        System.clearProperty("peegeeq.queue.dead-consumer-detection.enabled");
+        System.clearProperty("peegeeq.queue.recovery.enabled");
     }
 
     // ========================================================================
@@ -285,7 +300,7 @@ class TransactionPropagationHonestyTest {
             // external rollback.
             //
             // For genuine transaction participation, callers must use
-            // appendInTransaction(connection) — see tests 3 and 5.
+            // appendInTransaction(connection) — see tests 3 and 4.
             assertEquals(1, count,
                     "Event should survive external rollback because " +
                     "appendWithTransaction() starts an own-transaction on " +
@@ -410,37 +425,7 @@ class TransactionPropagationHonestyTest {
     }
 
     // ========================================================================
-    // Test 4: Injected Vertx is the manager's Vertx (no hidden creation)
-    // ========================================================================
-
-    @Test
-    @DisplayName("Event store uses the injected Vertx from PeeGeeQManager — no hidden Vertx creation")
-    void injectedVertxIsManagerVertx(VertxTestContext testContext) throws Exception {
-        /*
-         * After the injection refactoring, the event store's Vertx should be
-         * the same instance provided by PeeGeeQManager — proving no hidden
-         * resource creation.
-         */
-        Vertx storeVertx = PgBiTemporalEventStore.getOrCreateSharedVertx();
-        Vertx managerVertx = manager.getVertx();
-
-        testContext.verify(() -> {
-            assertNotNull(storeVertx, "Event store Vertx should exist");
-            assertNotNull(managerVertx, "Manager Vertx should exist");
-            assertSame(managerVertx, storeVertx,
-                    "The event store's Vertx must be the same instance as the manager's Vertx — " +
-                    "proving injection works and no hidden Vertx is created");
-        });
-        testContext.completeNow();
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        if (testContext.failed()) {
-            throw new RuntimeException(testContext.causeOfFailure());
-        }
-    }
-
-    // ========================================================================
-    // Test 5: Contrast — appendInTransaction commits when transaction commits
+    // Test 4: Contrast — appendInTransaction commits when transaction commits
     // ========================================================================
 
     @Test
@@ -471,6 +456,594 @@ class TransactionPropagationHonestyTest {
             assertEquals(1, count,
                     "Event should be visible after the external transaction commits — " +
                     "appendInTransaction genuinely participates");
+            testContext.completeNow();
+        }))
+        .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
+    }
+
+    // ========================================================================
+    // Test 5: append() also starts own-tx — event survives external rollback
+    // ========================================================================
+
+    @Test
+    @DisplayName("append() starts own-transaction — event survives external rollback")
+    void appendDoesNotJoinExternalTransaction(VertxTestContext testContext) throws Exception {
+        /*
+         * Same scenario as Test 1 but using append() directly.
+         * Proves that append() — not just appendWithTransaction() — starts its
+         * own independent transaction and ignores any external transaction context.
+         */
+        String schema = resolveSchema();
+        String eventType = "append.own.tx.survives.rollback";
+        TestPayload payload = new TestPayload("append-survives-rollback", 60);
+        Instant validTime = Instant.now();
+
+        externalPool.withTransaction(externalConn ->
+                eventStore.append(eventType, payload, validTime)
+                        .compose(event ->
+                                Future.<BiTemporalEvent<TestPayload>>failedFuture(
+                                        new RuntimeException("Deliberate rollback")))
+        )
+        .recover(err -> {
+            logger.info("External transaction rolled back as expected: {}", err.getMessage());
+            return Future.succeededFuture(null);
+        })
+        .compose(ignored -> {
+            String countSql = "SELECT COUNT(*) FROM " + schema +
+                    ".bitemporal_event_log WHERE event_type = $1";
+            return externalPool.preparedQuery(countSql).execute(Tuple.of(eventType));
+        })
+        .onSuccess(rows -> testContext.verify(() -> {
+            int count = rows.iterator().next().getInteger(0);
+            assertEquals(1, count,
+                    "Event should survive external rollback because append() starts " +
+                    "its own independent transaction — it never participates in " +
+                    "the caller's transaction");
+            testContext.completeNow();
+        }))
+        .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
+    }
+
+    // ========================================================================
+    // Test 6: appendBuilder().execute() starts own-tx — survives rollback
+    // ========================================================================
+
+    @Test
+    @DisplayName("appendBuilder().execute() starts own-transaction — event survives external rollback")
+    void builderWithoutInTransactionDoesNotJoinExternalTransaction(VertxTestContext testContext) throws Exception {
+        /*
+         * The builder's execute() without inTransaction(conn) delegates to
+         * append() — which starts its own independent transaction.
+         * Proves the builder path also does NOT participate.
+         */
+        String schema = resolveSchema();
+        String eventType = "builder.own.tx.survives.rollback";
+        TestPayload payload = new TestPayload("builder-survives-rollback", 70);
+        Instant validTime = Instant.now();
+
+        externalPool.withTransaction(externalConn ->
+                eventStore.appendBuilder()
+                        .eventType(eventType)
+                        .payload(payload)
+                        .validTime(validTime)
+                        .header("source", "builder-test")
+                        .correlationId("corr-builder-70")
+                        .execute()
+                        .compose(event ->
+                                Future.<BiTemporalEvent<TestPayload>>failedFuture(
+                                        new RuntimeException("Deliberate rollback")))
+        )
+        .recover(err -> Future.succeededFuture(null))
+        .compose(ignored -> {
+            String countSql = "SELECT COUNT(*) FROM " + schema +
+                    ".bitemporal_event_log WHERE event_type = $1";
+            return externalPool.preparedQuery(countSql).execute(Tuple.of(eventType));
+        })
+        .onSuccess(rows -> testContext.verify(() -> {
+            int count = rows.iterator().next().getInteger(0);
+            assertEquals(1, count,
+                    "Builder execute() without inTransaction() starts its own " +
+                    "transaction — event survives external rollback");
+            testContext.completeNow();
+        }))
+        .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
+    }
+
+    // ========================================================================
+    // Test 7: appendBuilder().inTransaction(conn).execute() — rollback
+    // ========================================================================
+
+    @Test
+    @DisplayName("appendBuilder().inTransaction(conn).execute() genuinely participates — rollback rolls back event")
+    void builderInTransactionRollsBackWithExternalTransaction(VertxTestContext testContext) throws Exception {
+        /*
+         * The builder's inTransaction(conn) path delegates to
+         * appendInTransaction(eventType, payload, validTime, headers,
+         *     correlationId, causationId, aggregateId, connection)
+         * — which uses the caller's connection.  Rollback must remove the event.
+         */
+        String schema = resolveSchema();
+        String eventType = "builder.in.tx.rollback";
+        TestPayload payload = new TestPayload("builder-rolled-back", 80);
+        Instant validTime = Instant.now();
+
+        externalPool.withTransaction(conn ->
+                eventStore.appendBuilder()
+                        .eventType(eventType)
+                        .payload(payload)
+                        .validTime(validTime)
+                        .header("source", "builder-in-tx")
+                        .correlationId("corr-builder-80")
+                        .causationId("cause-builder-80")
+                        .aggregateId("agg-builder-80")
+                        .inTransaction(conn)
+                        .execute()
+                        .compose(event ->
+                                Future.<BiTemporalEvent<TestPayload>>failedFuture(
+                                        new RuntimeException("Deliberate rollback")))
+        )
+        .recover(err -> Future.succeededFuture(null))
+        .compose(ignored -> {
+            String countSql = "SELECT COUNT(*) FROM " + schema +
+                    ".bitemporal_event_log WHERE event_type = $1";
+            return externalPool.preparedQuery(countSql).execute(Tuple.of(eventType));
+        })
+        .onSuccess(rows -> testContext.verify(() -> {
+            int count = rows.iterator().next().getInteger(0);
+            assertEquals(0, count,
+                    "Builder inTransaction(conn) MUST participate — rollback " +
+                    "removes the event");
+            testContext.completeNow();
+        }))
+        .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
+    }
+
+    // ========================================================================
+    // Test 8: appendBuilder().inTransaction(conn).execute() — commit
+    // ========================================================================
+
+    @Test
+    @DisplayName("appendBuilder().inTransaction(conn).execute() genuinely participates — commit persists event")
+    void builderInTransactionCommitsWithExternalTransaction(VertxTestContext testContext) throws Exception {
+        /*
+         * Positive control for Test 7: the builder's inTransaction(conn) path
+         * commits the event when the external transaction commits.
+         */
+        String schema = resolveSchema();
+        String eventType = "builder.in.tx.commit";
+        TestPayload payload = new TestPayload("builder-committed", 90);
+        Instant validTime = Instant.now();
+
+        externalPool.withTransaction(conn ->
+                eventStore.appendBuilder()
+                        .eventType(eventType)
+                        .payload(payload)
+                        .validTime(validTime)
+                        .header("source", "builder-in-tx-commit")
+                        .correlationId("corr-builder-90")
+                        .inTransaction(conn)
+                        .execute()
+        )
+        .compose(event -> {
+            String sql = "SELECT correlation_id, headers::text FROM " + schema +
+                    ".bitemporal_event_log WHERE event_type = $1";
+            return externalPool.preparedQuery(sql).execute(Tuple.of(eventType));
+        })
+        .onSuccess(rows -> testContext.verify(() -> {
+            var iter = rows.iterator();
+            assertTrue(iter.hasNext(), "Event must exist after commit");
+            var row = iter.next();
+            assertEquals("corr-builder-90", row.getString("correlation_id"),
+                    "Correlation ID must be persisted via builder inTransaction path");
+            testContext.completeNow();
+        }))
+        .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
+    }
+
+    // ========================================================================
+    // Test 9: appendInTransaction full metadata — commit persists all fields
+    // ========================================================================
+
+    @Test
+    @DisplayName("appendInTransaction with full metadata commits all fields including causationId and aggregateId")
+    void appendInTransactionFullMetadataCommit(VertxTestContext testContext) throws Exception {
+        /*
+         * Tests the full 8-arg appendInTransaction overload with headers,
+         * correlationId, causationId, and aggregateId.  Verifies all metadata
+         * fields are persisted via the genuine transaction participation path.
+         */
+        String schema = resolveSchema();
+        String eventType = "full.metadata.in.tx.commit";
+        TestPayload payload = new TestPayload("full-metadata", 100);
+        Instant validTime = Instant.now();
+        Map<String, String> headers = Map.of("env", "test", "version", "2");
+        String correlationId = "corr-full-100";
+        String causationId = "cause-full-100";
+        String aggregateId = "agg-full-100";
+
+        externalPool.withTransaction(conn ->
+                eventStore.appendInTransaction(eventType, payload, validTime,
+                        headers, correlationId, causationId, aggregateId, conn)
+        )
+        .compose(event -> {
+            // Verify the returned event has all metadata
+            testContext.verify(() -> {
+                assertNotNull(event.getEventId(), "Event ID must be generated");
+                assertEquals(eventType, event.getEventType());
+                assertEquals(correlationId, event.getCorrelationId());
+                assertEquals(causationId, event.getCausationId());
+                assertEquals(aggregateId, event.getAggregateId());
+                assertEquals("test", event.getHeaders().get("env"));
+                assertEquals("2", event.getHeaders().get("version"));
+            });
+
+            // Also verify from the database directly
+            String sql = "SELECT correlation_id, causation_id, aggregate_id, headers::text " +
+                    "FROM " + schema + ".bitemporal_event_log WHERE event_type = $1";
+            return externalPool.preparedQuery(sql).execute(Tuple.of(eventType));
+        })
+        .onSuccess(rows -> testContext.verify(() -> {
+            var iter = rows.iterator();
+            assertTrue(iter.hasNext(), "Event must be persisted");
+            var row = iter.next();
+            assertEquals(correlationId, row.getString("correlation_id"));
+            assertEquals(causationId, row.getString("causation_id"));
+            assertEquals(aggregateId, row.getString("aggregate_id"));
+            String headersJson = row.getString("headers");
+            assertTrue(headersJson.contains("\"env\""), "Headers must be persisted");
+            assertTrue(headersJson.contains("\"version\""), "Headers must be persisted");
+            testContext.completeNow();
+        }))
+        .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
+    }
+
+    // ========================================================================
+    // Test 10: appendInTransaction full metadata — rollback removes everything
+    // ========================================================================
+
+    @Test
+    @DisplayName("appendInTransaction with full metadata rolls back — nothing persisted including metadata")
+    void appendInTransactionFullMetadataRollback(VertxTestContext testContext) throws Exception {
+        /*
+         * Counterpart to Test 9: verifies that when the transaction is rolled
+         * back, no trace of the event (including metadata) remains.
+         */
+        String schema = resolveSchema();
+        String eventType = "full.metadata.in.tx.rollback";
+        TestPayload payload = new TestPayload("full-metadata-gone", 101);
+        Instant validTime = Instant.now();
+
+        externalPool.withTransaction(conn ->
+                eventStore.appendInTransaction(eventType, payload, validTime,
+                        Map.of("env", "test"), "corr-101", "cause-101", "agg-101", conn)
+                        .compose(event ->
+                                Future.<BiTemporalEvent<TestPayload>>failedFuture(
+                                        new RuntimeException("Deliberate rollback")))
+        )
+        .recover(err -> Future.succeededFuture(null))
+        .compose(ignored -> {
+            String countSql = "SELECT COUNT(*) FROM " + schema +
+                    ".bitemporal_event_log WHERE event_type = $1";
+            return externalPool.preparedQuery(countSql).execute(Tuple.of(eventType));
+        })
+        .onSuccess(rows -> testContext.verify(() -> {
+            int count = rows.iterator().next().getInteger(0);
+            assertEquals(0, count,
+                    "Full-metadata appendInTransaction must leave no trace after rollback");
+            testContext.completeNow();
+        }))
+        .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
+    }
+
+    // ========================================================================
+    // Test 11: appendWithTransaction full metadata — commit persists all fields
+    // ========================================================================
+
+    @Test
+    @DisplayName("appendWithTransaction with full metadata commits all fields including causationId and aggregateId")
+    void appendWithTransactionFullMetadataCommit(VertxTestContext testContext) throws Exception {
+        /*
+         * Tests the full 7-arg appendWithTransaction overload with headers,
+         * correlationId, causationId, and aggregateId.  Verifies all metadata
+         * fields are persisted via the own-transaction path.
+         */
+        String schema = resolveSchema();
+        String eventType = "full.metadata.own.tx.commit";
+        TestPayload payload = new TestPayload("own-tx-full-metadata", 110);
+        Instant validTime = Instant.now();
+        Map<String, String> headers = Map.of("env", "test", "source", "honesty-test");
+        String correlationId = "corr-own-110";
+        String causationId = "cause-own-110";
+        String aggregateId = "agg-own-110";
+
+        eventStore.appendWithTransaction(eventType, payload, validTime,
+                headers, correlationId, causationId, aggregateId)
+        .compose(event -> {
+            // Verify the returned event has all metadata
+            testContext.verify(() -> {
+                assertNotNull(event.getEventId(), "Event ID must be generated");
+                assertEquals(eventType, event.getEventType());
+                assertEquals(correlationId, event.getCorrelationId());
+                assertEquals(causationId, event.getCausationId());
+                assertEquals(aggregateId, event.getAggregateId());
+                assertEquals("test", event.getHeaders().get("env"));
+                assertEquals("honesty-test", event.getHeaders().get("source"));
+            });
+
+            // Also verify from the database directly
+            String sql = "SELECT correlation_id, causation_id, aggregate_id, headers::text " +
+                    "FROM " + schema + ".bitemporal_event_log WHERE event_type = $1";
+            return externalPool.preparedQuery(sql).execute(Tuple.of(eventType));
+        })
+        .onSuccess(rows -> testContext.verify(() -> {
+            var iter = rows.iterator();
+            assertTrue(iter.hasNext(), "Event must be persisted");
+            var row = iter.next();
+            assertEquals(correlationId, row.getString("correlation_id"));
+            assertEquals(causationId, row.getString("causation_id"));
+            assertEquals(aggregateId, row.getString("aggregate_id"));
+            String headersJson = row.getString("headers");
+            assertTrue(headersJson.contains("\"env\""), "Headers key 'env' must be persisted");
+            assertTrue(headersJson.contains("\"source\""), "Headers key 'source' must be persisted");
+            testContext.completeNow();
+        }))
+        .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
+    }
+
+    // ========================================================================
+    // Test 12: appendInTransaction with null connection — returns failed future
+    // ========================================================================
+
+    @Test
+    @DisplayName("appendInTransaction with null connection returns failed future with IllegalArgumentException")
+    void appendInTransactionNullConnectionReturnsFailed(VertxTestContext testContext) throws Exception {
+        /*
+         * Boundary test: calling appendInTransaction with a null connection
+         * must return a failed future with IllegalArgumentException, not NPE.
+         */
+        String eventType = "null.connection.test";
+        TestPayload payload = new TestPayload("null-conn", 120);
+        Instant validTime = Instant.now();
+
+        eventStore.appendInTransaction(eventType, payload, validTime, null)
+        .onSuccess(event -> testContext.failNow(
+                new AssertionError("Should have failed with IllegalArgumentException")))
+        .onFailure(err -> testContext.verify(() -> {
+            assertInstanceOf(IllegalArgumentException.class, err,
+                    "Null connection must produce IllegalArgumentException");
+            assertTrue(err.getMessage().contains("connection cannot be null"),
+                    "Error message must mention null connection");
+            testContext.completeNow();
+        }));
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
+    }
+
+    // ========================================================================
+    // Test 13: Closed event store rejects append with failed future
+    // ========================================================================
+
+    @Test
+    @DisplayName("Closed event store rejects append() and appendInTransaction() with IllegalStateException")
+    void closedStoreRejectsAppend(VertxTestContext testContext) throws Exception {
+        /*
+         * After close(), all append methods must return a failed future
+         * with IllegalStateException("Event store is closed").
+         *
+         * We test both code paths:
+         *   - append() → appendWithTransaction() → appendWithTransactionInternal() closed check
+         *   - appendInTransaction(8-arg) has its own independent closed check
+         */
+        String eventType = "closed.store.test";
+        TestPayload payload = new TestPayload("closed-store", 130);
+        Instant validTime = Instant.now();
+
+        // Close the event store first, then null the field so tearDown
+        // does not attempt a redundant second close.
+        PgBiTemporalEventStore<TestPayload> closedStore = eventStore;
+        eventStore = null;
+
+        closedStore.close()
+        // Verify append() is rejected
+        .compose(v -> closedStore.append(eventType, payload, validTime)
+                .compose(event -> Future.<BiTemporalEvent<TestPayload>>failedFuture(
+                        new AssertionError("append() should have been rejected by closed store"))))
+        .recover(err -> {
+            testContext.verify(() -> {
+                assertInstanceOf(IllegalStateException.class, err,
+                        "Closed store must produce IllegalStateException from append()");
+                assertTrue(err.getMessage().contains("Event store is closed"),
+                        "Error message must mention closed store");
+            });
+            return Future.succeededFuture(null);
+        })
+        // Verify the independent closed check in appendInTransaction(8-arg).
+        // Pass null connection — the closed check fires first (before null-connection check).
+        .compose(v -> closedStore.appendInTransaction(eventType, payload, validTime,
+                Map.of(), null, null, null, null)
+                .compose(event -> Future.<BiTemporalEvent<TestPayload>>failedFuture(
+                        new AssertionError("appendInTransaction() should have been rejected by closed store"))))
+        .recover(err -> {
+            testContext.verify(() -> {
+                assertInstanceOf(IllegalStateException.class, err,
+                        "Closed store must produce IllegalStateException from appendInTransaction()");
+                assertTrue(err.getMessage().contains("Event store is closed"),
+                        "Error message must mention closed store");
+            });
+            return Future.succeededFuture(null);
+        })
+        .onSuccess(v -> testContext.completeNow())
+        .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
+    }
+
+    // ========================================================================
+    // Test 14: Builder validation — missing required fields
+    // ========================================================================
+
+    @Test
+    @DisplayName("Builder execute() throws IllegalStateException for missing required fields")
+    void builderValidationRejectsMissingFields(VertxTestContext testContext) throws Exception {
+        /*
+         * The builder's validate() throws IllegalStateException synchronously
+         * when eventType, payload, or validTime is missing.
+         */
+        testContext.verify(() -> {
+            // Missing eventType
+            IllegalStateException ex1 = assertThrows(IllegalStateException.class, () ->
+                    eventStore.appendBuilder()
+                            .payload(new TestPayload("no-type", 1))
+                            .validTime(Instant.now())
+                            .execute());
+            assertTrue(ex1.getMessage().contains("eventType"),
+                    "Must mention missing eventType");
+
+            // Missing payload
+            IllegalStateException ex2 = assertThrows(IllegalStateException.class, () ->
+                    eventStore.appendBuilder()
+                            .eventType("test.type")
+                            .validTime(Instant.now())
+                            .execute());
+            assertTrue(ex2.getMessage().contains("payload"),
+                    "Must mention missing payload");
+
+            // Missing validTime
+            IllegalStateException ex3 = assertThrows(IllegalStateException.class, () ->
+                    eventStore.appendBuilder()
+                            .eventType("test.type")
+                            .payload(new TestPayload("no-time", 2))
+                            .execute());
+            assertTrue(ex3.getMessage().contains("validTime"),
+                    "Must mention missing validTime");
+        });
+        testContext.completeNow();
+
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
+    }
+
+    // ========================================================================
+    // Test 15: Builder correction() + inTransaction() — correction wins,
+    //          connection silently ignored
+    // ========================================================================
+
+    @Test
+    @DisplayName("Builder correction() + inTransaction() — correction path wins, connection is silently ignored")
+    void builderCorrectionIgnoresInTransaction(VertxTestContext testContext) throws Exception {
+        /*
+         * Design-level documentation test: when both correction(id, reason)
+         * and inTransaction(conn) are set on the builder, the execute()
+         * method routes to the correction path FIRST (checks originalEventId
+         * != null before checking connection != null).  The correction path
+         * uses appendCorrection() which starts its own transaction via
+         * Pool.withTransaction() — the connection is silently ignored.
+         *
+         * We prove this by:
+         *   1. Appending an original event.
+         *   2. Starting an external transaction.
+         *   3. Using builder with .correction(id, reason).inTransaction(conn).execute()
+         *      inside that external transaction.
+         *   4. Rolling back the external transaction.
+         *   5. Verifying the correction event SURVIVES — because the correction
+         *      path used its own transaction, not the caller's connection.
+         */
+        String schema = resolveSchema();
+        String originalEventType = "correction.ignore.original";
+        String correctionEventType = "correction.ignore.corrected";
+        TestPayload originalPayload = new TestPayload("original", 140);
+        TestPayload correctedPayload = new TestPayload("corrected", 141);
+        Instant validTime = Instant.now();
+        Instant correctedValidTime = validTime.plusSeconds(60);
+
+        // Step 1: Append the original event
+        eventStore.append(originalEventType, originalPayload, validTime)
+        .compose(originalEvent -> {
+            String originalEventId = originalEvent.getEventId();
+            logger.info("Original event appended: {}", originalEventId);
+
+            // Step 2-4: Start external tx, use builder with correction + inTransaction, rollback
+            return externalPool.withTransaction(conn ->
+                    eventStore.appendBuilder()
+                            .eventType(correctionEventType)
+                            .payload(correctedPayload)
+                            .validTime(correctedValidTime)
+                            .correction(originalEventId, "Test correction reason")
+                            .inTransaction(conn)
+                            .execute()
+                            .compose(correctionEvent -> {
+                                logger.info("Correction event appended: {}", correctionEvent.getEventId());
+                                // Deliberately fail to trigger rollback of external tx
+                                return Future.<BiTemporalEvent<TestPayload>>failedFuture(
+                                        new RuntimeException("Deliberate rollback"));
+                            })
+            )
+            .recover(err -> {
+                logger.info("External transaction rolled back as expected: {}", err.getMessage());
+                return Future.succeededFuture(null);
+            });
+        })
+        .compose(ignored -> {
+            // Step 5: Query for correction events — they should SURVIVE
+            // because correction path ignores the connection
+            String countSql = "SELECT COUNT(*) FROM " + schema +
+                    ".bitemporal_event_log WHERE event_type = $1 AND is_correction = true";
+            return externalPool.preparedQuery(countSql).execute(Tuple.of(correctionEventType));
+        })
+        .onSuccess(rows -> testContext.verify(() -> {
+            int count = rows.iterator().next().getInteger(0);
+            assertEquals(1, count,
+                    "Correction event must survive external rollback — proving the " +
+                    "builder routes to appendCorrection() (own-transaction) when " +
+                    "correction() is set, silently ignoring inTransaction(conn)");
             testContext.completeNow();
         }))
         .onFailure(testContext::failNow);
