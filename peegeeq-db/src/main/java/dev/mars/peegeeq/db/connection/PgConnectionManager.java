@@ -494,7 +494,7 @@ public class PgConnectionManager implements AutoCloseable {
                 return Future.<Void>succeededFuture();
             })
             .recover(throwable -> {
-                logger.warn("PgConnectionManager@{}: Some pools failed to close cleanly: {}", instanceId, throwable.getMessage());
+                logger.error("PgConnectionManager@{}: Some pools failed to close cleanly: {}", instanceId, throwable.getMessage(), throwable);
                 return Future.<Void>succeededFuture(); // Don't fail the overall close operation
             });
     }
