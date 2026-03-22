@@ -28,27 +28,25 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
-import java.sql.Connection;
-import java.sql.DriverManager;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
-
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -71,47 +69,29 @@ import static org.junit.jupiter.api.Assertions.*;
  * 5. Performance testing with high-throughput scenarios
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class TransactionalBiTemporalExampleTest {
 
     private static final Logger logger = LoggerFactory.getLogger(TransactionalBiTemporalExampleTest.class);
 
-    // Use a shared container that persists across multiple test classes to prevent port conflicts
-    private static PostgreSQLContainer sharedPostgres;
-
-    static {
-        // Initialize shared container only once across all example test classes
-        if (sharedPostgres == null) {
-            PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)
-                    .withDatabaseName("peegeeq_bitemporal_test")
-                    .withUsername("postgres")
-                    .withPassword("password")
-                    .withSharedMemorySize(256 * 1024 * 1024L) // 256MB shared memory
-                    .withCommand("postgres", "-c", "max_connections=300", "-c", "fsync=off", "-c", "synchronous_commit=off"); // Performance optimizations for tests
-            container.start();
-            sharedPostgres = container;
-
-            // Add shutdown hook to properly clean up the container
-            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-                if (sharedPostgres != null && sharedPostgres.isRunning()) {
-                    sharedPostgres.stop();
-                }
-            }));
-        }
-    }
+    @Container
+    @SuppressWarnings("resource") // Managed by Testcontainers framework
+    static PostgreSQLContainer sharedPostgres = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)
+            .withDatabaseName("peegeeq_bitemporal_test")
+            .withUsername("postgres")
+            .withPassword("password")
+            .withSharedMemorySize(256 * 1024 * 1024L) // 256MB shared memory
+            .withCommand("postgres", "-c", "max_connections=300", "-c", "fsync=off", "-c", "synchronous_commit=off"); // Performance optimizations for tests
 
     private PeeGeeQManager peeGeeQManager;
     private EventStore<OrderEvent> orderEventStore;
     private EventStore<PaymentEvent> paymentEventStore;
     private final Map<String, String> originalProperties = new HashMap<>();
 
-    private static <T> T await(io.vertx.core.Future<T> future, long timeout, TimeUnit unit) throws Exception {
-        return future.toCompletionStage().toCompletableFuture().get(timeout, unit);
-    }
-
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) throws Exception {
         logger.info("=== Setting up Transactional Bi-Temporal Example Test ===");
 
         // Configure PeeGeeQ to use container database
@@ -129,39 +109,48 @@ public class TransactionalBiTemporalExampleTest {
 
         // Initialize PeeGeeQ Manager
         peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        peeGeeQManager.start();
-        logger.info("PeeGeeQ Manager started successfully");
-
-        // Create bi-temporal event stores
-        BiTemporalEventStoreFactory eventStoreFactory = new BiTemporalEventStoreFactory(peeGeeQManager);
-        orderEventStore = eventStoreFactory.createEventStore(OrderEvent.class, "bitemporal_event_log");
-        paymentEventStore = eventStoreFactory.createEventStore(PaymentEvent.class, "bitemporal_event_log");
-
-        logger.info("Transactional Bi-Temporal Example Test setup completed");
+        peeGeeQManager.start()
+            .compose(v -> cleanupDatabase())
+            .map(v -> {
+                logger.info("PeeGeeQ Manager started successfully");
+                BiTemporalEventStoreFactory eventStoreFactory = new BiTemporalEventStoreFactory(peeGeeQManager);
+                orderEventStore = eventStoreFactory.createEventStore(OrderEvent.class, "bitemporal_event_log");
+                paymentEventStore = eventStoreFactory.createEventStore(PaymentEvent.class, "bitemporal_event_log");
+                logger.info("Transactional Bi-Temporal Example Test setup completed");
+                return (Void) null;
+            })
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
-        logger.info("🧹 Cleaning up Transactional Bi-Temporal Example Test");
+    void tearDown(VertxTestContext testContext) {
+        logger.info("Cleaning up Transactional Bi-Temporal Example Test");
 
-        // Close event stores
+        Future<Void> closeChain = Future.<Void>succeededFuture();
         if (orderEventStore != null) {
-            orderEventStore.close();
+            closeChain = closeChain.compose(v -> orderEventStore.closeFuture());
         }
         if (paymentEventStore != null) {
-            paymentEventStore.close();
+            closeChain = closeChain.compose(v -> paymentEventStore.closeFuture());
         }
-
-        // Stop PeeGeeQ Manager
         if (peeGeeQManager != null) {
-            // Clean up database tables before closing manager
-            cleanupDatabase();
-            peeGeeQManager.closeReactive().toCompletionStage().toCompletableFuture().join();
+            closeChain = closeChain
+                .compose(v -> cleanupDatabase())
+                .compose(v -> peeGeeQManager.closeReactive());
         }
 
-        restoreTestProperties();
-
-        logger.info("Transactional Bi-Temporal Example Test cleanup completed");
+        closeChain
+            .recover(err -> {
+                logger.warn("Transactional Bi-Temporal Example Test cleanup encountered an error: {}", err.getMessage());
+                return Future.<Void>succeededFuture();
+            })
+            .onSuccess(v -> {
+                restoreTestProperties();
+                logger.info("Transactional Bi-Temporal Example Test cleanup completed");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     private void setTestProperty(String key, String value) {
@@ -184,24 +173,20 @@ public class TransactionalBiTemporalExampleTest {
         originalProperties.clear();
     }
 
-    private void cleanupDatabase() {
-        try (Connection connection = DriverManager.getConnection(
-                sharedPostgres.getJdbcUrl(), sharedPostgres.getUsername(), sharedPostgres.getPassword())) {
-            
-            try (var statement = connection.createStatement()) {
-                // Truncate bi-temporal event tables - use correct table name from schema
-                statement.execute("TRUNCATE TABLE bitemporal_event_log CASCADE");
-                // Also clean up queue tables
-                statement.execute("TRUNCATE TABLE outbox_events CASCADE");
-                statement.execute("TRUNCATE TABLE outbox_consumer_state CASCADE");
-                logger.debug("Database tables cleaned up successfully");
-            } catch (Exception e) {
-                // Tables might not exist yet, which is fine
-                logger.debug("Could not truncate tables (they may not exist yet): {}", e.getMessage());
-            }
-        } catch (Exception e) {
-            logger.warn("Failed to cleanup database: {}", e.getMessage());
+    private Future<Void> cleanupDatabase() {
+        if (peeGeeQManager == null || peeGeeQManager.getPool() == null) {
+            return Future.<Void>succeededFuture();
         }
+
+        return peeGeeQManager.getPool()
+            .query("TRUNCATE TABLE bitemporal_event_log CASCADE")
+            .execute()
+            .map(rows -> (Void) null)
+            .onSuccess(v -> logger.debug("Database tables cleaned up successfully"))
+            .recover(err -> {
+                logger.debug("Could not truncate tables (they may not exist yet): {}", err.getMessage());
+                return Future.succeededFuture((Void) null);
+            });
     }
 
     /**
@@ -210,7 +195,7 @@ public class TransactionalBiTemporalExampleTest {
      */
     @Test
     @Order(1)
-    void testMultiEventStoreTransactionalConsistency() throws Exception {
+    void testMultiEventStoreTransactionalConsistency(VertxTestContext testContext) {
         logger.info("=== Testing Multi-EventStore Transactional Consistency ===");
 
         // Create test events
@@ -220,32 +205,26 @@ public class TransactionalBiTemporalExampleTest {
         Instant validTime = Instant.now();
 
         // Store events in both event stores
-        var orderFuture =
-            orderEventStore.appendBuilder().eventType("OrderCreated").payload(orderEvent).validTime(validTime).execute();
+        Future.all(
+            orderEventStore.appendBuilder().eventType("OrderCreated").payload(orderEvent).validTime(validTime).execute(),
+            paymentEventStore.appendBuilder().eventType("PaymentAuthorized").payload(paymentEvent).validTime(validTime).execute())
+            .compose(v -> Future.all(
+                orderEventStore.query(EventQuery.builder().eventType("OrderCreated").build()),
+                paymentEventStore.query(EventQuery.builder().eventType("PaymentAuthorized").build())))
+            .onSuccess(results -> testContext.verify(() -> {
+                List<BiTemporalEvent<OrderEvent>> orderEvents = results.resultAt(0);
+                List<BiTemporalEvent<PaymentEvent>> paymentEvents = results.resultAt(1);
 
-        var paymentFuture =
-            paymentEventStore.appendBuilder().eventType("PaymentAuthorized").payload(paymentEvent).validTime(validTime).execute();
+                assertEquals(1, orderEvents.size(), "Should have 1 order event stored");
+                assertEquals(1, paymentEvents.size(), "Should have 1 payment event stored");
+                assertEquals("order-tx-001", orderEvents.get(0).getPayload().getOrderId());
+                assertEquals("payment-tx-001", paymentEvents.get(0).getPayload().getPaymentId());
 
-        // Wait for completion
-        await(io.vertx.core.Future.all(orderFuture, paymentFuture), 10, TimeUnit.SECONDS);
-
-        // Verify events are stored in event stores
-        var orderEvents = await(orderEventStore.query(EventQuery.builder()
-            .eventType("OrderCreated")
-            .build()), 5, TimeUnit.SECONDS);
-
-        var paymentEvents = await(paymentEventStore.query(EventQuery.builder()
-            .eventType("PaymentAuthorized")
-            .build()), 5, TimeUnit.SECONDS);
-
-        assertEquals(1, orderEvents.size(), "Should have 1 order event stored");
-        assertEquals(1, paymentEvents.size(), "Should have 1 payment event stored");
-
-        assertEquals("order-tx-001", orderEvents.get(0).getPayload().getOrderId());
-        assertEquals("payment-tx-001", paymentEvents.get(0).getPayload().getPaymentId());
-
-        logger.info("Multi-EventStore transactional consistency test completed successfully!");
-        logger.info("   Order and payment events stored consistently");
+                logger.info("Multi-EventStore transactional consistency test completed successfully!");
+                logger.info("   Order and payment events stored consistently");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     /**
@@ -254,7 +233,7 @@ public class TransactionalBiTemporalExampleTest {
      */
     @Test
     @Order(2)
-    void testComplexBusinessWorkflows() throws Exception {
+    void testComplexBusinessWorkflows(VertxTestContext testContext) {
         logger.info("=== Testing Complex Business Workflows ===");
 
         // Simulate a complete order processing workflow
@@ -266,43 +245,49 @@ public class TransactionalBiTemporalExampleTest {
 
         // Step 1: Order Creation
         OrderEvent orderCreated = new OrderEvent(orderId, customerId, amount, "PENDING", baseTime);
-        await(orderEventStore.appendBuilder().eventType("OrderCreated").payload(orderCreated).validTime(baseTime).execute(), 5, TimeUnit.SECONDS);
-
-        // Step 2: Payment Authorization
         PaymentEvent paymentAuth = new PaymentEvent("payment-" + orderId, orderId, customerId, amount, "CREDIT_CARD", "AUTHORIZED", baseTime.plus(1, ChronoUnit.MINUTES));
-        await(paymentEventStore.appendBuilder().eventType("PaymentAuthorized").payload(paymentAuth).validTime(baseTime.plus(1, ChronoUnit.MINUTES)).execute(), 5, TimeUnit.SECONDS);
-
-        // Step 3: Order Confirmation
         OrderEvent orderConfirmed = new OrderEvent(orderId, customerId, amount, "CONFIRMED", baseTime.plus(2, ChronoUnit.MINUTES));
-        await(orderEventStore.appendBuilder().eventType("OrderConfirmed").payload(orderConfirmed).validTime(baseTime.plus(2, ChronoUnit.MINUTES)).execute(), 5, TimeUnit.SECONDS);
-
-        // Step 4: Payment Capture
         PaymentEvent paymentCapture = new PaymentEvent("payment-" + orderId, orderId, customerId, amount, "CREDIT_CARD", "CAPTURED", baseTime.plus(3, ChronoUnit.MINUTES));
-        await(paymentEventStore.appendBuilder().eventType("PaymentCaptured").payload(paymentCapture).validTime(baseTime.plus(3, ChronoUnit.MINUTES)).execute(), 5, TimeUnit.SECONDS);
-
-        // Step 5: Order Fulfillment
         OrderEvent orderShipped = new OrderEvent(orderId, customerId, amount, "SHIPPED", baseTime.plus(4, ChronoUnit.MINUTES));
-        await(orderEventStore.appendBuilder().eventType("OrderShipped").payload(orderShipped).validTime(baseTime.plus(4, ChronoUnit.MINUTES)).execute(), 5, TimeUnit.SECONDS);
 
-        // Verify complete workflow
-        var allOrderEvents = await(orderEventStore.query(EventQuery.builder().build()), 5, TimeUnit.SECONDS);
-        var allPaymentEvents = await(paymentEventStore.query(EventQuery.builder().build()), 5, TimeUnit.SECONDS);
+        orderEventStore.appendBuilder().eventType("OrderCreated").payload(orderCreated).validTime(baseTime).execute()
+            .compose(v -> paymentEventStore.appendBuilder().eventType("PaymentAuthorized").payload(paymentAuth).validTime(baseTime.plus(1, ChronoUnit.MINUTES)).execute())
+            .compose(v -> orderEventStore.appendBuilder().eventType("OrderConfirmed").payload(orderConfirmed).validTime(baseTime.plus(2, ChronoUnit.MINUTES)).execute())
+            .compose(v -> paymentEventStore.appendBuilder().eventType("PaymentCaptured").payload(paymentCapture).validTime(baseTime.plus(3, ChronoUnit.MINUTES)).execute())
+            .compose(v -> orderEventStore.appendBuilder().eventType("OrderShipped").payload(orderShipped).validTime(baseTime.plus(4, ChronoUnit.MINUTES)).execute())
+            .compose(v -> Future.all(
+                orderEventStore.query(EventQuery.forEventType("OrderCreated")),
+                orderEventStore.query(EventQuery.forEventType("OrderConfirmed")),
+                orderEventStore.query(EventQuery.forEventType("OrderShipped")),
+                paymentEventStore.query(EventQuery.forEventType("PaymentAuthorized")),
+                paymentEventStore.query(EventQuery.forEventType("PaymentCaptured"))))
+            .onSuccess(results -> testContext.verify(() -> {
+                List<BiTemporalEvent<OrderEvent>> allOrderEvents = new ArrayList<>();
+                allOrderEvents.addAll(results.resultAt(0));
+                allOrderEvents.addAll(results.resultAt(1));
+                allOrderEvents.addAll(results.resultAt(2));
 
-        assertTrue(allOrderEvents.size() >= 3, "Should have at least 3 order events (created, confirmed, shipped)");
-        assertTrue(allPaymentEvents.size() >= 2, "Should have at least 2 payment events (authorized, captured)");
+                List<BiTemporalEvent<PaymentEvent>> allPaymentEvents = new ArrayList<>();
+                allPaymentEvents.addAll(results.resultAt(3));
+                allPaymentEvents.addAll(results.resultAt(4));
 
-        // Verify event sequence
-        var orderEventsByType = allOrderEvents.stream()
-                .filter(e -> e.getPayload().getOrderId().equals(orderId))
-                .toList();
+                assertTrue(allOrderEvents.size() >= 3, "Should have at least 3 order events (created, confirmed, shipped)");
+                assertTrue(allPaymentEvents.size() >= 2, "Should have at least 2 payment events (authorized, captured)");
 
-        assertTrue(orderEventsByType.stream().anyMatch(e -> e.getPayload().getStatus().equals("PENDING")));
-        assertTrue(orderEventsByType.stream().anyMatch(e -> e.getPayload().getStatus().equals("CONFIRMED")));
-        assertTrue(orderEventsByType.stream().anyMatch(e -> e.getPayload().getStatus().equals("SHIPPED")));
+                List<BiTemporalEvent<OrderEvent>> orderEventsByType = allOrderEvents.stream()
+                    .filter(e -> e.getPayload().getOrderId().equals(orderId))
+                    .toList();
 
-        logger.info("Complex business workflows test completed successfully!");
-        logger.info("   Complete order processing workflow: {} order events, {} payment events",
-                   orderEventsByType.size(), allPaymentEvents.size());
+                assertTrue(orderEventsByType.stream().anyMatch(e -> e.getPayload().getStatus().equals("PENDING")));
+                assertTrue(orderEventsByType.stream().anyMatch(e -> e.getPayload().getStatus().equals("CONFIRMED")));
+                assertTrue(orderEventsByType.stream().anyMatch(e -> e.getPayload().getStatus().equals("SHIPPED")));
+
+                logger.info("Complex business workflows test completed successfully!");
+                logger.info("   Complete order processing workflow: {} order events, {} payment events",
+                    orderEventsByType.size(), allPaymentEvents.size());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     /**
@@ -311,60 +296,48 @@ public class TransactionalBiTemporalExampleTest {
      */
     @Test
     @Order(3)
-    void testConcurrentProcessingWithProperIsolation() throws Exception {
+    void testConcurrentProcessingWithProperIsolation(VertxTestContext testContext) {
         logger.info("=== Testing Concurrent Processing with Proper Isolation ===");
 
         int numberOfThreads = 5;
         int eventsPerThread = 10;
-        ExecutorService executor = Executors.newFixedThreadPool(numberOfThreads);
-        CountDownLatch latch = new CountDownLatch(numberOfThreads);
-        AtomicInteger successCount = new AtomicInteger(0);
-
         Instant baseTime = Instant.now();
+        List<Future<BiTemporalEvent<OrderEvent>>> appendFutures = new ArrayList<>();
 
-        // Submit concurrent tasks
         for (int i = 0; i < numberOfThreads; i++) {
             final int threadId = i;
-            executor.submit(() -> {
-                try {
-                    for (int j = 0; j < eventsPerThread; j++) {
-                        String orderId = String.format("concurrent-order-%d-%d", threadId, j);
-                        String customerId = String.format("customer-%d", threadId);
-                        BigDecimal amount = new BigDecimal(String.valueOf(100 + j));
-
-                        // Store in event store with slight time offset for each event
-                        Instant eventTime = baseTime.plus(threadId * 1000 + j * 100, ChronoUnit.MILLIS);
-                        OrderEvent orderEvent = new OrderEvent(orderId, customerId, amount, "PENDING", eventTime);
-                        await(orderEventStore.appendBuilder().eventType("OrderCreated").payload(orderEvent).validTime(eventTime).execute(), 5, TimeUnit.SECONDS);
-
-                        successCount.incrementAndGet();
-                    }
-                } catch (Exception e) {
-                    logger.error("Error in concurrent processing thread {}: {}", threadId, e.getMessage());
-                } finally {
-                    latch.countDown();
-                }
-            });
+            for (int j = 0; j < eventsPerThread; j++) {
+                String orderId = String.format("concurrent-order-%d-%d", threadId, j);
+                String customerId = String.format("customer-%d", threadId);
+                BigDecimal amount = new BigDecimal(String.valueOf(100 + j));
+                Instant eventTime = baseTime.plus(threadId * 1000L + j * 100L, ChronoUnit.MILLIS);
+                OrderEvent orderEvent = new OrderEvent(orderId, customerId, amount, "PENDING", eventTime);
+                appendFutures.add(orderEventStore.appendBuilder()
+                    .eventType("OrderCreated")
+                    .payload(orderEvent)
+                    .validTime(eventTime)
+                    .execute());
+            }
         }
 
-        // Wait for all threads to complete
-        assertTrue(latch.await(30, TimeUnit.SECONDS), "All concurrent tasks should complete within 30 seconds");
-        executor.shutdown();
+        Future.all(new ArrayList<>(appendFutures))
+            .compose(v -> orderEventStore.query(EventQuery.forEventType("OrderCreated")))
+            .onSuccess(allEvents -> testContext.verify(() -> {
+                long concurrentEvents = allEvents.stream()
+                    .filter(e -> e.getPayload().getOrderId().startsWith("concurrent-order-"))
+                    .count();
 
-        // Verify all events were stored
-        var allEvents = await(orderEventStore.query(EventQuery.builder().build()), 10, TimeUnit.SECONDS);
-        long concurrentEvents = allEvents.stream()
-                .filter(e -> e.getPayload().getOrderId().startsWith("concurrent-order-"))
-                .count();
-
-        assertEquals(numberOfThreads * eventsPerThread, concurrentEvents,
+                assertEquals(numberOfThreads * eventsPerThread, concurrentEvents,
                     "Should have stored all concurrent events");
-        assertEquals(numberOfThreads * eventsPerThread, successCount.get(),
+                assertEquals(numberOfThreads * eventsPerThread, appendFutures.size(),
                     "All concurrent operations should succeed");
 
-        logger.info("Concurrent processing with proper isolation test completed successfully!");
-        logger.info("   Processed {} events across {} threads with {} successes",
-                   concurrentEvents, numberOfThreads, successCount.get());
+                logger.info("Concurrent processing with proper isolation test completed successfully!");
+                logger.info("   Processed {} events across {} logical threads with {} successes",
+                    concurrentEvents, numberOfThreads, appendFutures.size());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     /**
@@ -373,7 +346,7 @@ public class TransactionalBiTemporalExampleTest {
      */
     @Test
     @Order(4)
-    void testErrorHandlingAndRollbackScenarios() throws Exception {
+    void testErrorHandlingAndRollbackScenarios(VertxTestContext testContext) {
         logger.info("=== Testing Error Handling and Rollback Scenarios ===");
 
         // Test successful transaction first
@@ -381,35 +354,31 @@ public class TransactionalBiTemporalExampleTest {
         Instant successTime = Instant.now();
         OrderEvent successOrder = new OrderEvent(successOrderId, "customer-success", new BigDecimal("100.00"), "PENDING", successTime);
 
-        await(orderEventStore.appendBuilder().eventType("OrderCreated").payload(successOrder).validTime(successTime).execute(), 5, TimeUnit.SECONDS);
-
-        // Verify successful event was stored
-        var successEvents = await(orderEventStore.query(EventQuery.builder()
-            .eventType("OrderCreated")
-            .build()), 5, TimeUnit.SECONDS);
-
-        assertTrue(successEvents.stream().anyMatch(e ->
-                e.getPayload().getOrderId().equals(successOrderId)),
-                "Successful order should be stored");
-
         // Test error handling with invalid data (this should still work as event stores are append-only)
         String errorOrderId = "rollback-error-001";
         Instant errorTime = Instant.now();
         OrderEvent errorOrder = new OrderEvent(errorOrderId, "customer-error", new BigDecimal("0.00"), "INVALID", errorTime);
 
-        // This should succeed as event stores accept any valid JSON
-        assertDoesNotThrow(() -> {
-            await(orderEventStore.appendBuilder().eventType("OrderCreated").payload(errorOrder).validTime(errorTime).execute(), 5, TimeUnit.SECONDS);
-        }, "Event store should accept any valid event data");
+        orderEventStore.appendBuilder().eventType("OrderCreated").payload(successOrder).validTime(successTime).execute()
+            .compose(v -> orderEventStore.query(EventQuery.builder().eventType("OrderCreated").build()))
+            .compose(successEvents -> {
+                assertTrue(successEvents.stream().anyMatch(e ->
+                        e.getPayload().getOrderId().equals(successOrderId)),
+                    "Successful order should be stored");
 
-        // Verify error event was also stored (demonstrating append-only nature)
-        var allEvents = await(orderEventStore.query(EventQuery.builder().build()), 5, TimeUnit.SECONDS);
-        assertTrue(allEvents.stream().anyMatch(e ->
-                e.getPayload().getOrderId().equals(errorOrderId)),
-                "Error order should also be stored in append-only event store");
+                return orderEventStore.appendBuilder().eventType("OrderCreated").payload(errorOrder).validTime(errorTime).execute();
+            })
+            .compose(v -> orderEventStore.query(EventQuery.forEventType("OrderCreated")))
+            .onSuccess(allEvents -> testContext.verify(() -> {
+                assertTrue(allEvents.stream().anyMatch(e ->
+                        e.getPayload().getOrderId().equals(errorOrderId)),
+                    "Error order should also be stored in append-only event store");
 
-        logger.info("Error handling and rollback scenarios test completed successfully!");
-        logger.info("   Demonstrated append-only nature and error tolerance");
+                logger.info("Error handling and rollback scenarios test completed successfully!");
+                logger.info("   Demonstrated append-only nature and error tolerance");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     /**
@@ -418,14 +387,14 @@ public class TransactionalBiTemporalExampleTest {
      */
     @Test
     @Order(5)
-    void testPerformanceWithHighThroughputScenarios() throws Exception {
+    void testPerformanceWithHighThroughputScenarios(VertxTestContext testContext) {
         logger.info("=== Testing Performance with High-Throughput Scenarios ===");
 
         int numberOfEvents = 25; // Reduced to avoid connection pool exhaustion
         long startTime = System.currentTimeMillis();
 
         // Create and store events in batch
-        List<io.vertx.core.Future<?>> futures = new java.util.ArrayList<>();
+        List<Future<BiTemporalEvent<OrderEvent>>> futures = new ArrayList<>();
         Instant baseTime = Instant.now();
 
         for (int i = 0; i < numberOfEvents; i++) {
@@ -441,28 +410,27 @@ public class TransactionalBiTemporalExampleTest {
         }
 
         // Wait for all events to be stored
-        await(io.vertx.core.Future.all(futures), 30, TimeUnit.SECONDS);
+        Future.all(new ArrayList<>(futures))
+            .compose(v -> orderEventStore.query(EventQuery.forEventType("OrderCreated")))
+            .onSuccess(allEvents -> testContext.verify(() -> {
+                long duration = System.currentTimeMillis() - startTime;
+                double eventsPerSecond = (numberOfEvents * 1000.0) / duration;
+                long perfEvents = allEvents.stream()
+                    .filter(e -> e.getPayload().getOrderId().startsWith("perf-order-"))
+                    .count();
 
-        long endTime = System.currentTimeMillis();
-        long duration = endTime - startTime;
-        double eventsPerSecond = (numberOfEvents * 1000.0) / duration;
+                assertEquals(numberOfEvents, perfEvents, "Should have stored all performance test events");
 
-        // Verify all events were stored
-        var allEvents = await(orderEventStore.query(EventQuery.builder().build()), 10, TimeUnit.SECONDS);
-        long perfEvents = allEvents.stream()
-                .filter(e -> e.getPayload().getOrderId().startsWith("perf-order-"))
-                .count();
+                logger.info("Performance testing with high-throughput scenarios completed successfully!");
+                logger.info("   Stored {} events in {}ms ({} events/second)",
+                    numberOfEvents, duration, String.format("%.2f", eventsPerSecond));
+                logger.info("   Performance metrics: {} total events in event store", allEvents.size());
 
-        assertEquals(numberOfEvents, perfEvents, "Should have stored all performance test events");
-
-        logger.info("Performance testing with high-throughput scenarios completed successfully!");
-        logger.info("   Stored {} events in {}ms ({:.2f} events/second)",
-                   numberOfEvents, duration, eventsPerSecond);
-        logger.info("   Performance metrics: {} total events in event store", allEvents.size());
-
-        // Performance assertion - should be able to handle at least 10 events per second
-        assertTrue(eventsPerSecond >= 10.0,
-                  String.format("Performance should be at least 10 events/second, got %.2f", eventsPerSecond));
+                assertTrue(eventsPerSecond >= 10.0,
+                    String.format("Performance should be at least 10 events/second, got %.2f", eventsPerSecond));
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     // Event classes for testing

@@ -5,10 +5,15 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
+import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
@@ -26,7 +31,6 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
@@ -42,10 +46,6 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 class WildcardPatternComprehensiveTest {
     private static final Logger logger = LoggerFactory.getLogger(WildcardPatternComprehensiveTest.class);
-
-    private static <T> T await(io.vertx.core.Future<T> future, long timeout, TimeUnit unit) throws Exception {
-        return future.toCompletionStage().toCompletableFuture().get(timeout, unit);
-    }
 
     @SuppressWarnings("unchecked")
     private static Class<Map<String, Object>> mapClass() {
@@ -66,28 +66,43 @@ class WildcardPatternComprehensiveTest {
     private static final Map<String, String> originalProperties = new HashMap<>();
 
     @BeforeAll
-    static void setUp() throws Exception {
+    static void setUp(VertxTestContext testContext) throws Exception {
         logger.info("Setting up wildcard pattern comprehensive test...");
         configureSystemPropertiesForContainer(postgres);
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
         createTestEventsTable();
         
         peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        peeGeeQManager.start();
+        peeGeeQManager.start()
+            .onSuccess(v -> {
+                Class<Map<String, Object>> mapClass = mapClass();
+                eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "wildcard_test_events", new ObjectMapper());
+                logger.info("Wildcard pattern test setup completed");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
 
-        Class<Map<String, Object>> mapClass = mapClass();
-        eventStore = new PgBiTemporalEventStore<>(peeGeeQManager, mapClass, "wildcard_test_events", new ObjectMapper());
-        
-        logger.info("Wildcard pattern test setup completed");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Setup timed out");
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
+        }
     }
 
     @AfterAll
-    static void tearDown() throws Exception {
-        if (eventStore != null) eventStore.close();
-        if (peeGeeQManager != null) {
-            peeGeeQManager.closeReactive().toCompletionStage().toCompletableFuture().join();
+    static void tearDown(VertxTestContext testContext) throws Exception {
+        if (eventStore != null) {
+            try { eventStore.close(); } catch (Exception ignored) {}
         }
-        PgBiTemporalEventStore.clearCachedPools();
-        restoreTestProperties();
+        Future<Void> closeFuture = (peeGeeQManager != null)
+            ? peeGeeQManager.closeReactive().recover(err -> Future.succeededFuture())
+            : Future.succeededFuture();
+        closeFuture.onSuccess(v -> {
+            PgBiTemporalEventStore.clearCachedPools();
+            restoreTestProperties();
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Teardown timed out");
     }
 
     private static void configureSystemPropertiesForContainer(PostgreSQLContainer postgres) {
@@ -323,7 +338,8 @@ class WildcardPatternComprehensiveTest {
 
     @ParameterizedTest(name = "{3}: pattern={0}, eventType={1}, shouldMatch={2}")
     @MethodSource("wildcardPatternProvider")
-    void testWildcardPattern(String pattern, String eventType, boolean shouldMatch, String testId) throws Exception {
+    void testWildcardPattern(String pattern, String eventType, boolean shouldMatch, String testId,
+                             VertxTestContext testContext) throws Exception {
         logger.info("Testing [{}]: pattern='{}' with eventType='{}' (shouldMatch={})", testId, pattern, eventType, shouldMatch);
 
         // Make patterns and event types unique by prefixing with testId
@@ -331,48 +347,59 @@ class WildcardPatternComprehensiveTest {
         String uniquePattern = prefix + pattern;
         String uniqueEventType = prefix + eventType;
 
-        CountDownLatch latch = new CountDownLatch(1);
+        Vertx vertx = eventStore.getVertx();
         AtomicReference<BiTemporalEvent<Map<String, Object>>> received = new AtomicReference<>();
+        Promise<Void> notified = Promise.promise();
 
-        // Subscribe with the pattern
-        await(eventStore.subscribe(uniquePattern, message -> {
-            BiTemporalEvent<Map<String, Object>> event = message.getPayload();
-            received.set(event);
-            latch.countDown();
-            return Future.<Void>succeededFuture();
-        }), 10, TimeUnit.SECONDS);
+        // Subscribe, stabilize, publish, then wait for notification or timeout
+        eventStore.subscribe(uniquePattern, message -> {
+                received.set(message.getPayload());
+                notified.tryComplete();
+                return Future.<Void>succeededFuture();
+            })
+            .compose(v -> {
+                // Stabilization delay via Vert.x timer
+                Promise<Void> delayed = Promise.promise();
+                vertx.setTimer(300, id -> delayed.complete());
+                return delayed.future();
+            })
+            .compose(v -> eventStore.appendBuilder()
+                .eventType(uniqueEventType)
+                .payload(Map.of("testId", testId))
+                .validTime(Instant.now())
+                .execute())
+            .compose(v -> {
+                // Wait for notification or timeout after 3s
+                Promise<Void> timeout = Promise.promise();
+                vertx.setTimer(3000, id -> timeout.tryComplete());
+                return Future.any(notified.future(), timeout.future()).mapEmpty();
+            })
+            .onSuccess(v -> testContext.verify(() -> {
+                boolean receivedNotification = notified.future().isComplete();
+                if (shouldMatch) {
+                    assertTrue(receivedNotification,
+                        String.format("Pattern '%s' should match event type '%s' but didn't receive notification",
+                            uniquePattern, uniqueEventType));
+                    assertNotNull(received.get(), "Should have received the event");
+                    assertEquals(uniqueEventType, received.get().getEventType(), "Event type should match");
+                } else {
+                    assertFalse(receivedNotification,
+                        String.format("Pattern '%s' should NOT match event type '%s' but received notification",
+                            uniquePattern, uniqueEventType));
+                    assertNull(received.get(), "Should NOT have received the event");
+                }
+                logger.info("  [{}] PASSED: pattern='{}' {} eventType='{}'",
+                    testId, uniquePattern, shouldMatch ? "matched" : "correctly rejected", uniqueEventType);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        awaitAsyncDelay(300); // Allow subscription to stabilize
-
-        // Publish the event
-        await(eventStore.appendBuilder().eventType(uniqueEventType).payload(Map.of("testId", testId)).validTime(Instant.now()).execute(), 5, TimeUnit.SECONDS);
-
-        // Wait for notification (or timeout)
-        boolean receivedNotification = latch.await(3, TimeUnit.SECONDS);
-
-        if (shouldMatch) {
-            assertTrue(receivedNotification,
-                String.format("Pattern '%s' should match event type '%s' but didn't receive notification",
-                    uniquePattern, uniqueEventType));
-            assertNotNull(received.get(), "Should have received the event");
-            assertEquals(uniqueEventType, received.get().getEventType(), "Event type should match");
-        } else {
-            assertFalse(receivedNotification,
-                String.format("Pattern '%s' should NOT match event type '%s' but received notification",
-                    uniquePattern, uniqueEventType));
-            assertNull(received.get(), "Should NOT have received the event");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
+        if (testContext.failed()) {
+            throw new RuntimeException(testContext.causeOfFailure());
         }
-
-        logger.info("  [{}] PASSED: pattern='{}' {} eventType='{}'",
-            testId, uniquePattern, shouldMatch ? "matched" : "correctly rejected", uniqueEventType);
     }
 
-    private static void awaitAsyncDelay(long delayMs) throws Exception {
-        CountDownLatch latch = new CountDownLatch(1);
-        PgBiTemporalEventStore.getOrCreateSharedVertx().setTimer(delayMs, id -> latch.countDown());
-        assertTrue(latch.await(delayMs + 2000, TimeUnit.MILLISECONDS),
-            "Timed out waiting for async processing delay");
-    }
 }
 
 

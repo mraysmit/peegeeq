@@ -26,15 +26,19 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
@@ -52,13 +56,10 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
+@ExtendWith(VertxExtension.class)
 @Testcontainers
 class BiTemporalQueryEdgeCasesTest {
     private static final Logger logger = LoggerFactory.getLogger(BiTemporalQueryEdgeCasesTest.class);
-
-    private static <T> T await(io.vertx.core.Future<T> future) {
-        return future.toCompletionStage().toCompletableFuture().join();
-    }
     
     @Container
     static PostgreSQLContainer postgres = createPostgresContainer();
@@ -78,7 +79,7 @@ class BiTemporalQueryEdgeCasesTest {
     private EventStore<OrderEvent> eventStore;
     
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp(VertxTestContext testContext) throws Exception {
         logger.info("Setting up bi-temporal query edge cases test...");
         
         // Set system properties for PeeGeeQ configuration - following exact pattern
@@ -101,47 +102,52 @@ class BiTemporalQueryEdgeCasesTest {
 
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
-        logger.info("PeeGeeQ Manager started");
-
-        // Create bi-temporal event store - following exact pattern
-        eventStoreFactory = new BiTemporalEventStoreFactory(manager);
-        eventStore = eventStoreFactory.createEventStore(OrderEvent.class, "bitemporal_event_log");
-        logger.info("Bi-temporal event store created");
-        
-        logger.info("Bi-temporal query edge cases test setup completed");
+        manager.start()
+                .map(v -> {
+                    logger.info("PeeGeeQ Manager started");
+                    eventStoreFactory = new BiTemporalEventStoreFactory(manager);
+                    eventStore = eventStoreFactory.createEventStore(OrderEvent.class, "bitemporal_event_log");
+                    logger.info("Bi-temporal event store created");
+                    logger.info("Bi-temporal query edge cases test setup completed");
+                    return (Void) null;
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
     }
     
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down bi-temporal query edge cases test...");
-        
-        try {
-            if (eventStore != null) {
-                eventStore.close();
-            }
-            if (manager != null) {
-                manager.closeReactive().toCompletionStage().toCompletableFuture().join();
-            }
-        } catch (Exception e) {
-            logger.warn("Error during teardown: {}", e.getMessage());
-        }
-        
-        // Clear system properties
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-        System.clearProperty("peegeeq.database.ssl.enabled");
-        System.clearProperty("peegeeq.database.pool.max.size");
-        System.clearProperty("peegeeq.database.pool.min.size");
-        
-        logger.info("Bi-temporal query edge cases test teardown completed");
+
+        Future<Void> closeStoreFuture = eventStore != null ? eventStore.closeFuture() : Future.succeededFuture();
+        Future<Void> closeManagerFuture = manager != null ? manager.closeReactive() : Future.succeededFuture();
+
+        closeStoreFuture
+                .recover(error -> {
+                    logger.warn("Error closing event store: {}", error.getMessage());
+                    return Future.succeededFuture();
+                })
+                .compose(v -> closeManagerFuture.recover(error -> {
+                    logger.warn("Error closing manager: {}", error.getMessage());
+                    return Future.succeededFuture();
+                }))
+                .onSuccess(v -> {
+                    System.clearProperty("peegeeq.database.host");
+                    System.clearProperty("peegeeq.database.port");
+                    System.clearProperty("peegeeq.database.name");
+                    System.clearProperty("peegeeq.database.username");
+                    System.clearProperty("peegeeq.database.password");
+                    System.clearProperty("peegeeq.database.ssl.enabled");
+                    System.clearProperty("peegeeq.database.pool.max.size");
+                    System.clearProperty("peegeeq.database.pool.min.size");
+                    logger.info("Bi-temporal query edge cases test teardown completed");
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
     }
     
     @Test
-    void testMultipleEventStorage() throws Exception {
+    void testMultipleEventStorage(VertxTestContext testContext) {
         logger.info("Starting multiple event storage test...");
 
         // Step 1: Create multiple events with different times
@@ -156,69 +162,69 @@ class BiTemporalQueryEdgeCasesTest {
         OrderEvent event3 = IntegrationTestUtils.createOrderEvent("ORDER-003", "CUST-003", "CONFIRMED", "CA", validTime3);
 
         // Step 2: Append events to store - following exact API pattern
-        BiTemporalEvent<OrderEvent> storedEvent1 = await(eventStore.appendBuilder().eventType("OrderEvent").payload(event1).validTime(validTime1).headers(Map.of("test", "boundary")).correlationId("test-corr-1").causationId(null).aggregateId("ORDER-001").execute());
-        BiTemporalEvent<OrderEvent> storedEvent2 = await(eventStore.appendBuilder().eventType("OrderEvent").payload(event2).validTime(validTime2).headers(Map.of("test", "boundary")).correlationId("test-corr-2").causationId(null).aggregateId("ORDER-002").execute());
-        BiTemporalEvent<OrderEvent> storedEvent3 = await(eventStore.appendBuilder().eventType("OrderEvent").payload(event3).validTime(validTime3).headers(Map.of("test", "boundary")).correlationId("test-corr-3").causationId(null).aggregateId("ORDER-003").execute());
-
-        // Step 3: Validate events were stored
-        assertNotNull(storedEvent1);
-        assertNotNull(storedEvent2);
-        assertNotNull(storedEvent3);
-
-        assertEquals("ORDER-001", storedEvent1.getPayload().getOrderId());
-        assertEquals("ORDER-002", storedEvent2.getPayload().getOrderId());
-        assertEquals("ORDER-003", storedEvent3.getPayload().getOrderId());
-
-        // Step 4: Query all events to verify storage
-        List<BiTemporalEvent<OrderEvent>> allEvents = await(eventStore.query(EventQuery.all()));
-
-        assertTrue(allEvents.size() >= 3, "Should have at least 3 events stored");
-
-        // Step 5: Verify we can find our specific events by correlation ID
-        BiTemporalEvent<OrderEvent> foundEvent1 = IntegrationTestUtils.findEventByCorrelationId(allEvents, "test-corr-1");
-        BiTemporalEvent<OrderEvent> foundEvent2 = IntegrationTestUtils.findEventByCorrelationId(allEvents, "test-corr-2");
-        BiTemporalEvent<OrderEvent> foundEvent3 = IntegrationTestUtils.findEventByCorrelationId(allEvents, "test-corr-3");
-
-        assertNotNull(foundEvent1, "Should find event with correlation ID test-corr-1");
-        assertNotNull(foundEvent2, "Should find event with correlation ID test-corr-2");
-        assertNotNull(foundEvent3, "Should find event with correlation ID test-corr-3");
-
-        logger.info("Multiple event storage test completed successfully");
+        eventStore.appendBuilder().eventType("OrderEvent").payload(event1).validTime(validTime1)
+            .headers(Map.of("test", "boundary")).correlationId("test-corr-1").causationId(null)
+            .aggregateId("ORDER-001").execute()
+            .compose(storedEvent1 -> eventStore.appendBuilder().eventType("OrderEvent").payload(event2).validTime(validTime2)
+                .headers(Map.of("test", "boundary")).correlationId("test-corr-2").causationId(null)
+                .aggregateId("ORDER-002").execute()
+                .map(storedEvent2 -> List.of(storedEvent1, storedEvent2)))
+            .compose(storedEvents -> eventStore.appendBuilder().eventType("OrderEvent").payload(event3).validTime(validTime3)
+                .headers(Map.of("test", "boundary")).correlationId("test-corr-3").causationId(null)
+                .aggregateId("ORDER-003").execute()
+                .map(storedEvent3 -> List.of(storedEvents.get(0), storedEvents.get(1), storedEvent3)))
+            .compose(storedEvents -> eventStore.query(EventQuery.all()).map(allEvents -> Map.entry(storedEvents, allEvents)))
+            .onSuccess(result -> testContext.verify(() -> {
+                List<BiTemporalEvent<OrderEvent>> storedEvents = result.getKey();
+                List<BiTemporalEvent<OrderEvent>> allEvents = result.getValue();
+                assertNotNull(storedEvents.get(0));
+                assertNotNull(storedEvents.get(1));
+                assertNotNull(storedEvents.get(2));
+                assertEquals("ORDER-001", storedEvents.get(0).getPayload().getOrderId());
+                assertEquals("ORDER-002", storedEvents.get(1).getPayload().getOrderId());
+                assertEquals("ORDER-003", storedEvents.get(2).getPayload().getOrderId());
+                assertTrue(allEvents.size() >= 3, "Should have at least 3 events stored");
+                assertNotNull(IntegrationTestUtils.findEventByCorrelationId(allEvents, "test-corr-1"), "Should find event with correlation ID test-corr-1");
+                assertNotNull(IntegrationTestUtils.findEventByCorrelationId(allEvents, "test-corr-2"), "Should find event with correlation ID test-corr-2");
+                assertNotNull(IntegrationTestUtils.findEventByCorrelationId(allEvents, "test-corr-3"), "Should find event with correlation ID test-corr-3");
+                logger.info("Multiple event storage test completed successfully");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testEventQueryAndRetrieval() throws Exception {
+        void testEventQueryAndRetrieval(VertxTestContext testContext) {
         logger.info("Starting event query and retrieval test...");
 
         // Step 1: Create a single event - using established utility
         Instant baseTime = Instant.now().truncatedTo(ChronoUnit.SECONDS);
         OrderEvent event = IntegrationTestUtils.createOrderEvent("ORDER-100", "CUST-100", "CREATED", "US", baseTime);
 
-        BiTemporalEvent<OrderEvent> storedEvent = await(eventStore.appendBuilder().eventType("OrderEvent").payload(event).validTime(baseTime).headers(Map.of("test", "query-retrieval")).correlationId("test-corr-100").causationId(null).aggregateId("ORDER-100").execute());
-        assertNotNull(storedEvent);
-
-        // Step 2: Query all events to verify storage
-        List<BiTemporalEvent<OrderEvent>> allEvents = await(eventStore.query(EventQuery.all()));
-
-        assertTrue(allEvents.size() >= 1, "Should have at least 1 event stored");
-
-        // Step 3: Find our specific event by correlation ID
-        BiTemporalEvent<OrderEvent> foundEvent = IntegrationTestUtils.findEventByCorrelationId(allEvents, "test-corr-100");
-
-        assertNotNull(foundEvent, "Should find event with correlation ID test-corr-100");
-        assertEquals("ORDER-100", foundEvent.getPayload().getOrderId());
-        assertEquals("test-corr-100", foundEvent.getCorrelationId());
-        assertEquals("ORDER-100", foundEvent.getAggregateId());
-        assertEquals("OrderEvent", foundEvent.getEventType());
-
-        // Step 4: Verify temporal properties
-        assertNotNull(foundEvent.getValidTime(), "Valid time should be set");
-        assertNotNull(foundEvent.getTransactionTime(), "Transaction time should be set");
-        assertTrue(foundEvent.getTransactionTime().isAfter(foundEvent.getValidTime()) ||
-                  foundEvent.getTransactionTime().equals(foundEvent.getValidTime()),
-                  "Transaction time should be >= valid time");
-
-        logger.info("Event query and retrieval test completed successfully");
+        eventStore.appendBuilder().eventType("OrderEvent").payload(event).validTime(baseTime)
+            .headers(Map.of("test", "query-retrieval")).correlationId("test-corr-100")
+            .causationId(null).aggregateId("ORDER-100").execute()
+            .compose(storedEvent -> eventStore.query(EventQuery.all()).map(allEvents -> Map.entry(storedEvent, allEvents)))
+            .onSuccess(result -> testContext.verify(() -> {
+                BiTemporalEvent<OrderEvent> storedEvent = result.getKey();
+                List<BiTemporalEvent<OrderEvent>> allEvents = result.getValue();
+                assertNotNull(storedEvent);
+                assertTrue(allEvents.size() >= 1, "Should have at least 1 event stored");
+                BiTemporalEvent<OrderEvent> foundEvent = IntegrationTestUtils.findEventByCorrelationId(allEvents, "test-corr-100");
+                assertNotNull(foundEvent, "Should find event with correlation ID test-corr-100");
+                assertEquals("ORDER-100", foundEvent.getPayload().getOrderId());
+                assertEquals("test-corr-100", foundEvent.getCorrelationId());
+                assertEquals("ORDER-100", foundEvent.getAggregateId());
+                assertEquals("OrderEvent", foundEvent.getEventType());
+                assertNotNull(foundEvent.getValidTime(), "Valid time should be set");
+                assertNotNull(foundEvent.getTransactionTime(), "Transaction time should be set");
+                assertTrue(foundEvent.getTransactionTime().isAfter(foundEvent.getValidTime()) ||
+                        foundEvent.getTransactionTime().equals(foundEvent.getValidTime()),
+                    "Transaction time should be >= valid time");
+                logger.info("Event query and retrieval test completed successfully");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 }
 
