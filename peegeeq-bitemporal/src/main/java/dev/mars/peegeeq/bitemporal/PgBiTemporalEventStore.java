@@ -558,45 +558,48 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             // Use Pool.withTransaction for proper transaction management - following
             // peegeeq-outbox patterns
             return getOrCreateReactivePool().withTransaction(sqlConnection -> {
-                // Acquire advisory lock to serialize corrections for the same event family.
-                // This prevents the read-modify-write race where two concurrent corrections
-                // both read the same MAX(version) under READ COMMITTED isolation.
-                // The lock is automatically released when the transaction commits/rolls back.
-                String lockSql = "SELECT pg_advisory_xact_lock(hashtext($1))";
-
-                return sqlConnection.preparedQuery(lockSql)
-                        .execute(Tuple.of(originalEventId))
-                        .compose(lockResult -> {
-                // Verify the original event exists before proceeding
-                String existsSql = "SELECT 1 FROM %s WHERE event_id = $1 LIMIT 1".formatted(quotedTableName);
-
-                return sqlConnection.preparedQuery(existsSql)
-                        .execute(Tuple.of(originalEventId))
-                        .compose(existsRows -> {
-                            if (existsRows.size() == 0) {
-                                return Future.failedFuture(new IllegalArgumentException(
-                                        "Cannot correct non-existent event: " + originalEventId));
-                            }
-
-                // Get the max version across the entire correction family.
-                // Must walk up to the root and then down to all descendants
-                // to avoid duplicate version numbers in fan-out topologies.
-                String getVersionSql = """
+                // Step 1: Resolve the family root by walking ancestors from the supplied event ID.
+                // This also validates that originalEventId exists — if the CTE returns no rows,
+                // the event doesn't exist.
+                // We must resolve the root BEFORE acquiring the advisory lock, because the caller
+                // may pass any event in the lineage (root or child). Locking on the caller-supplied
+                // ID would allow two concurrent callers targeting the same family via different
+                // entry points to acquire different locks, reintroducing the version race.
+                String resolveRootSql = """
                         WITH RECURSIVE ancestors AS (
                             SELECT event_id, previous_version_id
                             FROM %1$s WHERE event_id = $1
                             UNION ALL
                             SELECT p.event_id, p.previous_version_id
                             FROM %1$s p JOIN ancestors a ON a.previous_version_id = p.event_id
-                        ),
-                        root AS (
-                            SELECT COALESCE(
-                                (SELECT event_id FROM ancestors WHERE previous_version_id IS NULL LIMIT 1),
-                                $1
-                            ) AS root_event_id
-                        ),
-                        family AS (
-                            SELECT root_event_id AS event_id FROM root
+                        )
+                        SELECT event_id FROM ancestors WHERE previous_version_id IS NULL LIMIT 1
+                        """.formatted(quotedTableName);
+
+                return sqlConnection.preparedQuery(resolveRootSql)
+                        .execute(Tuple.of(originalEventId))
+                        .compose(rootRows -> {
+                            if (rootRows.size() == 0) {
+                                return Future.failedFuture(new IllegalArgumentException(
+                                        "Cannot correct non-existent event: " + originalEventId));
+                            }
+                            final String rootEventId = rootRows.iterator().next().getString("event_id");
+
+                // Step 2: Acquire advisory lock on the CANONICAL root event ID.
+                // This serializes all corrections for the same family regardless of which
+                // event ID the caller passed in.
+                // The lock is automatically released when the transaction commits/rolls back.
+                String lockSql = "SELECT pg_advisory_xact_lock(hashtext($1))";
+
+                return sqlConnection.preparedQuery(lockSql)
+                        .execute(Tuple.of(rootEventId))
+                        .compose(lockResult -> {
+
+                // Step 3: Get the max version across the entire family.
+                // Now anchored from the resolved root, only the downward walk is needed.
+                String getVersionSql = """
+                        WITH RECURSIVE family AS (
+                            SELECT event_id FROM %1$s WHERE event_id = $1
                             UNION ALL
                             SELECT c.event_id FROM %1$s c JOIN family f ON c.previous_version_id = f.event_id
                         )
@@ -605,7 +608,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                         """.formatted(quotedTableName);
 
                 return sqlConnection.preparedQuery(getVersionSql)
-                        .execute(Tuple.of(originalEventId))
+                        .execute(Tuple.of(rootEventId))
                         .compose(versionRows -> {
                             // Calculate next version - make it effectively final
                             final long nextVersion;
@@ -617,7 +620,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                                 nextVersion = 1L;
                             }
 
-                            // Insert the correction event
+                            // Step 4: Insert the correction event
                             String insertSql = """
                                     INSERT INTO %s
                                     (event_id, event_type, valid_time, transaction_time, payload, headers,
@@ -650,8 +653,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                                     return correctionEvent;
                                     });
                         });
-                        }); // end exists check compose
                         }); // end advisory lock compose
+                        }); // end resolve root compose
             }).onFailure(throwable -> logger.error("Failed to append correction event for {}: {}", originalEventId,
                     throwable.getMessage(), throwable));
 

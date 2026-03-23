@@ -453,6 +453,124 @@ class VersionLineageIntegrationTest {
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
     }
 
+    /**
+     * Concurrent corrections targeting the SAME family via DIFFERENT entry points
+     * must still produce unique, sequential version numbers.
+     * <p>
+     * The appendCorrection API accepts any event ID in a lineage, not just the root.
+     * When multiple callers correct the same family concurrently — some passing the
+     * root ID, others passing a child correction ID — the advisory lock must serialize
+     * all of them against the same canonical key (the family root). Otherwise, callers
+     * entering via different IDs would acquire independent locks, read the same
+     * MAX(version), and produce duplicate version numbers.
+     */
+    @Test
+    void concurrentCorrectionsViaDifferentEntryPointsProduceUniqueVersions(VertxTestContext testContext) throws Exception {
+        startManagerAndStore()
+            .compose(store -> store.appendBuilder()
+                .eventType("price.updated")
+                .payload(Map.of("price", 100))
+                .validTime(Instant.now())
+                .aggregateId("product-race-test")
+                .execute()
+                .compose(original -> {
+                    String rootId = original.getEventId();
+                    // Create a child correction so we have two valid entry points
+                    return store.appendCorrection(rootId, "price.updated",
+                            Map.of("price", 110), Instant.now(), "First correction")
+                        .map(child -> Map.entry(rootId, child.getEventId()));
+                })
+                .compose(ids -> {
+                    String rootId = ids.getKey();
+                    String childId = ids.getValue();
+
+                    // Fire concurrent corrections: some via root, some via child
+                    List<Future<BiTemporalEvent<Map<String, Object>>>> futures = new ArrayList<>();
+                    for (int i = 0; i < 3; i++) {
+                        final int idx = i;
+                        // Alternate between root and child entry points
+                        String entryPoint = (idx % 2 == 0) ? rootId : childId;
+                        futures.add(store.appendCorrection(
+                            entryPoint, "price.updated",
+                            Map.of("price", 200 + idx),
+                            Instant.now(),
+                            "Race correction " + (idx + 1) + " via " + (idx % 2 == 0 ? "root" : "child")));
+                    }
+
+                    return Future.all(futures).map(cf -> rootId);
+                })
+                .compose(rootId -> store.getAllVersions(rootId)))
+            .onSuccess(versions -> testContext.verify(() -> {
+                // root(v1) + first-correction(v2) + 3 concurrent corrections = 5 total
+                assertEquals(5, versions.size(),
+                    "Should have root + 1 setup correction + 3 concurrent corrections");
+
+                Set<Long> versionNumbers = new HashSet<>();
+                for (BiTemporalEvent<Map<String, Object>> v : versions) {
+                    assertTrue(versionNumbers.add(v.getVersion()),
+                        "Duplicate version number: " + v.getVersion());
+                }
+
+                for (long expected = 1; expected <= 5; expected++) {
+                    assertTrue(versionNumbers.contains(expected),
+                        "Missing version " + expected + " — versions present: " + versionNumbers);
+                }
+
+                logger.info("Cross-entry-point concurrent corrections test passed: {} unique versions", versions.size());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
+        if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
+    }
+
+    /**
+     * Correction via a child event ID resolves to the same family root and produces
+     * the correct next version — verifying root resolution works for non-root entry points.
+     */
+    @Test
+    void correctionViaChildEventIdResolvesCorrectRootAndVersion(VertxTestContext testContext) throws Exception {
+        startManagerAndStore()
+            .compose(store -> store.appendBuilder()
+                .eventType("account.updated")
+                .payload(Map.of("balance", 500))
+                .validTime(Instant.now())
+                .aggregateId("account-root-resolve")
+                .execute()
+                .compose(original -> {
+                    String rootId = original.getEventId();
+                    // Create chain: root -> c1 -> (correction via c1's ID)
+                    return store.appendCorrection(rootId, "account.updated",
+                            Map.of("balance", 550), Instant.now(), "Correction 1")
+                        .compose(c1 -> store.appendCorrection(
+                                c1.getEventId(), "account.updated",
+                                Map.of("balance", 600), Instant.now(), "Correction via child")
+                            .map(c2 -> rootId));
+                })
+                .compose(rootId -> store.getAllVersions(rootId)))
+            .onSuccess(versions -> testContext.verify(() -> {
+                assertEquals(3, versions.size(), "Should have root + 2 corrections");
+
+                assertEquals(1L, versions.get(0).getVersion());
+                assertEquals(2L, versions.get(1).getVersion());
+                assertEquals(3L, versions.get(2).getVersion());
+
+                // Root has no parent
+                assertNull(versions.get(0).getPreviousVersionId());
+                // First correction points to root
+                assertEquals(versions.get(0).getEventId(), versions.get(1).getPreviousVersionId());
+                // Second correction (via child) points to c1's event ID
+                assertEquals(versions.get(1).getEventId(), versions.get(2).getPreviousVersionId());
+
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
+    }
+
     // ========== POSITIVE: Correction metadata preserved ==========
 
     /**
