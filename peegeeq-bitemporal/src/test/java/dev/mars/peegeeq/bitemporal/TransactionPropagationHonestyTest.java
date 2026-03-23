@@ -56,14 +56,14 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * <p>These tests demonstrate the following facts:
  * <ol>
- *   <li>append() and appendWithTransaction() start their own independent
+ *   <li>append() and appendOwnTransaction() start their own independent
  *       transaction on the internal pool — the event survives an external
  *       rollback because it never participates in the external transaction.</li>
- *   <li>append() and appendWithTransaction() are semantically equivalent —
+ *   <li>append() and appendOwnTransaction() are semantically equivalent —
  *       both start a fresh own-transaction every time.</li>
  *   <li>Only appendInTransaction(connection) genuinely participates in an
  *       external transaction — rollback on the connection rolls back the event.</li>
- *   <li>appendWithTransaction() persists all metadata fields (headers,
+ *   <li>appendOwnTransaction() persists all metadata fields (headers,
  *       correlationId, causationId, aggregateId) via the own-transaction path.</li>
  *   <li>appendInTransaction(null) returns a failed future with
  *       IllegalArgumentException, not NPE.</li>
@@ -249,16 +249,16 @@ class TransactionPropagationHonestyTest {
     }
 
     // ========================================================================
-    // Test 1: appendWithTransaction starts own-tx, does NOT join external
+    // Test 1: appendOwnTransaction starts own-tx, does NOT join external
     // ========================================================================
 
     @Test
-    @DisplayName("appendWithTransaction starts own-transaction — event survives external rollback")
-    void appendWithTransactionDoesNotJoinExternalTransaction(VertxTestContext testContext) throws Exception {
+    @DisplayName("appendOwnTransaction starts own-transaction — event survives external rollback")
+    void appendOwnTransactionDoesNotJoinExternalTransaction(VertxTestContext testContext) throws Exception {
         /*
          * Scenario:
          *   1. Start a transaction on the EXTERNAL pool (different Vertx instance).
-         *   2. Inside that transaction, call appendWithTransaction().
+         *   2. Inside that transaction, call appendOwnTransaction().
          *      The event store always starts its own independent transaction
          *      on its internal pool.
          *   3. Deliberately roll back the external transaction.
@@ -273,7 +273,7 @@ class TransactionPropagationHonestyTest {
         externalPool.withTransaction(externalConn -> {
             // We're on the external Vertx context now.
             // Call the event store's own-transaction method.
-            return eventStore.appendWithTransaction(eventType, payload, validTime,
+            return eventStore.appendOwnTransaction(eventType, payload, validTime,
                             Map.of(), null, null, null)
                     .compose(event -> {
                         // Got the event back — now deliberately fail to trigger rollback.
@@ -303,7 +303,7 @@ class TransactionPropagationHonestyTest {
             // appendInTransaction(connection) — see tests 3 and 4.
             assertEquals(1, count,
                     "Event should survive external rollback because " +
-                    "appendWithTransaction() starts an own-transaction on " +
+                    "appendOwnTransaction() starts an own-transaction on " +
                     "the internal pool — it does not join external transactions");
             testContext.completeNow();
         }))
@@ -316,16 +316,16 @@ class TransactionPropagationHonestyTest {
     }
 
     // ========================================================================
-    // Test 2: append() and appendWithTransaction() are both own-tx
+    // Test 2: append() and appendOwnTransaction() are both own-tx
     // ========================================================================
 
     @Test
-    @DisplayName("append() and appendWithTransaction() both start own-transaction — semantically equivalent")
-    void appendAndAppendWithTransactionAreBothOwnTransaction(VertxTestContext testContext) throws Exception {
+    @DisplayName("append() and appendOwnTransaction() both start own-transaction — semantically equivalent")
+    void appendAndAppendOwnTransactionAreBothOwnTransaction(VertxTestContext testContext) throws Exception {
         /*
          * Scenario:
          *   1. Call append() — starts its own transaction.
-         *   2. Call appendWithTransaction() — also starts its own transaction.
+         *   2. Call appendOwnTransaction() — also starts its own transaction.
          *   3. Both should succeed independently — proving they are
          *      semantically equivalent (both start a fresh own-transaction).
          *   4. Both events should be independently committed.
@@ -333,13 +333,13 @@ class TransactionPropagationHonestyTest {
         String schema = resolveSchema();
         Instant validTime = Instant.now();
         String appendEventType = "via.append.own.tx";
-        String withTxEventType = "via.appendWithTransaction.own.tx";
+        String withTxEventType = "via.appendOwnTransaction.own.tx";
 
         eventStore.append(appendEventType, new TestPayload("via-append", 10), validTime)
                 .compose(appendEvent -> {
-                    return eventStore.appendWithTransaction(
+                    return eventStore.appendOwnTransaction(
                             withTxEventType,
-                            new TestPayload("via-appendWithTransaction", 20),
+                            new TestPayload("via-appendOwnTransaction", 20),
                             validTime,
                             Map.of(),
                             null, null, null
@@ -361,7 +361,7 @@ class TransactionPropagationHonestyTest {
                     }
                     assertEquals(2, typesFound,
                             "Both event types should be independently committed — " +
-                            "append() and appendWithTransaction() both start own-transactions");
+                            "append() and appendOwnTransaction() both start own-transactions");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -475,7 +475,7 @@ class TransactionPropagationHonestyTest {
     void appendDoesNotJoinExternalTransaction(VertxTestContext testContext) throws Exception {
         /*
          * Same scenario as Test 1 but using append() directly.
-         * Proves that append() — not just appendWithTransaction() — starts its
+         * Proves that append() — not just appendOwnTransaction() — starts its
          * own independent transaction and ignores any external transaction context.
          */
         String schema = resolveSchema();
@@ -771,14 +771,14 @@ class TransactionPropagationHonestyTest {
     }
 
     // ========================================================================
-    // Test 11: appendWithTransaction full metadata — commit persists all fields
+    // Test 11: appendOwnTransaction full metadata — commit persists all fields
     // ========================================================================
 
     @Test
-    @DisplayName("appendWithTransaction with full metadata commits all fields including causationId and aggregateId")
-    void appendWithTransactionFullMetadataCommit(VertxTestContext testContext) throws Exception {
+    @DisplayName("appendOwnTransaction with full metadata commits all fields including causationId and aggregateId")
+    void appendOwnTransactionFullMetadataCommit(VertxTestContext testContext) throws Exception {
         /*
-         * Tests the full 7-arg appendWithTransaction overload with headers,
+         * Tests the full 7-arg appendOwnTransaction overload with headers,
          * correlationId, causationId, and aggregateId.  Verifies all metadata
          * fields are persisted via the own-transaction path.
          */
@@ -791,7 +791,7 @@ class TransactionPropagationHonestyTest {
         String causationId = "cause-own-110";
         String aggregateId = "agg-own-110";
 
-        eventStore.appendWithTransaction(eventType, payload, validTime,
+        eventStore.appendOwnTransaction(eventType, payload, validTime,
                 headers, correlationId, causationId, aggregateId)
         .compose(event -> {
             // Verify the returned event has all metadata
@@ -874,7 +874,7 @@ class TransactionPropagationHonestyTest {
          * with IllegalStateException("Event store is closed").
          *
          * We test both code paths:
-         *   - append() → appendWithTransaction() → appendWithTransactionInternal() closed check
+         *   - append() → appendOwnTransaction() → appendOwnTransactionInternal() closed check
          *   - appendInTransaction(8-arg) has its own independent closed check
          */
         String eventType = "closed.store.test";

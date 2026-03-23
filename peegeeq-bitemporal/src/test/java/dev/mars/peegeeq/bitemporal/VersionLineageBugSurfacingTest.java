@@ -57,7 +57,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * by exercising the code paths that produce incorrect behavior:
  * <ul>
  *   <li>Bug 1: Concurrent corrections can produce duplicate version numbers
- *       (race condition in appendCorrectionWithTransaction)</li>
+ *       (race condition in appendCorrectionOwnTransaction)</li>
  *   <li>Bug 2: getAllVersions returns incomplete results when called with
  *       a correction event ID instead of the root event ID</li>
  * </ul>
@@ -224,7 +224,7 @@ class VersionLineageBugSurfacingTest {
     // ==================== Bug 1: Concurrent version race condition ====================
 
     @Test
-    @DisplayName("Concurrent corrections must produce unique version numbers — surfaces race in appendCorrectionWithTransaction")
+    @DisplayName("Concurrent corrections must produce unique version numbers — surfaces race in appendCorrectionOwnTransaction")
     void concurrentCorrectionsMustProduceUniqueVersionNumbers(VertxTestContext testContext) throws Exception {
         Instant validTime = Instant.now();
         int concurrentCorrections = 10;

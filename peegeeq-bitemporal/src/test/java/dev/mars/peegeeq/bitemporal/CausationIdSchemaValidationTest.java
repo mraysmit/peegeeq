@@ -200,11 +200,11 @@ public class CausationIdSchemaValidationTest {
     }
     
     @Test
-    @DisplayName("CRITICAL: Validate appendWithTransaction includes causation_id in interface")
-    void testAppendWithTransactionMethodSignature(VertxTestContext testContext) {
-        logger.info("🧪 Validating appendWithTransaction method signature includes causation_id");
+    @DisplayName("CRITICAL: Validate appendOwnTransaction includes causation_id in interface")
+    void testAppendOwnTransactionMethodSignature(VertxTestContext testContext) {
+        logger.info("🧪 Validating appendOwnTransaction method signature includes causation_id");
 
-        // This test ensures the EventStore interface has the appendWithTransaction method
+        // This test ensures the EventStore interface has the appendOwnTransaction method
         // with causation_id parameter - compilation proves the method signature exists
         
         String eventType = "signature.test.event";
@@ -212,7 +212,7 @@ public class CausationIdSchemaValidationTest {
         Instant validTime = Instant.now();
         String causationId = "SIGNATURE-TEST-" + System.currentTimeMillis();
 
-        eventStore.appendWithTransaction(
+        eventStore.appendOwnTransaction(
                         eventType,
                         payload,
                         validTime,
@@ -223,7 +223,7 @@ public class CausationIdSchemaValidationTest {
                 .onSuccess(event -> testContext.verify(() -> {
                     assertNotNull(event, "Event should be successfully appended");
                     assertEquals(causationId, event.getCausationId(), "Causation ID should match");
-                    logger.info("appendWithTransaction method signature validated with causation_id parameter");
+                    logger.info("appendOwnTransaction method signature validated with causation_id parameter");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
