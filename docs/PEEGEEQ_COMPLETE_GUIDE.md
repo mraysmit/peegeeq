@@ -12157,7 +12157,7 @@ public class HelloWorldService {
 
         String message = "Hello, " + name + "! Welcome to PeeGeeQ!";
 
-        return helloWorldProducer.sendWithTransaction(
+        return helloWorldProducer.sendInOwnTransaction(
             message,
             TransactionPropagation.CONTEXT
         )
@@ -12360,7 +12360,7 @@ You should see output like:
 #### **✅ Transactional Consistency**
 - Uses `TransactionPropagation.CONTEXT` for Vert.x transactions
 - Does NOT use Spring's `@Transactional` (would conflict)
-- All operations within `sendWithTransaction()` are atomic
+- All operations within `sendInOwnTransaction()` are atomic
 
 #### **✅ Production Ready**
 - Metrics integration with Micrometer

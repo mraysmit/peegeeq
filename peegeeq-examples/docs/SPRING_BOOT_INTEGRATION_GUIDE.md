@@ -402,7 +402,7 @@ public class OrderService {
             // and participate in the SAME transaction
             return orderRepository.save(order, connection)
                 .compose(v -> Future.fromCompletionStage(
-                    producer.sendInTransaction(event, connection)
+                    producer.sendInExistingTransaction(event, connection)
                 ))
                 .map(v -> order.getId());
         }).toCompletionStage().toCompletableFuture();
@@ -476,7 +476,7 @@ connectionProvider.withTransaction("client-id", connection -> {
 
     // Operation 2: Pass 'connection' to producer
     .compose(v -> Future.fromCompletionStage(
-        producer.sendInTransaction(event, connection)  // ← Same connection
+        producer.sendInExistingTransaction(event, connection)  // ← Same connection
     ))
 
     // Operation 3: Pass 'connection' to event store
@@ -561,7 +561,7 @@ public class OrderService {
 
             // Step 3: Send outbox event (uses this connection)
             .compose(v -> Future.fromCompletionStage(
-                producer.sendInTransaction(
+                producer.sendInExistingTransaction(
                     new OrderCreatedEvent(order),
                     connection  // ← Same connection - ALL in ONE transaction!
                 )
@@ -580,7 +580,7 @@ public class OrderService {
 - **ONE** `withTransaction()` call = **ONE** database transaction
 - The `connection` parameter is the **SAME** `SqlConnection` for all operations
 - All operations **commit together** or **rollback together** (ACID)
-- `producer.sendInTransaction(event, connection)` joins the existing transaction
+- `producer.sendInExistingTransaction(event, connection)` joins the existing transaction
 - No separate connection pools, no separate transactions
 
 ❌ **WRONG**: Using separate transactions
@@ -591,14 +591,14 @@ connectionProvider.withTransaction("client-1", conn1 -> {
     return orderRepository.save(order, conn1);  // Transaction 1
 })
 .thenCompose(v -> connectionProvider.withTransaction("client-2", conn2 -> {
-    return producer.sendInTransaction(event, conn2);  // Transaction 2 - NO consistency!
+    return producer.sendInExistingTransaction(event, conn2);  // Transaction 2 - NO consistency!
 }));
 // Problem: If producer fails, order is already committed!
 
 // ❌ WRONG #2 - Repository creates its own transaction
 connectionProvider.withTransaction("client-id", connection -> {
     return Future.fromCompletionStage(
-        producer.sendInTransaction(event, connection)
+        producer.sendInExistingTransaction(event, connection)
     )
     .compose(v -> orderRepository.save(order));  // ❌ No connection passed!
 });
@@ -607,7 +607,7 @@ connectionProvider.withTransaction("client-id", connection -> {
 
 // ❌ WRONG #3 - Mixing CompletableFuture and Future without proper conversion
 connectionProvider.withTransaction("client-id", connection -> {
-    return producer.sendInTransaction(event, connection)  // Returns CompletableFuture
+    return producer.sendInExistingTransaction(event, connection)  // Returns CompletableFuture
         .thenCompose(v -> orderRepository.save(order, connection));  // ❌ Type mismatch!
 });
 // Problem: withTransaction() expects Future<T>, but you're returning CompletableFuture
@@ -1002,7 +1002,7 @@ public class OrderService {
 
             // Step 1: Send outbox event (uses this connection)
             return Future.fromCompletionStage(
-                orderEventProducer.sendInTransaction(
+                orderEventProducer.sendInExistingTransaction(
                     new OrderCreatedEvent(request),
                     connection  // ✅ Same connection
                 )
@@ -1017,7 +1017,7 @@ public class OrderService {
 
             // Step 4: Send additional events (uses this connection)
             .compose(v -> Future.fromCompletionStage(
-                orderEventProducer.sendInTransaction(
+                orderEventProducer.sendInExistingTransaction(
                     new OrderValidatedEvent(orderId),
                     connection  // ✅ Same connection
                 )
@@ -1040,7 +1040,7 @@ public class OrderService {
 
     public CompletableFuture<String> createOrder(CreateOrderRequest request) {
         // ❌ This creates TWO separate transactions!
-        return producer.sendWithTransaction(event, TransactionPropagation.CONTEXT)
+        return producer.sendInOwnTransaction(event, TransactionPropagation.CONTEXT)
             .thenCompose(v -> orderRepository.save(order));
     }
 }
@@ -1054,7 +1054,7 @@ public class OrderService {
 
         return cp.withTransaction("client-id", connection -> {
             return Future.fromCompletionStage(
-                producer.sendInTransaction(event, connection)
+                producer.sendInExistingTransaction(event, connection)
             )
             // ❌ Repository creates its own transaction!
             .compose(v -> Future.fromCompletionStage(
@@ -1242,7 +1242,7 @@ public class OrderService {
             // All three operations in SAME transaction
             return Future.fromCompletionStage(
                 // 1. Send to outbox (for immediate processing)
-                outboxProducer.sendInTransaction(event, connection)
+                outboxProducer.sendInExistingTransaction(event, connection)
             )
             .compose(v -> Future.fromCompletionStage(
                 // 2. Append to event store (for historical queries)
@@ -1288,7 +1288,7 @@ public class OrderService {
 
     public CompletableFuture<String> createOrder(CreateOrderRequest request) {
         // ❌ Two separate transactions - NO consistency!
-        return outboxProducer.sendWithTransaction(event, TransactionPropagation.CONTEXT)
+        return outboxProducer.sendInOwnTransaction(event, TransactionPropagation.CONTEXT)
             .thenCompose(v -> eventStore.append("OrderCreated", event, event.getValidTime()));
     }
 }
@@ -1360,7 +1360,7 @@ public class OrderService {
                 Order order = new Order(request);
 
                 return Future.fromCompletionStage(
-                    orderEventProducer.sendInTransaction(
+                    orderEventProducer.sendInExistingTransaction(
                         new OrderCreatedEvent(request),
                         connection
                     )
@@ -2528,19 +2528,19 @@ public class OrderService {
             // All operations use SAME connection
             return orderRepository.save(order, connection)
                 .compose(v -> Future.fromCompletionStage(
-                    producer.sendInTransaction(event, connection)
+                    producer.sendInExistingTransaction(event, connection)
                 ));
         }).toCompletionStage().toCompletableFuture();
     }
 }
 ```
 
-### ❌ Mistake 2: Using sendWithTransaction()
+### ❌ Mistake 2: Using sendInOwnTransaction()
 
 **Problem:**
 ```java
 // ❌ WRONG - Creates separate transaction
-producer.sendWithTransaction(event, TransactionPropagation.CONTEXT)
+producer.sendInOwnTransaction(event, TransactionPropagation.CONTEXT)
     .thenCompose(v -> orderRepository.save(order));
 ```
 
@@ -2549,7 +2549,7 @@ producer.sendWithTransaction(event, TransactionPropagation.CONTEXT)
 // ✅ CORRECT - Joins existing transaction
 connectionProvider.withTransaction("client-id", connection -> {
     return Future.fromCompletionStage(
-        producer.sendInTransaction(event, connection)
+        producer.sendInExistingTransaction(event, connection)
     )
     .compose(v -> orderRepository.save(order, connection));
 });
@@ -2707,7 +2707,7 @@ public void testBusinessValidationRollback() {
 |--------|----------|---------------------|
 | `withConnection()` | Single read/write operation | Auto-commits |
 | `withTransaction()` | Multiple operations needing consistency | Explicit transaction |
-| `sendInTransaction()` | Outbox event in existing transaction | Uses provided connection |
+| `sendInExistingTransaction()` | Outbox event in existing transaction | Uses provided connection |
 | `append()` with connection | Event store in existing transaction | Uses provided connection |
 
 ### Correct Dependency Injection
@@ -2788,8 +2788,8 @@ public class MyRepository {
 - [ ] Get `ConnectionProvider` from `DatabaseService`
 - [ ] Use `ConnectionProvider.withTransaction()`
 - [ ] Pass `connection` to all repository methods
-- [ ] Use `sendInTransaction(event, connection)`
-- [ ] **DO NOT** use `sendWithTransaction()`
+- [ ] Use `sendInExistingTransaction(event, connection)`
+- [ ] **DO NOT** use `sendInOwnTransaction()`
 
 ### Reactive Applications
 - [ ] Create `ReactiveOutboxAdapter` component
@@ -2818,7 +2818,7 @@ public class MyRepository {
 If you encounter issues:
 1. Check that you're using `DatabaseService` (not `Pool`)
 2. Verify all operations use the same `SqlConnection`
-3. Ensure you're using `sendInTransaction()` (not `sendWithTransaction()`)
+3. Ensure you're using `sendInExistingTransaction()` (not `sendInOwnTransaction()`)
 4. Confirm R2DBC dependencies are removed
 5. Review the working examples in `peegeeq-examples`
 

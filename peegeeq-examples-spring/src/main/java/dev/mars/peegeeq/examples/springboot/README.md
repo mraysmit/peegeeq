@@ -46,8 +46,8 @@ src/main/java/dev/mars/peegeeq/examples/springboot/
 The application demonstrates all three reactive approaches from the guide:
 
 1. **Basic Reactive Operations** (`send()`)
-2. **Transaction Participation** (`sendInTransaction()`)
-3. **Automatic Transaction Management** (`sendWithTransaction()`)
+2. **Transaction Participation** (`sendInExistingTransaction()`)
+3. **Automatic Transaction Management** (`sendInOwnTransaction()`)
 
 ### 2. Complete Transaction Management
 
@@ -56,7 +56,7 @@ The application demonstrates all three reactive approaches from the guide:
 public class OrderService {
     
     public CompletableFuture<String> createOrder(CreateOrderRequest request) {
-        return orderEventProducer.sendWithTransaction(
+        return orderEventProducer.sendInOwnTransaction(
             new OrderCreatedEvent(request),
             TransactionPropagation.CONTEXT
         )
@@ -67,11 +67,11 @@ public class OrderService {
             
             // Multiple events in same transaction
             return CompletableFuture.allOf(
-                orderEventProducer.sendWithTransaction(
+                orderEventProducer.sendInOwnTransaction(
                     new OrderValidatedEvent(savedOrder.getId()),
                     TransactionPropagation.CONTEXT
                 ),
-                orderEventProducer.sendWithTransaction(
+                orderEventProducer.sendInOwnTransaction(
                     new InventoryReservedEvent(savedOrder.getId(), request.getItems()),
                     TransactionPropagation.CONTEXT
                 )

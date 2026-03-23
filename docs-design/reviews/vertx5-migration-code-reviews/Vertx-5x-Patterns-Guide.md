@@ -403,7 +403,7 @@ pool.withConnection(connection -> {
     return connection.preparedQuery(sql).execute(params)
         .compose(result -> {
             // Convert only when composing with other Futures
-            return producer.sendInTransaction(event, connection)
+            return producer.sendInExistingTransaction(event, connection)
                 .toCompletionStage().toCompletableFuture()
                 .handle((v, error) -> {
                     if (error != null) return Future.failedFuture(error);

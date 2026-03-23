@@ -39,7 +39,7 @@ public class OrderService {
             
             // Step 2: Send to outbox (for immediate processing)
             .compose(v -> Future.fromCompletionStage(
-                orderEventProducer.sendInTransaction(event, connection)
+                orderEventProducer.sendInExistingTransaction(event, connection)
             ))
             
             // Step 3: Append to event store (for historical queries)
@@ -84,7 +84,7 @@ public class OrderService {
 │    │                                             │           │
 │    │  1. OrderRepository.save(order, conn)      │           │
 │    │     ↓                                       │           │
-│    │  2. Producer.sendInTransaction(event,conn) │           │
+│    │  2. Producer.sendInExistingTransaction(event,conn) │           │
 │    │     ↓                                       │           │
 │    │  3. EventStore.appendInTransaction(...)    │           │
 │    │                                             │           │
@@ -204,7 +204,7 @@ Response shows orders as they existed at that point in time.
 3. **Transaction Start** → `ConnectionProvider.withTransaction()`
 4. **Database Save** → `OrderRepository.save(order, connection)`
    - Order saved to `orders` table
-5. **Outbox Send** → `MessageProducer.sendInTransaction(event, connection)`
+5. **Outbox Send** → `MessageProducer.sendInExistingTransaction(event, connection)`
    - Event saved to `outbox` table
    - Outbox consumer will process immediately
 6. **Event Store Append** → `EventStore.appendInTransaction(..., connection)`
@@ -285,7 +285,7 @@ The test verifies:
 **Solution**: Verify all operations receive the `connection` parameter:
 ```java
 orderRepository.save(order, connection)  // ← connection
-producer.sendInTransaction(event, connection)  // ← connection
+producer.sendInExistingTransaction(event, connection)  // ← connection
 eventStore.appendInTransaction(..., connection)  // ← connection
 ```
 
@@ -293,11 +293,11 @@ eventStore.appendInTransaction(..., connection)  // ← connection
 
 **Symptom**: Events saved to event store but not processed by consumers.
 
-**Cause**: Using `producer.send()` instead of `producer.sendInTransaction()`.
+**Cause**: Using `producer.send()` instead of `producer.sendInExistingTransaction()`.
 
-**Solution**: Always use `sendInTransaction()` with the connection:
+**Solution**: Always use `sendInExistingTransaction()` with the connection:
 ```java
-producer.sendInTransaction(event, connection)  // ✅ Correct
+producer.sendInExistingTransaction(event, connection)  // ✅ Correct
 ```
 
 ### Issue: Historical Queries Return No Results

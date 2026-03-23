@@ -594,7 +594,7 @@ Tuple params = Tuple.of(
 ### Transactional Send with Message Group
 
 ```java
-public CompletableFuture<Void> sendWithTransaction(T payload,
+public CompletableFuture<Void> sendInOwnTransaction(T payload,
                                                    Map<String, String> headers,
                                                    String correlationId,
                                                    String messageGroup,
