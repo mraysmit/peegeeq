@@ -264,7 +264,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
         // Pure Vert.x 5.x implementation - delegate to reactive method with transaction
         // support
-        return appendWithTransaction(eventType, payload, validTime, headers, correlationId, causationId, aggregateId)
+        return appendOwnTransaction(eventType, payload, validTime, headers, correlationId, causationId, aggregateId)
                 .onSuccess(event -> {
                     timing.recordAsQuery();
                     logger.debug("Append operation completed in {}ms", timing.getElapsed().toMillis());
@@ -407,10 +407,10 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      * @param aggregateId   Optional aggregate ID for event grouping
      * @return Future that completes when the event is stored
      */
-    public Future<BiTemporalEvent<T>> appendWithTransaction(String eventType, T payload, Instant validTime,
+    public Future<BiTemporalEvent<T>> appendOwnTransaction(String eventType, T payload, Instant validTime,
             Map<String, String> headers, String correlationId,
             String causationId, String aggregateId) {
-        return appendWithTransactionInternal(eventType, payload, validTime, headers, correlationId, causationId,
+        return appendOwnTransactionInternal(eventType, payload, validTime, headers, correlationId, causationId,
                 aggregateId);
     }
 
@@ -430,7 +430,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      * @param aggregateId   Optional aggregate ID for event grouping
      * @return Future that completes when the event is stored
      */
-    private Future<BiTemporalEvent<T>> appendWithTransactionInternal(String eventType, T payload,
+    private Future<BiTemporalEvent<T>> appendOwnTransactionInternal(String eventType, T payload,
             Instant validTime,
             Map<String, String> headers, String correlationId,
             String causationId, String aggregateId) {
@@ -532,7 +532,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             Map<String, String> headers,
             String correlationId, String aggregateId,
             String correctionReason) {
-        return appendCorrectionWithTransaction(originalEventId, eventType, payload, validTime, headers,
+        return appendCorrectionOwnTransaction(originalEventId, eventType, payload, validTime, headers,
                 correlationId, aggregateId, correctionReason);
     }
 
@@ -545,7 +545,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      * correction with {@code previous_version_id} pointing to that latest version.
      * The caller-supplied {@code originalEventId} is used only to identify the family.</p>
      */
-    private Future<BiTemporalEvent<T>> appendCorrectionWithTransaction(String originalEventId,
+    private Future<BiTemporalEvent<T>> appendCorrectionOwnTransaction(String originalEventId,
             String eventType, T payload,
             Instant validTime, Map<String, String> headers,
             String correlationId, String aggregateId,
@@ -1793,7 +1793,13 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         logger.debug("Sending database operation '{}' with requestId '{}' to worker address '{}'",
                 operation.getString("operation"), requestId, operationAddress);
 
-        // Propagate W3C traceparent to worker verticles for distributed tracing
+        // Propagate W3C traceparent to worker verticles for distributed tracing.
+        // NOTE: The traceparent is forwarded so the worker continues the trace tree correctly,
+        // but the .map()/.recover() callbacks below run on the caller's event-loop thread
+        // without restoring the MDC scope from send time. This means logs emitted in these
+        // callbacks may not correlate to the correct trace if the MDC has been modified between
+        // send and callback. The trace structure (parent/child spans) is correct; only log
+        // correlation via MDC is best-effort in this async context.
         DeliveryOptions deliveryOptions = new DeliveryOptions();
         TraceCtx currentTrace = TraceContextUtil.captureTraceContext();
         if (currentTrace != null && currentTrace.traceparent() != null) {

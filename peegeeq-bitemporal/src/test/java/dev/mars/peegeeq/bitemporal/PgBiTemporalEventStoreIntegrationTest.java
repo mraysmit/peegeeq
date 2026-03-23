@@ -267,8 +267,8 @@ class PgBiTemporalEventStoreIntegrationTest {
     }
 
     @Test
-    void testAppendWithTransactionOverloads(VertxTestContext testContext) throws Exception {
-        logger.info("=== Testing appendWithTransaction overloads ===");
+    void testAppendOwnTransactionOverloads(VertxTestContext testContext) throws Exception {
+        logger.info("=== Testing appendOwnTransaction overloads ===");
 
         peeGeeQManager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
 
@@ -303,13 +303,13 @@ class PgBiTemporalEventStoreIntegrationTest {
                     assertEquals("corr-123", event3.getCorrelationId());
                 });
                 Map<String, Object> payload4 = Map.of("test", "overload4");
-                return eventStore.appendWithTransaction(
+                return eventStore.appendOwnTransaction(
                     "test.overload4", payload4, Instant.now(), Map.of(), "corr-456", null, "agg-789");
             })
             .onSuccess(event4 -> testContext.verify(() -> {
                 assertNotNull(event4);
                 assertEquals("agg-789", event4.getAggregateId());
-                logger.info("appendWithTransaction overloads test completed successfully");
+                logger.info("appendOwnTransaction overloads test completed successfully");
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);

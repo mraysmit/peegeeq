@@ -5,7 +5,7 @@
 -- inserting duplicate version numbers — a race condition possible under READ
 -- COMMITTED isolation even within Pool.withTransaction().
 --
--- The advisory lock in appendCorrectionWithTransaction is the primary serialization
+-- The advisory lock in appendCorrectionOwnTransaction is the primary serialization
 -- mechanism; this index is defense-in-depth.
 
 CREATE UNIQUE INDEX idx_bitemporal_version_family_unique

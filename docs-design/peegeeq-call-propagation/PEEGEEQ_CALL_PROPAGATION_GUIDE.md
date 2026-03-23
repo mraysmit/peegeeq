@@ -1601,7 +1601,7 @@ This section validates that the `peegeeq-api` layer defines all necessary interf
 | Method | Purpose |
 | :--- | :--- |
 | `appendBatch(List<BatchEventData>)` | High-throughput batch append |
-| `appendWithTransaction(...)` | Explicit transaction control |
+| `appendOwnTransaction(...)` | Explicit own-transaction append |
 | `appendHighPerformance(...)` | Optimized single-event append |
 
 ### 10.3 Subscription API (Interfaces in `peegeeq-api`, implementations in `peegeeq-db`)
@@ -1937,7 +1937,7 @@ Goal: Create a TypeScript REST client in the management UI that consumes the `pe
 
 1. **OutboxFactory Consumer Config**: The `OutboxFactory.createConsumer(topic, payloadType, config)` method uses the default implementation (ignores config). Consider implementing proper config handling if needed.
 
-2. **Additional EventStore Methods**: The `PgBiTemporalEventStore` has additional methods (`appendBatch`, `appendWithTransaction`, `appendHighPerformance`) that are not in the `EventStore` interface. Consider:
+2. **Additional EventStore Methods**: The `PgBiTemporalEventStore` has additional methods (`appendBatch`, `appendOwnTransaction`, `appendHighPerformance`) that are not in the `EventStore` interface. Consider:
    - Adding these to the interface if they should be part of the public API
    - Or documenting them as implementation-specific optimizations
 

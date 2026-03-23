@@ -53,7 +53,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Tests for complex PgBiTemporalEventStore functionality:
  * - Batch operations (appendBatch)
- * - Transactional operations (appendInTransaction, appendWithTransaction)
+ * - Transactional operations (appendInTransaction, appendOwnTransaction)
  * - Error handling and edge cases
  * - Temporal queries (getAsOfTransactionTime)
  * 
@@ -322,11 +322,11 @@ class PgBiTemporalEventStoreComplexTest {
     // ==================== Transaction Propagation ====================
     
     @Test
-    void testAppendWithTransactionPropagation(VertxTestContext testContext) throws Exception {
+    void testAppendOwnTransactionPropagation(VertxTestContext testContext) throws Exception {
         TestEvent payload = new TestEvent("tx-prop", "transaction", 999);
         Instant validTime = Instant.now();
         
-        eventStore.appendWithTransaction(
+        eventStore.appendOwnTransaction(
             "TxPropEvent",
             payload,
             validTime,
@@ -1623,12 +1623,12 @@ class PgBiTemporalEventStoreComplexTest {
     }
     
     @Test
-    @DisplayName("appendWithTransaction with full parameters should work")
-    void testAppendWithTransactionFull(VertxTestContext testContext) throws Exception {
+    @DisplayName("appendOwnTransaction with full parameters should work")
+    void testAppendOwnTransactionFull(VertxTestContext testContext) throws Exception {
         Instant validTime = Instant.now();
         TestEvent payload = new TestEvent("tx-full", "transaction data", 888);
         
-        eventStore.appendWithTransaction(
+        eventStore.appendOwnTransaction(
             "TxFullTest", payload, validTime,
             Map.of("tx-header", "value"), "tx-corr-123", "tx-cause-456", "tx-agg-789"
         )
@@ -1725,8 +1725,8 @@ class PgBiTemporalEventStoreComplexTest {
     }
     
     @Test
-    @DisplayName("appendWithTransaction with minimal parameters")
-    void testAppendWithTransactionMinimal(VertxTestContext testContext) throws Exception {
+    @DisplayName("appendOwnTransaction with minimal parameters")
+    void testAppendOwnTransactionMinimal(VertxTestContext testContext) throws Exception {
         Instant validTime = Instant.now();
         TestEvent payload = new TestEvent("tx-min", "minimal", 111);
         
@@ -1745,8 +1745,8 @@ class PgBiTemporalEventStoreComplexTest {
     }
     
     @Test
-    @DisplayName("appendWithTransaction with headers only")
-    void testAppendWithTransactionHeaders(VertxTestContext testContext) throws Exception {
+    @DisplayName("appendOwnTransaction with headers only")
+    void testAppendOwnTransactionHeaders(VertxTestContext testContext) throws Exception {
         Instant validTime = Instant.now();
         TestEvent payload = new TestEvent("tx-headers", "headers", 222);
         
@@ -1767,8 +1767,8 @@ class PgBiTemporalEventStoreComplexTest {
     }
     
     @Test
-    @DisplayName("appendWithTransaction with correlation ID")
-    void testAppendWithTransactionCorrelation(VertxTestContext testContext) throws Exception {
+    @DisplayName("appendOwnTransaction with correlation ID")
+    void testAppendOwnTransactionCorrelation(VertxTestContext testContext) throws Exception {
         Instant validTime = Instant.now();
         TestEvent payload = new TestEvent("tx-corr", "correlation", 333);
         
@@ -1789,12 +1789,12 @@ class PgBiTemporalEventStoreComplexTest {
     }
     
     @Test
-    @DisplayName("appendWithTransaction with aggregate ID")
-    void testAppendWithTransactionAggregate(VertxTestContext testContext) throws Exception {
+    @DisplayName("appendOwnTransaction with aggregate ID")
+    void testAppendOwnTransactionAggregate(VertxTestContext testContext) throws Exception {
         Instant validTime = Instant.now();
         TestEvent payload = new TestEvent("tx-agg", "aggregate", 444);
         
-        eventStore.appendWithTransaction("TxAggTest", payload, validTime,
+        eventStore.appendOwnTransaction("TxAggTest", payload, validTime,
             Map.of(), null, null, "my-aggregate-id")
             .onSuccess(result -> testContext.verify(() -> {
                 assertNotNull(result);
