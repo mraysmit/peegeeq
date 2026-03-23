@@ -273,7 +273,7 @@ class OutboxConsumerGroupV110EdgeCasesTest {
 
         @Test
         @DisplayName("should accept custom heartbeat settings")
-        void testHeartbeat_CustomSettings() throws Exception {
+        void testHeartbeat_CustomSettings(VertxTestContext testContext) throws Exception {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
@@ -285,13 +285,17 @@ class OutboxConsumerGroupV110EdgeCasesTest {
                 .heartbeatTimeoutSeconds(120)
                 .build();
 
-            group.start(options);
+            group.start(options)
+                .onSuccess(v -> testContext.verify(() -> {
+                    assertTrue(group.isActive());
+                    assertEquals(30, options.getHeartbeatIntervalSeconds());
+                    assertEquals(120, options.getHeartbeatTimeoutSeconds());
+                    group.close();
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
 
-            assertTrue(group.isActive());
-            assertEquals(30, options.getHeartbeatIntervalSeconds());
-            assertEquals(120, options.getHeartbeatTimeoutSeconds());
-
-            group.close();
+            assertTrue(testContext.awaitCompletion(10, SECONDS));
         }
 
         @Test
@@ -334,7 +338,7 @@ class OutboxConsumerGroupV110EdgeCasesTest {
 
         @Test
         @DisplayName("should accept minimal valid heartbeat settings")
-        void testHeartbeat_MinimalValid() throws Exception {
+        void testHeartbeat_MinimalValid(VertxTestContext testContext) throws Exception {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
@@ -345,10 +349,15 @@ class OutboxConsumerGroupV110EdgeCasesTest {
                 .heartbeatTimeoutSeconds(2)
                 .build();
 
-            group.start(options);
+            group.start(options)
+                .onSuccess(v -> testContext.verify(() -> {
+                    assertTrue(group.isActive());
+                    group.close();
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
 
-            assertTrue(group.isActive());
-            group.close();
+            assertTrue(testContext.awaitCompletion(10, SECONDS));
         }
     }
 
@@ -557,23 +566,32 @@ class OutboxConsumerGroupV110EdgeCasesTest {
 
         @Test
         @DisplayName("should handle rapid start-close cycles")
-        void testConcurrent_RapidStartClose() throws Exception {
+        void testConcurrent_RapidStartClose(VertxTestContext testContext) throws Exception {
+            Future<Void> chain = Future.succeededFuture();
             for (int i = 0; i < 5; i++) {
-                ConsumerGroup<String> group = factory.createConsumerGroup(
-                    "test-group-" + i, "test-topic", String.class);
+                final int idx = i;
+                chain = chain.compose(v -> {
+                    ConsumerGroup<String> group = factory.createConsumerGroup(
+                        "test-group-" + idx, "test-topic", String.class);
+                    group.setMessageHandler(msg -> Future.succeededFuture());
 
-                group.setMessageHandler(msg -> Future.succeededFuture());
+                    SubscriptionOptions options = SubscriptionOptions.builder()
+                        .startPosition(StartPosition.FROM_NOW)
+                        .build();
 
-                SubscriptionOptions options = SubscriptionOptions.builder()
-                    .startPosition(StartPosition.FROM_NOW)
-                    .build();
-
-                group.start(options);
-                assertTrue(group.isActive());
-
-                group.close();
-                assertFalse(group.isActive());
+                    return group.start(options).map(v2 -> {
+                        testContext.verify(() -> assertTrue(group.isActive()));
+                        group.close();
+                        testContext.verify(() -> assertFalse(group.isActive()));
+                        return (Void) null;
+                    });
+                });
             }
+            chain
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+
+            assertTrue(testContext.awaitCompletion(30, SECONDS));
         }
     }
 
@@ -706,21 +724,32 @@ class OutboxConsumerGroupV110EdgeCasesTest {
 
         @Test
         @DisplayName("should prevent operations after close")
-        void testCleanup_PreventOperationsAfterClose() throws Exception {
+        void testCleanup_PreventOperationsAfterClose(VertxTestContext testContext) throws Exception {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
             group.setMessageHandler(msg -> Future.succeededFuture());
-            group.start(SubscriptionOptions.defaults());
-            group.close();
+            group.start(SubscriptionOptions.defaults())
+                .onSuccess(v -> {
+                    group.close();
 
-            assertThrows(IllegalStateException.class, () -> {
-                group.start(SubscriptionOptions.defaults());
-            });
+                    // start(options) returns failed Future (not throw) after close
+                    group.start(SubscriptionOptions.defaults())
+                        .onSuccess(v2 -> testContext.failNow("Should have failed after close"))
+                        .onFailure(e -> testContext.verify(() -> {
+                            assertInstanceOf(IllegalStateException.class, e);
 
-            assertThrows(IllegalStateException.class, () -> {
-                group.setMessageHandler(msg -> Future.succeededFuture());
-            });
+                            // setMessageHandler throws synchronously after close
+                            assertThrows(IllegalStateException.class, () -> {
+                                group.setMessageHandler(msg -> Future.succeededFuture());
+                            });
+
+                            testContext.completeNow();
+                        }));
+                })
+                .onFailure(testContext::failNow);
+
+            assertTrue(testContext.awaitCompletion(10, SECONDS));
         }
     }
 }

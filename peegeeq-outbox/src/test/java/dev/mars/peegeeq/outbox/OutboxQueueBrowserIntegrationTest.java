@@ -110,8 +110,8 @@ public class OutboxQueueBrowserIntegrationTest {
         clientFactory = manager.getClientFactory();
         objectMapper = new ObjectMapper();
 
-        // Create browser using manager's pool
-        browser = new OutboxQueueBrowser<>(TEST_TOPIC, String.class, manager.getPool(), objectMapper);
+        // Create browser using manager's pool with "public" schema (matching the test schema setup)
+        browser = new OutboxQueueBrowser<>(TEST_TOPIC, String.class, manager.getPool(), objectMapper, "public");
 
         // Create producer for test setup
         producer = new OutboxProducer<>(clientFactory, objectMapper, TEST_TOPIC, String.class, null);
@@ -344,7 +344,7 @@ public class OutboxQueueBrowserIntegrationTest {
         // Given - create browser and producer for Integer type
         String intTopic = "int-topic";
         OutboxQueueBrowser<Integer> intBrowser = new OutboxQueueBrowser<>(
-            intTopic, Integer.class, manager.getPool(), objectMapper
+            intTopic, Integer.class, manager.getPool(), objectMapper, "public"
         );
         OutboxProducer<Integer> intProducer = new OutboxProducer<>(
             clientFactory, objectMapper, intTopic, Integer.class, null

@@ -189,17 +189,27 @@ public class MultiTenantSchemaIsolationTest {
 
     @Test
     void testStatsIsolationBetweenTenants() throws Exception {
-        // Tenant A sends 5 messages
+        // Tenant A sends 5 messages — await each Future to ensure persistence
         MessageProducer<String> producerA = factoryTenantA.createProducer("stats-topic", String.class);
+        Future<Void> chainA = Future.succeededFuture();
         for (int i = 0; i < 5; i++) {
-            producerA.send("tenant-a-message-" + i).onFailure(e -> { throw new RuntimeException(e); });
+            final int idx = i;
+            chainA = chainA.compose(v -> producerA.send("tenant-a-message-" + idx));
         }
+        CountDownLatch latchA = new CountDownLatch(1);
+        chainA.onComplete(ar -> latchA.countDown());
+        assertTrue(latchA.await(10, TimeUnit.SECONDS), "Tenant A sends should complete");
 
-        // Tenant B sends 3 messages
+        // Tenant B sends 3 messages — await each Future to ensure persistence
         MessageProducer<String> producerB = factoryTenantB.createProducer("stats-topic", String.class);
+        Future<Void> chainB = Future.succeededFuture();
         for (int i = 0; i < 3; i++) {
-            producerB.send("tenant-b-message-" + i).onFailure(e -> { throw new RuntimeException(e); });
+            final int idx = i;
+            chainB = chainB.compose(v -> producerB.send("tenant-b-message-" + idx));
         }
+        CountDownLatch latchB = new CountDownLatch(1);
+        chainB.onComplete(ar -> latchB.countDown());
+        assertTrue(latchB.await(10, TimeUnit.SECONDS), "Tenant B sends should complete");
 
         // Verify stats are isolated
         var statsA = factoryTenantA.getStats("stats-topic");

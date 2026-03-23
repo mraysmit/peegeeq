@@ -194,7 +194,7 @@ public class PerformanceBenchmarkTest {
         OutboxProducer<String> outboxProducer = (OutboxProducer<String>) producer;
         CountDownLatch basicLatch = new CountDownLatch(messageCount);
         for (int i = 0; i < messageCount; i++) {
-            outboxProducer.sendWithTransaction(testPayload + i)
+            outboxProducer.sendInOwnTransaction(testPayload + i)
                 .onComplete(ar -> basicLatch.countDown());
         }
 
@@ -212,7 +212,7 @@ public class PerformanceBenchmarkTest {
         CountDownLatch contextLatch = new CountDownLatch(messageCount);
         manager.getVertx().runOnContext(v -> {
             for (int i = 0; i < messageCount; i++) {
-                outboxProducer.sendWithTransaction(
+                outboxProducer.sendInOwnTransaction(
                     testPayload + "context-" + i,
                     TransactionPropagation.CONTEXT
                 ).onComplete(ar -> contextLatch.countDown());
@@ -257,7 +257,7 @@ public class PerformanceBenchmarkTest {
         for (int batch = 0; batch < batchCount; batch++) {
             for (int i = 0; i < batchSize; i++) {
                 CountDownLatch sendLatch = new CountDownLatch(1);
-                outboxProducer.sendWithTransaction(testPayload + batch + "-" + i)
+                outboxProducer.sendInOwnTransaction(testPayload + batch + "-" + i)
                         .onComplete(ar -> sendLatch.countDown());
                 sendLatch.await(5, TimeUnit.SECONDS);
             }
@@ -276,7 +276,7 @@ public class PerformanceBenchmarkTest {
         manager.getVertx().runOnContext(v -> {
             for (int batch = 0; batch < batchCount; batch++) {
                 for (int i = 0; i < batchSize; i++) {
-                    outboxProducer.sendWithTransaction(
+                    outboxProducer.sendInOwnTransaction(
                         testPayload + "batch-" + batch + "-" + i,
                         TransactionPropagation.CONTEXT
                     ).onComplete(ar -> batchLatch.countDown());

@@ -87,7 +87,7 @@ import org.springframework.boot.autoconfigure.r2dbc.R2dbcAutoConfiguration;
  * <ul>
  *   <li><b>ConnectionProvider.withTransaction()</b> - Single transaction</li>
  *   <li><b>Repository.save(order, connection)</b> - Database operation</li>
- *   <li><b>Producer.sendInTransaction(event, connection)</b> - Outbox operation</li>
+ *   <li><b>Producer.sendInExistingTransaction(event, connection)</b> - Outbox operation</li>
  *   <li><b>EventStore.appendInTransaction(type, event, time, connection)</b> - Event store operation</li>
  * </ul>
  * 

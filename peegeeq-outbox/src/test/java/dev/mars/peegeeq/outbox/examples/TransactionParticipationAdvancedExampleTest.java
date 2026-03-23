@@ -57,7 +57,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 /**
  * Comprehensive JUnit test demonstrating Advanced Transaction Participation in PeeGeeQ Outbox Pattern.
  * 
- * This test demonstrates the second reactive approach: sendInTransaction() operations
+ * This test demonstrates the second reactive approach: sendInExistingTransaction() operations
  * following the patterns outlined in Section "2. Transaction Participation".
  * 
  * <h2>NO INTENTIONAL FAILURES - This Test Demonstrates Success Patterns</h2>
@@ -66,8 +66,8 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  * 
  * <h2>Test Coverage</h2>
  * <ul>
- *   <li><b>Simple Transaction Participation</b> - Basic sendInTransaction with SqlConnection</li>
- *   <li><b>Transaction Participation with Metadata</b> - Full sendInTransaction with headers and correlation</li>
+ *   <li><b>Simple Transaction Participation</b> - Basic sendInExistingTransaction with SqlConnection</li>
+ *   <li><b>Transaction Participation with Metadata</b> - Full sendInExistingTransaction with headers and correlation</li>
  *   <li><b>Multiple Operations in Same Transaction</b> - Multiple outbox operations with consistency</li>
  *   <li><b>Business Logic with Outbox Consistency</b> - Real database operations with outbox events</li>
  * </ul>
@@ -228,7 +228,7 @@ class TransactionParticipationAdvancedExampleTest {
                         logger.info("✓ Transaction started");
                         
                         // Send outbox message within transaction
-                        return orderProducer.sendInTransaction(testOrder, connection)
+                        return orderProducer.sendInExistingTransaction(testOrder, connection)
                             .compose(v -> {
                                 logger.info("✓ Outbox message sent in transaction");
                                 
@@ -276,7 +276,7 @@ class TransactionParticipationAdvancedExampleTest {
                         logger.info("✓ Transaction started with metadata");
                         
                         // Send outbox message with full metadata within transaction
-                        return orderProducer.sendInTransaction(testOrder, headers, correlationId, messageGroup, connection)
+                        return orderProducer.sendInExistingTransaction(testOrder, headers, correlationId, messageGroup, connection)
                             .compose(v -> {
                                 logger.info("✓ Outbox message with metadata sent in transaction");
                                 
@@ -313,12 +313,12 @@ class TransactionParticipationAdvancedExampleTest {
                         logger.info("✓ Transaction started for multiple operations");
 
                         // Send first outbox message
-                        return orderProducer.sendInTransaction(order1, connection)
+                        return orderProducer.sendInExistingTransaction(order1, connection)
                             .compose(v -> {
                                 logger.info("✓ First outbox message sent in transaction");
 
                                 // Send second outbox message
-                                return orderProducer.sendInTransaction(order2, connection)
+                                return orderProducer.sendInExistingTransaction(order2, connection)
                                     .compose(v2 -> {
                                         logger.info("✓ Second outbox message sent in transaction");
 
@@ -371,7 +371,7 @@ class TransactionParticipationAdvancedExampleTest {
                                 assertEquals(1, result.rowCount(), "Should update exactly 1 row");
 
                                 // Step 3: Send outbox event - guaranteed consistency with business operations
-                                return orderProducer.sendInTransaction(testOrder, connection)
+                                return orderProducer.sendInExistingTransaction(testOrder, connection)
                                     .compose(v -> {
                                         logger.info("✓ Outbox event sent in same transaction");
 

@@ -47,7 +47,7 @@ import io.vertx.core.Future;
  * Mono<String> result = adapter.toMono(outboxProducer.send(event));
  * 
  * // Convert void CompletableFuture to Mono<Void>
- * Mono<Void> completion = adapter.toMonoVoid(outboxProducer.sendWithTransaction(event));
+ * Mono<Void> completion = adapter.toMonoVoid(outboxProducer.sendInOwnTransaction(event));
  * 
  * // Convert multiple CompletableFutures to Flux
  * Flux<String> results = adapter.toFlux(List.of(future1, future2, future3));

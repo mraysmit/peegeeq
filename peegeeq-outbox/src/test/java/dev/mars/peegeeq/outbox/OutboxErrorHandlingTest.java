@@ -275,18 +275,22 @@ public class OutboxErrorHandlingTest {
     }
 
     @Test
-    void testNullMessageHandling() throws Exception {
+    void testNullMessageHandling(VertxTestContext testContext) throws Exception {
         System.out.println("❌ ===== RUNNING INTENTIONAL NULL MESSAGE TEST =====");
         System.out.println("❌ **INTENTIONAL TEST** - This test deliberately sends a null payload");
         System.out.println("❌ **INTENTIONAL TEST FAILURE** - Expected exception when sending null payload");
 
-        // Test sending null payload
-        assertThrows(Exception.class, () -> {
-            producer.send(null);
-        }, "Sending null payload should throw exception");
+        // producer.send(null) returns a failed Future (does not throw synchronously)
+        producer.send(null).onComplete(ar -> testContext.verify(() -> {
+            assertTrue(ar.failed(), "Sending null payload should return a failed Future");
+            assertTrue(ar.cause() instanceof IllegalArgumentException,
+                "Cause should be IllegalArgumentException, got: " + ar.cause().getClass().getSimpleName());
+            System.out.println("❌ **SUCCESS** - Null payload properly returned failed Future");
+            System.out.println("❌ ===== INTENTIONAL TEST COMPLETED =====");
+            testContext.completeNow();
+        }));
 
-        System.out.println("❌ **SUCCESS** - Null payload properly threw exception");
-        System.out.println("❌ ===== INTENTIONAL TEST COMPLETED =====");
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test

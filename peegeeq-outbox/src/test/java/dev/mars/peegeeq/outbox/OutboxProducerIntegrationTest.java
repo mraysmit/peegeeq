@@ -200,7 +200,7 @@ public class OutboxProducerIntegrationTest {
     }
 
     @Test
-    void testSendWithTransaction_NullPayload() {
+    void testsendInOwnTransaction_NullPayload() {
         OutboxProducer<String> producer = new OutboxProducer<>(
             clientFactory,
             objectMapper,
@@ -210,12 +210,12 @@ public class OutboxProducerIntegrationTest {
         );
 
         // Attempting to send null payload should fail
-        var future = producer.sendWithTransaction(null);
-        assertTrue(future.failed(), "SendWithTransaction with null payload should fail");
+        var future = producer.sendInOwnTransaction(null);
+        assertTrue(future.failed(), "sendInOwnTransaction with null payload should fail");
     }
 
     @Test
-    void testSendInTransaction_NullConnection() {
+    void testsendInExistingTransaction_NullConnection() {
         OutboxProducer<String> producer = new OutboxProducer<>(
             clientFactory,
             objectMapper,
@@ -225,12 +225,12 @@ public class OutboxProducerIntegrationTest {
         );
 
         // Attempting to send with null connection should fail
-        var future = producer.sendInTransaction("test-message", null);
-        assertTrue(future.failed(), "SendInTransaction with null connection should fail");
+        var future = producer.sendInExistingTransaction("test-message", null);
+        assertTrue(future.failed(), "sendInExistingTransaction with null connection should fail");
     }
 
     @Test
-    void testSendInTransaction_NullPayloadAndConnection() {
+    void testsendInExistingTransaction_NullPayloadAndConnection() {
         OutboxProducer<String> producer = new OutboxProducer<>(
             clientFactory,
             objectMapper,
@@ -240,8 +240,8 @@ public class OutboxProducerIntegrationTest {
         );
 
         // Attempting to send with null payload and connection should fail
-        var future = producer.sendInTransaction(null, null);
-        assertTrue(future.failed(), "SendInTransaction with null args should fail");
+        var future = producer.sendInExistingTransaction(null, null);
+        assertTrue(future.failed(), "sendInExistingTransaction with null args should fail");
     }
 
     @Test
@@ -315,7 +315,7 @@ public class OutboxProducerIntegrationTest {
     }
 
     @Test
-    void testSendWithTransaction_ValidatesPayload() {
+    void testsendInOwnTransaction_ValidatesPayload() {
         OutboxProducer<String> producer = new OutboxProducer<>(
             clientFactory,
             objectMapper,
@@ -324,12 +324,12 @@ public class OutboxProducerIntegrationTest {
             null
         );
 
-        // All sendWithTransaction overloads should validate payload
-        assertTrue(producer.sendWithTransaction(null).failed(), "SendWithTransaction with null should fail");
+        // All sendInOwnTransaction overloads should validate payload
+        assertTrue(producer.sendInOwnTransaction(null).failed(), "sendInOwnTransaction with null should fail");
     }
 
     @Test
-    void testSendInTransaction_ValidatesArguments() {
+    void testsendInExistingTransaction_ValidatesArguments() {
         OutboxProducer<String> producer = new OutboxProducer<>(
             clientFactory,
             objectMapper,
@@ -338,8 +338,8 @@ public class OutboxProducerIntegrationTest {
             null
         );
 
-        // sendInTransaction validates both payload and connection
-        assertTrue(producer.sendInTransaction("test", null).failed(), "SendInTransaction with null connection should fail");
+        // sendInExistingTransaction validates both payload and connection
+        assertTrue(producer.sendInExistingTransaction("test", null).failed(), "sendInExistingTransaction with null connection should fail");
     }
 
     @Test

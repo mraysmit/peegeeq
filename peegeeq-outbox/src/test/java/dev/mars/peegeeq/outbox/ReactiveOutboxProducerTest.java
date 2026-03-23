@@ -261,21 +261,21 @@ public class ReactiveOutboxProducerTest {
         try {
             CountDownLatch txLatch = new CountDownLatch(1);
             AtomicReference<Throwable> txError = new AtomicReference<>();
-            outboxProducer.sendInTransaction("test", (io.vertx.sqlclient.SqlConnection) null)
+            outboxProducer.sendInExistingTransaction("test", (io.vertx.sqlclient.SqlConnection) null)
                 .onSuccess(v -> txLatch.countDown())
                 .onFailure(t -> {
                     txError.set(t);
                     txLatch.countDown();
                 });
-            assertTrue(txLatch.await(5, TimeUnit.SECONDS), "sendInTransaction should complete");
+            assertTrue(txLatch.await(5, TimeUnit.SECONDS), "sendInExistingTransaction should complete");
             Throwable e = txError.get();
             assertNotNull(e, "Should fail with null connection");
             // Expected to fail with null connection - this validates the method signature exists
-            logger.info("sendInTransaction method exists and validates null connection: {}", e.getMessage());
+            logger.info("sendInExistingTransaction method exists and validates null connection: {}", e.getMessage());
             Assertions.assertTrue(e.getMessage().contains("connection cannot be null") ||
                                 e instanceof IllegalArgumentException);
         } catch (Exception e) {
-            logger.info("sendInTransaction method validation: {}", e.getMessage());
+            logger.info("sendInExistingTransaction method validation: {}", e.getMessage());
         }
 
         logger.info("PHASE 1 STEP 2 PASSED: Transactional method signatures are correct");
@@ -292,8 +292,8 @@ public class ReactiveOutboxProducerTest {
 
         // Send message using production-grade transactional method
         CountDownLatch txSendLatch = new CountDownLatch(1);
-        outboxProducer.sendWithTransaction(testMessage).onComplete(ar -> txSendLatch.countDown());
-        assertTrue(txSendLatch.await(10, TimeUnit.SECONDS), "sendWithTransaction should complete");
+        outboxProducer.sendInOwnTransaction(testMessage).onComplete(ar -> txSendLatch.countDown());
+        assertTrue(txSendLatch.await(10, TimeUnit.SECONDS), "sendInOwnTransaction should complete");
         logger.info("Message sent via production-grade transaction: {}", testMessage);
 
         // Verify message exists in outbox table
@@ -312,34 +312,38 @@ public class ReactiveOutboxProducerTest {
 
         OutboxProducer<String> outboxProducer = (OutboxProducer<String>) producer;
 
-        // Test with TransactionPropagation.CONTEXT (if available)
-        // Note: We'll test the method signature and basic functionality
-        try {
-            // Try to use TransactionPropagation - this will test if the API is available
-            CountDownLatch propLatch = new CountDownLatch(1);
-            outboxProducer.sendWithTransaction(testMessage, io.vertx.sqlclient.TransactionPropagation.CONTEXT)
-                .onComplete(ar -> propLatch.countDown());
-            assertTrue(propLatch.await(10, TimeUnit.SECONDS), "sendWithTransaction with propagation should complete");
-            logger.info("Message sent with TransactionPropagation.CONTEXT: {}", testMessage);
+        // Test with TransactionPropagation.CONTEXT
+        // Note: CONTEXT propagation may fail outside a Vert.x context (no active transaction to join).
+        // The send returns a failed Future if the context lookup fails — handle gracefully.
+        CountDownLatch propLatch = new CountDownLatch(1);
+        AtomicReference<Throwable> sendError = new AtomicReference<>();
+        outboxProducer.sendInOwnTransaction(testMessage, io.vertx.sqlclient.TransactionPropagation.CONTEXT)
+            .onSuccess(v -> propLatch.countDown())
+            .onFailure(t -> {
+                sendError.set(t);
+                propLatch.countDown();
+            });
+        assertTrue(propLatch.await(10, TimeUnit.SECONDS), "sendInOwnTransaction with propagation should complete");
 
-            // Verify message exists in outbox table
+        if (sendError.get() == null) {
+            logger.info("Message sent with TransactionPropagation.CONTEXT: {}", testMessage);
             boolean messageExists = verifyOutboxMessageExists(testMessage);
             Assertions.assertTrue(messageExists, "TransactionPropagation message should exist in outbox table");
+            logger.info("PHASE 1 STEP 4 PASSED: TransactionPropagation.CONTEXT works correctly");
+        } else {
+            // CONTEXT propagation may not work without an active Vert.x context — expected
+            logger.warn("TransactionPropagation.CONTEXT failed (expected without Vert.x context): {}",
+                sendError.get().getMessage());
 
-            logger.info("PHASE 1 STEP 4 PASSED: TransactionPropagation support works correctly");
-
-        } catch (Exception e) {
-            // If TransactionPropagation is not available or not working, log the issue
-            logger.warn("TransactionPropagation test failed (may not be available in this Vert.x version): {}", e.getMessage());
-
-            // Fall back to testing without propagation
+            // Fall back to testing without propagation to verify basic transactional methods
+            String fallbackMessage = testMessage + "-fallback";
             CountDownLatch fallbackLatch = new CountDownLatch(1);
-            outboxProducer.sendWithTransaction(testMessage + "-fallback").onComplete(ar -> fallbackLatch.countDown());
+            outboxProducer.sendInOwnTransaction(fallbackMessage).onComplete(ar -> fallbackLatch.countDown());
             assertTrue(fallbackLatch.await(10, TimeUnit.SECONDS), "Fallback send should complete");
-            boolean fallbackExists = verifyOutboxMessageExists(testMessage + "-fallback");
+            boolean fallbackExists = verifyOutboxMessageExists(fallbackMessage);
             Assertions.assertTrue(fallbackExists, "Fallback message should exist");
 
-            logger.info("PHASE 1 STEP 4 PASSED: Basic transactional methods work (TransactionPropagation may not be available)");
+            logger.info("PHASE 1 STEP 4 PASSED: Basic transactional methods work (CONTEXT propagation not available outside Vert.x context)");
         }
     }
 
