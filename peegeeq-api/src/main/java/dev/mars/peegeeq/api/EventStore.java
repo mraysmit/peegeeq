@@ -118,8 +118,14 @@ public interface EventStore<T> {
     /**
      * Appends a correction event for a previous event.
      * This creates a new version of an existing event with corrected data.
+     *
+     * <p><b>Chain model:</b> The new correction's {@code previous_version_id} always points
+     * to the current latest version in the lineage, regardless of which event ID the caller
+     * passes. The {@code originalEventId} parameter identifies the family (any event ID in
+     * the lineage is accepted); the system resolves the root and the latest version internally.</p>
      * 
-     * @param originalEventId The ID of the event being corrected
+     * @param originalEventId Any event ID in the correction lineage (root or child);
+     *                        used to identify the family, not to set previous_version_id
      * @param eventType The type of the event
      * @param payload The corrected event payload
      * @param validTime The corrected valid time
@@ -132,8 +138,14 @@ public interface EventStore<T> {
     
     /**
      * Appends a correction event with full metadata.
+     *
+     * <p><b>Chain model:</b> The new correction's {@code previous_version_id} always points
+     * to the current latest version in the lineage, regardless of which event ID the caller
+     * passes. The {@code originalEventId} parameter identifies the family (any event ID in
+     * the lineage is accepted); the system resolves the root and the latest version internally.</p>
      * 
-     * @param originalEventId The ID of the event being corrected
+     * @param originalEventId Any event ID in the correction lineage (root or child);
+     *                        used to identify the family, not to set previous_version_id
      * @param eventType The type of the event
      * @param payload The corrected event payload
      * @param validTime The corrected valid time

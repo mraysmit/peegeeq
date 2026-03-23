@@ -50,7 +50,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Defensive tests for version family traversal: cross-family isolation,
- * deep chains, wide fan-outs, temporal boundary queries, metadata round-trips,
+ * deep chains, sequential corrections from root, temporal boundary queries, metadata round-trips,
  * and error path validation.
  *
  * <p>These tests target gaps not covered by {@link VersionFamilyTopologyTest}
@@ -58,7 +58,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * <ul>
  *   <li>Cross-family isolation: two independent families must never leak into each other</li>
  *   <li>Deep chains (10 levels): recursive CTE must handle arbitrary depth</li>
- *   <li>Wide fan-out (6 direct children): CTE must visit all branches</li>
+ *   <li>Sequential corrections from root (6 corrections): chain model enforced by system</li>
  *   <li>Temporal boundary: getAsOfTransactionTime at exact boundaries and between versions</li>
  *   <li>Metadata: correction_reason and isCorrection round-trip fidelity</li>
  *   <li>Single-event family: getAllVersions returns exactly the one event</li>
@@ -392,11 +392,11 @@ class VersionFamilyDefensiveTest {
                         }));
     }
 
-    // ==================== Wide Fan-Out (6 Direct Children) ====================
+    // ==================== Sequential Corrections (6 from root) ====================
 
     @Test
-    @DisplayName("Wide fan-out: root with 6 direct children, getAllVersions returns all 7")
-    void wideFanOutSixChildrenGetAllVersions(VertxTestContext testContext) throws Exception {
+    @DisplayName("Sequential corrections: root with 6 corrections, getAllVersions returns all 7")
+    void sequentialSixCorrectionsGetAllVersions(VertxTestContext testContext) throws Exception {
         Instant t = Instant.now();
         int childCount = 6;
 
@@ -414,14 +414,14 @@ class VersionFamilyDefensiveTest {
                     List<BiTemporalEvent<DefensiveEvent>> versions = result.getValue();
                     int expectedTotal = 1 + childCount; // root + children
                     assertEquals(expectedTotal, versions.size(),
-                            "Wide fan-out: getAllVersions must return root + " + childCount + " children = "
+                            "Sequential corrections: getAllVersions must return root + " + childCount + " corrections = "
                                     + expectedTotal + ". Got " + versions.size());
 
                     // All version numbers must be unique
                     Set<Long> uniqueVersions = versions.stream()
                             .map(BiTemporalEvent::getVersion).collect(Collectors.toSet());
                     assertEquals(versions.size(), uniqueVersions.size(),
-                            "All version numbers must be unique in wide fan-out");
+                            "All version numbers must be unique in correction chain");
 
                     // Version 1 must be the root
                     assertEquals(1L, versions.get(0).getVersion());
@@ -436,8 +436,8 @@ class VersionFamilyDefensiveTest {
     }
 
     @Test
-    @DisplayName("Wide fan-out: getAsOfTransactionTime from any child returns latest version")
-    void wideFanOutGetAsOfTransactionTime(VertxTestContext testContext) throws Exception {
+    @DisplayName("Sequential corrections: getAsOfTransactionTime from any member returns latest version")
+    void sequentialCorrectionsGetAsOfTransactionTime(VertxTestContext testContext) throws Exception {
         Instant t = Instant.now();
         int childCount = 4;
 
@@ -451,7 +451,7 @@ class VersionFamilyDefensiveTest {
                     return eventStore.getAsOfTransactionTime(firstChild.getEventId(), Instant.now());
                 })
                 .onSuccess(result -> testContext.verify(() -> {
-                    assertNotNull(result, "getAsOfTransactionTime must return a result from fan-out family");
+                    assertNotNull(result, "getAsOfTransactionTime must return a result from correction chain");
                     assertTrue(result.getVersion() >= 1L,
                             "Result must have a valid version number");
                     testContext.completeNow();
@@ -463,7 +463,9 @@ class VersionFamilyDefensiveTest {
     }
 
     /**
-     * Builds N corrections all pointing to the same root (star/fan-out topology).
+     * Builds N sequential corrections from the same root.
+     * With chain model enforcement, the system links each correction to the latest version,
+     * producing a linear chain regardless of the caller always passing root's event ID.
      */
     private Future<List<BiTemporalEvent<DefensiveEvent>>> buildFanOut(
             BiTemporalEvent<DefensiveEvent> root, int count, Instant t) {
@@ -942,14 +944,14 @@ class VersionFamilyDefensiveTest {
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
     }
 
-    // ==================== Star Topology: getAllVersions from Middle Member ====================
+    // ==================== Chain from root: getAllVersions from middle member ====================
 
     @Test
-    @DisplayName("Star topology: getAllVersions from middle correction returns full family")
-    void starTopologyGetAllVersionsFromMiddle(VertxTestContext testContext) throws Exception {
+    @DisplayName("Chain model: getAllVersions from middle correction returns full family")
+    void chainModelGetAllVersionsFromMiddle(VertxTestContext testContext) throws Exception {
         Instant t = Instant.now();
 
-        // Star: A → B(prev=A), A → C(prev=A), A → D(prev=A)
+        // Chain model: system enforces A→B→C→D regardless of which event ID caller passes
         eventStore.appendBuilder()
                 .eventType("StarMid").payload(new DefensiveEvent("A", "root", 1)).validTime(t).execute()
                 .compose(root -> eventStore.appendCorrection(root.getEventId(), "StarMid",
@@ -972,7 +974,7 @@ class VersionFamilyDefensiveTest {
                 })
                 .onSuccess(versions -> testContext.verify(() -> {
                     assertEquals(4, versions.size(),
-                            "Star topology: getAllVersions from middle member B must return all 4 family members (A, B, C, D)");
+                            "Chain model: getAllVersions from middle member B must return all 4 family members (A, B, C, D)");
                     assertEquals(1L, versions.get(0).getVersion());
                     testContext.completeNow();
                 }))
@@ -982,16 +984,15 @@ class VersionFamilyDefensiveTest {
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
     }
 
-    // ==================== Mixed Fan-Out + Chain: Wide Tree ====================
+    // ==================== Sequential chain from root: getAllVersions from deep leaf ====================
 
     @Test
-    @DisplayName("Mixed topology: wide tree with fan-out + chain, getAllVersions from deep leaf")
-    void mixedTopologyWideFanOutWithChainFromDeepLeaf(VertxTestContext testContext) throws Exception {
+    @DisplayName("Sequential chain: getAllVersions from deep leaf returns all family members")
+    void sequentialChainGetAllVersionsFromDeepLeaf(VertxTestContext testContext) throws Exception {
         Instant t = Instant.now();
 
-        // A(v1) → B(v2, prev=A) → E(v5, prev=B)
-        // A(v1) → C(v3, prev=A)
-        // A(v1) → D(v4, prev=A)
+        // Chain model: system resolves latest version for each correction.
+        // Regardless of which event ID caller passes, the chain is: A→B→C→D→E
         eventStore.appendBuilder()
                 .eventType("MixedWide").payload(new DefensiveEvent("A", "root", 1)).validTime(t).execute()
                 .compose(a -> eventStore.appendCorrection(a.getEventId(), "MixedWide",
@@ -1021,7 +1022,7 @@ class VersionFamilyDefensiveTest {
                 })
                 .onSuccess(versions -> testContext.verify(() -> {
                     assertEquals(5, versions.size(),
-                            "Mixed wide tree: getAllVersions from deep leaf E must return all 5 members");
+                            "Sequential chain: getAllVersions from deep leaf E must return all 5 members");
 
                     // Version numbers must be unique and sequential
                     Set<Long> uniqueVersions = versions.stream()
@@ -1039,11 +1040,11 @@ class VersionFamilyDefensiveTest {
     // ==================== getAllVersions and getAsOfTransactionTime Consistency ====================
 
     @Test
-    @DisplayName("Consistency: getAllVersions last element matches getAsOfTransactionTime for all topologies")
+    @DisplayName("Consistency: getAllVersions last element matches getAsOfTransactionTime")
     void consistencyBetweenMethodsAcrossTopologies(VertxTestContext testContext) throws Exception {
         Instant t = Instant.now();
 
-        // Build a star topology: A → B, A → C
+        // Build a chain: A → B → C (chain model enforced)
         eventStore.appendBuilder()
                 .eventType("ConsistCheck").payload(new DefensiveEvent("A", "root", 1)).validTime(t).execute()
                 .compose(root -> eventStore.appendCorrection(root.getEventId(), "ConsistCheck",

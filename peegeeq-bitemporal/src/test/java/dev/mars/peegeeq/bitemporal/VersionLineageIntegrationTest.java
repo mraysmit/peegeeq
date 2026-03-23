@@ -41,7 +41,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * <p>Covers:
  * <ul>
- *   <li>Star model invariants: corrections always point to root via previous_version_id</li>
+ *   <li>Chain model invariants: corrections point to immediate predecessor via previous_version_id</li>
  *   <li>Version monotonicity: each correction increments version sequentially</li>
  *   <li>getAllVersions correctness from root ID and from correction ID</li>
  *   <li>getAsOfTransactionTime with corrections</li>
@@ -139,10 +139,11 @@ class VersionLineageIntegrationTest {
             });
     }
 
-    // ========== POSITIVE: Star model invariants ==========
+    // ========== POSITIVE: Chain model invariants ==========
 
     /**
-     * Single correction produces version 2 pointing back to the root event.
+     * Single correction produces version 2 pointing back to the root event
+     * (which is also the immediate predecessor in a two-event family).
      */
     @Test
     void singleCorrectionCreatesVersion2WithRootAsParent(VertxTestContext testContext) throws Exception {
@@ -181,10 +182,10 @@ class VersionLineageIntegrationTest {
 
     /**
      * Multiple sequential corrections produce monotonically increasing versions,
-     * all pointing to the same root (star model).
+     * each pointing to the immediate predecessor (chain model).
      */
     @Test
-    void multipleCorrectionsMaintainMonotonicVersionsAndStarModel(VertxTestContext testContext) throws Exception {
+    void multipleCorrectionsMaintainMonotonicVersionsAndChainModel(VertxTestContext testContext) throws Exception {
         startManagerAndStore()
             .compose(store -> store.appendBuilder()
                 .eventType("balance.adjusted")
@@ -206,7 +207,6 @@ class VersionLineageIntegrationTest {
             .onSuccess(versions -> testContext.verify(() -> {
                 assertEquals(4, versions.size(), "Should have root + 3 corrections");
 
-                String rootId = versions.get(0).getEventId();
                 for (int i = 0; i < versions.size(); i++) {
                     BiTemporalEvent<Map<String, Object>> v = versions.get(i);
                     assertEquals(i + 1L, v.getVersion(), "Version " + (i + 1) + " should be sequential");
@@ -215,8 +215,8 @@ class VersionLineageIntegrationTest {
                         assertNull(v.getPreviousVersionId(), "Root has no parent");
                         assertFalse(v.isCorrection());
                     } else {
-                        assertEquals(rootId, v.getPreviousVersionId(),
-                            "Version " + (i + 1) + " must point to root (star model)");
+                        assertEquals(versions.get(i - 1).getEventId(), v.getPreviousVersionId(),
+                            "Version " + (i + 1) + " must point to version " + i + " (chain model)");
                         assertTrue(v.isCorrection());
                     }
                 }
@@ -437,11 +437,10 @@ class VersionLineageIntegrationTest {
                         "Missing version " + expected + " — versions present: " + versionNumbers);
                 }
 
-                // All corrections must point to the root (star model)
-                String rootId = versions.get(0).getEventId();
+                // Each correction must point to its immediate predecessor (chain model)
                 for (int i = 1; i < versions.size(); i++) {
-                    assertEquals(rootId, versions.get(i).getPreviousVersionId(),
-                        "Correction " + i + " must point to root");
+                    assertEquals(versions.get(i - 1).getEventId(), versions.get(i).getPreviousVersionId(),
+                        "Correction " + i + " must point to version " + (i) + " (chain model)");
                 }
 
                 logger.info("Concurrent corrections test passed: {} versions with no duplicates", versions.size());
@@ -682,61 +681,100 @@ class VersionLineageIntegrationTest {
 
     /**
      * appendCorrection rejects null originalEventId.
+     * Null validation is synchronous (before any async pool access), so we
+     * construct the store without starting the manager to avoid startup
+     * contention when the full suite runs.
      */
     @Test
     void appendCorrectionRejectsNullOriginalEventId(VertxTestContext testContext) throws Exception {
-        startManagerAndStore()
-            .onSuccess(store -> testContext.verify(() -> {
-                NullPointerException ex = assertThrows(NullPointerException.class,
-                    () -> store.appendCorrection(null, "test.type",
-                        Map.of("data", 1), Instant.now(), "reason"));
-                assertTrue(ex.getMessage().contains("Original event ID"),
-                    "Message should mention original event ID: " + ex.getMessage());
-                testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration(
+            "development",
+            postgres.getHost(),
+            postgres.getFirstMappedPort(),
+            postgres.getDatabaseName(),
+            postgres.getUsername(),
+            postgres.getPassword(),
+            "public");
+        peeGeeQManager = new PeeGeeQManager(config, new SimpleMeterRegistry());
+        eventStore = new PgBiTemporalEventStore<>(
+            vertx, peeGeeQManager, mapClass(), "bitemporal_event_log", new ObjectMapper());
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        testContext.verify(() -> {
+            NullPointerException ex = assertThrows(NullPointerException.class,
+                () -> eventStore.appendCorrection(null, "test.type",
+                    Map.of("data", 1), Instant.now(), "reason"));
+            assertTrue(ex.getMessage().contains("Original event ID"),
+                "Message should mention original event ID: " + ex.getMessage());
+        });
+        testContext.completeNow();
+
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
     }
 
     /**
      * appendCorrection rejects null correctionReason.
+     * Null validation is synchronous (before any async pool access), so we
+     * construct the store without starting the manager to avoid startup
+     * contention when the full suite runs.
      */
     @Test
     void appendCorrectionRejectsNullCorrectionReason(VertxTestContext testContext) throws Exception {
-        startManagerAndStore()
-            .onSuccess(store -> testContext.verify(() -> {
-                NullPointerException ex = assertThrows(NullPointerException.class,
-                    () -> store.appendCorrection("some-id", "test.type",
-                        Map.of("data", 1), Instant.now(), (String) null));
-                assertTrue(ex.getMessage().contains("Correction reason"),
-                    "Message should mention correction reason: " + ex.getMessage());
-                testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration(
+            "development",
+            postgres.getHost(),
+            postgres.getFirstMappedPort(),
+            postgres.getDatabaseName(),
+            postgres.getUsername(),
+            postgres.getPassword(),
+            "public");
+        peeGeeQManager = new PeeGeeQManager(config, new SimpleMeterRegistry());
+        eventStore = new PgBiTemporalEventStore<>(
+            vertx, peeGeeQManager, mapClass(), "bitemporal_event_log", new ObjectMapper());
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        testContext.verify(() -> {
+            NullPointerException ex = assertThrows(NullPointerException.class,
+                () -> eventStore.appendCorrection("some-id", "test.type",
+                    Map.of("data", 1), Instant.now(), (String) null));
+            assertTrue(ex.getMessage().contains("Correction reason"),
+                "Message should mention correction reason: " + ex.getMessage());
+        });
+        testContext.completeNow();
+
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
     }
 
     /**
      * appendCorrection rejects null payload.
+     * Null validation is synchronous (before any async pool access), so we
+     * construct the store without starting the manager to avoid startup
+     * contention when the full suite runs.
      */
     @Test
     void appendCorrectionRejectsNullPayload(VertxTestContext testContext) throws Exception {
-        startManagerAndStore()
-            .onSuccess(store -> testContext.verify(() -> {
-                NullPointerException ex = assertThrows(NullPointerException.class,
-                    () -> store.appendCorrection("some-id", "test.type",
-                        null, Instant.now(), "reason"));
-                assertTrue(ex.getMessage().contains("Payload"),
-                    "Message should mention payload: " + ex.getMessage());
-                testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration(
+            "development",
+            postgres.getHost(),
+            postgres.getFirstMappedPort(),
+            postgres.getDatabaseName(),
+            postgres.getUsername(),
+            postgres.getPassword(),
+            "public");
+        peeGeeQManager = new PeeGeeQManager(config, new SimpleMeterRegistry());
+        eventStore = new PgBiTemporalEventStore<>(
+            vertx, peeGeeQManager, mapClass(), "bitemporal_event_log", new ObjectMapper());
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        testContext.verify(() -> {
+            NullPointerException ex = assertThrows(NullPointerException.class,
+                () -> eventStore.appendCorrection("some-id", "test.type",
+                    null, Instant.now(), "reason"));
+            assertTrue(ex.getMessage().contains("Payload"),
+                "Message should mention payload: " + ex.getMessage());
+        });
+        testContext.completeNow();
+
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
     }
 
@@ -793,6 +831,333 @@ class VersionLineageIntegrationTest {
         startManagerAndStore()
             .onSuccess(store -> testContext.verify(() -> {
                 assertThrows(NullPointerException.class, () -> store.getAllVersions(null));
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
+    }
+
+    // ========== POSITIVE: Chain model enforcement — returned event correctness ==========
+
+    /**
+     * CRITICAL chain model enforcement test.
+     * <p>
+     * Caller passes root's event ID to appendCorrection when corrections already
+     * exist. The returned event's previousVersionId must be the latest version's
+     * event ID, NOT the root's event ID.
+     * <p>
+     * This verifies the system resolves the latest version internally, regardless
+     * of the caller-supplied event ID.
+     */
+    @Test
+    void correctionViaRootIdWhenCorrectionsExistPointsToLatestNotRoot(VertxTestContext testContext) throws Exception {
+        startManagerAndStore()
+            .compose(store -> store.appendBuilder()
+                .eventType("chain.enforce")
+                .payload(Map.of("v", 1))
+                .validTime(Instant.now())
+                .aggregateId("chain-enforce-test")
+                .execute()
+                .compose(root -> {
+                    String rootId = root.getEventId();
+                    // Create v2 via root
+                    return store.appendCorrection(rootId, "chain.enforce",
+                            Map.of("v", 2), Instant.now(), "First correction")
+                        .compose(c1 -> {
+                            // Create v3 via root again — system must chain to c1, not root
+                            return store.appendCorrection(rootId, "chain.enforce",
+                                    Map.of("v", 3), Instant.now(), "Second correction via root")
+                                .map(c2 -> Map.of("root", root, "c1", c1, "c2", c2));
+                        });
+                }))
+            .onSuccess(events -> testContext.verify(() -> {
+                BiTemporalEvent<Map<String, Object>> root = events.get("root");
+                BiTemporalEvent<Map<String, Object>> c1 = events.get("c1");
+                BiTemporalEvent<Map<String, Object>> c2 = events.get("c2");
+
+                // c1 should point to root (only one predecessor)
+                assertEquals(root.getEventId(), c1.getPreviousVersionId(),
+                    "First correction must point to root (its only predecessor)");
+
+                // c2 was called with root's ID, but system must resolve to c1 as predecessor
+                assertNotEquals(root.getEventId(), c2.getPreviousVersionId(),
+                    "Second correction must NOT point to root — chain model enforced");
+                assertEquals(c1.getEventId(), c2.getPreviousVersionId(),
+                    "Second correction must point to c1 (the latest version), not root");
+
+                assertEquals(3L, c2.getVersion(), "Third event must be version 3");
+
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
+    }
+
+    /**
+     * Chain enforcement with deeper lineage: caller passes v2's event ID when
+     * v4 is the latest. System must resolve and chain to v4, not v2.
+     */
+    @Test
+    void correctionViaIntermediateIdChainsToLatestNotToSuppliedId(VertxTestContext testContext) throws Exception {
+        startManagerAndStore()
+            .compose(store -> store.appendBuilder()
+                .eventType("deep.chain.enforce")
+                .payload(Map.of("v", 1))
+                .validTime(Instant.now())
+                .execute()
+                .compose(root -> {
+                    String rootId = root.getEventId();
+                    return store.appendCorrection(rootId, "deep.chain.enforce",
+                            Map.of("v", 2), Instant.now(), "c1")
+                        .compose(c1 -> store.appendCorrection(c1.getEventId(), "deep.chain.enforce",
+                                Map.of("v", 3), Instant.now(), "c2")
+                            .compose(c2 -> store.appendCorrection(c2.getEventId(), "deep.chain.enforce",
+                                    Map.of("v", 4), Instant.now(), "c3")
+                                .compose(c3 -> {
+                                    // Now caller passes c1's ID (v2), but v4 is the latest
+                                    return store.appendCorrection(c1.getEventId(), "deep.chain.enforce",
+                                            Map.of("v", 5), Instant.now(), "correction via old intermediate")
+                                        .map(c4 -> Map.of("root", root, "c1", c1, "c2", c2, "c3", c3, "c4", c4));
+                                })));
+                }))
+            .onSuccess(events -> testContext.verify(() -> {
+                BiTemporalEvent<Map<String, Object>> c1 = events.get("c1");
+                BiTemporalEvent<Map<String, Object>> c3 = events.get("c3");
+                BiTemporalEvent<Map<String, Object>> c4 = events.get("c4");
+
+                // c4 was called with c1's ID, but system must resolve chain to c3 (latest)
+                assertNotEquals(c1.getEventId(), c4.getPreviousVersionId(),
+                    "Must NOT point to the caller-supplied c1 — chain model enforced");
+                assertEquals(c3.getEventId(), c4.getPreviousVersionId(),
+                    "Must point to c3 (the latest version), not the caller-supplied c1");
+
+                assertEquals(5L, c4.getVersion(), "Fifth event must be version 5");
+
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
+    }
+
+    /**
+     * Returned event's previousVersionId matches the stored value after DB roundtrip.
+     * Verifies consistency between the in-memory returned event and the persisted data.
+     */
+    @Test
+    void returnedPreviousVersionIdMatchesDbRoundtrip(VertxTestContext testContext) throws Exception {
+        startManagerAndStore()
+            .compose(store -> store.appendBuilder()
+                .eventType("roundtrip.check")
+                .payload(Map.of("v", 1))
+                .validTime(Instant.now())
+                .execute()
+                .compose(root -> store.appendCorrection(root.getEventId(), "roundtrip.check",
+                        Map.of("v", 2), Instant.now(), "c1")
+                    .compose(c1 -> store.appendCorrection(root.getEventId(), "roundtrip.check",
+                            Map.of("v", 3), Instant.now(), "c2 via root")
+                        .compose(returnedC2 ->
+                            // Read all versions from DB and compare with returned event
+                            store.getAllVersions(root.getEventId())
+                                .map(versions -> Map.entry(returnedC2, versions))))))
+            .onSuccess(pair -> testContext.verify(() -> {
+                BiTemporalEvent<Map<String, Object>> returned = pair.getKey();
+                List<BiTemporalEvent<Map<String, Object>>> dbVersions = pair.getValue();
+
+                assertEquals(3, dbVersions.size(), "Should have 3 versions");
+
+                // Find the v3 event in DB results
+                BiTemporalEvent<Map<String, Object>> dbV3 = dbVersions.stream()
+                    .filter(v -> v.getVersion() == 3L)
+                    .findFirst()
+                    .orElseThrow(() -> new AssertionError("v3 not found in DB"));
+
+                // The returned event's previousVersionId must match what the DB stored
+                assertEquals(returned.getPreviousVersionId(), dbV3.getPreviousVersionId(),
+                    "Returned event's previousVersionId must match DB-stored value");
+
+                // Both must point to c1 (v2), not root (v1)
+                String v2EventId = dbVersions.get(1).getEventId();
+                assertEquals(v2EventId, returned.getPreviousVersionId(),
+                    "Both returned and DB-stored previousVersionId must point to v2");
+
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
+    }
+
+    /**
+     * Chain model with concurrent corrections all entering via root ID:
+     * every resulting correction's previousVersionId must chain to its
+     * immediate predecessor, producing a strict linear chain with no star branches.
+     */
+    @Test
+    void concurrentCorrectionsViaRootIdProduceStrictChainNotStar(VertxTestContext testContext) throws Exception {
+        int concurrentCorrections = 4;
+
+        startManagerAndStore()
+            .compose(store -> store.appendBuilder()
+                .eventType("concurrent.chain")
+                .payload(Map.of("v", 1))
+                .validTime(Instant.now())
+                .execute()
+                .compose(root -> {
+                    String rootId = root.getEventId();
+                    // Fire all corrections via root ID concurrently
+                    List<Future<BiTemporalEvent<Map<String, Object>>>> futures = new ArrayList<>();
+                    for (int i = 0; i < concurrentCorrections; i++) {
+                        final int idx = i;
+                        futures.add(store.appendCorrection(rootId, "concurrent.chain",
+                            Map.of("v", idx + 2), Instant.now(),
+                            "Concurrent correction " + (idx + 1)));
+                    }
+                    return Future.all(futures).map(cf -> rootId);
+                })
+                .compose(rootId -> store.getAllVersions(rootId)))
+            .onSuccess(versions -> testContext.verify(() -> {
+                assertEquals(1 + concurrentCorrections, versions.size(),
+                    "Should have root + " + concurrentCorrections + " corrections");
+
+                // Verify strict chain: each version's previousVersionId must be
+                // the exact event ID of the version immediately before it.
+                // No two corrections may share the same previousVersionId (that would be star).
+                Set<String> previousIds = new HashSet<>();
+                for (int i = 0; i < versions.size(); i++) {
+                    BiTemporalEvent<Map<String, Object>> v = versions.get(i);
+
+                    if (i == 0) {
+                        assertNull(v.getPreviousVersionId(), "Root must have null previousVersionId");
+                    } else {
+                        String prevId = v.getPreviousVersionId();
+                        assertNotNull(prevId, "Version " + v.getVersion() + " must have a previousVersionId");
+                        assertEquals(versions.get(i - 1).getEventId(), prevId,
+                            "Version " + v.getVersion() + " must chain to version " + versions.get(i - 1).getVersion());
+
+                        // No two corrections should share the same previousVersionId (star detection)
+                        assertTrue(previousIds.add(prevId),
+                            "Duplicate previousVersionId detected: " + prevId
+                                + " — this indicates star topology, not chain");
+                    }
+                }
+
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
+        if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
+    }
+
+    // ========== EDGE: Chain model edge cases ==========
+
+    /**
+     * Edge case: correction via root ID when root is the only event.
+     * previousVersionId must equal root's event ID (trivially the latest).
+     */
+    @Test
+    void correctionOfRootOnlyEventPointsToRoot(VertxTestContext testContext) throws Exception {
+        startManagerAndStore()
+            .compose(store -> store.appendBuilder()
+                .eventType("root.only")
+                .payload(Map.of("v", 1))
+                .validTime(Instant.now())
+                .execute()
+                .compose(root -> store.appendCorrection(root.getEventId(), "root.only",
+                        Map.of("v", 2), Instant.now(), "First and only correction")
+                    .map(c -> Map.entry(root, c))))
+            .onSuccess(pair -> testContext.verify(() -> {
+                BiTemporalEvent<Map<String, Object>> root = pair.getKey();
+                BiTemporalEvent<Map<String, Object>> correction = pair.getValue();
+
+                assertEquals(root.getEventId(), correction.getPreviousVersionId(),
+                    "When root is the only event, correction must point to root");
+                assertEquals(2L, correction.getVersion());
+
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
+    }
+
+    /**
+     * Edge case: two corrections appended in rapid succession. Both enter
+     * via root's event ID. Second must chain to first despite minimal time gap.
+     * Guards against races in version resolution.
+     */
+    @Test
+    void rapidSequentialCorrectionsViaRootMaintainChain(VertxTestContext testContext) throws Exception {
+        startManagerAndStore()
+            .compose(store -> store.appendBuilder()
+                .eventType("rapid.chain")
+                .payload(Map.of("v", 1))
+                .validTime(Instant.now())
+                .execute()
+                .compose(root -> {
+                    String rootId = root.getEventId();
+                    // Two sequential corrections, both via root ID, no delay between them
+                    return store.appendCorrection(rootId, "rapid.chain",
+                            Map.of("v", 2), Instant.now(), "Rapid c1")
+                        .compose(c1 -> store.appendCorrection(rootId, "rapid.chain",
+                                Map.of("v", 3), Instant.now(), "Rapid c2")
+                            .map(c2 -> List.of(root, c1, c2)));
+                }))
+            .onSuccess(events -> testContext.verify(() -> {
+                BiTemporalEvent<Map<String, Object>> root = events.get(0);
+                BiTemporalEvent<Map<String, Object>> c1 = events.get(1);
+                BiTemporalEvent<Map<String, Object>> c2 = events.get(2);
+
+                assertEquals(root.getEventId(), c1.getPreviousVersionId());
+                assertEquals(c1.getEventId(), c2.getPreviousVersionId(),
+                    "Rapid second correction must chain to first, not root");
+                assertNotEquals(root.getEventId(), c2.getPreviousVersionId(),
+                    "Must NOT star-link back to root");
+
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
+    }
+
+    /**
+     * Edge case: correction via the last correction's own event ID (caller already
+     * knows the latest). System must still resolve and produce the same chain link.
+     * Verifies that passing the latest ID doesn't cause double-chaining or errors.
+     */
+    @Test
+    void correctionViaLatestIdProducesSameChainAsViaRoot(VertxTestContext testContext) throws Exception {
+        startManagerAndStore()
+            .compose(store -> store.appendBuilder()
+                .eventType("latest.entry")
+                .payload(Map.of("v", 1))
+                .validTime(Instant.now())
+                .execute()
+                .compose(root -> store.appendCorrection(root.getEventId(), "latest.entry",
+                        Map.of("v", 2), Instant.now(), "c1")
+                    .compose(c1 -> store.appendCorrection(c1.getEventId(), "latest.entry",
+                            Map.of("v", 3), Instant.now(), "c2 via latest")
+                        .map(c2 -> List.of(root, c1, c2)))))
+            .onSuccess(events -> testContext.verify(() -> {
+                BiTemporalEvent<Map<String, Object>> c1 = events.get(1);
+                BiTemporalEvent<Map<String, Object>> c2 = events.get(2);
+
+                // c2 was passed c1's ID (which IS the latest). System should still
+                // resolve c1 as the latest and chain to it.
+                assertEquals(c1.getEventId(), c2.getPreviousVersionId(),
+                    "Correction via the latest event ID must still chain to it correctly");
+                assertEquals(3L, c2.getVersion());
+
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);

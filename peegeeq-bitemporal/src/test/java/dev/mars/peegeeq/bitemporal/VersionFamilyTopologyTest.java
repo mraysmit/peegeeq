@@ -51,17 +51,16 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Tests that verify {@code getAllVersions()} and {@code getAsOfTransactionTime()}
- * work correctly across all correction topologies:
+ * work correctly with the enforced chain correction model.
  *
- * <ul>
- *   <li><b>Star:</b> all corrections point to root (A→B, A→C)</li>
- *   <li><b>Chain:</b> each correction points to the previous (A→B→C→D)</li>
- *   <li><b>Tree:</b> mixed fan-out + chain (A→B, A→C, B→D)</li>
- * </ul>
+ * <p><b>Chain model:</b> each correction's {@code previous_version_id} always
+ * points to the current latest version in the family (A→B→C→D). The system
+ * enforces this regardless of which event ID the caller passes to
+ * {@code appendCorrection}. Star and tree topologies are no longer possible
+ * in production.</p>
  *
- * <p>The correction model allows {@code previous_version_id} to point to any
- * event in the family (not just root). The recursive CTE in production code
- * must handle all shapes. These tests verify that contract.</p>
+ * <p>The recursive CTE traversal must handle any entry point in the lineage.
+ * These tests verify that contract.</p>
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
@@ -354,14 +353,16 @@ class VersionFamilyTopologyTest {
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
     }
 
-    // ==================== Tree Topology: A→B, A→C, B→D ====================
+    // ==================== Chain Model: A → B → C → D (enforced) ====================
 
     @Test
-    @DisplayName("Tree: fan-out + chain topology getAllVersions from any node returns all 4")
-    void treeTopologyGetAllVersionsFromLeaf(VertxTestContext testContext) throws Exception {
+    @DisplayName("Chain: getAllVersions from any node returns all members")
+    void chainTopologyGetAllVersionsFromLeaf(VertxTestContext testContext) throws Exception {
         Instant t = Instant.now();
 
-        // Build: A(v1) → B(v2, prev=A), A → C(v3, prev=A), B → D(v4, prev=B)
+        // Chain model enforced: A(v1) → B(v2) → C(v3) → D(v4)
+        // Regardless of which event ID the caller passes to appendCorrection,
+        // the system resolves the latest version as the predecessor.
         eventStore.appendBuilder()
                 .eventType("TreeTest").payload(new TopologyEvent("A", "root", 1)).validTime(t).execute()
                 .compose(a -> eventStore.appendCorrection(a.getEventId(), "TreeTest",
@@ -385,7 +386,7 @@ class VersionFamilyTopologyTest {
                 .onSuccess(result -> testContext.verify(() -> {
                     List<BiTemporalEvent<TopologyEvent>> versions = result.getValue();
                     assertEquals(4, versions.size(),
-                            "Tree: getAllVersions from leaf D must return all 4 family members. "
+                            "Chain: getAllVersions from leaf D must return all 4 family members. "
                                     + "Got: " + versions.stream()
                                     .map(e -> e.getPayload().getId() + "/v" + e.getVersion())
                                     .collect(Collectors.joining(", ")));
@@ -398,11 +399,11 @@ class VersionFamilyTopologyTest {
     }
 
     @Test
-    @DisplayName("Tree: getAllVersions from C (sibling branch) returns all 4")
-    void treeTopologyGetAllVersionsFromSiblingBranch(VertxTestContext testContext) throws Exception {
+    @DisplayName("Chain: getAllVersions from any intermediate node returns all members")
+    void chainTopologyGetAllVersionsFromSiblingBranch(VertxTestContext testContext) throws Exception {
         Instant t = Instant.now();
 
-        // A → B(prev=A), A → C(prev=A), B → D(prev=B)
+        // Chain model enforced: A(v1) → B(v2) → C(v3) → D(v4)
         eventStore.appendBuilder()
                 .eventType("TreeSibling").payload(new TopologyEvent("A", "root", 1)).validTime(t).execute()
                 .compose(a -> eventStore.appendCorrection(a.getEventId(), "TreeSibling",
@@ -425,7 +426,7 @@ class VersionFamilyTopologyTest {
                 })
                 .onSuccess(versions -> testContext.verify(() -> {
                     assertEquals(4, versions.size(),
-                            "Tree: getAllVersions from sibling C must return all 4 family members "
+                            "Chain: getAllVersions from intermediate C must return all 4 family members "
                                     + "(the recursive CTE walks up to root A, then down to all descendants). "
                                     + "Got: " + versions.stream()
                                     .map(e -> e.getPayload().getId() + "/v" + e.getVersion())

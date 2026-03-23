@@ -48,6 +48,8 @@ import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.RowSet;
 import io.vertx.sqlclient.SqlClient;
 import io.vertx.sqlclient.Tuple;
+
+import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
@@ -89,7 +91,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     private final Class<T> payloadType;
     private final String tableName;
     private final String quotedTableName;
-    private volatile boolean closed = false;
+    private final AtomicBoolean closed = new AtomicBoolean(false);
 
     // Client ID for pool lookup - null means use default pool (resolved by
     // PgClientFactory)
@@ -306,6 +308,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         // Prepare batch data
         List<Tuple> batchParams = new ArrayList<>();
         List<String> eventIds = new ArrayList<>();
+        // Application-assigned transaction time: all events in the batch share
+        // the same value. The RETURNING clause confirms the DB-stored value.
         OffsetDateTime transactionTime = OffsetDateTime.now();
 
         for (BatchEventData<T> eventData : events) {
@@ -348,20 +352,20 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                     List<BiTemporalEvent<T>> results = new ArrayList<>();
 
                     // executeBatch returns linked RowSets — one per batch entry.
-                    // Iterate through them to extract each DB-returned transaction_time.
+                    // Each RowSet contains one RETURNING row; .next() advances to the next batch entry.
                     RowSet<Row> currentRowSet = rowSet;
                     for (int i = 0; i < events.size(); i++) {
                         BatchEventData<T> eventData = events.get(i);
                         String eventId = eventIds.get(i);
 
-                        Instant actualTransactionTime;
-                        if (currentRowSet != null && currentRowSet.iterator().hasNext()) {
-                            Row row = currentRowSet.iterator().next();
-                            actualTransactionTime = row.getOffsetDateTime("transaction_time").toInstant();
-                            currentRowSet = currentRowSet.next();
-                        } else {
-                            actualTransactionTime = transactionTime.toInstant();
+                        if (currentRowSet == null || !currentRowSet.iterator().hasNext()) {
+                            throw new IllegalStateException(
+                                    "executeBatch RETURNING produced fewer rows than batch entries "
+                                            + "(expected " + events.size() + ", got " + i + ")");
                         }
+                        Row row = currentRowSet.iterator().next();
+                        Instant actualTransactionTime = row.getOffsetDateTime("transaction_time").toInstant();
+                        currentRowSet = currentRowSet.next();
 
                         BiTemporalEvent<T> event = new SimpleBiTemporalEvent<>(
                                 eventId,
@@ -430,7 +434,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             Instant validTime,
             Map<String, String> headers, String correlationId,
             String causationId, String aggregateId) {
-        if (closed) {
+        if (closed.get()) {
             return Future.failedFuture(new IllegalStateException("Event store is closed"));
         }
 
@@ -449,6 +453,10 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             logger.debug("Serialized payload JSON: {}", payloadJson);
             logger.debug("Payload JSON type: {}", payloadJson.getClass().getSimpleName());
             String finalCorrelationId = correlationId != null ? correlationId : eventId;
+            // Application-assigned transaction time. The INSERT passes this value
+            // explicitly — the DB does not generate it. The RETURNING clause echoes
+            // back the stored value, confirming acceptance (and catching any trigger
+            // modifications).
             OffsetDateTime transactionTime = OffsetDateTime.now();
 
             // Check if Event Bus distribution is enabled
@@ -531,15 +539,18 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     /**
      * Pure Vert.x 5.x implementation of correction append using
      * Pool.withTransaction().
-     * Following PGQ coding principles: use modern Vert.x 5.x composable Future
-     * patterns.
+     *
+     * <p><b>Chain model:</b> Resolves the family root from any event ID in the lineage,
+     * acquires an advisory lock on the root, finds the latest version, and inserts the
+     * correction with {@code previous_version_id} pointing to that latest version.
+     * The caller-supplied {@code originalEventId} is used only to identify the family.</p>
      */
     private Future<BiTemporalEvent<T>> appendCorrectionWithTransaction(String originalEventId,
             String eventType, T payload,
             Instant validTime, Map<String, String> headers,
             String correlationId, String aggregateId,
             String correctionReason) {
-        if (closed) {
+        if (closed.get()) {
             return Future.failedFuture(new IllegalStateException("Event store is closed"));
         }
 
@@ -553,6 +564,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             String eventId = UUID.randomUUID().toString();
             JsonObject payloadJson = toJsonObject(payload);
             JsonObject headersJson = headersToJsonObject(headers);
+            // Application-assigned transaction time — the DB stores this value as-is.
             OffsetDateTime transactionTime = OffsetDateTime.now();
 
             // Use Pool.withTransaction for proper transaction management - following
@@ -595,32 +607,38 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                         .execute(Tuple.of(rootEventId))
                         .compose(lockResult -> {
 
-                // Step 3: Get the max version across the entire family.
-                // Now anchored from the resolved root, only the downward walk is needed.
+                // Step 3: Get the max version AND the event_id of the latest version.
+                // Chain model: previous_version_id always points to the immediate predecessor,
+                // regardless of which event ID the caller supplied.
                 String getVersionSql = """
                         WITH RECURSIVE family AS (
                             SELECT event_id FROM %1$s WHERE event_id = $1
                             UNION ALL
                             SELECT c.event_id FROM %1$s c JOIN family f ON c.previous_version_id = f.event_id
                         )
-                        SELECT COALESCE(MAX(e.version), 0) as max_version
+                        SELECT e.event_id AS latest_event_id, e.version AS max_version
                         FROM %1$s e WHERE e.event_id IN (SELECT event_id FROM family)
+                        ORDER BY e.version DESC LIMIT 1
                         """.formatted(quotedTableName);
 
                 return sqlConnection.preparedQuery(getVersionSql)
                         .execute(Tuple.of(rootEventId))
                         .compose(versionRows -> {
-                            // Calculate next version - make it effectively final
+                            // Calculate next version and resolve the latest event_id
                             final long nextVersion;
+                            final String latestEventId;
                             if (versionRows.size() > 0) {
                                 Row versionRow = versionRows.iterator().next();
                                 Long maxVersion = versionRow.getLong("max_version");
                                 nextVersion = (maxVersion != null ? maxVersion : 0L) + 1L;
+                                latestEventId = versionRow.getString("latest_event_id");
                             } else {
                                 nextVersion = 1L;
+                                latestEventId = rootEventId;
                             }
 
-                            // Step 4: Insert the correction event
+                            // Step 4: Insert the correction event.
+                            // previous_version_id is always the latest version's event_id (chain model).
                             String insertSql = """
                                     INSERT INTO %s
                                     (event_id, event_type, valid_time, transaction_time, payload, headers,
@@ -633,14 +651,14 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                             Tuple insertParams = Tuple.of(
                                     eventId, eventType, validTime.atOffset(java.time.ZoneOffset.UTC),
                                     transactionTime, payloadJson, headersJson,
-                                    nextVersion, originalEventId, correlationId, aggregateId,
+                                    nextVersion, latestEventId, correlationId, aggregateId,
                                     true, correctionReason, transactionTime);
 
                             return sqlConnection.preparedQuery(insertSql)
                                     .execute(insertParams)
                                     .map(insertRows -> {
-                                        logger.debug("Successfully appended correction event: {} for original: {}",
-                                                eventId, originalEventId);
+                                        logger.debug("Successfully appended correction event: {} (chain predecessor: {})",
+                                                eventId, latestEventId);
 
                                         Row insertRow = insertRows.iterator().next();
                                         Instant actualTransactionTime = insertRow.getOffsetDateTime("transaction_time").toInstant();
@@ -648,7 +666,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                                         // Create and return the BiTemporalEvent
                                     BiTemporalEvent<T> correctionEvent = new SimpleBiTemporalEvent<>(
                                                 eventId, eventType, payload, validTime, actualTransactionTime,
-                                                nextVersion, originalEventId, headers != null ? headers : Map.of(),
+                                                nextVersion, latestEventId, headers != null ? headers : Map.of(),
                                                 correlationId, null, aggregateId, true, correctionReason);
                                     return correctionEvent;
                                     });
@@ -762,7 +780,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             String causationId, String aggregateId,
             io.vertx.sqlclient.SqlConnection connection) {
         // Comprehensive parameter validation following outbox module patterns
-        if (closed) {
+        if (closed.get()) {
             return Future.failedFuture(new IllegalStateException("Event store is closed"));
         }
 
@@ -799,6 +817,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             }
 
             String finalCorrelationId = correlationId != null ? correlationId : eventId;
+            // Application-assigned transaction time — the DB stores this value as-is.
             OffsetDateTime transactionTime = OffsetDateTime.now();
 
             logger.debug(
@@ -953,7 +972,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
     @Override
     public Future<BiTemporalEvent<T>> getById(String eventId) {
-        if (closed) {
+        if (closed.get()) {
             return Future.failedFuture(new IllegalStateException("Event store is closed"));
         }
 
@@ -987,7 +1006,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
     @Override
     public Future<List<BiTemporalEvent<T>>> getAllVersions(String eventId) {
-        if (closed) {
+        if (closed.get()) {
             return Future.failedFuture(new IllegalStateException("Event store is closed"));
         }
 
@@ -1048,7 +1067,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
     @Override
     public Future<BiTemporalEvent<T>> getAsOfTransactionTime(String eventId, Instant asOfTransactionTime) {
-        if (closed) {
+        if (closed.get()) {
             return Future.failedFuture(new IllegalStateException("Event store is closed"));
         }
 
@@ -1116,7 +1135,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     @Override
     public Future<Void> subscribe(String eventType, String aggregateId,
             MessageHandler<BiTemporalEvent<T>> handler) {
-        if (closed) {
+        if (closed.get()) {
             return Future.failedFuture(new IllegalStateException("Event store is closed"));
         }
 
@@ -1133,7 +1152,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
     @Override
     public Future<List<String>> getUniqueAggregates(String eventType) {
-        if (closed) {
+        if (closed.get()) {
             return Future.failedFuture(new IllegalStateException("Event store is closed"));
         }
 
@@ -1166,7 +1185,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
     @Override
     public Future<EventStore.EventStoreStats> getStats() {
-        if (closed) {
+        if (closed.get()) {
             return Future.failedFuture(new IllegalStateException("Event store is closed"));
         }
 
@@ -1245,12 +1264,11 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
     @Override
     public Future<Void> close() {
-        if (closed) {
+        if (!closed.compareAndSet(false, true)) {
             return Future.succeededFuture();
         }
 
         logger.info("Closing bi-temporal event store");
-        closed = true;
 
         // Stop performance monitor timer to prevent leaks
         if (performanceMonitor != null) {
@@ -1833,7 +1851,10 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 String traceparent = message.headers().get("traceparent");
                 TraceCtx trace = TraceContextUtil.parseOrCreate(traceparent);
                 
-                // Store in the current handling context (source of truth)
+                // Store in the current handling context (source of truth).
+                // Safe: each worker verticle owns its Context and processes messages
+                // sequentially on a single event-loop thread, so this put cannot
+                // race with unrelated operations on the same Context.
                 Context ctx = Vertx.currentContext();
                 ctx.put(TraceContextUtil.CONTEXT_TRACE_KEY, trace);
                 
@@ -1900,7 +1921,9 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             // Extract operation parameters — use values generated by the caller
             String eventId = operation.getString("eventId");
             String eventType = operation.getString("eventType");
-            JsonObject payload = operation.getJsonObject("payload");
+            // Use getValue() — payload may be JsonObject, JsonArray, or a wrapped scalar,
+            // matching the types that toJsonObject() can produce and that $5::jsonb accepts.
+            Object payload = operation.getValue("payload");
             String validTimeStr = operation.getString("validTime");
             String transactionTimeStr = operation.getString("transactionTime");
             String correlationId = operation.getString("correlationId");
@@ -1919,6 +1942,9 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
             // Parse times from string to OffsetDateTime
             OffsetDateTime validTime = OffsetDateTime.parse(validTimeStr);
+            // Application-assigned transaction time: the caller generates this value,
+            // not the database. The RETURNING clause echoes back what was inserted,
+            // confirming the DB accepted it (and catching any trigger modifications).
             OffsetDateTime transactionTime = OffsetDateTime.parse(transactionTimeStr);
 
             // Use pool.withTransaction() to match the direct path's ACID semantics
@@ -2136,18 +2162,32 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             // Already on Vert.x context, execute directly
             return operation.get();
         } else {
-            // Capture Trace Context from current thread to propagate to the Vert.x context
+            // Capture Trace Context from current thread to propagate to the Vert.x context.
+            // We use thread-local MDC (not Vert.x context.put) to avoid mutating
+            // potentially-shared Context state that could leak to unrelated operations
+            // on the same Context instance.
             var traceCtx = TraceContextUtil.captureTraceContext();
 
             // Execute on Vert.x context using runOnContext
             io.vertx.core.Promise<T> promise = io.vertx.core.Promise.promise();
             context.runOnContext(v -> {
-                // Restore Trace Context inside the Vert.x event loop execution
-                try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
+                // Restore MDC for the operation invocation and keep it active
+                // through the async callback chain. The scope is closed in the
+                // terminal onSuccess/onFailure handlers so that MDC remains valid
+                // for any logging inside the Future's async continuations.
+                var scope = TraceContextUtil.mdcScope(traceCtx);
+                try {
                     operation.get()
-                            .onSuccess(promise::complete)
-                            .onFailure(promise::fail);
+                            .onSuccess(result -> {
+                                scope.close();
+                                promise.complete(result);
+                            })
+                            .onFailure(err -> {
+                                scope.close();
+                                promise.fail(err);
+                            });
                 } catch (Exception e) {
+                    scope.close();
                     promise.fail(e);
                 }
             });

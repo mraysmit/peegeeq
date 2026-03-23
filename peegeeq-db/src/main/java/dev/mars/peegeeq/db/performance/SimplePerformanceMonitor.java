@@ -164,14 +164,13 @@ public class SimplePerformanceMonitor {
     
     /**
      * Starts periodic performance metric logging.
-     * 
-     * @param vertx Vertx instance
-     * @param intervalMs Logging interval in milliseconds
-     */
-    /**
-     * Starts periodic performance metric logging. Idempotent: only one timer per monitor.
      *
-     * @param vertx Vertx instance
+     * <p><strong>Idempotent:</strong> If a periodic timer is already running, this method
+     * is a no-op. Only one timer is ever active per {@code SimplePerformanceMonitor} instance.
+     * This makes it safe to call from lazy-initialization paths (e.g. pipelined client setup)
+     * without risking duplicate timers.</p>
+     *
+     * @param vertx      Vert.x instance used to schedule the periodic timer
      * @param intervalMs Logging interval in milliseconds
      */
     public synchronized void startPeriodicLogging(Vertx vertx, long intervalMs) {
