@@ -220,6 +220,12 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     
     @Override
     public Future<Void> start(SubscriptionOptions subscriptionOptions) {
+        io.vertx.core.Context context = io.vertx.core.Vertx.currentContext();
+        if (context != null && context.isEventLoopContext()) {
+            throw new IllegalStateException(
+                    "Do not call blocking start(subscriptionOptions) on event-loop thread - use a worker thread");
+        }
+
         if (subscriptionOptions == null) {
             throw new IllegalArgumentException("subscriptionOptions cannot be null");
         }

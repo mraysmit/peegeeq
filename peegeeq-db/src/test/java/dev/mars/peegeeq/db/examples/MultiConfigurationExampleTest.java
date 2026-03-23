@@ -82,7 +82,11 @@ public class MultiConfigurationExampleTest {
         logger.info("Tearing down Multi Configuration Example Test");
 
         if (configManager != null) {
-            awaitFuture(configManager.closeReactive());
+            try {
+                awaitFuture(configManager.closeReactive());
+            } catch (Throwable e) {
+                logger.warn("Error closing configManager during tearDown: {}", e.getMessage());
+            }
         }
 
         // Clean up system properties

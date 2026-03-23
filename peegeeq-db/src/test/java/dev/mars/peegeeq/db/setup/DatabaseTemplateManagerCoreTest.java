@@ -15,6 +15,7 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.util.HashMap;
+import java.util.concurrent.ExecutionException;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -327,11 +328,12 @@ public class DatabaseTemplateManagerCoreTest extends BaseIntegrationTest {
 
     @Test
     void testDropDatabaseRejectsInjection() {
-        assertThrows(IllegalArgumentException.class, () ->
+        ExecutionException ex = assertThrows(ExecutionException.class, () ->
             reactivePool.withConnection(connection ->
                 databaseTemplateManager.dropDatabase(connection, "db; DROP TABLE users;--")
             ).toCompletionStage().toCompletableFuture().get()
         );
+        assertInstanceOf(IllegalArgumentException.class, ex.getCause());
     }
 
     @Test

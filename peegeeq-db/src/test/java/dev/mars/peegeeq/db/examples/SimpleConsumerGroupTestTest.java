@@ -75,25 +75,21 @@ public class SimpleConsumerGroupTestTest {
     }
     
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws InterruptedException {
+    void tearDown() {
         logger.info("Tearing down Simple Consumer Group Test");
 
+        // Clean up system properties first (synchronous)
+        System.getProperties().entrySet().removeIf(entry ->
+            entry.getKey().toString().startsWith("peegeeq."));
+
         if (manager != null) {
+            // Fire and forget — closeReactive() kills the manager's owned Vertx,
+            // so callbacks cannot dispatch after close. Resource cleanup completes asynchronously.
             manager.closeReactive()
-                .recover(t -> Future.succeededFuture())
-                .onComplete(v -> {
-                    System.getProperties().entrySet().removeIf(entry ->
-                        entry.getKey().toString().startsWith("peegeeq."));
-                    logger.info("✓ Simple Consumer Group Test teardown completed");
-                    testContext.completeNow();
-                });
-        } else {
-            System.getProperties().entrySet().removeIf(entry ->
-                entry.getKey().toString().startsWith("peegeeq."));
-            logger.info("✓ Simple Consumer Group Test teardown completed");
-            testContext.completeNow();
+                .recover(t -> Future.succeededFuture());
         }
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+
+        logger.info("Simple Consumer Group Test teardown completed");
     }
 
     /**

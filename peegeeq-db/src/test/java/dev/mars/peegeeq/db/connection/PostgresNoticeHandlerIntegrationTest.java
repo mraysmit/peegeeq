@@ -24,6 +24,7 @@ import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.metrics.MicrometerNoticeMetrics;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.AfterEach;
@@ -61,7 +62,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @author Mark Andrew Ray-Smith Cityline Ltd
  */
 @Tag(TestCategories.INTEGRATION)
-@ExtendWith(SharedPostgresTestExtension.class)
+@ExtendWith({SharedPostgresTestExtension.class, io.vertx.junit5.VertxExtension.class})
 @Execution(ExecutionMode.SAME_THREAD)
 public class PostgresNoticeHandlerIntegrationTest {
 
@@ -74,7 +75,7 @@ public class PostgresNoticeHandlerIntegrationTest {
     private Pool pool;
 
     @BeforeEach
-    void setUp(VertxTestContext testContext) {
+    void setUp() {
         vertx = Vertx.vertx();
         meterRegistry = new SimpleMeterRegistry();
         noticeMetrics = new MicrometerNoticeMetrics(meterRegistry);
@@ -91,16 +92,20 @@ public class PostgresNoticeHandlerIntegrationTest {
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws Exception {
+    void tearDown(VertxTestContext testContext) {
+        Future<Void> closeFuture = io.vertx.core.Future.succeededFuture();
         if (pool != null) {
-            pool.close().toCompletionStage().toCompletableFuture().get(15, TimeUnit.SECONDS);
+            closeFuture = closeFuture.compose(v -> pool.close());
         }
         if (connectionManager != null) {
-            connectionManager.closeAsync().toCompletionStage().toCompletableFuture().get(15, TimeUnit.SECONDS);
+            closeFuture = closeFuture.compose(v -> connectionManager.closeAsync());
         }
         if (vertx != null) {
-            vertx.close().toCompletionStage().toCompletableFuture().get(15, TimeUnit.SECONDS);
+            closeFuture = closeFuture.compose(v -> vertx.close());
         }
+        closeFuture
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     private Pool createPool() {

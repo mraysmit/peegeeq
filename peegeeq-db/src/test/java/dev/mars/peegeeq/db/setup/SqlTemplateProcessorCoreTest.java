@@ -14,6 +14,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ExecutionException;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -149,11 +150,12 @@ public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
         Map<String, String> parameters = new HashMap<>();
         parameters.put("TABLE_NAME", "test'; DROP TABLE users;--");
 
-        assertThrows(IllegalArgumentException.class, () ->
+        ExecutionException ex = assertThrows(ExecutionException.class, () ->
             reactivePool.withConnection(connection ->
                 sqlTemplateProcessor.applyTemplateReactive(connection, "test-simple-table.sql", parameters)
             ).toCompletionStage().toCompletableFuture().get()
         );
+        assertInstanceOf(IllegalArgumentException.class, ex.getCause());
     }
 
     @Test
@@ -161,11 +163,12 @@ public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
         Map<String, String> parameters = new HashMap<>();
         parameters.put("TABLE_NAME", "test; DROP TABLE users");
 
-        assertThrows(IllegalArgumentException.class, () ->
+        ExecutionException ex = assertThrows(ExecutionException.class, () ->
             reactivePool.withConnection(connection ->
                 sqlTemplateProcessor.applyTemplateReactive(connection, "test-simple-table.sql", parameters)
             ).toCompletionStage().toCompletableFuture().get()
         );
+        assertInstanceOf(IllegalArgumentException.class, ex.getCause());
     }
 
     @Test
@@ -173,11 +176,12 @@ public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
         Map<String, String> parameters = new HashMap<>();
         parameters.put("TABLE_NAME", "test--drop");
 
-        assertThrows(IllegalArgumentException.class, () ->
+        ExecutionException ex = assertThrows(ExecutionException.class, () ->
             reactivePool.withConnection(connection ->
                 sqlTemplateProcessor.applyTemplateReactive(connection, "test-simple-table.sql", parameters)
             ).toCompletionStage().toCompletableFuture().get()
         );
+        assertInstanceOf(IllegalArgumentException.class, ex.getCause());
     }
 
     @Test
@@ -185,11 +189,12 @@ public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
         Map<String, String> parameters = new HashMap<>();
         parameters.put("TABLE_NAME", "test/*injection*/");
 
-        assertThrows(IllegalArgumentException.class, () ->
+        ExecutionException ex = assertThrows(ExecutionException.class, () ->
             reactivePool.withConnection(connection ->
                 sqlTemplateProcessor.applyTemplateReactive(connection, "test-simple-table.sql", parameters)
             ).toCompletionStage().toCompletableFuture().get()
         );
+        assertInstanceOf(IllegalArgumentException.class, ex.getCause());
     }
 }
 

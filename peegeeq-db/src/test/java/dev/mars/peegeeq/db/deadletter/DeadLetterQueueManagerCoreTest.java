@@ -17,6 +17,8 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.junit.jupiter.api.parallel.ResourceAccessMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Instant;
@@ -44,6 +46,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag(TestCategories.CORE)
 @ExtendWith(VertxExtension.class)
 @Execution(ExecutionMode.SAME_THREAD)  // Run tests sequentially to avoid data conflicts
+@ResourceLock(value = "dead-letter-queue-database", mode = ResourceAccessMode.READ_WRITE)
 public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
 
     private PgConnectionManager connectionManager;

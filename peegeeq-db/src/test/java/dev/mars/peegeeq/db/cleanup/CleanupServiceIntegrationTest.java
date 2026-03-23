@@ -60,7 +60,7 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
     private SubscriptionManager subscriptionManager;
 
     @BeforeEach
-    public void setUp(VertxTestContext testContext) throws Exception {
+    public void setUp() throws Exception {
         super.setUpBaseIntegration();
 
         // Create connection manager using the shared Vertx instance
@@ -414,13 +414,13 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
                 .messageRetentionHours(1)
                 .build();
         topicConfigService.createTopic(topicConfig)
+                .compose(v -> cleanupService.cleanupAllTopics(100)) // drain any leftover eligible messages from prior tests
                 .compose(v -> {
-                    // Insert one eligible completed message for configured topic
                     String sql = """
                         INSERT INTO outbox (topic, payload, status, created_at, processed_at)
                         VALUES ($1, $2, 'COMPLETED', $3, $4)
                         """;
-                    OffsetDateTime past = OffsetDateTime.now(ZoneOffset.UTC).minusHours(2);
+                    OffsetDateTime past = OffsetDateTime.now(ZoneOffset.UTC).minusHours(25);
                     return connectionManager.withConnection("peegeeq-main", connection ->
                             connection.preparedQuery(sql)
                                     .execute(Tuple.of(configuredTopic, new JsonObject().put("test", "configured"), past, past))

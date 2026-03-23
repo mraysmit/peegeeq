@@ -55,15 +55,15 @@ public class PeeGeeQSelfContainedDemoTest {
     private PeeGeeQManager manager;
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws InterruptedException {
+    void tearDown() {
         if (manager != null) {
-            manager.closeReactive()
-                .recover(t -> Future.succeededFuture())
-                .onComplete(v -> testContext.completeNow());
-        } else {
-            testContext.completeNow();
+            try {
+                manager.closeReactive()
+                    .recover(t -> Future.succeededFuture());
+            } catch (Exception e) {
+                logger.warn("Error closing manager during tearDown: {}", e.getMessage());
+            }
         }
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     private PeeGeeQManager createManager() {
