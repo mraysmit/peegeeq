@@ -18,6 +18,7 @@ package dev.mars.peegeeq.outbox;
 
 import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.api.messaging.Message;
+import dev.mars.peegeeq.api.messaging.RejectedMessageException;
 import dev.mars.peegeeq.api.messaging.ServerSideFilter;
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.database.MetricsProvider;
@@ -534,6 +535,15 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                 Throwable rootCause = error;
                 if (error instanceof CompletionException && error.getCause() != null) {
                     rootCause = error.getCause();
+                }
+
+                // Permanently rejected messages should go to dead letter queue
+                if (rootCause instanceof RejectedMessageException) {
+                    logger.info("Message {} permanently rejected by consumer group: {}",
+                            messageId, rootCause.getMessage());
+                    metrics.recordMessageFailed(topic, "REJECTED");
+                    return handleMessageFailureWithRetry(messageId,
+                            "REJECTED: " + rootCause.getMessage());
                 }
 
                 // Filtered messages should be reset to PENDING, not treated as failures

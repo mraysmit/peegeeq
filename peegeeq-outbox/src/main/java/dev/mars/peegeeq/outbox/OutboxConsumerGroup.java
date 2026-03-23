@@ -25,6 +25,7 @@ import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.ConsumerGroupMember;
 import dev.mars.peegeeq.api.messaging.ConsumerGroupStats;
 import dev.mars.peegeeq.api.messaging.ConsumerMemberStats;
+import dev.mars.peegeeq.api.messaging.RejectedMessageException;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
@@ -35,8 +36,8 @@ import org.slf4j.LoggerFactory;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 
 /**
@@ -52,7 +53,16 @@ import java.util.function.Predicate;
 public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.ConsumerGroup<T> {
     
     private static final Logger logger = LoggerFactory.getLogger(OutboxConsumerGroup.class);
-    
+
+    /**
+     * Lifecycle states for the consumer group. Transitions:
+     * <pre>
+     *   NEW → STARTING → ACTIVE → STOPPING → NEW (restartable)
+     *   Any state → CLOSED (terminal)
+     * </pre>
+     */
+    enum State { NEW, STARTING, ACTIVE, STOPPING, CLOSED }
+
     private final String groupName;
     private final String topic;
     private final Class<T> payloadType;
@@ -65,15 +75,93 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     private final Instant createdAt;
 
     private final Map<String, OutboxConsumerGroupMember<T>> members = new ConcurrentHashMap<>();
-    private final AtomicBoolean active = new AtomicBoolean(false);
-    private final AtomicBoolean closed = new AtomicBoolean(false);
-    private final AtomicLong totalMessagesProcessed = new AtomicLong(0);
-    private final AtomicLong totalMessagesFailed = new AtomicLong(0);
+    private final AtomicReference<State> state = new AtomicReference<>(State.NEW);
     private final AtomicLong totalMessagesFiltered = new AtomicLong(0);
 
     private volatile Predicate<Message<T>> groupFilter;
     private volatile MessageConsumer<T> underlyingConsumer;
 
+    /**
+     * Builder for constructing {@link OutboxConsumerGroup} instances.
+     *
+     * @param <T> The type of message payload
+     */
+    public static final class Builder<T> {
+        private String groupName;
+        private String topic;
+        private Class<T> payloadType;
+        private PgClientFactory clientFactory;
+        private dev.mars.peegeeq.api.database.DatabaseService databaseService;
+        private ObjectMapper objectMapper;
+        private MetricsProvider metrics;
+        private PeeGeeQConfiguration configuration;
+        private String clientId;
+
+        public Builder<T> groupName(String groupName) {
+            this.groupName = groupName;
+            return this;
+        }
+
+        public Builder<T> topic(String topic) {
+            this.topic = topic;
+            return this;
+        }
+
+        public Builder<T> payloadType(Class<T> payloadType) {
+            this.payloadType = payloadType;
+            return this;
+        }
+
+        public Builder<T> clientFactory(PgClientFactory clientFactory) {
+            this.clientFactory = clientFactory;
+            return this;
+        }
+
+        public Builder<T> databaseService(dev.mars.peegeeq.api.database.DatabaseService databaseService) {
+            this.databaseService = databaseService;
+            return this;
+        }
+
+        public Builder<T> objectMapper(ObjectMapper objectMapper) {
+            this.objectMapper = objectMapper;
+            return this;
+        }
+
+        public Builder<T> metrics(MetricsProvider metrics) {
+            this.metrics = metrics;
+            return this;
+        }
+
+        public Builder<T> configuration(PeeGeeQConfiguration configuration) {
+            this.configuration = configuration;
+            return this;
+        }
+
+        public Builder<T> clientId(String clientId) {
+            this.clientId = clientId;
+            return this;
+        }
+
+        public OutboxConsumerGroup<T> build() {
+            Objects.requireNonNull(groupName, "groupName");
+            Objects.requireNonNull(topic, "topic");
+            Objects.requireNonNull(payloadType, "payloadType");
+            if (clientFactory == null && databaseService == null) {
+                throw new IllegalStateException("Either clientFactory or databaseService must be provided");
+            }
+            if (clientFactory != null && databaseService != null) {
+                throw new IllegalStateException("Only one of clientFactory or databaseService may be provided");
+            }
+            return new OutboxConsumerGroup<>(groupName, topic, payloadType,
+                    clientFactory, databaseService, objectMapper, metrics, configuration, clientId);
+        }
+    }
+
+    public static <T> Builder<T> builder() {
+        return new Builder<>();
+    }
+
+    // Keep public constructors for backward compatibility with existing callers
     public OutboxConsumerGroup(String groupName, String topic, Class<T> payloadType,
                               PgClientFactory clientFactory, ObjectMapper objectMapper, MetricsProvider metrics,
                               PeeGeeQConfiguration configuration) {
@@ -105,9 +193,9 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
                                dev.mars.peegeeq.api.database.DatabaseService databaseService,
                                ObjectMapper objectMapper, MetricsProvider metrics,
                                PeeGeeQConfiguration configuration, String clientId) {
-        this.groupName = groupName;
-        this.topic = topic;
-        this.payloadType = payloadType;
+        this.groupName = Objects.requireNonNull(groupName, "groupName");
+        this.topic = Objects.requireNonNull(topic, "topic");
+        this.payloadType = Objects.requireNonNull(payloadType, "payloadType");
         this.clientFactory = clientFactory;
         this.databaseService = databaseService;
         this.objectMapper = objectMapper;
@@ -118,6 +206,12 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
 
         logger.info("Created outbox consumer group '{}' for topic '{}' (clientId: {})",
                 groupName, topic, clientId != null ? clientId : "default");
+    }
+
+    // -- Package-private state accessor for testing --
+
+    State getState() {
+        return state.get();
     }
     
     @Override
@@ -138,26 +232,29 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     @Override
     public ConsumerGroupMember<T> addConsumer(String consumerId, MessageHandler<T> handler, 
                                              Predicate<Message<T>> messageFilter) {
-        if (closed.get()) {
+        Objects.requireNonNull(consumerId, "consumerId");
+        Objects.requireNonNull(handler, "handler");
+
+        State current = state.get();
+        if (current == State.CLOSED) {
             throw new IllegalStateException("Consumer group is closed");
-        }
-        
-        if (members.containsKey(consumerId)) {
-            throw new IllegalArgumentException("Consumer with ID '" + consumerId + "' already exists in group");
         }
         
         OutboxConsumerGroupMember<T> member = new OutboxConsumerGroupMember<>(
             consumerId, groupName, topic, handler, messageFilter, this
         );
         
-        members.put(consumerId, member);
+        OutboxConsumerGroupMember<T> existing = members.putIfAbsent(consumerId, member);
+        if (existing != null) {
+            throw new IllegalArgumentException("Consumer with ID '" + consumerId + "' already exists in group");
+        }
         
         // If the group is already active, start the new member
-        if (active.get()) {
+        if (state.get() == State.ACTIVE) {
             member.start();
         }
         
-        logger.info("Added consumer '{}' to outbox group '{}' for topic '{}'", consumerId, groupName, topic);
+        logger.debug("Added consumer '{}' to outbox group '{}' for topic '{}'", consumerId, groupName, topic);
         return member;
     }
     
@@ -167,7 +264,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
         if (member != null) {
             member.stop();
             member.close();
-            logger.info("Removed consumer '{}' from outbox group '{}' for topic '{}'", consumerId, groupName, topic);
+            logger.debug("Removed consumer '{}' from outbox group '{}' for topic '{}'", consumerId, groupName, topic);
             return true;
         }
         return false;
@@ -187,11 +284,19 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     
     @Override
     public void start() {
-        if (closed.get()) {
-            throw new IllegalStateException("Consumer group is closed");
+        if (!state.compareAndSet(State.NEW, State.STARTING)) {
+            State current = state.get();
+            if (current == State.CLOSED) {
+                throw new IllegalStateException("Consumer group is closed");
+            }
+            if (current == State.ACTIVE || current == State.STARTING) {
+                // Already started or starting — idempotent
+                return;
+            }
+            throw new IllegalStateException("Cannot start consumer group in state: " + current);
         }
-        
-        if (active.compareAndSet(false, true)) {
+
+        try {
             logger.info("Starting outbox consumer group '{}' for topic '{}'", groupName, topic);
 
             // Create the underlying consumer that will receive all messages
@@ -214,28 +319,32 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
             // Start all existing members
             members.values().forEach(OutboxConsumerGroupMember::start);
 
+            state.set(State.ACTIVE);
             logger.info("Outbox consumer group '{}' started with {} members", groupName, members.size());
+        } catch (Exception e) {
+            state.set(State.NEW);
+            throw e;
         }
     }
     
     @Override
     public Future<Void> start(SubscriptionOptions subscriptionOptions) {
-        io.vertx.core.Context context = io.vertx.core.Vertx.currentContext();
-        if (context != null && context.isEventLoopContext()) {
-            throw new IllegalStateException(
-                    "Do not call blocking start(subscriptionOptions) on event-loop thread - use a worker thread");
-        }
-
         if (subscriptionOptions == null) {
             throw new IllegalArgumentException("subscriptionOptions cannot be null");
         }
 
-        if (active.get()) {
-            throw new IllegalStateException("Consumer group is already active");
-        }
-
-        if (closed.get()) {
-            throw new IllegalStateException("Consumer group is closed");
+        if (!state.compareAndSet(State.NEW, State.STARTING)) {
+            State current = state.get();
+            if (current == State.ACTIVE || current == State.STARTING) {
+                return Future.failedFuture(
+                        new IllegalStateException("Consumer group is already active or starting"));
+            }
+            if (current == State.CLOSED) {
+                return Future.failedFuture(
+                        new IllegalStateException("Consumer group is closed"));
+            }
+            return Future.failedFuture(
+                    new IllegalStateException("Cannot start consumer group in state: " + current));
         }
 
         logger.info("Starting outbox consumer group '{}' for topic '{}' with subscription options: {}",
@@ -247,22 +356,63 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
 
             return databaseService.getSubscriptionService()
                 .subscribe(topic, groupName, subscriptionOptions)
-                .map(v -> {
+                .compose(v -> {
                     logger.info("Subscription created successfully for group '{}' on topic '{}'", groupName, topic);
-                    start();
-                    return null;
+                    // Transition from STARTING to ACTIVE via the internal start path
+                    try {
+                        startInternal();
+                        return Future.<Void>succeededFuture();
+                    } catch (Exception e) {
+                        state.set(State.NEW);
+                        return Future.failedFuture(e);
+                    }
+                })
+                .recover(err -> {
+                    state.set(State.NEW);
+                    return Future.failedFuture(err);
                 });
         } else {
             logger.warn("DatabaseService is null - cannot create subscription. " +
                        "Subscription must be created manually via SubscriptionManager before starting.");
-            start();
-            return Future.succeededFuture();
+            try {
+                startInternal();
+                return Future.succeededFuture();
+            } catch (Exception e) {
+                state.set(State.NEW);
+                return Future.failedFuture(e);
+            }
         }
+    }
+
+    /**
+     * Internal start logic — assumes state is already STARTING.
+     * Transitions to ACTIVE on success.
+     */
+    private void startInternal() {
+        OutboxConsumer<T> outboxConsumer;
+        if (clientFactory != null) {
+            outboxConsumer = new OutboxConsumer<>(clientFactory, objectMapper, topic, payloadType, metrics, configuration, clientId);
+        } else if (databaseService != null) {
+            outboxConsumer = new OutboxConsumer<>(databaseService, objectMapper, topic, payloadType, metrics, configuration, clientId);
+        } else {
+            throw new IllegalStateException("Both clientFactory and databaseService are null");
+        }
+        underlyingConsumer = outboxConsumer;
+        outboxConsumer.setConsumerGroupName(groupName);
+        underlyingConsumer.subscribe(this::distributeMessage);
+        members.values().forEach(OutboxConsumerGroupMember::start);
+        state.set(State.ACTIVE);
+        logger.info("Outbox consumer group '{}' started with {} members", groupName, members.size());
     }
     
     @Override
     public void stop() {
-        if (active.compareAndSet(true, false)) {
+        if (!state.compareAndSet(State.ACTIVE, State.STOPPING)) {
+            // Not active — nothing to stop
+            return;
+        }
+
+        try {
             logger.info("Stopping outbox consumer group '{}' for topic '{}'", groupName, topic);
             
             // Stop all members
@@ -276,46 +426,43 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
             }
             
             logger.info("Outbox consumer group '{}' stopped", groupName);
+        } finally {
+            state.set(State.NEW);
         }
     }
     
     @Override
     public boolean isActive() {
-        return active.get() && !closed.get();
+        return state.get() == State.ACTIVE;
     }
     
     @Override
     public ConsumerGroupStats getStats() {
         Map<String, ConsumerMemberStats> memberStats = new HashMap<>();
-        Instant lastActiveAt = createdAt;
+        Instant lastActiveAt = null;
+        long totalProcessed = 0;
+        long totalFailed = 0;
+        double weightedTotalMs = 0.0;
+        double messagesPerSecond = 0.0;
         
         for (OutboxConsumerGroupMember<T> member : members.values()) {
             ConsumerMemberStats stats = member.getStats();
             memberStats.put(member.getConsumerId(), stats);
             
-            if (stats.getLastActiveAt() != null && stats.getLastActiveAt().isAfter(lastActiveAt)) {
-                lastActiveAt = stats.getLastActiveAt();
+            if (stats.getLastActiveAt() != null) {
+                if (lastActiveAt == null || stats.getLastActiveAt().isAfter(lastActiveAt)) {
+                    lastActiveAt = stats.getLastActiveAt();
+                }
             }
+
+            long processed = member.getProcessedMessageCount();
+            totalProcessed += processed;
+            totalFailed += member.getFailedMessageCount();
+            weightedTotalMs += stats.getAverageProcessingTimeMs() * processed;
+            messagesPerSecond += stats.getMessagesPerSecond();
         }
         
-        // Calculate aggregate statistics
-        long totalProcessed = members.values().stream()
-            .mapToLong(OutboxConsumerGroupMember::getProcessedMessageCount)
-            .sum();
-        
-        long totalFailed = members.values().stream()
-            .mapToLong(OutboxConsumerGroupMember::getFailedMessageCount)
-            .sum();
-        
-        double avgProcessingTime = members.values().stream()
-            .mapToDouble(member -> member.getStats().getAverageProcessingTimeMs())
-            .average()
-            .orElse(0.0);
-        
-        // Calculate messages per second (rough estimate)
-        double messagesPerSecond = members.values().stream()
-            .mapToDouble(member -> member.getStats().getMessagesPerSecond())
-            .sum();
+        double avgProcessingTime = totalProcessed == 0 ? 0.0 : weightedTotalMs / totalProcessed;
         
         return new ConsumerGroupStats(
             groupName, topic, getActiveConsumerCount(), members.size(),
@@ -325,32 +472,42 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     }
     
     @Override
-    public synchronized ConsumerGroupMember<T> setMessageHandler(MessageHandler<T> handler) {
-        if (handler == null) {
-            throw new NullPointerException("handler cannot be null");
-        }
+    public ConsumerGroupMember<T> setMessageHandler(MessageHandler<T> handler) {
+        Objects.requireNonNull(handler, "handler");
         
-        if (closed.get()) {
+        State current = state.get();
+        if (current == State.CLOSED) {
             throw new IllegalStateException("Consumer group is closed");
         }
         
-        // Check if a default consumer already exists
+        // Use putIfAbsent to atomically check and set the default consumer
         String defaultConsumerId = groupName + "-default-consumer";
-        if (members.containsKey(defaultConsumerId)) {
+
+        OutboxConsumerGroupMember<T> member = new OutboxConsumerGroupMember<>(
+            defaultConsumerId, groupName, topic, handler, null, this
+        );
+
+        OutboxConsumerGroupMember<T> existing = members.putIfAbsent(defaultConsumerId, member);
+        if (existing != null) {
             throw new IllegalStateException(
                 "A message handler has already been set for this consumer group. " +
                 "Use addConsumer() for multiple consumers."
             );
         }
+
+        // If the group is already active, start the new member
+        if (state.get() == State.ACTIVE) {
+            member.start();
+        }
         
-        logger.info("Setting default message handler for outbox consumer group '{}'", groupName);
-        return addConsumer(defaultConsumerId, handler);
+        logger.debug("Set default message handler for outbox consumer group '{}'", groupName);
+        return member;
     }
     
     @Override
     public void setGroupFilter(Predicate<Message<T>> groupFilter) {
         this.groupFilter = groupFilter;
-        logger.info("Set group filter for outbox consumer group '{}'", groupName);
+        logger.debug("Set group filter for outbox consumer group '{}'", groupName);
     }
     
     @Override
@@ -360,30 +517,49 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     
     @Override
     public void close() {
-        if (closed.compareAndSet(false, true)) {
-            logger.info("Closing outbox consumer group '{}' for topic '{}'", groupName, topic);
-            
-            stop();
-            
-            // Close all members
-            members.values().forEach(OutboxConsumerGroupMember::close);
-            members.clear();
-            
-            logger.info("Outbox consumer group '{}' closed", groupName);
+        State prev = state.getAndSet(State.CLOSED);
+        if (prev == State.CLOSED) {
+            return; // already closed
         }
+
+        logger.info("Closing outbox consumer group '{}' for topic '{}'", groupName, topic);
+
+        // If we were active, stop first
+        if (prev == State.ACTIVE) {
+            // Stop the underlying consumer directly (no state transition since we're going to CLOSED)
+            members.values().forEach(OutboxConsumerGroupMember::stop);
+            if (underlyingConsumer != null) {
+                underlyingConsumer.unsubscribe();
+                underlyingConsumer.close();
+                underlyingConsumer = null;
+            }
+        }
+
+        // Close all members
+        members.values().forEach(OutboxConsumerGroupMember::close);
+        members.clear();
+
+        logger.info("Outbox consumer group '{}' closed", groupName);
     }
     
     /**
      * Distributes a message to the appropriate consumer group member.
-     * Applies group-level filtering and load balancing.
+     * Applies group-level filtering and deterministic hash-based routing.
+     *
+     * <p>Failure semantics:</p>
+     * <ul>
+     *   <li>Group filter permanent rejection → {@link RejectedMessageException} → dead letter queue</li>
+     *   <li>No eligible consumer (transient) → {@link MessageFilteredException} → reset to PENDING</li>
+     *   <li>Handler processing failure → propagated as-is for retry/DLQ handling by OutboxConsumer</li>
+     * </ul>
      */
     private Future<Void> distributeMessage(Message<T> message) {
-        // Apply group-level filter first
+        // Apply group-level filter first — permanent rejection
         if (groupFilter != null && !groupFilter.test(message)) {
             totalMessagesFiltered.incrementAndGet();
-            logger.debug("Message {} filtered out by outbox group filter", message.getId());
+            logger.debug("Message {} permanently rejected by outbox group filter", message.getId());
             return Future.failedFuture(
-                    new MessageFilteredException(message.getId(), groupName, "rejected by group filter"));
+                    new RejectedMessageException(message.getId(), groupName, "rejected by group filter"));
         }
         
         // Find eligible consumers (those whose filters accept the message)
@@ -401,27 +577,23 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
                     new MessageFilteredException(message.getId(), groupName, "no eligible consumer in group"));
         }
         
-        // Simple round-robin load balancing
+        // Deterministic hash-based routing on message ID
         OutboxConsumerGroupMember<T> selectedConsumer = selectConsumer(eligibleConsumers, message);
         
         logger.debug("Distributing message {} to consumer '{}' in outbox group '{}'", 
             message.getId(), selectedConsumer.getConsumerId(), groupName);
         
-        return selectedConsumer.processMessage(message)
-            .onSuccess(result -> totalMessagesProcessed.incrementAndGet())
-            .onFailure(error -> totalMessagesFailed.incrementAndGet());
+        return selectedConsumer.processMessage(message);
     }
     
     /**
-     * Selects a consumer from the eligible consumers using load balancing strategy.
-     * Currently implements simple round-robin based on message ID hash.
+     * Selects a consumer using deterministic hash-based routing on message ID.
+     * Messages with the same ID will consistently route to the same consumer
+     * (given a stable eligible consumer set).
      */
     private OutboxConsumerGroupMember<T> selectConsumer(List<OutboxConsumerGroupMember<T>> eligibleConsumers, 
                                                        Message<T> message) {
-        // Use message ID hash for consistent distribution
         int index = Math.floorMod(message.getId().hashCode(), eligibleConsumers.size());
         return eligibleConsumers.get(index);
     }
-
-
 }

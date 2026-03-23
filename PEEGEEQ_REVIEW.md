@@ -1,633 +1,524 @@
-This is serious code, and parts of it are good. It is not toy reactive code.
+Good bones, but there are a few real production-grade problems here. The class is readable and the intent is clear, but the lifecycle, concurrency, and failure semantics are not tight enough yet.
 
-The good first:
+My review is limited to this class only. The real truth depends on what `OutboxConsumer`, `OutboxConsumerGroupMember`, and your Postgres claim/reset semantics actually do.
 
-* you are using Vert.x `Future` composition rather than callback soup
-* constructor dependency setup is mostly clean and immutable
-* table-name validation is the right instinct
-* append parameter validation is better than most codebases
-* lazy startup of notification machinery is sensible
-* separating pooled transactional work from higher-throughput read/write clients is a real architectural choice, not cargo cult
+Vert.x 5’s model is still: don’t block the event loop, and handler execution is context-sensitive, so anything here that serializes on JVM locks or assumes single-threaded access needs to be treated carefully. ([vertx.io][1])
 
-Now the blunt part: this class is doing too much, and there are several correctness and reactive-design problems that matter more than style.
+## What is good
 
-## Overall verdict
+A few things are solid:
 
-I would not sign this off yet for production as a core event store.
+* Clear separation between group-level routing and member-level processing.
+* Constructor overloads are pragmatic.
+* `AtomicBoolean` for lifecycle flags is directionally right.
+* `Predicate<Message<T>>` for group/member filtering is a nice clean API.
+* Returning `Future<Void>` from `distributeMessage` is the right shape for Vert.x 5.
+* You are at least thinking about “filtered” versus “failed”, which matters a lot in queue systems.
 
-Main reasons:
+## The biggest problems
 
-1. **event version-chain semantics are inconsistent**
-2. **transaction/context semantics are overstated and partly misleading**
-3. **the event-bus distribution path is not equivalent to the direct DB path**
-4. **there are a few real race/correctness bugs**
-5. **resource ownership/lifecycle is too loose for infrastructure code**
-6. **some query/result mapping choices are unsafe or just wrong**
+### 1. `start(SubscriptionOptions)` has a race and inconsistent lifecycle semantics
+
+This is the biggest design flaw in the class.
+
+You do this:
+
+```java
+if (active.get()) {
+    throw new IllegalStateException("Consumer group is already active");
+}
+```
+
+Then later, asynchronously:
+
+```java
+.subscribe(topic, groupName, subscriptionOptions)
+.map(v -> {
+    start();
+    return null;
+});
+```
+
+That is not safe.
+
+Two concurrent callers can both pass `active.get() == false`, both create the subscription, and then race into `start()`. One may fail, or worse, you may create duplicate external state before the second one blows up.
+
+Also, `active` is only flipped inside `start()`, not when async startup begins. So your state model is effectively:
+
+* “not active”
+* “maybe starting but still looks inactive”
+* “active”
+
+That is not good enough for a queue consumer.
+
+**What to do instead:**
+Use a real state machine, not two booleans.
+
+Example:
+
+```java
+enum State { NEW, STARTING, ACTIVE, STOPPING, CLOSED }
+private final AtomicReference<State> state = new AtomicReference<>(State.NEW);
+```
+
+Then `start(subscriptionOptions)` should CAS `NEW -> STARTING` once, and only transition to `ACTIVE` after everything succeeds. On failure, go back to `NEW` or `CLOSED`, depending on policy.
+
+Right now the lifecycle is too loose.
 
 ---
 
-# 1. The biggest domain bug: version lineage is muddled
+### 2. `start(subscriptionOptions)` claims to be blocking, but it is not
 
-Your correction model is not internally consistent.
+This comment/guard is misleading:
 
-## What the code currently does
+```java
+if (context != null && context.isEventLoopContext()) {
+    throw new IllegalStateException(
+        "Do not call blocking start(subscriptionOptions) on event-loop thread - use a worker thread");
+}
+```
 
-In `appendCorrectionWithTransaction(...)` you insert:
+But the method returns `Future<Void>`. It is not inherently blocking.
 
-* `event_id = new UUID`
-* `previous_version_id = originalEventId`
-* `version = MAX(version) + 1` from rows where `event_id = $1 OR previous_version_id = $1`
+Unless `databaseService.getSubscriptionService().subscribe(...)` is actually blocking internally, this guard is wrong and will annoy callers for no good reason.
 
-That means one of two things is intended:
+In Vert.x, async startup methods are exactly what you *should* call from an event loop context, provided they do not block. ([vertx.io][1])
 
-### Model A: chain model
+So either:
 
-Each correction points to the immediately previous version.
+* remove that guard, or
+* rename/document the method honestly if it really does blocking work under the covers.
 
-If that is the intended model, your code is wrong, because:
+As written, the API contract is confused.
 
-* `getAllVersions(...)` only fetches one level:
-  `WHERE event_id = $1 OR previous_version_id = $1`
-* version calculation is only safe if callers always pass the root or always pass the right prior node
-* `getById(...)` and `getAsOfTransactionTime(...)` do not line up cleanly with this interpretation
+---
 
-### Model B: star model
+### 3. `containsKey` + `put` is a race
 
-Every correction points back to the original root event.
+Here:
 
-If that is the intended model, then:
+```java
+if (members.containsKey(consumerId)) {
+    throw new IllegalArgumentException("Consumer with ID '" + consumerId + "' already exists in group");
+}
+...
+members.put(consumerId, member);
+```
 
-* `previous_version_id` is a misleading field name
-* `getAllVersions(...)` is only correct if all corrections always point to the same root
-* the API name `originalEventId` is doing a lot of semantic work and callers can easily break the model by passing a non-root version
+That is classic check-then-act race on a concurrent map.
 
-Right now it looks like a hybrid. That is dangerous.
+Two threads can both pass `containsKey`, both create a member, and one silently overwrites the other.
 
-## Worse: concurrent correction versioning is unsafe
+Use `putIfAbsent`:
 
-This is the real production bug.
+```java
+OutboxConsumerGroupMember<T> existing = members.putIfAbsent(consumerId, member);
+if (existing != null) {
+    throw new IllegalArgumentException(...);
+}
+```
+
+Same kind of issue exists in `setMessageHandler()` with the default ID path.
+
+---
+
+### 4. Your “round-robin” is not round-robin
+
+This comment is wrong:
+
+```java
+// Simple round-robin load balancing
+```
+
+This code:
+
+```java
+int index = Math.floorMod(message.getId().hashCode(), eligibleConsumers.size());
+```
+
+is deterministic hash partitioning, not round-robin.
+
+That matters because:
+
+* it gives sticky routing by message ID
+* it can skew badly if IDs are not well distributed
+* it does not balance based on live load
+* if the eligible consumer set changes, routing jumps unpredictably
+
+So either rename it honestly:
+
+* “hash-based partitioning”
+* “deterministic sticky routing”
+
+or implement actual round-robin with an atomic cursor.
+
+For message queues, this choice is architectural, not cosmetic.
+
+---
+
+### 5. Failure semantics for filtered / no-eligible-consumer look dangerous
+
+This bit worries me a lot:
+
+```java
+return Future.failedFuture(
+    new MessageFilteredException(message.getId(), groupName, "rejected by group filter"));
+```
+
+and again:
+
+```java
+return Future.failedFuture(
+    new MessageFilteredException(message.getId(), groupName, "no eligible consumer in group"));
+```
+
+Whether this is correct depends entirely on what `OutboxConsumer` does when the handler future fails.
+
+If underlying failure means:
+
+* release claim
+* reset to `PENDING`
+* retry later
+
+then you may have created a hot-loop poison message.
+
+A message that is permanently filtered out or permanently has no eligible consumer should usually not be treated the same as transient processing failure.
+
+You need at least three outcomes, not just success/failure:
+
+1. **processed successfully**
+2. **transient failure; retry**
+3. **rejected / unroutable / permanently ignored**
+
+Right now you are encoding 2 and 3 both as failed futures. That is often wrong in queue systems.
+
+This is probably the most important semantic question in the whole design.
+
+---
+
+### 6. No protection against concurrent delivery to the same member
+
+You select a member and call:
+
+```java
+selectedConsumer.processMessage(message)
+```
+
+But I see no evidence here that one member processes one message at a time.
+
+If `underlyingConsumer.subscribe(...)` can deliver multiple messages concurrently, the same member may receive overlapping calls. That may be fine, but only if:
+
+* handler code is thread-safe
+* ordering does not matter
+* member state is concurrency-safe
+* backpressure is handled
+
+If you want each group member to behave like a single logical consumer, you usually want explicit in-flight limits per member, often `1` by default.
+
+Without seeing `OutboxConsumerGroupMember`, I would treat this as a likely correctness risk.
+
+---
+
+### 7. `getStats()` computes misleading aggregates
+
+This line is mathematically wrong for heterogeneous workloads:
+
+```java
+double avgProcessingTime = members.values().stream()
+    .mapToDouble(member -> member.getStats().getAverageProcessingTimeMs())
+    .average()
+    .orElse(0.0);
+```
+
+That is an **average of averages**. If one member processed 10 messages and another processed 10 million, this result is garbage.
+
+You need a weighted average.
+
+Similarly:
+
+```java
+Instant lastActiveAt = createdAt;
+```
+
+means a never-used group looks “active” since creation time, which is misleading.
+
+Also, you recompute `totalProcessed` and `totalFailed` from member stats, while also keeping:
+
+```java
+totalMessagesProcessed
+totalMessagesFailed
+```
+
+Those counters are then partially redundant and partially inconsistent because `getStats()` ignores them.
+
+Pick one source of truth.
+
+---
+
+### 8. Stop/close semantics are not robust enough for async resources
 
 You do:
 
-1. `SELECT COALESCE(MAX(version), 0)`
-2. compute `nextVersion`
-3. insert row
-
-Two concurrent corrections can compute the same `nextVersion`.
-
-That is a classic race.
-
-You need one of:
-
-* a **unique constraint** on the version family plus retry
-* `SELECT ... FOR UPDATE` on a root/family row
-* a dedicated version-allocation table
-* or redesign so version is DB-assigned atomically
-
-For an event store, this is not optional.
-
----
-
-# 2. `TransactionPropagation.CONTEXT` is presented as stronger than it really is
-
-You clearly care about transaction participation, which is good. But the implementation over-promises.
-
-## The problem
-
-`appendWithTransactionInternal(...)` calls:
-
-* `executeOnVertxContext(sharedVertx, () -> pool.withTransaction(...))`
-
-and your comment says this ensures proper `TransactionPropagation` support.
-
-That is only partly true.
-
-`TransactionPropagation.CONTEXT` depends on the **relevant Vert.x context already carrying the transaction state**. But you are hopping to a context created by your own internal static `sharedVertx`.
-
-That means:
-
-* if the caller started work on some other Vert.x instance/context, you may not be participating in that context
-* if the caller expects ambient transaction sharing from outside this internal Vert.x world, they may not get it
-* your static internal Vert.x becomes the hidden center of transaction semantics
-
-So the code is not exactly lying, but it is definitely **more fragile than the comments suggest**.
-
-## What I would do
-
-For infrastructure like this, pick one of these and be explicit:
-
-### Option 1: explicit transaction participation only
-
-Make `appendInTransaction(..., SqlConnection connection)` the real transactional API and treat `withTransaction(...)` as “own transaction”.
-
-That is the cleanest.
-
-### Option 2: inject Vertx and require same Vertx universe
-
-Do not create your own static hidden `Vertx`. Require the application to supply one.
-
-That removes a whole class of context ambiguity.
-
-Right now you are mixing both worlds.
-
----
-
-# 3. Hidden static `Vertx` in a library/infrastructure component is a smell
-
-`static volatile Vertx sharedVertx;`
-
-I do not like this in a reusable library.
-
-Why:
-
-* hidden resource ownership
-* hidden thread pools
-* hidden native transport settings
-* hard-to-reason-about shutdown
-* cross-test contamination
-* surprising interaction with host app metrics/tracing/config
-
-This class is not just using Vert.x. It is **creating its own runtime**.
-
-That is too much responsibility for an event store implementation.
-
-## Better design
-
-Inject:
-
-* `Vertx`
-* maybe `Pool` or a pool factory
-* maybe notification handler factory
-
-Then this class becomes a proper component rather than a mini platform.
-
----
-
-# 4. Your event-bus distribution path is not functionally equivalent to the normal path
-
-This matters a lot.
-
-## Direct append path
-
-`appendWithTransactionInternal(...)`:
-
-* validates
-* serializes with `ObjectMapper`
-* may use transaction wrapper
-* returns DB `transaction_time`
-* uses correlation fallback
-* can use `TransactionPropagation`
-
-## Event-bus distribution path
-
-`appendWithEventBusDistribution(...)`:
-
-* sends JSON body over event bus
-* worker uses `pool.preparedQuery(...)` directly, no transaction wrapper
-* worker reconstructs insert independently
-* tracing is supposed to happen but does not fully propagate
-* it is not actually the same semantics
-
-That means enabling:
-
-`peegeeq.database.use.event.bus.distribution=true`
-
-changes more than performance. It changes behavior.
-
-For infrastructure code, that is a red flag.
-
----
-
-# 5. Tracing propagation is incomplete / partly broken
-
-You clearly tried to do this properly. But it is not wired through cleanly.
-
-## Bug 1: trace header is never actually sent
-
-In `DatabaseWorkerVerticle.start()` you do:
-
 ```java
-String traceparent = message.headers().get("traceparent");
-TraceCtx trace = TraceContextUtil.parseOrCreate(traceparent);
+underlyingConsumer.unsubscribe();
+underlyingConsumer.close();
+underlyingConsumer = null;
 ```
 
-But in `sendDatabaseOperation(...)` you call:
+That looks synchronous, but in Vert.x and database-backed consumers, unsubscribe/close are often logically asynchronous.
+
+If these methods merely trigger shutdown but return immediately, then:
+
+* in-flight messages may still be running
+* `underlyingConsumer` becomes null before actual shutdown completes
+* `close()` may race with active callbacks
+
+A serious queue component should usually expose async shutdown:
 
 ```java
-vertx.eventBus().<JsonObject>request(operationAddress, operation)
+Future<Void> stopAsync()
+Future<Void> closeAsync()
 ```
 
-No delivery options. No header set.
+and wait for:
 
-So the consumer is looking for a `traceparent` that the producer never sends.
+* polling stopped
+* no new deliveries
+* in-flight processing drained or cancelled
+* DB claims released if required
 
-That means the worker normally creates a new trace instead of continuing the existing one.
-
-## Bug 2: wrong context source in the worker
-
-Inside the consumer:
-
-```java
-Context ctx = vertx.getOrCreateContext();
-ctx.put(...)
-```
-
-Inside a verticle consumer, you almost certainly want the **current** context, not an arbitrary created/retrieved one.
-
-Use `Vertx.currentContext()` or otherwise operate on the actual handling context.
-
-As written, you can end up storing trace state on the wrong context.
-
-## Bug 3: MDC scope is only around parts of the flow
-
-You wrap the outer handler and reply callbacks, which is decent, but async operations inside `processDatabaseOperation(...)` rely on context propagation being right. Given the previous issue, that is shaky.
+The current lifecycle is too eager.
 
 ---
 
-# 6. `close()` is not really a close
+### 9. `synchronized` on `setMessageHandler()` is awkward in Vert.x code
 
-Your public `close()` does this:
-
-```java
-closeFuture().onFailure(...)
-```
-
-and returns immediately.
-
-That means:
-
-* caller thinks store is closed
-* resources may still be closing
-* errors are only logged
-* there is no completion signal for synchronous callers
-
-For infrastructure, this is weak.
-
-Since the interface probably forces `void close()`, fine, but then:
-
-* document clearly that it is fire-and-forget
-* or block only at application boundary
-* or make `closeFuture()` the main lifecycle API and push callers there
-
-## Also: async closes ignored elsewhere
-
-`clearInstancePools()` does:
+This is not automatically wrong, but it is suspicious:
 
 ```java
-reactivePool.close();
-pipelinedClient.close();
+public synchronized ConsumerGroupMember<T> setMessageHandler(...)
 ```
 
-and throws the futures away.
+A Java monitor is a blocking lock. In plain Java that is fine. In Vert.x code, it is something to be cautious about because event-loop code should avoid unnecessary blocking primitives. ([vertx.io][1])
 
-Same lifecycle sloppiness.
+Given the rest of the class is already using concurrent primitives, this method being `synchronized` looks inconsistent rather than deliberate.
+
+A proper state/members CAS strategy would let you remove it.
 
 ---
 
-# 7. `getStatsReactive()` likely has a timestamp mapping bug
+### 10. Member removal can race with message assignment
 
-You store and read most timestamps using `OffsetDateTime`.
+This sequence is possible:
 
-But in `getStatsReactive()` you parse:
+* `distributeMessage()` computes eligible consumers
+* picks one member
+* another thread calls `removeConsumer()`
+* member is stopped/closed
+* original thread still invokes `processMessage(message)`
+
+Depending on `OutboxConsumerGroupMember`, that may fail noisily or silently.
+
+You need either:
+
+* stronger serialization around routing/removal, or
+* members that can safely reject post-close processing in a defined way.
+
+---
+
+## Less critical, but still worth fixing
+
+### Constructor overload explosion
+
+Too many overloads. It is already awkward and will get worse. A builder would be cleaner.
+
+### Null validation
+
+You do not validate key ctor arguments like `groupName`, `topic`, `payloadType`, `objectMapper`, `configuration`. Fail fast.
+
+### Logging
+
+These info logs may be too chatty in a real consumer runtime:
+
+* add/remove consumer
+* start/stop/close
+  It depends on scale, but this can get noisy.
+
+### `getConsumerIds()`
+
+Returning a copy is fine.
+
+### Weakly consistent iteration
+
+Using `ConcurrentHashMap.values().stream()` is acceptable if you are happy with weakly consistent snapshots. That is often fine for stats, less fine for routing if you expect exact behavior under churn.
+
+## What I would change first
+
+In order:
+
+### First: fix lifecycle
+
+Replace `active` / `closed` with a single atomic state machine.
+
+### Second: separate outcome types
+
+Do not use failed futures for both transient failure and permanent rejection unless your underlying consumer explicitly understands the difference.
+
+You probably want something like:
 
 ```java
-basicRow.getLocalDateTime("oldest_event_time")
-basicRow.getLocalDateTime("newest_event_time")
-```
-
-If `valid_time` is `timestamptz` or equivalent offset-aware column, this is the wrong getter and loses timezone semantics.
-
-Given the rest of the class, this looks inconsistent at best and wrong at worst.
-
-Use `getOffsetDateTime(...)` consistently.
-
----
-
-# 8. `getAllVersions(...)` and family traversal are not robust
-
-`getAllVersions(...)`:
-
-```sql
-WHERE event_id = $1 OR previous_version_id = $1
-ORDER BY version ASC
-```
-
-That only gives:
-
-* the row itself
-* direct children
-
-It does **not** traverse a correction family recursively unless your model is strict “all corrections point to root”.
-
-If that is the model, encode it clearly and rename accordingly.
-
-If not, this method is incomplete.
-
-By contrast, `getAsOfTransactionTime(...)` goes to the effort of recursive family resolution. So the class itself is internally inconsistent.
-
----
-
-# 9. Mapping errors are swallowed in query paths
-
-In both:
-
-* `queryReactive(...)`
-* `getAllVersionsReactive(...)`
-
-you do row mapping in a loop and on failure you log and continue.
-
-That is bad for an event store.
-
-Returning partial results after silently dropping malformed rows is usually worse than failing fast.
-
-This code makes corruption/deserialization bugs look like “fewer events”.
-
-I would fail the whole future unless you have a very explicit degraded-read mode.
-
----
-
-# 10. `mapRowToEvent(...)` has brittle JSON handling
-
-This part worries me:
-
-```java
-if (payloadJson.startsWith("\"") && payloadJson.endsWith("\"")) {
-    payloadJson = payloadJson.substring(1, payloadJson.length() - 1)
-            .replace("\\\"", "\"")
-            .replace("\\\\", "\\");
+sealed interface DeliveryOutcome {
+    record Ack() implements DeliveryOutcome {}
+    record Retry(Throwable cause) implements DeliveryOutcome {}
+    record Reject(String reason) implements DeliveryOutcome {}
 }
 ```
 
-That is manual JSON surgery.
+or simpler, if you want to stay idiomatic:
 
-Usually when code starts stripping quotes and unescaping slashes by hand, it means the real serialization boundary is wrong elsewhere.
+* success future = ack
+* custom exception hierarchy:
 
-This is fragile because:
+  * `RetryableMessageException`
+  * `RejectedMessageException`
 
-* it can mis-handle legitimate JSON string payloads
-* it bakes in assumptions about how the driver rendered JSONB
-* it is hard to reason about for edge cases
+and make `OutboxConsumer` treat them differently.
 
-You should fix the storage/driver mapping path, not keep layering heuristics on top.
+### Third: fix membership concurrency
 
-Also:
+Use `putIfAbsent`, and think through add/remove/start/stop races.
 
-```java
-Map<String, String> headers = objectMapper.readValue(headersJson, Map.class);
-```
+### Fourth: decide routing policy explicitly
 
-That is raw-type deserialization. You do not actually guarantee `Map<String,String>` there.
+Do you want:
 
-Use a `TypeReference<Map<String,String>>`.
+* real round-robin
+* sticky hash routing
+* least-loaded
+* partition affinity
+* ordered per key
 
----
+Right now the code says one thing and does another.
 
-# 11. `appendInTransactionReactive(...)` ignores returned DB transaction time
+### Fifth: make shutdown async
 
-In `appendWithTransactionInternal(...)` you correctly use `RETURNING transaction_time` and map that actual value.
+A queue consumer should shut down cleanly, not optimistically.
 
-But in `appendInTransactionReactive(...)` you insert with `RETURNING event_id, transaction_time` and then return:
+## Concrete code-level fixes
 
-```java
-transactionTime.toInstant()
-```
-
-rather than the returned row’s `transaction_time`.
-
-That is inconsistent and avoidable.
-
-If the DB is the source of truth, use the DB value in all paths.
-
----
-
-# 12. `performanceMonitor` lifecycle looks leaky
-
-In `getOrCreateReactivePool()` you call:
+### Safer `addConsumer`
 
 ```java
-performanceMonitor.startPeriodicLogging(getOrCreateSharedVertx(), 10000);
-```
+@Override
+public ConsumerGroupMember<T> addConsumer(String consumerId, MessageHandler<T> handler,
+                                          Predicate<Message<T>> messageFilter) {
+    Objects.requireNonNull(consumerId, "consumerId");
+    Objects.requireNonNull(handler, "handler");
 
-Potential problems:
+    if (closed.get()) {
+        throw new IllegalStateException("Consumer group is closed");
+    }
 
-* repeated starts if multiple stores create pools
-* unclear cancellation on close
-* tied to shared Vertx lifecycle
-* more background activity hidden inside pool creation
+    OutboxConsumerGroupMember<T> member =
+        new OutboxConsumerGroupMember<>(consumerId, groupName, topic, handler, messageFilter, this);
 
-Maybe your monitor class handles this, maybe not. But from this class, it looks like potential timer leakage.
+    OutboxConsumerGroupMember<T> existing = members.putIfAbsent(consumerId, member);
+    if (existing != null) {
+        throw new IllegalArgumentException("Consumer with ID '" + consumerId + "' already exists in group");
+    }
 
----
+    if (active.get()) {
+        member.start();
+    }
 
-# 13. Some “performance” comments are stronger than the code justifies
-
-Examples:
-
-* “CRITICAL PERFORMANCE FIX”
-* “4x performance improvement”
-* “maximum throughput”
-* “true parallel processing”
-* “event loop threads for maximum performance”
-
-Some of those may be true in a benchmark, but in infrastructure code comments they read like overclaiming.
-
-A few specific points:
-
-## Event bus distribution
-
-Using event-loop verticles plus event-bus request/reply is not automatically faster. It adds:
-
-* extra serialization
-* extra dispatch hop
-* more moving parts
-* different failure behavior
-
-It may improve throughput under some contention patterns, but the comments treat it as universally superior. That is too strong.
-
-## Pipelined client
-
-The idea is sensible, but “4x performance improvement” should not be encoded as fact in code comments unless you have very specific benchmark conditions.
-
-Infrastructure comments should be precise, not sales copy.
-
----
-
-# 14. There is too much responsibility in one class
-
-This class currently owns:
-
-* append/query semantics
-* transaction orchestration
-* correction/version logic
-* pool creation
-* pipelined client creation
-* Vertx creation
-* event-bus routing
-* worker verticle deployment
-* tracing propagation
-* performance monitoring
-* notification handler lifecycle
-* test-reset hooks
-
-That is too much.
-
-It makes correctness harder because concerns bleed into each other.
-
-## Better split
-
-I would break it into at least:
-
-* `BiTemporalEventStoreRepository` or SQL adapter
-* `BiTemporalVersioningService`
-* `BiTemporalNotificationService`
-* `BiTemporalEventBusDispatcher`
-* `BiTemporalResourceManager` or externally supplied `Vertx`/`Pool`
-
-Then the store class becomes orchestration, not a god-object.
-
----
-
-# 15. Reactive/Vert.x-specific review
-
-On the Vert.x side specifically:
-
-## Good
-
-* no blocking calls in the hot paths shown
-* uses `Future` composition properly in many places
-* avoids callback nesting
-* uses `withTransaction(...)` in several places instead of hand-rolled begin/commit
-
-## Weak points
-
-* too much manual context fiddling
-* internal hidden `Vertx`
-* fire-and-forget lifecycle behavior
-* partial-result swallowing
-* semantic differences between execution paths
-* tracing/context propagation not actually airtight
-
-This is the kind of code that can look “reactive” while still being operationally fragile.
-
----
-
-# Highest-priority fixes
-
-If I were reviewing this in a real repo, these are the changes I would push first.
-
-## Must fix now
-
-1. **Fix correction/version concurrency**
-   Add DB-level uniqueness and atomic version allocation strategy.
-
-2. **Define the version-family model clearly**
-   Decide root-star vs chain, then make schema/API/query names match that model.
-
-3. **Fix trace propagation over the event bus**
-   Actually send `traceparent` headers and use the current Vert.x context in the consumer.
-
-4. **Stop swallowing row-mapping failures**
-   Fail the query future instead of returning partial data.
-
-5. **Remove or reduce hidden static Vertx ownership**
-   Inject `Vertx` if at all possible.
-
-6. **Fix timestamp getter inconsistency in stats**
-   Use offset-aware mapping.
-
-## Next tier
-
-7. Make the event-bus path semantically equivalent to the direct path, or explicitly mark it as a different execution mode with different guarantees.
-
-8. Clean up lifecycle:
-
-   * asynchronous close semantics
-   * `clearInstancePools()`
-   * performance monitor shutdown
-
-9. Replace brittle manual JSON quote/unescape handling with a single consistent serialization contract.
-
-10. Split the class up.
-
----
-
-# A few concrete examples of code I would challenge in review
-
-## This is unsafe under concurrency
-
-```java
-SELECT COALESCE(MAX(version), 0) as max_version
-...
-nextVersion = maxVersion + 1
-```
-
-## This probably breaks distributed tracing continuity
-
-```java
-vertx.eventBus().<JsonObject>request(operationAddress, operation)
-```
-
-while the consumer expects:
-
-```java
-message.headers().get("traceparent")
-```
-
-## This is likely the wrong context
-
-```java
-Context ctx = vertx.getOrCreateContext();
-ctx.put(...)
-```
-
-## This is dangerous partial-failure behavior
-
-```java
-catch (Exception e) {
-    logger.error("Failed to map row to event: {}", e.getMessage(), e);
+    logger.info("Added consumer '{}' to outbox group '{}' for topic '{}'", consumerId, groupName, topic);
+    return member;
 }
 ```
 
-## This is brittle JSON repair logic
+### Rename routing method honestly
 
 ```java
-.replace("\\\"", "\"")
-.replace("\\\\", "\\");
-```
-
-## This is lifecycle hand-waving
-
-```java
-public void close() {
-    closeFuture().onFailure(...)
+/**
+ * Selects a consumer using deterministic hash-based routing on message ID.
+ */
+private OutboxConsumerGroupMember<T> selectConsumer(List<OutboxConsumerGroupMember<T>> eligibleConsumers,
+                                                    Message<T> message) {
+    int index = Math.floorMod(message.getId().hashCode(), eligibleConsumers.size());
+    return eligibleConsumers.get(index);
 }
 ```
 
----
+If you actually want round-robin:
 
-# Bottom line
+```java
+private final AtomicInteger rr = new AtomicInteger();
 
-This code shows real thought and real engineering effort. It is not amateur work.
+private OutboxConsumerGroupMember<T> selectConsumer(List<OutboxConsumerGroupMember<T>> eligibleConsumers,
+                                                    Message<T> message) {
+    int index = Math.floorMod(rr.getAndIncrement(), eligibleConsumers.size());
+    return eligibleConsumers.get(index);
+}
+```
 
-But it is also trying to be:
+### Fix weighted average
 
-* repository
-* runtime
-* dispatcher
-* tracer bridge
-* pool manager
-* benchmark harness
-* lifecycle manager
+Assuming each member stat exposes processed count:
 
-That is where it starts to crack.
+```java
+long totalProcessed = 0;
+double weightedTotalMs = 0.0;
 
-The biggest problem is not syntax or style. It is **semantic reliability**:
+for (OutboxConsumerGroupMember<T> member : members.values()) {
+    ConsumerMemberStats stats = member.getStats();
+    long processed = stats.getMessagesProcessed();
+    totalProcessed += processed;
+    weightedTotalMs += stats.getAverageProcessingTimeMs() * processed;
+}
 
-* version lineage
-* concurrent correction safety
-* transaction/context truthfulness
-* behavior changing across code paths
+double avgProcessingTime = totalProcessed == 0 ? 0.0 : weightedTotalMs / totalProcessed;
+```
 
-That is exactly the stuff that bites reactive infrastructure in production.
+## Architectural question you need to answer
 
-Paste the corresponding table schema and `SimpleBiTemporalEvent` contract next, and I’ll give you the next-level review: schema correctness, index strategy, and whether the SQL actually matches the object model.
+This is the real question:
+
+**What exactly does a failed handler future mean in your Postgres-backed queue?**
+
+Because this class currently assumes:
+
+* business reject
+* no eligible consumer
+* actual processing failure
+
+can all be represented as failure.
+
+That is usually wrong.
+
+In a proper Postgres queue, those states often map to different DB transitions:
+
+* `DONE`
+* `RETRY_PENDING`
+* `DEAD_LETTER`
+* `IGNORED`
+* `UNROUTABLE`
+
+If you do not model those separately, you will get retry storms, stuck messages, or misleading metrics.
+
+## Bottom line
+
+This is decent skeleton code, but not yet something I would trust in a hard production queue.
+
+The main issues are:
+
+* lifecycle state is racy
+* `start(subscriptionOptions)` semantics are confused
+* duplicate consumer add is not concurrency-safe
+* routing is mislabeled
+* reject vs retry semantics are probably wrong
+* shutdown is too optimistic
+* stats aggregation is misleading
+
+If you want, send `OutboxConsumer`, `OutboxConsumerGroupMember`, and the SQL/schema for claim/ack/retry/reset. That is where the real queue correctness lives.
+
+[1]: https://vertx.io/docs/vertx-core/java/?utm_source=chatgpt.com "Vert.x Core Manual"

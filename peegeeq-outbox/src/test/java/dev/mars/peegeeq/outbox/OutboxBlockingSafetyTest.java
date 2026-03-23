@@ -53,7 +53,10 @@ class OutboxBlockingSafetyTest {
     }
 
     @Test
-    void outboxConsumerGroupStartWithSubscriptionOptionsFailsFastOnEventLoopThread() throws Exception {
+    void outboxConsumerGroupStartWithSubscriptionOptionsIsNonBlockingAndSafeOnEventLoop() throws Exception {
+        // start(SubscriptionOptions) returns Future<Void> and is non-blocking,
+        // so it should NOT throw on the event loop. Without a real DatabaseService
+        // the start will fail asynchronously, but it must not throw synchronously.
         Vertx vertx = Vertx.vertx();
         try {
             OutboxConsumerGroup<String> group = new OutboxConsumerGroup<>(
@@ -70,8 +73,9 @@ class OutboxBlockingSafetyTest {
                 return null;
             });
 
-            assertIllegalStateWithMessage(thrown,
-                    "Do not call blocking start(subscriptionOptions) on event-loop thread");
+            // No synchronous exception should be thrown — async failures are in the Future
+            assertTrue(thrown == null,
+                    "start(SubscriptionOptions) should not throw on event loop; got: " + thrown);
         } finally {
             CountDownLatch closeLatch = new CountDownLatch(1);
             vertx.close().onComplete(ar -> closeLatch.countDown());
