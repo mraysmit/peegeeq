@@ -332,11 +332,12 @@ class MigrationIntegrationTest {
                 "idx_queue_messages_topic_visible",
                 "idx_outbox_status_created",
                 "idx_outbox_next_retry",
-                "idx_bitemporal_event_id",
+                "uq_bitemporal_event_id",
                 "idx_bitemporal_valid_time",
             "idx_bitemporal_latest_events",
             "idx_bitemporal_event_log_id_type_agg",
-            "idx_bitemporal_subs_table_status"
+            "idx_bitemporal_subs_table_status",
+            "idx_bitemporal_no_fork"
         );
 
         assertThat(actualIndexes)
