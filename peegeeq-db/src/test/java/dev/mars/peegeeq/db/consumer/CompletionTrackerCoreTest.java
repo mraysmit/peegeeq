@@ -68,6 +68,7 @@ public class CompletionTrackerCoreTest extends BaseIntegrationTest {
     void testMarkCompleted() throws Exception {
         // First, insert a test message into the outbox table
         Long messageId = insertTestMessage("test-topic", 2);
+        insertSubscription("test-topic", "group1");
 
         // Mark as completed for first group
         tracker.markCompleted(messageId, "group1", "test-topic")
@@ -87,6 +88,7 @@ public class CompletionTrackerCoreTest extends BaseIntegrationTest {
     void testMarkCompletedIdempotent() throws Exception {
         // Insert a test message
         Long messageId = insertTestMessage("test-topic", 2);
+        insertSubscription("test-topic", "group1");
 
         // Mark as completed twice
         tracker.markCompleted(messageId, "group1", "test-topic")
@@ -108,6 +110,7 @@ public class CompletionTrackerCoreTest extends BaseIntegrationTest {
     void testMarkCompletedUpdatesCounter() throws Exception {
         // Insert a test message with 2 required groups
         Long messageId = insertTestMessage("test-topic", 2);
+        insertSubscription("test-topic", "group1");
 
         // Mark as completed for first group
         tracker.markCompleted(messageId, "group1", "test-topic")
@@ -127,6 +130,8 @@ public class CompletionTrackerCoreTest extends BaseIntegrationTest {
     void testMarkCompletedAllGroupsCompletesMessage() throws Exception {
         // Insert a test message with 2 required groups
         Long messageId = insertTestMessage("test-topic", 2);
+        insertSubscription("test-topic", "group1");
+        insertSubscription("test-topic", "group2");
 
         // Mark as completed for both groups
         tracker.markCompleted(messageId, "group1", "test-topic")
@@ -150,6 +155,14 @@ public class CompletionTrackerCoreTest extends BaseIntegrationTest {
                 "VALUES ('" + topic + "', '{}'::jsonb, '{}'::jsonb, 'PENDING', " + requiredGroups + ", 0) RETURNING id")
                 .execute()
                 .map(rowSet -> rowSet.iterator().next().getLong("id"))
+        ).toCompletionStage().toCompletableFuture().get();
+    }
+
+    private void insertSubscription(String topic, String groupName) throws Exception {
+        connectionManager.withConnection("test-completion", connection ->
+            connection.query("INSERT INTO outbox_topic_subscriptions (topic, group_name, subscription_status) " +
+                "VALUES ('" + topic + "', '" + groupName + "', 'ACTIVE') ON CONFLICT DO NOTHING")
+                .execute()
         ).toCompletionStage().toCompletableFuture().get();
     }
 }

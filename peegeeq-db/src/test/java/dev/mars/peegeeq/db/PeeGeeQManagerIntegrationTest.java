@@ -18,12 +18,12 @@ package dev.mars.peegeeq.db;
 
 
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
-import dev.mars.peegeeq.api.deadletter.DeadLetterStatsInfo;
 import dev.mars.peegeeq.db.health.OverallHealthStatus;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import dev.mars.peegeeq.db.resilience.BackpressureManager;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
+import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -52,8 +52,9 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
-@ExtendWith(SharedPostgresTestExtension.class)
+@ExtendWith({SharedPostgresTestExtension.class, VertxExtension.class})
 @ResourceLock(value = "dead-letter-queue-database", mode = org.junit.jupiter.api.parallel.ResourceAccessMode.READ_WRITE)
+@ResourceLock(value = "system-properties")
 public class PeeGeeQManagerIntegrationTest {
 
     private PeeGeeQManager manager;
@@ -93,25 +94,20 @@ public class PeeGeeQManagerIntegrationTest {
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws InterruptedException {
+    void tearDown() {
         if (manager != null) {
-            manager.closeReactive()
-                .recover(t -> {
-                    System.err.println("Error during manager teardown: " + t.getMessage());
-                    return Future.succeededFuture();
-                })
-                .onSuccess(v -> {
-                    System.getProperties().entrySet().removeIf(entry -> 
-                        entry.getKey().toString().startsWith("peegeeq."));
-                    testContext.completeNow();
-                })
-                .onFailure(testContext::failNow);
-        } else {
-            System.getProperties().entrySet().removeIf(entry -> 
-                entry.getKey().toString().startsWith("peegeeq."));
-            testContext.completeNow();
+            try {
+                manager.closeReactive()
+                    .recover(t -> {
+                        System.err.println("Error during manager teardown: " + t.getMessage());
+                        return Future.succeededFuture();
+                    });
+            } catch (Exception e) {
+                System.err.println("Exception during tearDown: " + e.getMessage());
+            }
         }
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        System.getProperties().entrySet().removeIf(entry ->
+            entry.getKey().toString().startsWith("peegeeq."));
     }
 
     @Test

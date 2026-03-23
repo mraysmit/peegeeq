@@ -63,7 +63,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
     private SubscriptionManager subscriptionManager;
 
     @BeforeEach
-    public void setUp(VertxTestContext testContext) throws Exception {
+    public void setUp() throws Exception {
         super.setUpBaseIntegration();
 
         // Create connection manager using the shared Vertx instance

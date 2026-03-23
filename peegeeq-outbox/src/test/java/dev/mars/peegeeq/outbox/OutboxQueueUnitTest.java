@@ -22,12 +22,16 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.streams.ReadStream;
+import io.vertx.junit5.Checkpoint;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.PoolOptions;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -45,6 +49,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.CORE)
+@ExtendWith(VertxExtension.class)
 class OutboxQueueUnitTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxQueueUnitTest.class);
@@ -143,37 +148,25 @@ class OutboxQueueUnitTest {
     }
 
     @Test
-    void testSend_CompletesSuccessfully() throws Exception {
-        Future<Void> future = queue.send("test message");
-        assertNotNull(future);
-        
-        // Wait for completion
-        assertTrue(future.succeeded());
+    void testSend_CompletesSuccessfully(VertxTestContext testContext) {
+        queue.send("test message")
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testSend_MultipleMessages() throws Exception {
-        Future<Void> future1 = queue.send("message 1");
-        Future<Void> future2 = queue.send("message 2");
-        Future<Void> future3 = queue.send("message 3");
-        
-        assertNotNull(future1);
-        assertNotNull(future2);
-        assertNotNull(future3);
-        
-        // All should complete successfully
-        assertTrue(future1.succeeded());
-        assertTrue(future2.succeeded());
-        assertTrue(future3.succeeded());
+    void testSend_MultipleMessages(VertxTestContext testContext) {
+        Checkpoint cp = testContext.checkpoint(3);
+        queue.send("message 1").onSuccess(v -> cp.flag()).onFailure(testContext::failNow);
+        queue.send("message 2").onSuccess(v -> cp.flag()).onFailure(testContext::failNow);
+        queue.send("message 3").onSuccess(v -> cp.flag()).onFailure(testContext::failNow);
     }
 
     @Test
-    void testSend_NullMessage() throws Exception {
-        Future<Void> future = queue.send(null);
-        assertNotNull(future);
-        
-        // Should still complete (implementation doesn't validate)
-        assertTrue(future.succeeded());
+    void testSend_NullMessage(VertxTestContext testContext) {
+        queue.send(null)
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     // ========== Receive Method Tests ==========
@@ -215,43 +208,32 @@ class OutboxQueueUnitTest {
     }
 
     @Test
-    void testAcknowledge_CompletesSuccessfully() throws Exception {
-        Future<Void> future = queue.acknowledge("msg-123");
-        assertNotNull(future);
-        
-        assertTrue(future.succeeded());
+    void testAcknowledge_CompletesSuccessfully(VertxTestContext testContext) {
+        queue.acknowledge("msg-123")
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testAcknowledge_MultipleMessageIds() throws Exception {
-        Future<Void> future1 = queue.acknowledge("msg-1");
-        Future<Void> future2 = queue.acknowledge("msg-2");
-        Future<Void> future3 = queue.acknowledge("msg-3");
-        
-        assertNotNull(future1);
-        assertNotNull(future2);
-        assertNotNull(future3);
-        
-        assertTrue(future1.succeeded());
-        assertTrue(future2.succeeded());
-        assertTrue(future3.succeeded());
+    void testAcknowledge_MultipleMessageIds(VertxTestContext testContext) {
+        Checkpoint cp = testContext.checkpoint(3);
+        queue.acknowledge("msg-1").onSuccess(v -> cp.flag()).onFailure(testContext::failNow);
+        queue.acknowledge("msg-2").onSuccess(v -> cp.flag()).onFailure(testContext::failNow);
+        queue.acknowledge("msg-3").onSuccess(v -> cp.flag()).onFailure(testContext::failNow);
     }
 
     @Test
-    void testAcknowledge_NullMessageId() throws Exception {
-        Future<Void> future = queue.acknowledge(null);
-        assertNotNull(future);
-        
-        // Should still complete
-        assertTrue(future.succeeded());
+    void testAcknowledge_NullMessageId(VertxTestContext testContext) {
+        queue.acknowledge(null)
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testAcknowledge_EmptyMessageId() throws Exception {
-        Future<Void> future = queue.acknowledge("");
-        assertNotNull(future);
-        
-        assertTrue(future.succeeded());
+    void testAcknowledge_EmptyMessageId(VertxTestContext testContext) {
+        queue.acknowledge("")
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     // ========== Close Method Tests ==========
@@ -263,23 +245,22 @@ class OutboxQueueUnitTest {
     }
 
     @Test
-    void testClose_CompletesSuccessfully() throws Exception {
-        Future<Void> future = queue.close();
-        assertNotNull(future);
-        
-        assertTrue(future.succeeded());
+    void testClose_CompletesSuccessfully(VertxTestContext testContext) {
+        queue.close()
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testClose_MultipleInvocations() throws Exception {
-        Future<Void> future1 = queue.close();
-        assertNotNull(future1);
-        assertTrue(future1.succeeded());
-        
-        // Second close should also complete (pool already closed)
-        Future<Void> future2 = queue.close();
-        assertNotNull(future2);
-        // Note: Pool.close() might fail on second call, but that's pool behavior, not queue logic
+    void testClose_MultipleInvocations(VertxTestContext testContext) {
+        queue.close()
+            .onSuccess(v -> {
+                // Second close should also complete (pool already closed)
+                Future<Void> future2 = queue.close();
+                assertNotNull(future2);
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     // ========== CreateMessage Method Tests ==========
@@ -340,36 +321,31 @@ class OutboxQueueUnitTest {
     // ========== Integration Tests (Multiple Operations) ==========
 
     @Test
-    void testSendThenAcknowledge() throws Exception {
-        // Send a message
-        Future<Void> sendFuture = queue.send("test message");
-        assertTrue(sendFuture.succeeded());
-        
-        // Acknowledge it
-        Future<Void> ackFuture = queue.acknowledge("msg-123");
-        assertTrue(ackFuture.succeeded());
+    void testSendThenAcknowledge(VertxTestContext testContext) {
+        queue.send("test message")
+            .compose(v -> queue.acknowledge("msg-123"))
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testReceiveThenClose() throws Exception {
-        // Get stream
+    void testReceiveThenClose(VertxTestContext testContext) {
         ReadStream<String> stream = queue.receive();
         assertNotNull(stream);
         
-        // Close queue
-        Future<Void> closeFuture = queue.close();
-        assertTrue(closeFuture.succeeded());
+        queue.close()
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testCreateMessageThenSend() throws Exception {
-        // Create message
+    void testCreateMessageThenSend(VertxTestContext testContext) {
         Message<String> message = queue.createMessage("test payload");
         assertNotNull(message);
         
-        // Send the payload
-        Future<Void> sendFuture = queue.send(message.getPayload());
-        assertTrue(sendFuture.succeeded());
+        queue.send(message.getPayload())
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     // ========== Helper Classes ==========

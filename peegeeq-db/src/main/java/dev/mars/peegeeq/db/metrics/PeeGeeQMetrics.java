@@ -713,7 +713,7 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
             if (isConnectionError) {
                 logger.debug("Failed to persist metrics due to connection issue (expected during shutdown): {}", errorMsg);
             } else {
-                logger.warn("Failed to persist metrics to database using reactive patterns", throwable);
+                logger.error("Failed to persist metrics to database", throwable);
             }
             return Future.succeededFuture();
         });
