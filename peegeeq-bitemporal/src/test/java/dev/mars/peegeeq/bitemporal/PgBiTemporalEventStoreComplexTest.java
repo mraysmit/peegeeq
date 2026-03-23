@@ -1939,8 +1939,9 @@ class PgBiTemporalEventStoreComplexTest {
     }
 
     /**
-     * Fan-out topology: root A has two direct corrections (B, C), and B has
-     * a child D.  All corrections target their direct parent.  Version numbers
+     * Sequential corrections from different entry points: corrections target A,
+     * A, then B. With chain model enforcement, the system resolves the latest
+     * version for each, producing a linear chain A→B→C→D. Version numbers
      * must be unique and sequential across the entire family.
      */
     @Test

@@ -929,38 +929,42 @@ class TransactionPropagationHonestyTest {
     // ========================================================================
 
     @Test
-    @DisplayName("Builder execute() throws IllegalStateException for missing required fields")
+    @DisplayName("Builder execute() returns failed Future for missing required fields")
     void builderValidationRejectsMissingFields(VertxTestContext testContext) throws Exception {
         /*
-         * The builder's validate() throws IllegalStateException synchronously
-         * when eventType, payload, or validTime is missing.
+         * The builder's validate() throws IllegalStateException synchronously,
+         * but execute() catches it and returns Future.failedFuture().
+         * Verify each missing-field case produces a failed Future with the right message.
          */
         testContext.verify(() -> {
             // Missing eventType
-            IllegalStateException ex1 = assertThrows(IllegalStateException.class, () ->
-                    eventStore.appendBuilder()
-                            .payload(new TestPayload("no-type", 1))
-                            .validTime(Instant.now())
-                            .execute());
-            assertTrue(ex1.getMessage().contains("eventType"),
+            Future<?> f1 = eventStore.appendBuilder()
+                    .payload(new TestPayload("no-type", 1))
+                    .validTime(Instant.now())
+                    .execute();
+            assertTrue(f1.failed(), "Should fail for missing eventType");
+            assertInstanceOf(IllegalStateException.class, f1.cause());
+            assertTrue(f1.cause().getMessage().contains("eventType"),
                     "Must mention missing eventType");
 
             // Missing payload
-            IllegalStateException ex2 = assertThrows(IllegalStateException.class, () ->
-                    eventStore.appendBuilder()
-                            .eventType("test.type")
-                            .validTime(Instant.now())
-                            .execute());
-            assertTrue(ex2.getMessage().contains("payload"),
+            Future<?> f2 = eventStore.appendBuilder()
+                    .eventType("test.type")
+                    .validTime(Instant.now())
+                    .execute();
+            assertTrue(f2.failed(), "Should fail for missing payload");
+            assertInstanceOf(IllegalStateException.class, f2.cause());
+            assertTrue(f2.cause().getMessage().contains("payload"),
                     "Must mention missing payload");
 
             // Missing validTime
-            IllegalStateException ex3 = assertThrows(IllegalStateException.class, () ->
-                    eventStore.appendBuilder()
-                            .eventType("test.type")
-                            .payload(new TestPayload("no-time", 2))
-                            .execute());
-            assertTrue(ex3.getMessage().contains("validTime"),
+            Future<?> f3 = eventStore.appendBuilder()
+                    .eventType("test.type")
+                    .payload(new TestPayload("no-time", 2))
+                    .execute();
+            assertTrue(f3.failed(), "Should fail for missing validTime");
+            assertInstanceOf(IllegalStateException.class, f3.cause());
+            assertTrue(f3.cause().getMessage().contains("validTime"),
                     "Must mention missing validTime");
         });
         testContext.completeNow();

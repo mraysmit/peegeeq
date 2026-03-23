@@ -1124,11 +1124,20 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 var traceCtx = TraceContextUtil.captureTraceContext();
                 try {
                     context.runOnContext(v -> {
-                        try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
+                        // Keep MDC scope open through async callbacks, closed in terminal handlers
+                        var scope = TraceContextUtil.mdcScope(traceCtx);
+                        try {
                             operation.get()
-                                    .onSuccess(promise::complete)
-                                    .onFailure(promise::fail);
+                                    .onSuccess(result -> {
+                                        scope.close();
+                                        promise.complete(result);
+                                    })
+                                    .onFailure(err -> {
+                                        scope.close();
+                                        promise.fail(err);
+                                    });
                         } catch (Exception e) {
+                            scope.close();
                             // : Handle exceptions during context execution
                             if (e.getMessage() != null && (e.getMessage().contains("event executor terminated") ||
                                     e.getMessage().contains("RejectedExecutionException"))) {

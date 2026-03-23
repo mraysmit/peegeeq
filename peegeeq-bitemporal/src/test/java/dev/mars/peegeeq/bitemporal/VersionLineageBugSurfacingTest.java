@@ -390,7 +390,7 @@ class VersionLineageBugSurfacingTest {
     void getAllVersionsWithCorrectionIdReturnsFullFamily(VertxTestContext testContext) throws Exception {
         Instant validTime = Instant.now();
 
-        // Create root + 2 corrections (all pointing to root — star model)
+        // Create root + 2 corrections (chain model — each points to predecessor)
         eventStore.appendBuilder()
                 .eventType("LineageTest")
                 .payload(new TestEvent("root", "original", 100))
