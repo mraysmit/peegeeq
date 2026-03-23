@@ -93,7 +93,7 @@ This design aligns with the PeeGeeQ layered architecture documented in `peegeeq-
 - **peegeeq-api** - Pure contracts layer (interfaces: `ConnectionProvider`, `EventStore`, `OutboxProducer`)
 - **peegeeq-runtime** - Composition layer that wires together all implementations
 - **peegeeq-rest** - REST layer that exposes `peegeeq-runtime` services over HTTP
-- **Transaction Participation** - Uses existing `appendInTransaction()` and `sendInTransaction()` methods that accept `SqlConnection` parameter
+- **Transaction Participation** - Uses existing `appendInTransaction()` and `sendInExistingTransaction()` methods that accept `SqlConnection` parameter
 - **Vert.x 5.x Native** - Uses Vert.x `Future` and `SqlConnection` types as primary API (not implementation details)
 
 ### Pattern Overview
@@ -484,7 +484,7 @@ return connectionProvider.withTransaction("peegeeq-main", connection -> {
 
     // Step 2: Send to outbox (for immediate processing)
     .compose(v -> Future.fromCompletionStage(
-        orderEventProducer.sendInTransaction(event, connection)
+        orderEventProducer.sendInExistingTransaction(event, connection)
     ))
 
     // Step 3: Append to bi-temporal event store (for historical queries)
@@ -504,7 +504,7 @@ return connectionProvider.withTransaction("peegeeq-main", connection -> {
 **Key Components:**
 - `ConnectionProvider.withTransaction()` - Manages transaction lifecycle
 - `orderRepository.save()` - Persists business entity
-- `orderEventProducer.sendInTransaction()` - Sends to outbox
+- `orderEventProducer.sendInExistingTransaction()` - Sends to outbox
 - `orderEventStore.appendInTransaction()` - Appends to bi-temporal event store
 - All operations use **same SqlConnection** - ensuring single transaction
 
@@ -513,7 +513,7 @@ return connectionProvider.withTransaction("peegeeq-main", connection -> {
 **Verdict:** The pattern is **production-ready** and **battle-tested** in Spring Boot examples. All required infrastructure exists:
 - `ConnectionProvider.withTransaction()` for transaction management
 - `EventStore.appendInTransaction()` for bi-temporal event storage
-- `OutboxProducer.sendInTransaction()` for outbox pattern
+- `OutboxProducer.sendInExistingTransaction()` for outbox pattern
 - Proven pattern in `peegeeq-examples-spring`
 
 This design exposes this proven pattern through the core REST API to provide transactional capabilities to all REST clients.
@@ -710,7 +710,7 @@ public Future<TransactionalResponse> executeWithCallback(TransactionalCallbackRe
             .compose(v -> {
                 if (request.getOutbox() != null) {
                     return Future.fromCompletionStage(
-                        outboxProducer.sendInTransaction(
+                        outboxProducer.sendInExistingTransaction(
                             request.getOutbox().getMessage(),
                             connection  // SAME connection
                         )
@@ -771,7 +771,7 @@ This design strictly adheres to the PeeGeeQ layered architecture principles docu
 
 **1. peegeeq-api (Pure Contracts)** - No changes required
 - Existing interfaces: `ConnectionProvider`, `EventStore`, `OutboxProducer`
-- Existing transaction methods: `appendInTransaction()`, `sendInTransaction()`
+- Existing transaction methods: `appendInTransaction()`, `sendInExistingTransaction()`
 - These interfaces already support transaction participation via `SqlConnection` parameter
 
 **2. peegeeq-runtime (Composition Layer)** - No changes required
@@ -782,7 +782,7 @@ This design strictly adheres to the PeeGeeQ layered architecture principles docu
 **3. peegeeq-rest (REST Layer)** - New handlers added
 - New domain-specific handlers (e.g., `TransactionalOrderHandler`)
 - Handlers use `ConnectionProvider.withTransaction()` to coordinate server-side transactions
-- Handlers call `appendInTransaction()` and `sendInTransaction()` with same `SqlConnection`
+- Handlers call `appendInTransaction()` and `sendInExistingTransaction()` with same `SqlConnection`
 - **No changes to existing REST endpoints** - backward compatible
 
 **4. Dependency Rules Compliance**
@@ -915,12 +915,12 @@ CompletableFuture<BiTemporalEvent<T>> appendInTransaction(
 - Insert event into bi-temporal store
 - Return event with transaction time
 
-#### 3. OutboxProducer.sendInTransaction()
+#### 3. OutboxProducer.sendInExistingTransaction()
 
 **Interface:** `peegeeq-outbox/src/main/java/dev/mars/peegeeq/outbox/OutboxProducer.java`
 
 ```java
-CompletableFuture<Void> sendInTransaction(T message, SqlConnection connection);
+CompletableFuture<Void> sendInExistingTransaction(T message, SqlConnection connection);
 ```
 
 **Responsibilities:**
@@ -4357,7 +4357,7 @@ When `transactionRolledBack: true`:
 
 3. **OutboxProducer**
    - **Path:** `peegeeq-outbox/src/main/java/dev/mars/peegeeq/outbox/OutboxProducer.java`
-   - **Method:** `sendInTransaction(T message, SqlConnection connection)`
+   - **Method:** `sendInExistingTransaction(T message, SqlConnection connection)`
    - **Purpose:** Outbox pattern in transaction
 
 ### Related Documentation
@@ -4493,7 +4493,7 @@ public class TransactionalOrderHandler {
             .compose(order -> {
                 if (request.getOptions().isSendToOutbox()) {
                     return Future.fromCompletionStage(
-                        outboxProducer.sendInTransaction(
+                        outboxProducer.sendInExistingTransaction(
                             request.getEvent().getEventData(),
                             connection
                         )
@@ -4840,7 +4840,7 @@ if (!response.ok) {
 #### Required Components (All Exist)
 - `ConnectionProvider.withTransaction()` - Transaction management
 - `EventStore.appendInTransaction()` - Bi-temporal event storage
-- `OutboxProducer.sendInTransaction()` - Outbox pattern
+- `OutboxProducer.sendInExistingTransaction()` - Outbox pattern
 - Vert.x 5.x reactive patterns - Composable Futures
 - PostgreSQL ACID transactions - Database support
 
@@ -4913,9 +4913,9 @@ This appendix shows how the transactional REST API endpoints will be documented 
 
 | REST Endpoint | REST Handler | Interface API | Core Implementation | Module | Status |
 | :--- | :--- | :--- | :--- | :--- | :--- |
-| `POST /api/v1/transactional/orders` | `TransactionalOrderHandler.createOrder()` | `ConnectionProvider.withTransaction()` + `EventStore.appendInTransaction()` + `OutboxProducer.sendInTransaction()` | `PgConnectionProvider` + `PgBiTemporalEventStore` + `OutboxProducer` | `peegeeq-rest` + `peegeeq-db` + `peegeeq-bitemporal` + `peegeeq-outbox` | **IMPLEMENTED** |
-| `POST /api/v1/transactional/trades` | `TransactionalTradeHandler.createTrade()` | `ConnectionProvider.withTransaction()` + `EventStore.appendInTransaction()` + `OutboxProducer.sendInTransaction()` | `PgConnectionProvider` + `PgBiTemporalEventStore` + `OutboxProducer` | `peegeeq-rest` + `peegeeq-db` + `peegeeq-bitemporal` + `peegeeq-outbox` | **IMPLEMENTED** |
-| `POST /api/v1/transactional/inventory-reservations` | `TransactionalInventoryHandler.reserveInventory()` | `ConnectionProvider.withTransaction()` + `EventStore.appendInTransaction()` + `OutboxProducer.sendInTransaction()` | `PgConnectionProvider` + `PgBiTemporalEventStore` + `OutboxProducer` | `peegeeq-rest` + `peegeeq-db` + `peegeeq-bitemporal` + `peegeeq-outbox` | **IMPLEMENTED** |
+| `POST /api/v1/transactional/orders` | `TransactionalOrderHandler.createOrder()` | `ConnectionProvider.withTransaction()` + `EventStore.appendInTransaction()` + `OutboxProducer.sendInExistingTransaction()` | `PgConnectionProvider` + `PgBiTemporalEventStore` + `OutboxProducer` | `peegeeq-rest` + `peegeeq-db` + `peegeeq-bitemporal` + `peegeeq-outbox` | **IMPLEMENTED** |
+| `POST /api/v1/transactional/trades` | `TransactionalTradeHandler.createTrade()` | `ConnectionProvider.withTransaction()` + `EventStore.appendInTransaction()` + `OutboxProducer.sendInExistingTransaction()` | `PgConnectionProvider` + `PgBiTemporalEventStore` + `OutboxProducer` | `peegeeq-rest` + `peegeeq-db` + `peegeeq-bitemporal` + `peegeeq-outbox` | **IMPLEMENTED** |
+| `POST /api/v1/transactional/inventory-reservations` | `TransactionalInventoryHandler.reserveInventory()` | `ConnectionProvider.withTransaction()` + `EventStore.appendInTransaction()` + `OutboxProducer.sendInExistingTransaction()` | `PgConnectionProvider` + `PgBiTemporalEventStore` + `OutboxProducer` | `peegeeq-rest` + `peegeeq-db` + `peegeeq-bitemporal` + `peegeeq-outbox` | **IMPLEMENTED** |
 
 **Implementation Notes:**
 
@@ -4943,7 +4943,7 @@ All transactional endpoints follow the same pattern:
    - Inserts bi-temporal event with valid time and transaction time
 
 5. **Outbox Send** (`peegeeq-outbox`)
-   - `OutboxProducer.sendInTransaction()` accepts `SqlConnection` parameter
+   - `OutboxProducer.sendInExistingTransaction()` accepts `SqlConnection` parameter
    - Participates in caller's transaction
    - Inserts message into outbox for real-time processing
 
@@ -4951,7 +4951,7 @@ All transactional endpoints follow the same pattern:
 
 - **Adheres to Layered Architecture:** `peegeeq-rest` depends only on `peegeeq-api` and `peegeeq-runtime`
 - **Uses Existing Interfaces:** No new interfaces required in `peegeeq-api`
-- **Transaction Participation:** Uses existing `appendInTransaction()` and `sendInTransaction()` methods
+- **Transaction Participation:** Uses existing `appendInTransaction()` and `sendInExistingTransaction()` methods
 - **Vert.x 5.x Native:** Uses Vert.x `Future` and `SqlConnection` types
 - **Backward Compatible:** No changes to existing 49 REST endpoints
 
@@ -4982,7 +4982,7 @@ return connectionProvider.withTransaction("peegeeq-main", connection -> {
     .compose(order -> {
         if (request.getOptions().isSendToOutbox()) {
             return Future.fromCompletionStage(
-                outboxProducer.sendInTransaction(
+                outboxProducer.sendInExistingTransaction(
                     request.getEvent().getEventData(),
                     connection  // SAME connection
                 )

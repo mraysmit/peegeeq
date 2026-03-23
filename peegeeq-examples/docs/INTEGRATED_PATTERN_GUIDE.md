@@ -250,7 +250,7 @@ public class TradeService {
 
                         // Step 2: Send CloudEvent to outbox (for immediate processing)
                         return Future.fromCompletionStage(
-                            tradeEventProducer.sendInTransaction(cloudEvent, connection)
+                            tradeEventProducer.sendInExistingTransaction(cloudEvent, connection)
                         ).compose(v2 -> {
                             // Step 3: Append CloudEvent to bi-temporal store (for audit trail)
                             return Future.fromCompletionStage(
@@ -315,8 +315,8 @@ public class TradeRepository {
 
 **Send CloudEvent in Transaction**:
 ```java
-// ✅ CORRECT - use sendInTransaction() with CloudEvent
-tradeEventProducer.sendInTransaction(cloudEvent, connection)
+// ✅ CORRECT - use sendInExistingTransaction() with CloudEvent
+tradeEventProducer.sendInExistingTransaction(cloudEvent, connection)
 
 // ❌ WRONG - creates separate transaction
 tradeEventProducer.send(cloudEvent)
@@ -329,7 +329,7 @@ public interface OutboxProducer<CloudEvent> {
     CompletableFuture<Void> send(CloudEvent payload);
 
     // Same transaction (use this!)
-    CompletableFuture<Void> sendInTransaction(CloudEvent payload, SqlConnection connection);
+    CompletableFuture<Void> sendInExistingTransaction(CloudEvent payload, SqlConnection connection);
 }
 ```
 
@@ -782,7 +782,7 @@ public class TradeConfirmationService {
 
                 // Process exception: outbox + event store in same transaction
                 CompletableFuture<Void> exceptionFuture = Future.fromCompletionStage(
-                    tradeEventProducer.sendInTransaction(exceptionCloudEvent, connection)
+                    tradeEventProducer.sendInExistingTransaction(exceptionCloudEvent, connection)
                 ).compose(v -> Future.fromCompletionStage(
                     exceptionEventStore.appendInTransaction(
                         "TradeExceptionDetected",
@@ -901,7 +901,7 @@ public class PositionReconciliationService {
 
                 // Process discrepancy: outbox + event store in same transaction
                 CompletableFuture<Void> discrepancyFuture = Future.fromCompletionStage(
-                    reconciliationEventProducer.sendInTransaction(discrepancyCloudEvent, connection)
+                    reconciliationEventProducer.sendInExistingTransaction(discrepancyCloudEvent, connection)
                 ).compose(v -> Future.fromCompletionStage(
                     exceptionEventStore.appendInTransaction(
                         "PositionDiscrepancyDetected",
@@ -1106,7 +1106,7 @@ public class STPBreakManagementService {
 
             // Record STP break: outbox + event store in same transaction
             return Future.fromCompletionStage(
-                stpEventProducer.sendInTransaction(breakCloudEvent, connection)
+                stpEventProducer.sendInExistingTransaction(breakCloudEvent, connection)
             ).compose(v -> Future.fromCompletionStage(
                 exceptionEventStore.appendInTransaction(
                     "STPBreakDetected",
@@ -1155,7 +1155,7 @@ public class STPBreakManagementService {
 
             // Schedule retry: outbox + event store in same transaction
             return Future.fromCompletionStage(
-                stpEventProducer.sendInTransaction(retryCloudEvent, connection)
+                stpEventProducer.sendInExistingTransaction(retryCloudEvent, connection)
             ).compose(v -> Future.fromCompletionStage(
                 stpEventStore.appendInTransaction(
                     "STPRetryScheduled",
@@ -1328,7 +1328,7 @@ public CompletableFuture<List<ReconciliationDiscrepancy>> getUnresolvedDiscrepan
 // ✅ CORRECT - Single transaction with CloudEvents
 connectionProvider.withTransaction("client-id", connection -> {
     return save(trade, connection)
-        .compose(v -> sendInTransaction(cloudEvent, connection))
+        .compose(v -> sendInExistingTransaction(cloudEvent, connection))
         .compose(v -> appendInTransaction(cloudEvent, validTime, connection));
 });
 
@@ -1344,7 +1344,7 @@ append(cloudEvent, validTime);
 
 ```java
 // ✅ CORRECT - participates in transaction
-producer.sendInTransaction(cloudEvent, connection)
+producer.sendInExistingTransaction(cloudEvent, connection)
 eventStore.appendInTransaction("TradeCaptured", cloudEvent, validTime, connection)
 
 // ❌ WRONG - creates separate transactions
@@ -1359,13 +1359,13 @@ eventStore.append("TradeCaptured", cloudEvent, validTime)
 ```java
 // ✅ CORRECT - sequential composition
 return save(trade, connection)
-    .compose(v -> sendInTransaction(cloudEvent, connection))
+    .compose(v -> sendInExistingTransaction(cloudEvent, connection))
     .compose(v -> appendInTransaction(cloudEvent, validTime, connection));
 
 // ❌ WRONG - parallel execution (race conditions, partial failures)
 CompletableFuture.allOf(
     save(trade, connection),
-    sendInTransaction(cloudEvent, connection),
+    sendInExistingTransaction(cloudEvent, connection),
     appendInTransaction(cloudEvent, validTime, connection)
 );
 ```
@@ -1377,7 +1377,7 @@ CompletableFuture.allOf(
 ```java
 // ✅ CORRECT - same CloudEvent instance
 CloudEvent cloudEvent = cloudEventBuilder.buildTradeEvent(...);
-producer.sendInTransaction(cloudEvent, connection);
+producer.sendInExistingTransaction(cloudEvent, connection);
 eventStore.appendInTransaction("TradeCaptured", cloudEvent, validTime, connection);
 
 // ❌ WRONG - different event instances (potential data inconsistency)
@@ -1392,7 +1392,7 @@ CloudEvent storeEvent = cloudEventBuilder.buildTradeEvent(...);
 ```java
 return connectionProvider.withTransaction("client-id", connection -> {
     return save(trade, connection)
-        .compose(v -> sendInTransaction(cloudEvent, connection))
+        .compose(v -> sendInExistingTransaction(cloudEvent, connection))
         .compose(v -> appendInTransaction(cloudEvent, validTime, connection));
 })
 .toCompletionStage()
@@ -1462,7 +1462,7 @@ CloudEvent cloudEvent = CloudEventBuilder.v1()
 2. **Same Connection Pattern** - Pass identical `SqlConnection` to all three operations
 3. **CloudEvents Format** - Use CloudEvents v1.0 for standardized event structure
 4. **Same CloudEvent Instance** - Use identical CloudEvent for outbox and event store
-5. **InTransaction Methods** - Use `sendInTransaction()` and `appendInTransaction()`
+5. **InTransaction Methods** - Use `sendInExistingTransaction()` and `appendInTransaction()`
 6. **Sequential Composition** - Chain operations with `.compose()` for proper ordering
 7. **ACID Guarantees** - All three operations succeed together or fail together
 8. **Bi-Temporal Semantics** - Use business time as valid time, system time as transaction time

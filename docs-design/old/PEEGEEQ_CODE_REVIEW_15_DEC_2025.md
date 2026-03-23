@@ -281,14 +281,14 @@ handler.handle(message)
 **Key Vert.x 5 Pattern:** Transaction Propagation
 
 **Implementation Details:**
-- `OutboxProducer.sendWithTransaction` supports `TransactionPropagation.CONTEXT`
+- `OutboxProducer.sendInOwnTransaction` supports `TransactionPropagation.CONTEXT`
 - Allows outbox insert to join existing database transaction
 - Enables atomic "Business Logic + Message Send" commits
 - Integrates with Spring's `@Transactional` via adapters
 
 **Transaction Participation:**
 ```java
-public CompletableFuture<Void> sendInTransaction(T payload, SqlConnection connection) {
+public CompletableFuture<Void> sendInExistingTransaction(T payload, SqlConnection connection) {
     // Use provided connection (already in transaction)
     return connection.preparedQuery(insertSql)
         .execute(params)
@@ -861,7 +861,7 @@ public class OrderService {
         orderRepository.save(order);
 
         // 2. Send event (participates in transaction)
-        producer.sendInTransaction(
+        producer.sendInExistingTransaction(
             new OrderEvent(order),
             getCurrentSqlConnection()
         );

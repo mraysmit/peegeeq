@@ -234,7 +234,7 @@ SELECT * FROM bitemporal_event_log WHERE payload->'data'->>'amount' > '100';
 
 ### 3. peegeeq-outbox Module
 **File:** `OutboxProducer.java`
-- **Methods:** `send()`, `sendWithTransaction()`, `sendWithConnection()`
+- **Methods:** `send()`, `sendInOwnTransaction()`, `sendWithConnection()`
 - **Lines:** 214-215, 389-390, 534-535
 - **Current Pattern:**
   ```java
@@ -455,8 +455,8 @@ ON outbox USING GIN ((payload->'order'->>'customerId'));
 **Key Changes Made:**
 - `OutboxProducer.java`: Added JsonObject conversion utilities, updated 3 serialization locations:
   - `sendInternalReactive()` method (lines 215-216)
-  - `sendWithTransactionReactive()` method (lines 390-391)
-  - `sendInTransactionReactive()` method (lines 535-536)
+  - `sendInOwnTransaction()` method
+  - `sendInExistingTransaction()` method
 - `OutboxConsumer.java`: Added JsonObject import, updated 2 parsing locations:
   - `processRowReactive()` method (lines 303-304)
   - `moveToDeadLetterQueueReactive()` method (lines 629, 632)

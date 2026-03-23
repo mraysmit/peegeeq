@@ -630,7 +630,7 @@ public class CallbackExecutor implements TransactionalExecutor {
 
             // Step 3: Send to outbox (same transaction)
             .compose(pair ->
-                outboxProducer.sendInTransaction(
+                outboxProducer.sendInExistingTransaction(
                     request.getOutboxOperation().getMessage(),
                     connection
                 )

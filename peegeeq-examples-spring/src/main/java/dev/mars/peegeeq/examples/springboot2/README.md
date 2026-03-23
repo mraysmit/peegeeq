@@ -187,7 +187,7 @@ curl http://localhost:8081/actuator/health
 ### 1. Mono for Single Values
 ```java
 public Mono<String> createOrder(CreateOrderRequest request) {
-    return adapter.toMonoVoid(outboxProducer.sendWithTransaction(...))
+    return adapter.toMonoVoid(outboxProducer.sendInOwnTransaction(...))
         .then(orderRepository.save(order))
         .map(Order::getId);
 }
@@ -221,7 +221,7 @@ return orderService.createOrder(request)
 ### 5. Reactive Transactions
 ```java
 return adapter.toMonoVoid(
-    orderEventProducer.sendWithTransaction(event, TransactionPropagation.CONTEXT)
+    orderEventProducer.sendInOwnTransaction(event, TransactionPropagation.CONTEXT)
 )
 .then(orderRepository.save(order))
 .flatMap(saved -> publishAdditionalEvents(saved));

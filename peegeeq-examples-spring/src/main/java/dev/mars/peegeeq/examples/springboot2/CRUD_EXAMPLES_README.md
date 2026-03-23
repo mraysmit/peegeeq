@@ -184,7 +184,7 @@ Use the curl commands above or import the Postman collection (if available).
 | Feature | OrderService (With Outbox) | CustomerService (Without Messaging) |
 |---------|---------------------------|-------------------------------------|
 | **Pattern** | Transactional outbox | Pure CRUD |
-| **Transaction** | `withTransaction()` + `sendInTransaction()` | `withConnection()` |
+| **Transaction** | `withTransaction()` + `sendInExistingTransaction()` | `withConnection()` |
 | **Use Case** | Need to publish events | Just need to save data |
 | **Complexity** | Higher (dual writes) | Lower (single write) |
 | **Dependencies** | DatabaseService + OutboxProducer | DatabaseService only |
