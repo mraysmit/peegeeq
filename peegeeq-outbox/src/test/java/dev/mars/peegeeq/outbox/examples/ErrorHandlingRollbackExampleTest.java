@@ -334,7 +334,7 @@ public class ErrorHandlingRollbackExampleTest {
     private Future<String> processOrderWithErrorHandling(OrderEvent order) {
         Promise<String> promise = Promise.promise();
         manager.getVertx().runOnContext(v -> {
-            processingProducer.sendWithTransaction(
+            processingProducer.sendInOwnTransaction(
                 new OrderProcessingStartedEvent(order),
                 TransactionPropagation.CONTEXT
             )
@@ -345,7 +345,7 @@ public class ErrorHandlingRollbackExampleTest {
                 return businessService.processOrder(order);
             })
             .compose(result -> processingProducer
-                .sendWithTransaction(new OrderProcessedEvent(order, result), TransactionPropagation.CONTEXT)
+                .sendInOwnTransaction(new OrderProcessedEvent(order, result), TransactionPropagation.CONTEXT)
                 .map(ignored -> result)
             )
             .recover(error -> {
@@ -394,7 +394,7 @@ public class ErrorHandlingRollbackExampleTest {
     private Future<String> processOrderWithBusinessValidation(OrderEvent order) {
         Promise<String> promise = Promise.promise();
         manager.getVertx().runOnContext(v -> {
-            processingProducer.sendWithTransaction(
+            processingProducer.sendInOwnTransaction(
                 new ValidationStartedEvent(order.getOrderId()),
                 TransactionPropagation.CONTEXT
             )
@@ -411,7 +411,7 @@ public class ErrorHandlingRollbackExampleTest {
                 return businessService.processOrder(order);
             })
             .compose(result -> processingProducer
-                .sendWithTransaction(new ValidationCompletedEvent(order.getOrderId(), "PASSED"), TransactionPropagation.CONTEXT)
+                .sendInOwnTransaction(new ValidationCompletedEvent(order.getOrderId(), "PASSED"), TransactionPropagation.CONTEXT)
                 .map(ignored -> result)
             )
             .recover(error -> {
@@ -430,7 +430,7 @@ public class ErrorHandlingRollbackExampleTest {
     private Future<String> processMultiStageOrder(OrderEvent order, boolean failInStage2) {
         Promise<String> promise = Promise.promise();
         manager.getVertx().runOnContext(v -> {
-            processingProducer.sendWithTransaction(
+            processingProducer.sendInOwnTransaction(
                 new MultiStageStartedEvent(order.getOrderId(), "STAGE_1"),
                 TransactionPropagation.CONTEXT
             )
@@ -444,19 +444,19 @@ public class ErrorHandlingRollbackExampleTest {
                     return Future.failedFuture(new BusinessException("Insufficient inventory in stage 2"));
                 }
                 return processingProducer
-                    .sendWithTransaction(new MultiStageProgressEvent(order.getOrderId(), "STAGE_2", "INVENTORY_CHECKED"), TransactionPropagation.CONTEXT)
+                    .sendInOwnTransaction(new MultiStageProgressEvent(order.getOrderId(), "STAGE_2", "INVENTORY_CHECKED"), TransactionPropagation.CONTEXT)
                     .map(ignored -> "inventory-checked");
             })
             .compose(inventoryResult -> {
                 logger.info("Stage 3: Payment processing for order {}", order.getOrderId());
                 return processingProducer
-                    .sendWithTransaction(new MultiStageProgressEvent(order.getOrderId(), "STAGE_3", "PAYMENT_PROCESSED"), TransactionPropagation.CONTEXT)
+                    .sendInOwnTransaction(new MultiStageProgressEvent(order.getOrderId(), "STAGE_3", "PAYMENT_PROCESSED"), TransactionPropagation.CONTEXT)
                     .map(ignored -> "payment-processed");
             })
             .compose(paymentResult -> {
                 logger.info("Stage 4: Final completion for order {}", order.getOrderId());
                 return processingProducer
-                    .sendWithTransaction(new MultiStageCompletedEvent(order.getOrderId(), "ALL_STAGES_COMPLETED"), TransactionPropagation.CONTEXT)
+                    .sendInOwnTransaction(new MultiStageCompletedEvent(order.getOrderId(), "ALL_STAGES_COMPLETED"), TransactionPropagation.CONTEXT)
                     .map(ignored -> "Multi-stage processing completed for order " + order.getOrderId());
             })
             .recover(error -> {

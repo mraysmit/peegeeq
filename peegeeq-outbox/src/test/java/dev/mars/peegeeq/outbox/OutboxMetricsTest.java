@@ -201,8 +201,13 @@ public class OutboxMetricsTest {
         var healthCheckManager = manager.getHealthCheckManager();
         assertNotNull(healthCheckManager, "Health check manager should be available");
 
-        // Get health status
+        // Health checks may need time to initialise after manager.start()
         var healthStatus = healthCheckManager.getOverallHealth();
+        for (int i = 0; i < 50 && (healthStatus == null || !healthStatus.isHealthy()); i++) {
+            LockSupport.parkNanos(200_000_000L); // 200ms
+            healthStatus = healthCheckManager.getOverallHealth();
+        }
+
         assertNotNull(healthStatus, "Health status should be available");
 
         System.out.println("Health check status: " + healthStatus.status());

@@ -113,6 +113,10 @@ class OutboxSchemaQuotingTest {
                     )
                 """);
                 stmt.execute("""
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_outbox_idempotency_key
+                    ON outbox(topic, idempotency_key) WHERE idempotency_key IS NOT NULL
+                """);
+                stmt.execute("""
                     CREATE TABLE IF NOT EXISTS outbox_consumer_groups (
                         id BIGSERIAL PRIMARY KEY,
                         outbox_message_id BIGINT NOT NULL REFERENCES outbox(id) ON DELETE CASCADE,

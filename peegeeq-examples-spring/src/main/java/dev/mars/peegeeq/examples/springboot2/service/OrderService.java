@@ -42,7 +42,7 @@ import java.math.BigDecimal;
  * This service demonstrates the CORRECT pattern for transactional consistency in reactive Spring Boot:
  * - Uses DatabaseService and ConnectionProvider (PeeGeeQ's public API)
  * - Uses ConnectionProvider.withTransaction() to create a single transaction
- * - Uses sendInTransaction() to include outbox events in the same transaction
+ * - Uses sendInExistingTransaction() to include outbox events in the same transaction
  * - All database operations (orders, order_items, outbox) share the same connection
  * - Rollback affects ALL operations together
  * - Wraps CompletableFuture results in Mono for reactive Spring Boot compatibility
@@ -92,7 +92,7 @@ public class OrderService {
      * This method demonstrates the CORRECT reactive transactional outbox pattern:
      * 1. Get ConnectionProvider from DatabaseService
      * 2. Create a single transaction with ConnectionProvider.withTransaction()
-     * 3. Send outbox event using sendInTransaction() with the connection
+     * 3. Send outbox event using sendInExistingTransaction() with the connection
      * 4. Save order to database using the same connection
      * 5. Save order items to database using the same connection
      * 6. All operations commit/rollback together
@@ -111,12 +111,11 @@ public class OrderService {
                 Order order = new Order(request);
                 String orderId = order.getId();
 
-                // Step 1: Send outbox event using sendInTransaction()
-                return orderEventProducer.sendInTransaction(
+                // Step 1: Send outbox event using sendInExistingTransaction()
+                return orderEventProducer.sendInExistingTransaction(
                         new OrderCreatedEvent(request),
                         connection
                     )
-                )
                 .compose(v -> {
                     log.debug("Order created event sent, saving order to database");
                     // Step 2: Save order using same connection
@@ -135,12 +134,12 @@ public class OrderService {
                 })
                 .compose(id -> {
                     // Step 4: Send additional events using same connection
-                    return orderEventProducer.sendInTransaction(
+                    return orderEventProducer.sendInExistingTransaction(
                             new OrderValidatedEvent(id),
                             connection
                         )
                     .compose(v ->
-                        orderEventProducer.sendInTransaction(
+                        orderEventProducer.sendInExistingTransaction(
                                 new InventoryReservedEvent(id, request.getItems()),
                                 connection
                             )
@@ -188,7 +187,7 @@ public class OrderService {
                 String orderId = order.getId();
 
                 // Step 1: Send outbox event
-                return orderEventProducer.sendInTransaction(
+                return orderEventProducer.sendInExistingTransaction(
                         new OrderCreatedEvent(request),
                         connection
                     )
@@ -253,7 +252,7 @@ public class OrderService {
                 String orderId = order.getId();
 
                 // Step 1: Send outbox event
-                return orderEventProducer.sendInTransaction(
+                return orderEventProducer.sendInExistingTransaction(
                         new OrderCreatedEvent(request),
                         connection
                     )
@@ -306,7 +305,7 @@ public class OrderService {
                 String orderId = order.getId();
 
                 // All operations in the same transaction
-                return orderEventProducer.sendInTransaction(new OrderCreatedEvent(request), connection)
+                return orderEventProducer.sendInExistingTransaction(new OrderCreatedEvent(request), connection)
                 .compose(v -> orderRepository.save(order, connection))
                 .compose(savedOrder -> {
                     // Convert springboot.model.OrderItem to springboot2.model.OrderItem
@@ -316,8 +315,8 @@ public class OrderService {
                             .collect(java.util.stream.Collectors.toList());
                     return orderItemRepository.saveAll(orderId, items, connection);
                 })
-                .compose(v -> orderEventProducer.sendInTransaction(new OrderValidatedEvent(orderId), connection))
-                .compose(v -> orderEventProducer.sendInTransaction(new InventoryReservedEvent(orderId, request.getItems()), connection))
+                .compose(v -> orderEventProducer.sendInExistingTransaction(new OrderValidatedEvent(orderId), connection))
+                .compose(v -> orderEventProducer.sendInExistingTransaction(new InventoryReservedEvent(orderId, request.getItems()), connection))
                 .map(v -> orderId)
                 .onSuccess(id -> log.info("TRANSACTION SUCCESS: Order {} and all events committed together", id))
                 .onFailure(error -> log.error("❌ TRANSACTION ROLLBACK: All operations rolled back due to failure: {}", error.getMessage()));

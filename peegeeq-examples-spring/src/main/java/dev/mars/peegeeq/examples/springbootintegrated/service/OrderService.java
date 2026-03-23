@@ -142,7 +142,7 @@ public class OrderService {
                 .onSuccess(v -> logger.info("Order saved to database: {}", orderId))
                 
                 // Step 2: Send to outbox (for immediate processing)
-                .compose(v -> orderEventProducer.sendInTransaction(event, connection))
+                .compose(v -> orderEventProducer.sendInExistingTransaction(event, connection))
                 .onSuccess(v -> logger.info("Order event sent to outbox: {}", orderId))
                 
                 // Step 3: Append to bi-temporal event store (for historical queries)

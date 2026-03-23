@@ -141,7 +141,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
         }
 
         MessageProducer<T> producer = new OutboxProducer<>(databaseService, objectMapper, topic, payloadType, metrics,
-                configuration, clientId);
+                clientId);
 
         // Track the producer for cleanup
         createdResources.add(producer);

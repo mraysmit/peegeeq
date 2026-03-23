@@ -181,75 +181,59 @@ public class OutboxExceptionHandlingDemonstrationTest {
         logger.info("2. CompletableFuture exceptions (always worked)");
         logger.info("=================================================================");
         
-        // Test 1: Direct Exception (now fixed)
-        testDirectExceptionPattern(testContext);
-        
-        // Reset consumer for next test
+        // Phase 1: Direct Exception (now fixed)
+        AtomicInteger directAttemptCount = new AtomicInteger(0);
+        java.util.concurrent.CountDownLatch directLatch = new java.util.concurrent.CountDownLatch(3);
+
+        producer.send("Direct exception test").onFailure(testContext::failNow);
+
+        consumer.subscribe(message -> {
+            int attempt = directAttemptCount.incrementAndGet();
+            logger.info("INTENTIONAL FAILURE: Direct exception attempt {} for: {}",
+                attempt, message.getPayload());
+            directLatch.countDown();
+            throw new RuntimeException("INTENTIONAL FAILURE: Direct exception, attempt " + attempt);
+        });
+
+        assertTrue(directLatch.await(15, TimeUnit.SECONDS), "Direct exceptions should trigger retry logic");
+        assertEquals(3, directAttemptCount.get(), "Should have 3 attempts for direct exception");
+        logger.info("Pattern 1 (Direct Exception): {} attempts - WORKING", directAttemptCount.get());
+
+        // Reset consumer for next pattern
         consumer.unsubscribe();
-        // GC-settle: allow unsubscribe to complete
         java.util.concurrent.CountDownLatch timerLatch = new java.util.concurrent.CountDownLatch(1);
         vertx.timer(500).onComplete(ar -> timerLatch.countDown());
         timerLatch.await(5, TimeUnit.SECONDS);
         
-        // Test 2: CompletableFuture Exception (always worked)
-        testCompletableFuturePattern(testContext);
-        
+        // Phase 2: Failed Future Exception (always worked)
+        AtomicInteger futureAttemptCount = new AtomicInteger(0);
+        java.util.concurrent.CountDownLatch futureLatch = new java.util.concurrent.CountDownLatch(3);
+
+        producer.send("Failed future exception test").onFailure(testContext::failNow);
+
+        consumer.subscribe(message -> {
+            int attempt = futureAttemptCount.incrementAndGet();
+            logger.info("INTENTIONAL FAILURE: Failed future attempt {} for: {}",
+                attempt, message.getPayload());
+            futureLatch.countDown();
+            return Future.failedFuture(
+                new RuntimeException("INTENTIONAL FAILURE: Failed future, attempt " + attempt));
+        });
+
+        assertTrue(futureLatch.await(15, TimeUnit.SECONDS), "Failed futures should trigger retry logic");
+        assertEquals(3, futureAttemptCount.get(), "Should have 3 attempts for failed future");
+        logger.info("Pattern 2 (Failed Future): {} attempts - WORKING", futureAttemptCount.get());
+
         logger.info("=================================================================");
         logger.info("CONCLUSION: Both patterns now work identically!");
         logger.info("Direct exceptions and CompletableFuture exceptions are");
         logger.info("handled consistently through the same retry/DLQ logic!");
         logger.info("=================================================================");
+
+        testContext.completeNow();
     }
 
-    private void testDirectExceptionPattern(VertxTestContext testContext) throws Exception {
-        logger.info("--- Testing Pattern 1: Direct Exception (FIXED) ---");
-        
-        AtomicInteger attemptCount = new AtomicInteger(0);
-        Checkpoint retryCheckpoint = testContext.checkpoint(3);
-
-        producer.send("Direct exception test").onFailure(testContext::failNow);
-
-        consumer.subscribe(message -> {
-            int attempt = attemptCount.incrementAndGet();
-            logger.info("INTENTIONAL FAILURE: Direct exception attempt {} for: {}", 
-                attempt, message.getPayload());
-            retryCheckpoint.flag();
-            
-            // Pattern 1: Throw exception directly (NOW WORKS)
-            throw new RuntimeException("INTENTIONAL FAILURE: Direct exception, attempt " + attempt);
-        });
-
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Direct exceptions should trigger retry logic");
-        assertEquals(3, attemptCount.get(), "Should have 3 attempts for direct exception");
-        
-        logger.info("Pattern 1 (Direct Exception): {} attempts - WORKING", attemptCount.get());
-    }
-
-    private void testCompletableFuturePattern(VertxTestContext testContext) throws Exception {
-        logger.info("--- Testing Pattern 2: CompletableFuture Exception (Always worked) ---");
-        
-        AtomicInteger attemptCount = new AtomicInteger(0);
-        Checkpoint retryCheckpoint = testContext.checkpoint(3);
-
-        producer.send("CompletableFuture exception test").onFailure(testContext::failNow);
-
-        consumer.subscribe(message -> {
-            int attempt = attemptCount.incrementAndGet();
-            logger.info("INTENTIONAL FAILURE: CompletableFuture exception attempt {} for: {}", 
-                attempt, message.getPayload());
-            retryCheckpoint.flag();
-            
-            // Pattern 2: Return failed Future (ALWAYS WORKED)
-            return Future.failedFuture(
-                new RuntimeException("INTENTIONAL FAILURE: Failed future, attempt " + attempt)
-            );
-        });
-
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "CompletableFuture exceptions should trigger retry logic");
-        assertEquals(3, attemptCount.get(), "Should have 3 attempts for CompletableFuture exception");
-        
-        logger.info("Pattern 2 (CompletableFuture Exception): {} attempts - WORKING", attemptCount.get());
-    }
+    // Helper methods removed — test phases are now inline using CountDownLatches
+    // to avoid VertxTestContext checkpoint accumulation across phases.
 }
-
 

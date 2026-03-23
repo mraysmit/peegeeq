@@ -155,14 +155,17 @@ class OutboxConsumerGroupV110Test {
                 .startPosition(StartPosition.FROM_NOW)
                 .build();
 
-            group.start(options);
+            group.start(options)
+                .compose(v -> {
+                    testContext.verify(() -> {
+                        assertTrue(group.isActive());
+                        assertEquals(1, group.getActiveConsumerCount());
+                    });
+                    return producer.send("Message 1");
+                })
+                .onFailure(testContext::failNow);
 
-            assertTrue(group.isActive());
-            assertEquals(1, group.getActiveConsumerCount());
-
-            producer.send("Message 1").onFailure(testContext::failNow);
-
-            assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
+            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
             group.close();
         }
 
@@ -259,23 +262,29 @@ class OutboxConsumerGroupV110Test {
         }
 
         @Test
-        @DisplayName("should throw IllegalStateException if already active")
-        void testStartWithOptions_AlreadyActive() throws Exception {
+        @DisplayName("should fail with IllegalStateException if already active")
+        void testStartWithOptions_AlreadyActive(VertxTestContext testContext) throws Exception {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
             group.addConsumer("consumer-1", msg -> Future.succeededFuture());
 
             SubscriptionOptions options = SubscriptionOptions.defaults();
-            group.start(options);
+            group.start(options)
+                .compose(v -> group.start(options))
+                .onSuccess(v -> testContext.failNow("Should have failed with IllegalStateException"))
+                .onFailure(e -> testContext.verify(() -> {
+                    assertInstanceOf(IllegalStateException.class, e);
+                    group.close();
+                    testContext.completeNow();
+                }));
 
-            assertThrows(IllegalStateException.class, () -> group.start(options));
-            group.close();
+            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         }
 
         @Test
-        @DisplayName("should throw IllegalStateException after close")
-        void testStartWithOptions_AfterClose() throws Exception {
+        @DisplayName("should fail with IllegalStateException after close")
+        void testStartWithOptions_AfterClose(VertxTestContext testContext) throws Exception {
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
@@ -283,8 +292,14 @@ class OutboxConsumerGroupV110Test {
             group.close();
 
             SubscriptionOptions options = SubscriptionOptions.defaults();
+            group.start(options)
+                .onSuccess(v -> testContext.failNow("Should have failed with IllegalStateException"))
+                .onFailure(e -> testContext.verify(() -> {
+                    assertInstanceOf(IllegalStateException.class, e);
+                    testContext.completeNow();
+                }));
 
-            assertThrows(IllegalStateException.class, () -> group.start(options));
+            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         }
 
         @Test
@@ -300,45 +315,58 @@ class OutboxConsumerGroupV110Test {
             });
 
             SubscriptionOptions options = SubscriptionOptions.defaults();
-            group.start(options);
+            group.start(options)
+                .compose(v -> {
+                    testContext.verify(() -> {
+                        assertTrue(group.isActive());
+                        assertEquals(1, group.getActiveConsumerCount());
+                    });
+                    return producer.send("Test");
+                })
+                .onFailure(testContext::failNow);
 
-            assertTrue(group.isActive());
-            assertEquals(1, group.getActiveConsumerCount());
-
-            producer.send("Test").onFailure(testContext::failNow);
-
-            assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
+            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
             group.close();
         }
 
         @Test
         @DisplayName("should work with multiple start positions")
-        void testStartWithOptions_MultiplePositions() throws Exception {
+        void testStartWithOptions_MultiplePositions(VertxTestContext testContext) throws Exception {
             // FROM_NOW
             ConsumerGroup<String> group1 = factory.createConsumerGroup(
                 "group-from-now", "test-topic", String.class);
             group1.addConsumer("c1", msg -> Future.succeededFuture());
             group1.start(SubscriptionOptions.builder()
-                .startPosition(StartPosition.FROM_NOW).build());
-            assertTrue(group1.isActive());
-            group1.close();
+                .startPosition(StartPosition.FROM_NOW).build())
+                .compose(v -> {
+                    testContext.verify(() -> assertTrue(group1.isActive()));
+                    group1.close();
+                    // FROM_BEGINNING
+                    ConsumerGroup<String> group2 = factory.createConsumerGroup(
+                        "group-from-beginning", "test-topic", String.class);
+                    group2.addConsumer("c2", msg -> Future.succeededFuture());
+                    return group2.start(SubscriptionOptions.builder()
+                        .startPosition(StartPosition.FROM_BEGINNING).build())
+                        .map(v2 -> group2);
+                })
+                .compose(group2 -> {
+                    testContext.verify(() -> assertTrue(group2.isActive()));
+                    group2.close();
+                    // Defaults
+                    ConsumerGroup<String> group3 = factory.createConsumerGroup(
+                        "group-defaults", "test-topic", String.class);
+                    group3.addConsumer("c3", msg -> Future.succeededFuture());
+                    return group3.start(SubscriptionOptions.defaults())
+                        .map(v3 -> group3);
+                })
+                .onSuccess(group3 -> testContext.verify(() -> {
+                    assertTrue(group3.isActive());
+                    group3.close();
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
 
-            // FROM_BEGINNING
-            ConsumerGroup<String> group2 = factory.createConsumerGroup(
-                "group-from-beginning", "test-topic", String.class);
-            group2.addConsumer("c2", msg -> Future.succeededFuture());
-            group2.start(SubscriptionOptions.builder()
-                .startPosition(StartPosition.FROM_BEGINNING).build());
-            assertTrue(group2.isActive());
-            group2.close();
-
-            // Defaults
-            ConsumerGroup<String> group3 = factory.createConsumerGroup(
-                "group-defaults", "test-topic", String.class);
-            group3.addConsumer("c3", msg -> Future.succeededFuture());
-            group3.start(SubscriptionOptions.defaults());
-            assertTrue(group3.isActive());
-            group3.close();
+            assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
         }
     }
 

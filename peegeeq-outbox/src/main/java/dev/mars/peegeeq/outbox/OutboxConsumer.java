@@ -445,13 +445,15 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             String traceparent = headers.get("traceparent");
             TraceCtx traceCtx = TraceContextUtil.parseOrCreate(traceparent);
 
-            // Set MDC for trace context before processing
-            try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
-                TraceContextUtil.setMDC(TraceContextUtil.MDC_MESSAGE_ID, messageId);
-                TraceContextUtil.setMDC(TraceContextUtil.MDC_TOPIC, topic);
-                if (correlationId != null) {
-                    TraceContextUtil.setMDC(TraceContextUtil.MDC_CORRELATION_ID, correlationId);
-                }
+            // Set MDC for trace context before processing — intentionally NOT using
+            // try-with-resources because async processing needs MDC values to persist
+            // across the handler call. Cleanup happens in the eventually() block via
+            // clearTraceMDC().
+            TraceContextUtil.mdcScope(traceCtx);
+            TraceContextUtil.setMDC(TraceContextUtil.MDC_MESSAGE_ID, messageId);
+            TraceContextUtil.setMDC(TraceContextUtil.MDC_TOPIC, topic);
+            if (correlationId != null) {
+                TraceContextUtil.setMDC(TraceContextUtil.MDC_CORRELATION_ID, correlationId);
             }
 
             // Process message reactively — handler and all downstream operations

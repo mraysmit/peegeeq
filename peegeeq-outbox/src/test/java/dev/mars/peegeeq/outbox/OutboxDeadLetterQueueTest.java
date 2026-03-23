@@ -119,7 +119,9 @@ public class OutboxDeadLetterQueueTest {
         
         String testMessage = "Message that should go to DLQ";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        Checkpoint retryCheckpoint = testContext.checkpoint(4); // Initial + 3 retries
+        // Factory created via registrar without PeeGeeQConfiguration, so max-retries defaults to 3
+        // initial attempt + 3 retries = 4 total handler invocations
+        Checkpoint retryCheckpoint = testContext.checkpoint(4);
 
         CountDownLatch sendLatch1 = new CountDownLatch(1);
         producer.send(testMessage).onComplete(ar -> sendLatch1.countDown());
@@ -137,8 +139,8 @@ public class OutboxDeadLetterQueueTest {
 
         // Wait for all retry attempts
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS),
-            "Should have attempted processing 3 times before DLQ");
-        assertEquals(4, attemptCount.get(), "Should have made exactly 4 processing attempts (1 initial + 3 retries)");
+            "Should have attempted processing 4 times before DLQ");
+        assertEquals(4, attemptCount.get(), "Should have made exactly 4 processing attempts (1 initial + 3 retries, max-retries=3 default)");
         
         // Wait for DLQ processing
         CountDownLatch timerLatch1 = new CountDownLatch(1);
@@ -167,7 +169,7 @@ public class OutboxDeadLetterQueueTest {
         assertEquals("test-dlq-integration", dlqMessage.topic(), "DLQ message should have correct topic");
         assertTrue(dlqMessage.failureReason().contains("Should go to DLQ"),
             "DLQ message should contain failure reason");
-        assertEquals(3, dlqMessage.retryCount(), "DLQ message should show 3 retries (max-retries=2 means it retries until retry_count=3)");
+        assertEquals(3, dlqMessage.retryCount(), "DLQ message should show retry_count=3 (max-retries=3 default, DLQ triggered when retry_count >= max-retries)");
         
         logger.info("Direct exception DLQ integration test completed successfully");
     }
@@ -179,7 +181,9 @@ public class OutboxDeadLetterQueueTest {
         String testMessage = "Message with detailed error info";
         String customErrorMessage = "Custom business validation failed: Invalid order amount";
         AtomicInteger attemptCount = new AtomicInteger(0);
-        Checkpoint retryCheckpoint = testContext.checkpoint(3);
+        // Factory created via registrar without PeeGeeQConfiguration, so max-retries defaults to 3
+        // initial attempt + 3 retries = 4 total handler invocations
+        Checkpoint retryCheckpoint = testContext.checkpoint(4);
 
         CountDownLatch sendLatch2 = new CountDownLatch(1);
         producer.send(testMessage).onComplete(ar -> sendLatch2.countDown());

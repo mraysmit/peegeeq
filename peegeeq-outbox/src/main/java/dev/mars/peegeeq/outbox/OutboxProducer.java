@@ -20,11 +20,12 @@ import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.database.MetricsProvider;
 import dev.mars.peegeeq.api.database.NoOpMetricsProvider;
 import dev.mars.peegeeq.db.client.PgClientFactory;
-import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
 import io.vertx.sqlclient.Pool;
+import io.vertx.sqlclient.RowSet;
+import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.TransactionPropagation;
 import io.vertx.sqlclient.Tuple;
 import org.slf4j.Logger;
@@ -48,6 +49,12 @@ import java.util.UUID;
 public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.MessageProducer<T> {
     private static final Logger logger = LoggerFactory.getLogger(OutboxProducer.class);
 
+    private static final String OUTBOX_INSERT_SQL = """
+            INSERT INTO outbox (topic, payload, headers, correlation_id, message_group, created_at, status, idempotency_key)
+            VALUES ($1, $2::jsonb, $3::jsonb, $4, $5, $6, 'PENDING', $7)
+            ON CONFLICT (topic, idempotency_key) WHERE idempotency_key IS NOT NULL DO NOTHING
+            """;
+
     private final PgClientFactory clientFactory;
     private final DatabaseService databaseService;
     private final ObjectMapper objectMapper;
@@ -55,31 +62,27 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
     @SuppressWarnings("unused") // Reserved for future type safety features
     private final Class<T> payloadType;
     private final MetricsProvider metrics;
-    private final PeeGeeQConfiguration configuration;
+    // Best-effort close flag: in-flight sends may still complete after close() is called
     private volatile boolean closed = false;
 
     // Client ID for pool lookup - null means use default pool (resolved by
     // PgClientFactory)
     private final String clientId;
 
-    // Reactive Vert.x components - following PgNativeQueueProducer pattern
-    private volatile Pool reactivePool;
-
     public OutboxProducer(PgClientFactory clientFactory, ObjectMapper objectMapper,
             String topic, Class<T> payloadType, MetricsProvider metrics) {
-        this(clientFactory, objectMapper, topic, payloadType, metrics, null, null);
+        this(clientFactory, objectMapper, topic, payloadType, metrics, null);
     }
 
     public OutboxProducer(PgClientFactory clientFactory, ObjectMapper objectMapper,
             String topic, Class<T> payloadType, MetricsProvider metrics,
-            PeeGeeQConfiguration configuration, String clientId) {
+            String clientId) {
         this.clientFactory = clientFactory;
         this.databaseService = null;
         this.objectMapper = objectMapper;
         this.topic = topic;
         this.payloadType = payloadType;
         this.metrics = metrics != null ? metrics : NoOpMetricsProvider.INSTANCE;
-        this.configuration = configuration;
         this.clientId = clientId; // null means use default pool
         logger.info("Created outbox producer for topic: {} (clientId: {})", topic,
                 clientId != null ? clientId : "default");
@@ -87,19 +90,18 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
 
     public OutboxProducer(DatabaseService databaseService, ObjectMapper objectMapper,
             String topic, Class<T> payloadType, MetricsProvider metrics) {
-        this(databaseService, objectMapper, topic, payloadType, metrics, null, null);
+        this(databaseService, objectMapper, topic, payloadType, metrics, null);
     }
 
     public OutboxProducer(DatabaseService databaseService, ObjectMapper objectMapper,
             String topic, Class<T> payloadType, MetricsProvider metrics,
-            PeeGeeQConfiguration configuration, String clientId) {
+            String clientId) {
         this.clientFactory = null;
         this.databaseService = databaseService;
         this.objectMapper = objectMapper;
         this.topic = topic;
         this.payloadType = payloadType;
         this.metrics = metrics != null ? metrics : NoOpMetricsProvider.INSTANCE;
-        this.configuration = configuration;
         this.clientId = clientId; // null means use default pool
         logger.info("Created outbox producer for topic: {} (using DatabaseService, clientId: {})", topic,
                 clientId != null ? clientId : "default");
@@ -169,62 +171,8 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
     }
 
     /**
-     * Internal send method using Vert.x SqlClient - following PgNativeQueueProducer
-     * pattern.
-     * This method provides non-blocking database operations for better performance.
-     *
-     * @param payload The message payload to send
-     * @return Future that completes when the message is stored in the
-     *         outbox
-     */
-    public Future<Void> sendInternal(T payload) {
-        return sendInternal(payload, null, null, null);
-    }
-
-    /**
-     * Internal send method with headers.
-     *
-     * @param payload The message payload to send
-     * @param headers Optional message headers
-     * @return Future that completes when the message is stored in the
-     *         outbox
-     */
-    public Future<Void> sendInternal(T payload, Map<String, String> headers) {
-        return sendInternal(payload, headers, null, null);
-    }
-
-    /**
-     * Internal send method with headers and correlation ID.
-     *
-     * @param payload       The message payload to send
-     * @param headers       Optional message headers
-     * @param correlationId Optional correlation ID for message tracking
-     * @return Future that completes when the message is stored in the
-     *         outbox
-     */
-    public Future<Void> sendInternal(T payload, Map<String, String> headers, String correlationId) {
-        return sendInternal(payload, headers, correlationId, null);
-    }
-
-    /**
-     * Full internal send method with all parameters.
-     *
-     * @param payload       The message payload to send
-     * @param headers       Optional message headers
-     * @param correlationId Optional correlation ID for message tracking
-     * @param messageGroup  Optional message group for ordering
-     * @return Future that completes when the message is stored in the
-     *         outbox
-     */
-    public Future<Void> sendInternal(T payload, Map<String, String> headers,
-            String correlationId, String messageGroup) {
-        return sendInternalReactive(payload, headers, correlationId, messageGroup);
-    }
-
-    /**
-     * Internal reactive send method using pure Vert.x Future patterns.
-     * This is the core implementation that uses Vert.x 5.x reactive patterns
-     * throughout.
+     * Core send implementation using pure Vert.x Future patterns.
+     * Uses ON CONFLICT for SQL-native idempotency handling.
      */
     private Future<Void> sendInternalReactive(T payload, Map<String, String> headers,
             String correlationId, String messageGroup) {
@@ -237,27 +185,17 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
         }
 
         try {
-            String messageId = UUID.randomUUID().toString();
             JsonObject payloadJson = toJsonObject(payload);
             JsonObject headersJson = headersToJsonObject(headers);
-            String finalCorrelationId = correlationId != null ? correlationId : messageId;
+            String finalCorrelationId = correlationId != null ? correlationId : UUID.randomUUID().toString();
 
-            // Extract idempotency key from headers (Phase 2: Message Deduplication)
-            // Normalize empty strings to null to allow duplicates
+            // Normalize empty idempotency keys to null to allow duplicates
             String rawIdempotencyKey = (headers != null && headers.containsKey("idempotencyKey"))
                     ? headers.get("idempotencyKey")
                     : null;
             final String idempotencyKey = (rawIdempotencyKey != null && !rawIdempotencyKey.trim().isEmpty())
                     ? rawIdempotencyKey
                     : null;
-            if (idempotencyKey != null) {
-                logger.debug("Using idempotency key for outbox: {}", idempotencyKey);
-            }
-
-            String sql = """
-                    INSERT INTO outbox (topic, payload, headers, correlation_id, message_group, created_at, status, idempotency_key)
-                    VALUES ($1, $2::jsonb, $3::jsonb, $4, $5, $6, 'PENDING', $7)
-                    """;
 
             Tuple params = Tuple.of(
                     topic,
@@ -268,182 +206,91 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
                     OffsetDateTime.now(),
                     idempotencyKey);
 
-            Future<Void> result = getReactivePoolFuture()
-                    .compose(pool -> pool.preparedQuery(sql).execute(params).mapEmpty())
-                    .recover(error -> {
-                        // Check if this is a duplicate idempotency key error (Phase 2: Message Deduplication)
-                        String errorMsg = error.getMessage();
-                        if (errorMsg != null && errorMsg.contains("idx_outbox_idempotency_key")) {
-                            logger.info("Duplicate idempotency key detected for outbox topic {}: {} - message already exists",
-                                    topic, idempotencyKey);
-                            // Return success - message already exists with this idempotency key
-                            return Future.succeededFuture();
-                        }
-                        // Re-throw other errors
-                        return Future.failedFuture(error);
-                    }).mapEmpty();
-
-            return result
-                    .onSuccess(v -> {
-                        if (idempotencyKey != null) {
-                            logger.debug("Message sent to outbox reactively for topic {}: {} (idempotencyKey: {}, correlationId: {})",
-                                    topic, messageId, idempotencyKey, finalCorrelationId);
-                        } else {
-                            logger.debug("Message sent to outbox reactively for topic {}: {} (correlationId: {})",
-                                    topic, messageId, finalCorrelationId);
-                        }
-                        metrics.recordMessageSent(topic);
+            return getReactivePoolFuture()
+                    .compose(pool -> pool.preparedQuery(OUTBOX_INSERT_SQL).execute(params))
+                    .map(rows -> {
+                        logSendOutcome(rows, finalCorrelationId, idempotencyKey);
+                        return (Void) null;
                     })
-                    .onFailure(error -> {
-                        if (idempotencyKey != null) {
-                            logger.error("Failed to send message reactively to topic {}: {} (idempotencyKey: {})",
-                                    topic, error.getMessage(), idempotencyKey);
-                        } else {
-                            logger.error("Failed to send message reactively to topic {}: {}", topic, error.getMessage());
-                        }
-                    });
+                    .onFailure(error -> logger.error("Failed to send message to outbox topic {}", topic, error));
 
         } catch (Exception e) {
-            logger.error("Error preparing reactive message for topic {}: {}", topic, e.getMessage());
+            logger.error("Error preparing message for outbox topic {}", topic, e);
             return Future.failedFuture(e);
         }
     }
 
     /**
-     * Production-grade transactional send method using official Vert.x
-     * withTransaction API.
-     * Uses default transaction propagation behavior.
+     * Sends a message inside its own dedicated transaction using Pool.withTransaction().
+     * This wraps the outbox insert in an isolated transaction — it does NOT participate
+     * in any caller-initiated transaction. For true transactional outbox semantics
+     * (atomicity with business writes), use {@link #sendInExistingTransaction} instead.
      *
      * @param payload The message payload to send
-     * @return Future that completes when the message is stored in the
-     *         outbox
+     * @return Future that completes when the message is stored in the outbox
      */
-    public Future<Void> sendWithTransaction(T payload) {
-        return sendWithTransactionInternal(payload, null, null, null, null);
+    public Future<Void> sendInOwnTransaction(T payload) {
+        return sendInOwnTransactionInternal(payload, null, null, null, null);
     }
 
     /**
-     * Production-grade transactional send method with headers using official Vert.x
-     * API.
-     * Uses default transaction propagation behavior.
-     *
-     * @param payload The message payload to send
-     * @param headers Optional message headers
-     * @return Future that completes when the message is stored in the
-     *         outbox
+     * Sends a message with headers inside its own dedicated transaction.
+     * See {@link #sendInOwnTransaction(Object)} for transaction semantics.
      */
-    public Future<Void> sendWithTransaction(T payload, Map<String, String> headers) {
-        return sendWithTransactionInternal(payload, headers, null, null, null);
+    public Future<Void> sendInOwnTransaction(T payload, Map<String, String> headers) {
+        return sendInOwnTransactionInternal(payload, headers, null, null, null);
     }
 
     /**
-     * Production-grade transactional send method with headers, correlation ID using
-     * official Vert.x API.
-     * Uses default transaction propagation behavior.
-     *
-     * @param payload       The message payload to send
-     * @param headers       Optional message headers
-     * @param correlationId Optional correlation ID for message tracking
-     * @return Future that completes when the message is stored in the
-     *         outbox
+     * Sends a message with headers and correlation ID inside its own dedicated transaction.
+     * See {@link #sendInOwnTransaction(Object)} for transaction semantics.
      */
-    public Future<Void> sendWithTransaction(T payload, Map<String, String> headers, String correlationId) {
-        return sendWithTransactionInternal(payload, headers, correlationId, null, null);
+    public Future<Void> sendInOwnTransaction(T payload, Map<String, String> headers, String correlationId) {
+        return sendInOwnTransactionInternal(payload, headers, correlationId, null, null);
     }
 
     /**
-     * Production-grade transactional send method with TransactionPropagation
-     * support.
-     * This method uses Vert.x 5 TransactionPropagation for advanced transaction
-     * management.
-     *
-     * @param payload     The message payload to send
-     * @param propagation Transaction propagation behavior (e.g., CONTEXT for
-     *                    sharing existing transactions)
-     * @return Future that completes when the message is stored in the
-     *         outbox
+     * Sends a message inside its own dedicated transaction with TransactionPropagation support.
+     * See {@link #sendInOwnTransaction(Object)} for transaction semantics.
      */
-    public Future<Void> sendWithTransaction(T payload, TransactionPropagation propagation) {
-        return sendWithTransactionInternal(payload, null, null, null, propagation);
+    public Future<Void> sendInOwnTransaction(T payload, TransactionPropagation propagation) {
+        return sendInOwnTransactionInternal(payload, null, null, null, propagation);
     }
 
     /**
-     * Production-grade transactional send method with headers and
-     * TransactionPropagation support.
-     *
-     * @param payload     The message payload to send
-     * @param headers     Optional message headers
-     * @param propagation Transaction propagation behavior
-     * @return Future that completes when the message is stored in the
-     *         outbox
+     * Sends a message with headers inside its own dedicated transaction with TransactionPropagation.
+     * See {@link #sendInOwnTransaction(Object)} for transaction semantics.
      */
-    public Future<Void> sendWithTransaction(T payload, Map<String, String> headers,
+    public Future<Void> sendInOwnTransaction(T payload, Map<String, String> headers,
             TransactionPropagation propagation) {
-        return sendWithTransactionInternal(payload, headers, null, null, propagation);
+        return sendInOwnTransactionInternal(payload, headers, null, null, propagation);
     }
 
     /**
-     * Production-grade transactional send method with headers, correlation ID and
-     * TransactionPropagation support.
-     *
-     * @param payload       The message payload to send
-     * @param headers       Optional message headers
-     * @param correlationId Optional correlation ID for message tracking
-     * @param propagation   Transaction propagation behavior
-     * @return Future that completes when the message is stored in the
-     *         outbox
+     * Sends a message with headers, correlation ID inside its own dedicated transaction
+     * with TransactionPropagation.
+     * See {@link #sendInOwnTransaction(Object)} for transaction semantics.
      */
-    public Future<Void> sendWithTransaction(T payload, Map<String, String> headers, String correlationId,
+    public Future<Void> sendInOwnTransaction(T payload, Map<String, String> headers, String correlationId,
             TransactionPropagation propagation) {
-        return sendWithTransactionInternal(payload, headers, correlationId, null, propagation);
+        return sendInOwnTransactionInternal(payload, headers, correlationId, null, propagation);
     }
 
     /**
-     * Full production-grade transactional send method with all parameters and
-     * TransactionPropagation support.
-     *
-     * @param payload       The message payload to send
-     * @param headers       Optional message headers
-     * @param correlationId Optional correlation ID for message tracking
-     * @param messageGroup  Optional message group for ordering
-     * @param propagation   Transaction propagation behavior
-     * @return Future that completes when the message is stored in the
-     *         outbox
+     * Full own-transaction send with all parameters and TransactionPropagation.
+     * See {@link #sendInOwnTransaction(Object)} for transaction semantics.
      */
-    public Future<Void> sendWithTransaction(T payload, Map<String, String> headers,
+    public Future<Void> sendInOwnTransaction(T payload, Map<String, String> headers,
             String correlationId, String messageGroup,
             TransactionPropagation propagation) {
-        return sendWithTransactionInternal(payload, headers, correlationId, messageGroup, propagation);
+        return sendInOwnTransactionInternal(payload, headers, correlationId, messageGroup, propagation);
     }
 
     /**
-     * Internal implementation for production-grade transactional send method.
-     * This method uses the official Vert.x Pool.withTransaction() which handles:
-     * - Automatic transaction begin/commit/rollback
-     * - Connection management
-     * - Proper error handling and automatic rollback on failure
-     * - TransactionPropagation support for advanced transaction management
-     *
-     * @param payload       The message payload to send
-     * @param headers       Optional message headers
-     * @param correlationId Optional correlation ID for message tracking
-     * @param messageGroup  Optional message group for ordering
-     * @param propagation   Optional transaction propagation behavior (null for
-     *                      default)
-     * @return Future that completes when the message is stored in the
-     *         outbox
+     * Core own-transaction implementation using Pool.withTransaction().
+     * Uses ON CONFLICT for SQL-native idempotency handling.
      */
-    private Future<Void> sendWithTransactionInternal(T payload, Map<String, String> headers,
-            String correlationId, String messageGroup,
-            TransactionPropagation propagation) {
-        return sendWithTransactionInternalReactive(payload, headers, correlationId, messageGroup, propagation);
-    }
-
-    /**
-     * Internal reactive transactional send method using pure Vert.x Future
-     * patterns.
-     */
-    private Future<Void> sendWithTransactionInternalReactive(T payload, Map<String, String> headers,
+    private Future<Void> sendInOwnTransactionInternal(T payload, Map<String, String> headers,
             String correlationId, String messageGroup,
             TransactionPropagation propagation) {
         if (closed) {
@@ -455,27 +302,17 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
         }
 
         try {
-            String messageId = UUID.randomUUID().toString();
             JsonObject payloadJson = toJsonObject(payload);
             JsonObject headersJson = headersToJsonObject(headers);
-            String finalCorrelationId = correlationId != null ? correlationId : messageId;
+            String finalCorrelationId = correlationId != null ? correlationId : UUID.randomUUID().toString();
 
-            // Extract idempotency key from headers (Phase 2: Message Deduplication)
-            // Normalize empty strings to null to allow duplicates
+            // Normalize empty idempotency keys to null to allow duplicates
             String rawIdempotencyKey = (headers != null && headers.containsKey("idempotencyKey"))
                     ? headers.get("idempotencyKey")
                     : null;
             final String idempotencyKey = (rawIdempotencyKey != null && !rawIdempotencyKey.trim().isEmpty())
                     ? rawIdempotencyKey
                     : null;
-            if (idempotencyKey != null) {
-                logger.debug("Using idempotency key for outbox transaction: {}", idempotencyKey);
-            }
-
-            String sql = """
-                    INSERT INTO outbox (topic, payload, headers, correlation_id, message_group, created_at, status, idempotency_key)
-                    VALUES ($1, $2::jsonb, $3::jsonb, $4, $5, $6, 'PENDING', $7)
-                    """;
 
             Tuple params = Tuple.of(
                     topic,
@@ -486,137 +323,67 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
                     OffsetDateTime.now(),
                     idempotencyKey);
 
-            // Vert.x Pool.withTransaction() automatically handles event loop context
-            // No explicit executeOnVertxContext wrapper needed - Pool manages this
-            // internally
-            Future<Void> tx = getReactivePoolFuture().compose(pool -> {
+            return getReactivePoolFuture().compose(pool -> {
                 if (propagation != null) {
                     return pool.withTransaction(propagation,
-                            client -> client.preparedQuery(sql).execute(params).mapEmpty())
-                            .recover(error -> {
-                                // Check if this is a duplicate idempotency key error
-                                String errorMsg = error.getMessage();
-                                if (errorMsg != null && errorMsg.contains("idx_outbox_idempotency_key")) {
-                                    logger.info("Duplicate idempotency key detected for outbox transaction topic {}: {} - message already exists",
-                                            topic, idempotencyKey);
-                                    return Future.succeededFuture();
-                                }
-                                return Future.failedFuture(error);
-                            }).mapEmpty();
+                            client -> client.preparedQuery(OUTBOX_INSERT_SQL).execute(params));
                 } else {
-                    return pool.withTransaction(client -> client.preparedQuery(sql).execute(params).mapEmpty())
-                            .recover(error -> {
-                                // Check if this is a duplicate idempotency key error
-                                String errorMsg = error.getMessage();
-                                if (errorMsg != null && errorMsg.contains("idx_outbox_idempotency_key")) {
-                                    logger.info("Duplicate idempotency key detected for outbox transaction topic {}: {} - message already exists",
-                                            topic, idempotencyKey);
-                                    return Future.succeededFuture();
-                                }
-                                return Future.failedFuture(error);
-                            }).mapEmpty();
+                    return pool.withTransaction(
+                            client -> client.preparedQuery(OUTBOX_INSERT_SQL).execute(params));
                 }
-            });
-
-            return tx
-                    .onSuccess(v -> {
-                        if (idempotencyKey != null) {
-                            logger.debug("Message sent to outbox with transaction for topic {}: {} (idempotencyKey: {}, correlationId: {})",
-                                    topic, messageId, idempotencyKey, finalCorrelationId);
-                        } else {
-                            logger.debug("Message sent to outbox with transaction for topic {}: {} (correlationId: {})",
-                                    topic, messageId, finalCorrelationId);
-                        }
-                        metrics.recordMessageSent(topic);
-                    })
-                    .onFailure(error -> {
-                        if (idempotencyKey != null) {
-                            logger.error("Failed to send message with transaction to topic {}: {} (idempotencyKey: {})",
-                                    topic, error.getMessage(), idempotencyKey);
-                        } else {
-                            logger.error("Failed to send message with transaction to topic {}: {}", topic,
-                                    error.getMessage());
-                        }
-                    });
+            })
+            .map(rows -> {
+                logSendOutcome(rows, finalCorrelationId, idempotencyKey);
+                return (Void) null;
+            })
+            .onFailure(error -> logger.error("Failed to send message in own transaction to outbox topic {}", topic, error));
 
         } catch (Exception e) {
-            logger.error("Error preparing transactional message for topic {}: {}", topic, e.getMessage());
+            logger.error("Error preparing own-transaction message for outbox topic {}", topic, e);
             return Future.failedFuture(e);
         }
     }
 
     /**
-     * Transaction-aware reactive send method using existing Vert.x connection.
-     * This method allows the outbox operation to participate in an existing
-     * transaction,
-     * ensuring transactional consistency with business operations.
+     * Sends a message using an existing caller-provided connection/transaction.
+     * This is the real outbox-pattern API: it participates in the caller's business
+     * transaction, ensuring atomicity between business writes and the outbox insert.
+     *
+     * <p><b>Contract:</b> This method assumes the caller has already begun a transaction
+     * on the provided connection. It does not verify transaction state — if no transaction
+     * is active, the insert will still execute but will auto-commit independently.</p>
      *
      * @param payload    The message payload to send
-     * @param connection Existing Vert.x SqlConnection that has an active
-     *                   transaction
-     * @return Future that completes when the message is stored in the
-     *         outbox
+     * @param connection Existing Vert.x SqlConnection (caller must manage transaction lifecycle)
+     * @return Future that completes when the message is stored in the outbox
      */
-    public Future<Void> sendInTransaction(T payload, io.vertx.sqlclient.SqlConnection connection) {
-        return sendInTransaction(payload, null, null, null, connection);
+    public Future<Void> sendInExistingTransaction(T payload, io.vertx.sqlclient.SqlConnection connection) {
+        return sendInExistingTransaction(payload, null, null, null, connection);
     }
 
     /**
-     * Transaction-aware reactive send method with headers.
-     *
-     * @param payload    The message payload to send
-     * @param headers    Optional message headers
-     * @param connection Existing Vert.x SqlConnection that has an active
-     *                   transaction
-     * @return Future that completes when the message is stored in the
-     *         outbox
+     * Sends a message with headers using an existing caller-provided connection/transaction.
+     * See {@link #sendInExistingTransaction(Object, io.vertx.sqlclient.SqlConnection)} for contract.
      */
-    public Future<Void> sendInTransaction(T payload, Map<String, String> headers,
+    public Future<Void> sendInExistingTransaction(T payload, Map<String, String> headers,
             io.vertx.sqlclient.SqlConnection connection) {
-        return sendInTransaction(payload, headers, null, null, connection);
+        return sendInExistingTransaction(payload, headers, null, null, connection);
     }
 
     /**
-     * Transaction-aware reactive send method with headers and correlation ID.
-     *
-     * @param payload       The message payload to send
-     * @param headers       Optional message headers
-     * @param correlationId Optional correlation ID for message tracking
-     * @param connection    Existing Vert.x SqlConnection that has an active
-     *                      transaction
-     * @return Future that completes when the message is stored in the
-     *         outbox
+     * Sends a message with headers and correlation ID using an existing connection/transaction.
+     * See {@link #sendInExistingTransaction(Object, io.vertx.sqlclient.SqlConnection)} for contract.
      */
-    public Future<Void> sendInTransaction(T payload, Map<String, String> headers, String correlationId,
+    public Future<Void> sendInExistingTransaction(T payload, Map<String, String> headers, String correlationId,
             io.vertx.sqlclient.SqlConnection connection) {
-        return sendInTransaction(payload, headers, correlationId, null, connection);
+        return sendInExistingTransaction(payload, headers, correlationId, null, connection);
     }
 
     /**
-     * Full transaction-aware reactive send method with all parameters.
-     * This is the core transactional method that ensures outbox operations
-     * participate in the same transaction as business operations.
-     *
-     * @param payload       The message payload to send
-     * @param headers       Optional message headers
-     * @param correlationId Optional correlation ID for message tracking
-     * @param messageGroup  Optional message group for ordering
-     * @param connection    Existing Vert.x SqlConnection that has an active
-     *                      transaction
-     * @return Future that completes when the message is stored in the
-     *         outbox
+     * Full existing-transaction send with all parameters.
+     * See {@link #sendInExistingTransaction(Object, io.vertx.sqlclient.SqlConnection)} for contract.
      */
-    public Future<Void> sendInTransaction(T payload, Map<String, String> headers,
-            String correlationId, String messageGroup,
-            io.vertx.sqlclient.SqlConnection connection) {
-        return sendInTransactionReactive(payload, headers, correlationId, messageGroup, connection);
-    }
-
-    /**
-     * Internal reactive transactional send method using existing connection and
-     * pure Vert.x Future patterns.
-     */
-    private Future<Void> sendInTransactionReactive(T payload, Map<String, String> headers,
+    public Future<Void> sendInExistingTransaction(T payload, Map<String, String> headers,
             String correlationId, String messageGroup,
             io.vertx.sqlclient.SqlConnection connection) {
         if (closed) {
@@ -632,27 +399,17 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
         }
 
         try {
-            String messageId = UUID.randomUUID().toString();
             JsonObject payloadJson = toJsonObject(payload);
             JsonObject headersJson = headersToJsonObject(headers);
-            String finalCorrelationId = correlationId != null ? correlationId : messageId;
+            String finalCorrelationId = correlationId != null ? correlationId : UUID.randomUUID().toString();
 
-            // Extract idempotency key from headers (Phase 2: Message Deduplication)
-            // Normalize empty strings to null to allow duplicates
+            // Normalize empty idempotency keys to null to allow duplicates
             String rawIdempotencyKey = (headers != null && headers.containsKey("idempotencyKey"))
                     ? headers.get("idempotencyKey")
                     : null;
             final String idempotencyKey = (rawIdempotencyKey != null && !rawIdempotencyKey.trim().isEmpty())
                     ? rawIdempotencyKey
                     : null;
-            if (idempotencyKey != null) {
-                logger.debug("Using idempotency key for outbox in-transaction: {}", idempotencyKey);
-            }
-
-            String sql = """
-                    INSERT INTO outbox (topic, payload, headers, correlation_id, message_group, created_at, status, idempotency_key)
-                    VALUES ($1, $2::jsonb, $3::jsonb, $4, $5, $6, 'PENDING', $7)
-                    """;
 
             Tuple params = Tuple.of(
                     topic,
@@ -663,137 +420,26 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
                     OffsetDateTime.now(),
                     idempotencyKey);
 
-            // Use provided connection (which should have an active transaction)
-            Future<Void> result = connection.preparedQuery(sql)
+            return connection.preparedQuery(OUTBOX_INSERT_SQL)
                     .execute(params)
-                    .mapEmpty()
-                    .recover(error -> {
-                        // Check if this is a duplicate idempotency key error
-                        String errorMsg = error.getMessage();
-                        if (errorMsg != null && errorMsg.contains("idx_outbox_idempotency_key")) {
-                            logger.info("Duplicate idempotency key detected for outbox in-transaction topic {}: {} - message already exists",
-                                    topic, idempotencyKey);
-                            return Future.succeededFuture();
-                        }
-                        return Future.failedFuture(error);
-                    }).mapEmpty();
-
-            return result
-                    .onSuccess(v -> {
-                        if (idempotencyKey != null) {
-                            logger.debug("Message sent to outbox transactionally for topic {}: {} (idempotencyKey: {}, correlationId: {})",
-                                    topic, messageId, idempotencyKey, finalCorrelationId);
-                        } else {
-                            logger.debug("Message sent to outbox transactionally for topic {}: {} (correlationId: {})",
-                                    topic, messageId, finalCorrelationId);
-                        }
-                        metrics.recordMessageSent(topic);
+                    .map(rows -> {
+                        logSendOutcome(rows, finalCorrelationId, idempotencyKey);
+                        return (Void) null;
                     })
-                    .onFailure(error -> {
-                        if (idempotencyKey != null) {
-                            logger.error("Failed to send message transactionally to topic {}: {} (idempotencyKey: {})",
-                                    topic, error.getMessage(), idempotencyKey);
-                        } else {
-                            logger.error("Failed to send message transactionally to topic {}: {}", topic,
-                                    error.getMessage());
-                        }
-                    });
+                    .onFailure(error -> logger.error("Failed to send message in existing transaction to outbox topic {}", topic, error));
 
         } catch (Exception e) {
-            logger.error("Error preparing transactional message for topic {}: {}", topic, e.getMessage());
+            logger.error("Error preparing existing-transaction message for outbox topic {}", topic, e);
             return Future.failedFuture(e);
         }
     }
 
-    /**
-     * Get or create the reactive Vert.x pool for database operations.
-     * Following the pattern from PgNativeQueueProducer but using existing
-     * PgClientFactory infrastructure.
-     *
-     * @return Vert.x Pool for reactive database operations
-     */
-    private Pool getOrCreateReactivePool() {
-        if (reactivePool != null) {
-            return reactivePool;
-        }
-
-        synchronized (this) {
-            if (reactivePool != null) {
-                return reactivePool;
-            }
-
-            try {
-                if (clientFactory != null) {
-                    // Use PgConnectionManager to obtain/manage the reactive pool (no ad-hoc Vertx
-                    // instances)
-                    // clientId can be null - PgClientFactory resolves null to the default pool
-                    var connectionConfig = clientFactory.getConnectionConfig(clientId);
-                    var poolConfig = clientFactory.getPoolConfig(clientId);
-
-                    if (connectionConfig == null) {
-                        String poolName = clientId != null ? clientId : "default";
-                        throw new RuntimeException(
-                                "Connection configuration '" + poolName + "' not found for reactive pool");
-                    }
-                    if (poolConfig == null) {
-                        poolConfig = new dev.mars.peegeeq.db.config.PgPoolConfig.Builder().build();
-                    }
-
-                    // Use clientId for pool creation - null is resolved to default by
-                    // PgConnectionManager
-                    String resolvedClientId = clientId != null ? clientId
-                            : dev.mars.peegeeq.db.PeeGeeQDefaults.DEFAULT_POOL_ID;
-                    reactivePool = clientFactory.getConnectionManager()
-                            .getOrCreateReactivePool(resolvedClientId, connectionConfig, poolConfig);
-
-                    logger.info("Obtained reactive pool from PgConnectionManager for outbox topic: {} (clientId: {})",
-                            topic, clientId != null ? clientId : "default");
-
-                } else if (databaseService != null) {
-                    // Obtain reactive pool via DatabaseService ConnectionProvider (blocking only
-                    // during initial creation, not on Vert.x event loop)
-                    // clientId can be null - ConnectionProvider resolves null to the default pool
-                    try {
-                        var provider = databaseService.getConnectionProvider();
-                        reactivePool = provider.getReactivePool(clientId)
-                                .toCompletionStage()
-                                .toCompletableFuture()
-                                .get(5, java.util.concurrent.TimeUnit.SECONDS);
-                        logger.info("Obtained reactive pool from DatabaseService for outbox topic: {} (clientId: {})",
-                                topic, clientId != null ? clientId : "default");
-                    } catch (Exception e) {
-                        logger.error("Failed to obtain reactive pool from DatabaseService for topic {}: {}", topic,
-                                e.getMessage());
-                        throw new RuntimeException("Failed to obtain reactive pool from DatabaseService", e);
-                    }
-                } else {
-                    throw new RuntimeException(
-                            "No client factory or database service available for reactive pool creation");
-                }
-
-            } catch (Exception e) {
-                logger.error("Failed to create reactive pool for topic {}: {}", topic, e.getMessage());
-                throw new RuntimeException("Failed to create reactive pool", e);
-            }
-        }
-
-        return reactivePool;
-    }
-
     @Override
-    public synchronized void close() {
-        if (!closed) {
-            closed = true;
-
-            // Close reactive pool if it exists
-            if (reactivePool != null) {
-                reactivePool.close();
-                reactivePool = null;
-                logger.info("Closed reactive pool for outbox topic: {}", topic);
-            }
-
-            logger.info("Closed outbox producer for topic: {}", topic);
-        }
+    public void close() {
+        // Best-effort close: in-flight sends may still complete.
+        // Pool is a shared resource managed by PgConnectionManager/ConnectionProvider — not owned by this producer.
+        closed = true;
+        logger.info("Closed outbox producer for topic: {}", topic);
     }
 
     /**
@@ -833,6 +479,20 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
             }
         }
         return Future.failedFuture(new IllegalStateException("No client factory or database service available"));
+    }
+
+    /**
+     * Logs the outcome of an outbox insert, distinguishing new inserts from idempotent duplicates.
+     */
+    private void logSendOutcome(RowSet<Row> rows, String correlationId, String idempotencyKey) {
+        if (rows.rowCount() == 0 && idempotencyKey != null) {
+            logger.debug("Duplicate idempotency key for outbox topic {}: {} (correlationId: {}) - message already exists",
+                    topic, idempotencyKey, correlationId);
+        } else {
+            logger.debug("Message sent to outbox for topic {} (correlationId: {}, idempotencyKey: {})",
+                    topic, correlationId, idempotencyKey);
+            metrics.recordMessageSent(topic);
+        }
     }
 
     /**

@@ -43,7 +43,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * Comprehensive test for AutomaticTransactionManagementExample functionality.
  * 
  * This test validates automatic transaction management patterns from the original 406-line example:
- * 1. Basic Automatic Transaction Management - sendWithTransaction operations
+ * 1. Basic Automatic Transaction Management - sendInOwnTransaction operations
  * 2. Transaction Propagation Context - TransactionPropagation.CONTEXT for layered services
  * 3. Batch Operations with Shared Context - Batch operations with shared transaction context
  * 4. Full Parameter Automatic Transactions - Full parameter support with propagation
@@ -98,7 +98,7 @@ public class AutomaticTransactionManagementExampleTest {
 
     /**
      * Test Pattern 1: Basic Automatic Transaction Management
-     * Validates sendWithTransaction operations
+     * Validates sendInOwnTransaction operations
      */
     @Test
     void testBasicAutomaticTransactionManagement() throws Exception {
@@ -239,7 +239,7 @@ public class AutomaticTransactionManagementExampleTest {
         boolean transactionManagementEnabled = true;
         
         // Simulate basic automatic transaction management
-        logger.info("🔄 Testing sendWithTransaction operations...");
+        logger.info("🔄 Testing sendInOwnTransaction operations...");
         for (int i = 0; i < 3; i++) {
             OrderEvent order = new OrderEvent(
                 "auto-tx-" + (i + 1),
