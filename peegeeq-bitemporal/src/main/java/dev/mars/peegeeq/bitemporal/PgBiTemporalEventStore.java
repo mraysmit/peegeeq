@@ -52,7 +52,6 @@ import io.vertx.sqlclient.Tuple;
 import java.util.concurrent.atomic.AtomicBoolean;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.slf4j.MDC;
 
 import java.time.Instant;
 import java.time.OffsetDateTime;
@@ -1865,18 +1864,14 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 String operationType = message.body().getString("operation");
                 String requestId = message.body().getString("requestId");
 
-                // Set MDC for the entire handler chain.  This verticle runs on a
-                // single event-loop thread, so MDC stays valid across the synchronous
-                // call to processDatabaseOperation AND its async Future callbacks
-                // (.map/.compose inside withTransaction) that execute on this same thread.
-                // We clear MDC in the terminal onSuccess/onFailure callbacks.
-                TraceContextUtil.mdcScope(trace);
-
-                logger.debug("Processing database operation '{}' with requestId '{}' on thread: {}",
-                        operationType, requestId, Thread.currentThread().getName());
-
+                // Set MDC only for the synchronous setup: logging + processDatabaseOperation().
+                // Do NOT hold MDC open across the async gap — even on a dedicated verticle
+                // thread, async futures yield the event loop between creation and completion,
+                // allowing other handlers to run with contaminated MDC.
                 Future<JsonObject> result;
-                try {
+                try (var scope = TraceContextUtil.mdcScope(trace)) {
+                    logger.debug("Processing database operation '{}' with requestId '{}' on thread: {}",
+                            operationType, requestId, Thread.currentThread().getName());
                     result = processDatabaseOperation(message.body());
                 } catch (Exception e) {
                     result = Future.failedFuture(e);
@@ -1884,18 +1879,18 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
                 result
                         .onSuccess(json -> {
-                            logger.debug("Database operation '{}' completed successfully on thread: {}",
-                                    operationType, Thread.currentThread().getName());
+                            try (var scope = TraceContextUtil.mdcScope(trace)) {
+                                logger.debug("Database operation '{}' completed successfully on thread: {}",
+                                        operationType, Thread.currentThread().getName());
+                            }
                             message.reply(json);
-                            MDC.remove(TraceContextUtil.MDC_TRACE_ID);
-                            MDC.remove(TraceContextUtil.MDC_SPAN_ID);
                         })
                         .onFailure(error -> {
-                            logger.error("Database operation '{}' failed on thread: {}: {}",
-                                    operationType, Thread.currentThread().getName(), error.getMessage(), error);
+                            try (var scope = TraceContextUtil.mdcScope(trace)) {
+                                logger.error("Database operation '{}' failed on thread: {}: {}",
+                                        operationType, Thread.currentThread().getName(), error.getMessage(), error);
+                            }
                             message.fail(500, error.getMessage() != null ? error.getMessage() : error.getClass().getName());
-                            MDC.remove(TraceContextUtil.MDC_TRACE_ID);
-                            MDC.remove(TraceContextUtil.MDC_SPAN_ID);
                         });
             });
 
@@ -2175,25 +2170,21 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             // Execute on Vert.x context using runOnContext
             io.vertx.core.Promise<T> promise = io.vertx.core.Promise.promise();
             context.runOnContext(v -> {
-                // Restore MDC for the operation invocation and keep it active
-                // through the async callback chain. The scope is closed in the
-                // terminal onSuccess/onFailure handlers so that MDC remains valid
-                // for any logging inside the Future's async continuations.
-                var scope = TraceContextUtil.mdcScope(traceCtx);
-                try {
-                    operation.get()
-                            .onSuccess(result -> {
-                                scope.close();
-                                promise.complete(result);
-                            })
-                            .onFailure(err -> {
-                                scope.close();
-                                promise.fail(err);
-                            });
+                // Set MDC only for the synchronous operation.get() invocation,
+                // then close immediately. Do NOT hold MDC open across the async
+                // lifetime — this event-loop thread multiplexes many tasks, and
+                // an open scope would contaminate unrelated operations between
+                // operation.get() returning and the future completing.
+                Future<T> future;
+                try (var scope = TraceContextUtil.mdcScope(traceCtx)) {
+                    future = operation.get();
                 } catch (Exception e) {
-                    scope.close();
                     promise.fail(e);
+                    return;
                 }
+                future
+                        .onSuccess(promise::complete)
+                        .onFailure(promise::fail);
             });
             return promise.future();
         }
@@ -2210,14 +2201,6 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         private final Instant newestEventTime;
         private final long storageSizeBytes;
         private final long uniqueAggregateCount;
-
-        public EventStoreStatsImpl(long totalEvents, long totalCorrections,
-                Map<String, Long> eventCountsByType,
-                Instant oldestEventTime, Instant newestEventTime,
-                long storageSizeBytes) {
-            this(totalEvents, totalCorrections, eventCountsByType, oldestEventTime, newestEventTime, storageSizeBytes,
-                    0);
-        }
 
         public EventStoreStatsImpl(long totalEvents, long totalCorrections,
                 Map<String, Long> eventCountsByType,
