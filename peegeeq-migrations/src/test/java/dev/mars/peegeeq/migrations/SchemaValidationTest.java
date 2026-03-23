@@ -280,8 +280,8 @@ class SchemaValidationTest {
             while (rs.next()) {
                 String indexName = rs.getString("indexname");
                 assertThat(indexName)
-                        .as("Index should follow naming convention idx_<table>_<column>")
-                        .matches("idx_.*|.*_pkey|.*_key");
+                        .as("Index should follow naming convention idx_<table>_<column> or uq_<table>_<column>")
+                        .matches("idx_.*|uq_.*|.*_pkey|.*_key");
             }
         }
     }

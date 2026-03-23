@@ -357,7 +357,7 @@ class VersionFamilyTopologyTest {
 
     @Test
     @DisplayName("Chain: getAllVersions from any node returns all members")
-    void chainTopologyGetAllVersionsFromLeaf(VertxTestContext testContext) throws Exception {
+    void chainModelGetAllVersionsFromAnyNode(VertxTestContext testContext) throws Exception {
         Instant t = Instant.now();
 
         // Chain model enforced: A(v1) → B(v2) → C(v3) → D(v4)

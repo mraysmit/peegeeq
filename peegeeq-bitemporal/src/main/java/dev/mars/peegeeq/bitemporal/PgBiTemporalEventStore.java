@@ -984,8 +984,6 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                        is_correction, correction_reason, created_at
                 FROM %s
                 WHERE event_id = $1
-                ORDER BY version DESC
-                LIMIT 1
                 """.formatted(quotedTableName);
 
         return getOptimalReadClient().preparedQuery(sql)
