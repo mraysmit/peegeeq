@@ -28,9 +28,9 @@ class BiTemporalFactoryTest {
     }
 
     @Test
-    void testVertxPoolAdapterClassExists() {
-        // Test that vertx pool adapter class exists and can be referenced
-        assertNotNull(VertxPoolAdapter.class, "VertxPoolAdapter class should exist");
+    void testBiTemporalPoolFactoryClassExists() {
+        // Test that bi-temporal pool factory class exists and can be referenced
+        assertNotNull(BiTemporalPoolFactory.class, "BiTemporalPoolFactory class should exist");
     }
 
     @Test
@@ -44,7 +44,7 @@ class BiTemporalFactoryTest {
         // Test that class names are as expected
         assertEquals("BiTemporalEventStoreFactory", BiTemporalEventStoreFactory.class.getSimpleName());
         assertEquals("PgBiTemporalEventStore", PgBiTemporalEventStore.class.getSimpleName());
-        assertEquals("VertxPoolAdapter", VertxPoolAdapter.class.getSimpleName());
+        assertEquals("BiTemporalPoolFactory", BiTemporalPoolFactory.class.getSimpleName());
         assertEquals("ReactiveNotificationHandler", ReactiveNotificationHandler.class.getSimpleName());
     }
 
@@ -54,7 +54,7 @@ class BiTemporalFactoryTest {
         String expectedPackage = "dev.mars.peegeeq.bitemporal";
         assertEquals(expectedPackage, BiTemporalEventStoreFactory.class.getPackage().getName());
         assertEquals(expectedPackage, PgBiTemporalEventStore.class.getPackage().getName());
-        assertEquals(expectedPackage, VertxPoolAdapter.class.getPackage().getName());
+        assertEquals(expectedPackage, BiTemporalPoolFactory.class.getPackage().getName());
         assertEquals(expectedPackage, ReactiveNotificationHandler.class.getPackage().getName());
     }
 
