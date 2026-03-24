@@ -19,11 +19,11 @@ import static org.junit.jupiter.api.Assertions.*;
 
 @Tag(TestCategories.CORE)
 @ExtendWith(VertxExtension.class)
-class VertxPoolAdapterTest {
+class BiTemporalPoolFactoryTest {
 
     private Vertx vertx;
     private PeeGeeQManager peeGeeQManager;
-    private VertxPoolAdapter vertxPoolAdapter;
+    private BiTemporalPoolFactory poolFactory;
 
     @BeforeEach
     void setUp(Vertx vertx) {
@@ -38,13 +38,13 @@ class VertxPoolAdapterTest {
         this.vertx = vertx;
         PeeGeeQConfiguration config = new PeeGeeQConfiguration();
         peeGeeQManager = new PeeGeeQManager(config, new SimpleMeterRegistry(), vertx);
-        vertxPoolAdapter = new VertxPoolAdapter(vertx, peeGeeQManager);
+        poolFactory = new BiTemporalPoolFactory(vertx, peeGeeQManager);
     }
 
     @AfterEach
     void tearDown(VertxTestContext testContext) {
-        if (vertxPoolAdapter != null) {
-            vertxPoolAdapter.close();
+        if (poolFactory != null) {
+            poolFactory.close();
         }
 
         Future<Void> closeFuture = peeGeeQManager != null
@@ -66,7 +66,7 @@ class VertxPoolAdapterTest {
 
     @Test
     void shouldCreatePoolFromConfiguration() {
-        Pool pool = vertxPoolAdapter.getOrCreatePool();
+        Pool pool = poolFactory.getOrCreatePool();
         assertNotNull(pool);
         // We can't easily inspect the pool internals without casting to internal classes, 
         // but we know it didn't throw and returned a pool.
@@ -75,17 +75,17 @@ class VertxPoolAdapterTest {
 
     @Test
     void shouldReturnCachedPool() {
-        Pool pool1 = vertxPoolAdapter.getOrCreatePool();
-        Pool pool2 = vertxPoolAdapter.getOrCreatePool();
+        Pool pool1 = poolFactory.getOrCreatePool();
+        Pool pool2 = poolFactory.getOrCreatePool();
         assertSame(pool1, pool2);
     }
     
     @Test
     void shouldClosePoolGracefully() {
-        vertxPoolAdapter.getOrCreatePool();
-        assertNotNull(vertxPoolAdapter.getPool());
-        vertxPoolAdapter.close();
-        assertNull(vertxPoolAdapter.getPool());
+        poolFactory.getOrCreatePool();
+        assertNotNull(poolFactory.getPool());
+        poolFactory.close();
+        assertNull(poolFactory.getPool());
     }
 }
 

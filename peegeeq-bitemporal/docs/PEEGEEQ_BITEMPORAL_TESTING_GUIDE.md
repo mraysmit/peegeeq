@@ -241,7 +241,7 @@ Does your test use TestContainers or external dependencies?
 |-------|-------|-----------|----------|
 | PgBiTemporalEventStore.java | 1,760 | High | **Critical** |
 | ReactiveNotificationHandler.java | 389 | Medium | High |
-| VertxPoolAdapter.java | 242 | Medium | High |
+| BiTemporalPoolFactory.java | 242 | Medium | High |
 | ReactiveUtils.java | 156 | Low | Medium |
 | BiTemporalEventStoreFactory.java | 155 | Low | Medium |
 | **Total** | **2,702** | - | - |
@@ -296,7 +296,7 @@ start target/site/jacoco/index.html
 |-----------|----------------|-----------|
 | PgBiTemporalEventStore | 75-80% | Core business logic, critical path |
 | ReactiveNotificationHandler | 70-75% | Message handling, async complexity |
-| VertxPoolAdapter | 70-75% | Resource management critical |
+| BiTemporalPoolFactory | 70-75% | Resource management critical |
 | ReactiveUtils | 80-85% | Utility functions, easier to test |
 | BiTemporalEventStoreFactory | 80-85% | Factory pattern, straightforward |
 | **Overall Module** | **75-80%** | Balanced coverage for maintainability |
@@ -330,7 +330,7 @@ start target/site/jacoco/index.html
 
 3. **Utility Classes**
    - ReactiveUtils conversions
-   - VertxPoolAdapter configuration
+   - BiTemporalPoolFactory configuration
    - Expected: 5-8% coverage increase
 
 #### Phase 3: Edge Cases & Error Handling (Target: 70-80% Coverage)
@@ -801,7 +801,7 @@ peegeeq-bitemporal/
 ├── src/main/java/dev/mars/peegeeq/bitemporal/
 │   ├── PgBiTemporalEventStore.java          (1,760 lines) ⭐ Main implementation
 │   ├── ReactiveNotificationHandler.java     (389 lines)
-│   ├── VertxPoolAdapter.java                (242 lines)
+│   ├── BiTemporalPoolFactory.java           (242 lines)
 │   ├── ReactiveUtils.java                   (156 lines)
 │   └── BiTemporalEventStoreFactory.java     (155 lines)
 │

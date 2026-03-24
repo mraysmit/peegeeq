@@ -29,9 +29,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Adapter that creates a Vert.x Pool from PeeGeeQManager configuration for bi-temporal event store.
+ * Factory that creates a Vert.x Pool from PeeGeeQManager configuration for bi-temporal event store.
  * 
- * This adapter creates Vert.x reactive pools from PeeGeeQManager configuration,
+ * This factory creates and owns Vert.x reactive pools from PeeGeeQManager configuration,
  * following the established pure Vert.x 5.x patterns from peegeeq-native.
  *
  * This class is part of the PeeGeeQ message queue system, providing
@@ -41,23 +41,23 @@ import org.slf4j.LoggerFactory;
  * @since 2025-09-07
  * @version 1.0
  */
-public class VertxPoolAdapter {
-    private static final Logger logger = LoggerFactory.getLogger(VertxPoolAdapter.class);
+public class BiTemporalPoolFactory {
+    private static final Logger logger = LoggerFactory.getLogger(BiTemporalPoolFactory.class);
 
     private final Vertx vertx;
     private final PeeGeeQManager peeGeeQManager;
     private volatile Pool pool;
 
     /**
-     * Creates a new VertxPoolAdapter with explicit Vertx instance.
+     * Creates a new BiTemporalPoolFactory with explicit Vertx instance.
      *
      * @param vertx The Vertx instance to use
      * @param peeGeeQManager The PeeGeeQ manager to extract configuration from
      */
-    public VertxPoolAdapter(Vertx vertx, PeeGeeQManager peeGeeQManager) {
+    public BiTemporalPoolFactory(Vertx vertx, PeeGeeQManager peeGeeQManager) {
         this.vertx = java.util.Objects.requireNonNull(vertx, "Vertx instance cannot be null");
         this.peeGeeQManager = java.util.Objects.requireNonNull(peeGeeQManager, "PeeGeeQManager cannot be null");
-        logger.debug("Created VertxPoolAdapter with explicit Vertx instance");
+        logger.debug("Created BiTemporalPoolFactory with explicit Vertx instance");
     }
 
     /**
