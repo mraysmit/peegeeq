@@ -378,6 +378,59 @@ public class SubscriptionHandler {
             });
     }
 
+    /**
+     * Force-removes a consumer group from a topic.
+     * DELETE /api/v1/setups/:setupId/subscriptions/:topic/:groupName/force-remove
+     *
+     * <p>Administrative endpoint that marks the subscription as DEAD, runs cleanup
+     * to unblock stuck messages, then marks the subscription as CANCELLED.</p>
+     */
+    public void forceRemoveConsumerGroup(RoutingContext ctx) {
+        String setupId = ctx.pathParam("setupId");
+        String topic = ctx.pathParam("topic");
+        String groupName = ctx.pathParam("groupName");
+
+        logger.info("Force-removing consumer group for setup: {}, topic: {}, group: {}",
+                setupId, topic, groupName);
+
+        SubscriptionService service = setupService.getSubscriptionServiceForSetup(setupId);
+        if (service == null) {
+            sendSetupNotFoundError(ctx, setupId);
+            return;
+        }
+
+        service.forceRemoveConsumerGroup(topic, groupName)
+            .onSuccess(result -> {
+                JsonObject json = new JsonObject()
+                    .put("success", true)
+                    .put("topic", result.topic())
+                    .put("groupName", result.groupName())
+                    .put("action", "force-removed")
+                    .put("previousStatus", result.previousStatus())
+                    .put("messagesDecremented", result.messagesDecremented())
+                    .put("orphanRowsRemoved", result.orphanRowsRemoved())
+                    .put("messagesAutoCompleted", result.messagesAutoCompleted())
+                    .put("totalActions", result.totalActions());
+                ctx.response()
+                    .putHeader("Content-Type", "application/json")
+                    .end(json.encode());
+            })
+            .onFailure(error -> {
+                if (isSubscriptionNotFoundError(error) ||
+                        (error instanceof IllegalArgumentException && error.getMessage() != null
+                                && error.getMessage().contains("No subscription found"))) {
+                    sendSubscriptionNotFoundError(ctx, topic, groupName);
+                } else if (error instanceof IllegalStateException) {
+                    sendError(ctx, 409, PeeGeeQErrorCodes.SUBSCRIPTION_INVALID_STATE,
+                            error.getMessage());
+                } else {
+                    logger.error("Failed to force-remove consumer group: {}/{}", topic, groupName, error);
+                    sendError(ctx, 500, PeeGeeQErrorCodes.FORCE_REMOVE_FAILED,
+                            "Failed to force-remove consumer group: " + error.getMessage());
+                }
+            });
+    }
+
     // ========================================================================
     // Backfill Endpoints (H4)
     // ========================================================================
@@ -671,6 +724,11 @@ public class SubscriptionHandler {
         Integer heartbeatTimeoutSeconds = body.getInteger("heartbeatTimeoutSeconds");
         if (heartbeatTimeoutSeconds != null) {
             builder.heartbeatTimeoutSeconds(heartbeatTimeoutSeconds);
+        }
+
+        Integer deadAfterMisses = body.getInteger("deadAfterMisses");
+        if (deadAfterMisses != null) {
+            builder.deadAfterMisses(deadAfterMisses);
         }
 
         String backfillScope = body.getString("backfillScope");

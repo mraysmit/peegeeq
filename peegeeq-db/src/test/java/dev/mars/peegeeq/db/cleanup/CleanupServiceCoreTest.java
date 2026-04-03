@@ -55,7 +55,7 @@ public class CleanupServiceCoreTest extends BaseIntegrationTest {
     @AfterEach
     void tearDown() throws Exception {
         if (connectionManager != null) {
-            connectionManager.close();
+            connectionManager.closeAsync();
         }
     }
 

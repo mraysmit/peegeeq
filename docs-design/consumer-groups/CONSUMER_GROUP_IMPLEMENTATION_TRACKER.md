@@ -31,7 +31,7 @@
 | Dead Consumer Operational Logging | ✅ DONE | Structured results, blocked message stats, subscription landscape, critical alerts |
 | Dead Consumer Message Cleanup | ✅ DONE | `DeadConsumerGroupCleanup` decrements `required_consumer_groups`, removes orphans, auto-completes |
 | Dead Consumer Resurrection | ✅ DONE | `updateHeartbeat()` auto-resurrects DEAD→ACTIVE via conditional SQL |
-| Flapping Protection | ❌ MISSING | No `consecutive_failures` — marks DEAD on first timeout |
+| Flapping Protection | ✅ DONE | V015 migration adds `consecutive_misses`/`dead_after_misses` columns; detector uses two-phase increment→threshold SQL |
 | Dead Consumer Scheduled Job | ✅ DONE | Wired into `PeeGeeQManager` lifecycle, configurable interval, auto-start/stop |
 | Backfill Service | ✅ DONE | Full batch processing with auto-trigger on FROM_BEGINNING subscribe, REST endpoints for trigger/monitor/cancel |
 | Backfill Lifecycle Integration | ✅ DONE | Auto-triggers backfill on FROM_BEGINNING subscription via `setBackfillService()` |
@@ -181,10 +181,14 @@ The design specifies a **5-layer approach**. Here's what actually exists:
 - 3 integration tests: `testHeartbeatResurrectsDeadSubscription`, `testHeartbeatDoesNotResurrectCancelledSubscription`, `testHeartbeatKeepsPausedSubscriptionPaused`
 - Note: resurrection does NOT re-increment `required_consumer_groups` or trigger re-backfill for messages cleaned up during DEAD period (future enhancement)
 
-### Flapping Protection — ❌ NOT IMPLEMENTED
+### Flapping Protection — ✅ DONE
 - Design doc (Pitfall 2, lines ~2500-2510) specifies `consecutive_failures` column requiring 3+ consecutive heartbeat misses before marking DEAD
-- Column does not exist in V010 migration schema
-- Detector marks DEAD on first timeout miss — vulnerable to transient network issues
+- Implemented as `consecutive_misses` and `dead_after_misses` columns via V015 migration
+- `DeadConsumerDetector` uses two-phase SQL: increment `consecutive_misses`, then mark DEAD only when `>= dead_after_misses`
+- `SubscriptionManager.updateHeartbeat()` resets `consecutive_misses = 0` on heartbeat (including DEAD→ACTIVE resurrection)
+- `SubscriptionManager.subscribe()` resets `consecutive_misses = 0` on resubscription
+- `SubscriptionOptions.deadAfterMisses(int)` allows per-subscription threshold configuration (default 3)
+- 12 integration tests in `FlappingProtectionIntegrationTest` — all passing
 
 ### `outbox_consumer_groups` Orphan Cleanup — ✅ DONE
 - When a consumer is marked DEAD, its PENDING rows in `outbox_consumer_groups` are removed by `DeadConsumerGroupCleanup` step 2 (orphan removal)
@@ -300,7 +304,8 @@ These are cases where components exist but are not connected to the application 
 
 | Column/Table | Needed For | Exists | Notes |
 |--------------|-----------|--------|-------|
-| `consecutive_failures` on `outbox_topic_subscriptions` | Flapping protection | ❌ | Design specifies 3-strike logic |
+| `consecutive_misses` on `outbox_topic_subscriptions` | Flapping protection | ✅ | V015 migration; default 0, reset on heartbeat/resubscribe |
+| `dead_after_misses` on `outbox_topic_subscriptions` | Flapping protection | ✅ | V015 migration; default 3, configurable per subscription |
 | `outbox_subscription_offsets` table | Offset/Watermark mode | ❌ | Phase 7, explicitly deferred |
 | `outbox_topic_watermarks` table | Offset/Watermark mode | ❌ | Phase 7, explicitly deferred |
 
@@ -314,7 +319,7 @@ These are cases where components exist but are not connected to the application 
 | Test Scenario | Exists | Why Not |
 | `required_consumer_groups` decrement after DEAD | ✅ | Covered by `DeadConsumerGroupCleanupIntegrationTest` |
 | Resurrection (DEAD→ACTIVE via heartbeat) | ✅ | 3 tests in `SubscriptionManagerIntegrationTest` |
-| Flapping protection (consecutive failures) | ❌ | Feature not implemented |
+| Flapping protection (consecutive failures) | ✅ | 12 tests in `FlappingProtectionIntegrationTest` |
 | End-to-end: dead detection → decrement → cleanup | ✅ | `testEndToEndDetectCleanupPipeline` in JobIntegrationTest |
 | PAUSED consumer with expired heartbeat detected | ✅ | `testPausedConsumerWithExpiredHeartbeatDetected` in ComprehensiveTest |
 | CANCELLED consumer excluded from detection | ✅ | `testCancelledConsumerNotDetected` in ComprehensiveTest |
@@ -471,18 +476,28 @@ AND required_consumer_groups > 0;
 #### Task M1: Flapping Protection
 **What**: Require N consecutive heartbeat misses before marking DEAD  
 **Where**: Schema migration + `DeadConsumerDetector`  
-**Schema Change**: Add `consecutive_failures INT DEFAULT 0` to `outbox_topic_subscriptions`  
+**Schema Change**: Add `consecutive_misses INT DEFAULT 0` and `dead_after_misses INT DEFAULT 3` to `outbox_topic_subscriptions`  
 **Logic Change**: On detection run:
-- If heartbeat expired: increment `consecutive_failures`
-- If `consecutive_failures >= threshold` (default 3): mark DEAD
-- If heartbeat is current: reset `consecutive_failures = 0`  
+- If heartbeat expired: increment `consecutive_misses`
+- If `consecutive_misses >= dead_after_misses`: mark DEAD
+- If heartbeat is current: reset `consecutive_misses = 0`  
 **Acceptance Criteria**:
 - Single timeout miss increments counter but does not mark DEAD
 - 3 consecutive misses marks DEAD
 - Heartbeat resets counter to 0
 - Threshold is configurable per subscription
 
-**Status**: ❌ Not started
+**Status**: ✅ Completed
+
+**Implementation**:
+- V015 migration adds `consecutive_misses` (default 0) and `dead_after_misses` (default 3) columns
+- `DeadConsumerDetector` uses two-phase SQL: Phase 1 increments `consecutive_misses` for expired subscriptions, Phase 2 marks DEAD only when `consecutive_misses >= dead_after_misses`
+- `SubscriptionManager.updateHeartbeat()` resets `consecutive_misses = 0` on every heartbeat (works for resurrection too)
+- `SubscriptionManager.subscribe()` resets `consecutive_misses = 0` on resubscription via ON CONFLICT
+- `SubscriptionOptions.deadAfterMisses(int)` builder method allows per-subscription threshold (default 3, minimum 1)
+- REST handler parses `deadAfterMisses` from subscription creation body
+- Miss state is persisted on the subscription row (survives process restarts)
+- 12 integration tests in `FlappingProtectionIntegrationTest`
 
 #### Task M2: Orphaned Consumer Group Row Cleanup
 **What**: Clean up `outbox_consumer_groups` rows for dead/cancelled subscriptions  

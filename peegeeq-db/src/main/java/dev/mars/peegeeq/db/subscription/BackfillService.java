@@ -5,6 +5,7 @@ import dev.mars.peegeeq.api.tracing.TraceCtx;
 import dev.mars.peegeeq.api.tracing.TraceContextUtil;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import io.vertx.core.Future;
+import io.vertx.core.Vertx;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.SqlConnection;
 import io.vertx.sqlclient.Tuple;
@@ -68,9 +69,14 @@ public class BackfillService {
 
     private final PgConnectionManager connectionManager;
     private final String serviceId;
+    private final Vertx vertx;
 
     /**
-     * Creates a new BackfillService.
+     * Creates a new BackfillService without Vert.x timer support.
+     *
+     * <p>Inter-batch delay (rate limiting) will not be available. Calling
+     * {@link #startBackfill(String, String, int, long, long)} with a non-zero
+     * delay will fail with {@link IllegalStateException}.</p>
      *
      * @param connectionManager The connection manager for database access
      * @param serviceId The service ID for connection pool selection
@@ -78,7 +84,22 @@ public class BackfillService {
     public BackfillService(PgConnectionManager connectionManager, String serviceId) {
         this.connectionManager = Objects.requireNonNull(connectionManager, "connectionManager cannot be null");
         this.serviceId = Objects.requireNonNull(serviceId, "serviceId cannot be null");
-        logger.info("BackfillService initialized for service: {}", serviceId);
+        this.vertx = null;
+        logger.info("BackfillService initialized for service: {} (timer support: disabled)", serviceId);
+    }
+
+    /**
+     * Creates a new BackfillService with Vert.x timer support for inter-batch delays.
+     *
+     * @param connectionManager The connection manager for database access
+     * @param serviceId The service ID for connection pool selection
+     * @param vertx The Vert.x instance for non-blocking timer-based delays between batches
+     */
+    public BackfillService(PgConnectionManager connectionManager, String serviceId, Vertx vertx) {
+        this.connectionManager = Objects.requireNonNull(connectionManager, "connectionManager cannot be null");
+        this.serviceId = Objects.requireNonNull(serviceId, "serviceId cannot be null");
+        this.vertx = Objects.requireNonNull(vertx, "vertx cannot be null");
+        logger.info("BackfillService initialized for service: {} (timer support: enabled)", serviceId);
     }
 
     /**
@@ -94,7 +115,26 @@ public class BackfillService {
      * @return Future containing a {@link BackfillResult} with the outcome
      */
     public Future<BackfillResult> startBackfill(String topic, String groupName, int batchSize, long maxMessages) {
-        return startBackfill(topic, groupName, batchSize, maxMessages, BackfillScope.PENDING_ONLY);
+        return startBackfill(topic, groupName, batchSize, maxMessages, BackfillScope.PENDING_ONLY, 0L);
+    }
+
+    /**
+     * Starts or resumes a backfill operation with inter-batch delay for rate limiting.
+     *
+     * <p>The delay is applied between batches using a non-blocking Vert.x timer,
+     * allowing the database to serve OLTP workloads between backfill batches.
+     * Requires this service to have been created with the Vertx-aware constructor
+     * if {@code batchDelayMs > 0}.</p>
+     *
+     * @param topic The topic name
+     * @param groupName The consumer group name
+     * @param batchSize Number of messages to process per batch
+     * @param maxMessages Maximum total messages to backfill (0 = unlimited)
+     * @param batchDelayMs Delay in milliseconds between batches (0 = no delay)
+     * @return Future containing a {@link BackfillResult} with the outcome
+     */
+    public Future<BackfillResult> startBackfill(String topic, String groupName, int batchSize, long maxMessages, long batchDelayMs) {
+        return startBackfill(topic, groupName, batchSize, maxMessages, BackfillScope.PENDING_ONLY, batchDelayMs);
     }
 
     /**
@@ -110,6 +150,24 @@ public class BackfillService {
     public Future<BackfillResult> startBackfill(String topic, String groupName,
                                                 int batchSize, long maxMessages,
                                                 BackfillScope messageScope) {
+        return startBackfill(topic, groupName, batchSize, maxMessages, messageScope, 0L);
+    }
+
+    /**
+     * Starts or resumes a backfill operation for a consumer group subscription.
+     *
+     * @param topic The topic name
+     * @param groupName The consumer group name
+     * @param batchSize Number of messages to process per batch
+     * @param maxMessages Maximum total messages to backfill (0 = unlimited)
+     * @param messageScope Message scope to include in backfill
+     * @param batchDelayMs Delay in milliseconds between batches (0 = no delay).
+     *                     Requires Vertx-aware constructor if non-zero.
+     * @return Future containing a {@link BackfillResult} with the outcome
+     */
+    public Future<BackfillResult> startBackfill(String topic, String groupName,
+                                                int batchSize, long maxMessages,
+                                                BackfillScope messageScope, long batchDelayMs) {
         Objects.requireNonNull(topic, "topic cannot be null");
         Objects.requireNonNull(groupName, "groupName cannot be null");
         Objects.requireNonNull(messageScope, "messageScope cannot be null");
@@ -119,13 +177,21 @@ public class BackfillService {
         if (maxMessages < 0) {
             return Future.failedFuture(new IllegalArgumentException("maxMessages cannot be negative"));
         }
+        if (batchDelayMs < 0) {
+            return Future.failedFuture(new IllegalArgumentException("batchDelayMs cannot be negative"));
+        }
+        if (batchDelayMs > 0 && vertx == null) {
+            return Future.failedFuture(new IllegalStateException(
+                    "Vertx instance is required for inter-batch delay. " +
+                    "Use the BackfillService(connectionManager, serviceId, vertx) constructor."));
+        }
 
         TraceCtx trace = TraceCtx.createNew();
         long startTimeMs = System.currentTimeMillis();
 
         try (var scope = TraceContextUtil.mdcScope(trace)) {
-            logger.info("Starting backfill for topic='{}', group='{}', batchSize={}, maxMessages={}, scope={}",
-                topic, groupName, batchSize, maxMessages, messageScope);
+            logger.info("Starting backfill for topic='{}', group='{}', batchSize={}, maxMessages={}, scope={}, batchDelayMs={}",
+                topic, groupName, batchSize, maxMessages, messageScope, batchDelayMs);
         }
 
         // Step 1: Atomically acquire backfill lock to prevent concurrent execution
@@ -172,7 +238,7 @@ public class BackfillService {
                                 // Initialize backfill tracking
                                 return initializeBackfill(topic, groupName, totalMessages)
                                         .compose(v -> processBatches(trace, topic, groupName, resumeFromId,
-                                                batchSize, maxMessages, processedSoFar, messageScope))
+                                                batchSize, maxMessages, processedSoFar, messageScope, batchDelayMs))
                                         .map(result -> {
                                             long elapsedMs = System.currentTimeMillis() - startTimeMs;
                                             double rate = elapsedMs > 0
@@ -472,9 +538,9 @@ public class BackfillService {
     private Future<BackfillResult> processBatches(TraceCtx trace, String topic, String groupName,
                                                    long startFromId, int batchSize,
                                                    long maxMessages, long alreadyProcessed,
-                                                   BackfillScope messageScope) {
+                                                   BackfillScope messageScope, long batchDelayMs) {
         // Use tail-recursive Future composition — safe in Vert.x as the call stack unwinds between batches
-        return processBatchesRecursively(trace, topic, groupName, startFromId, batchSize, maxMessages, alreadyProcessed, messageScope);
+        return processBatchesRecursively(trace, topic, groupName, startFromId, batchSize, maxMessages, alreadyProcessed, messageScope, batchDelayMs);
     }
 
     /**
@@ -494,16 +560,20 @@ public class BackfillService {
     private Future<BackfillResult> processBatchesRecursively(TraceCtx trace, String topic, String groupName,
                                                              long currentStartId, int batchSize,
                                                              long maxMessages, long currentProcessed,
-                                                             BackfillScope messageScope) {
+                                                             BackfillScope messageScope, long batchDelayMs) {
         return processOneBatch(trace, topic, groupName, currentStartId, batchSize, maxMessages, currentProcessed, messageScope)
                 .compose(batchResult -> {
                     if (batchResult.isComplete() || batchResult.isCancelled()) {
                         return Future.succeededFuture(batchResult.toBackfillResult());
                     }
+                    // Apply inter-batch delay if configured (non-blocking via Vert.x timer)
+                    Future<Void> delay = (batchDelayMs > 0 && vertx != null)
+                            ? vertx.timer(batchDelayMs).mapEmpty()
+                            : Future.succeededFuture();
                     // Tail-recursive call — no live stack frame retained between batches
-                    return processBatchesRecursively(trace, topic, groupName,
+                    return delay.compose(v -> processBatchesRecursively(trace, topic, groupName,
                             batchResult.nextStartId(), batchSize, maxMessages,
-                            batchResult.totalProcessed(), messageScope);
+                            batchResult.totalProcessed(), messageScope, batchDelayMs));
                 });
     }
 

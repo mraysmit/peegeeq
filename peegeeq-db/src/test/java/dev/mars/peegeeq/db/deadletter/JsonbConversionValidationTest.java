@@ -101,7 +101,7 @@ class JsonbConversionValidationTest {
     @AfterEach
     void tearDown() throws Exception {
         if (connectionManager != null) {
-            connectionManager.close();
+            connectionManager.closeAsync();
         }
         if (vertx != null) {
             vertx.close();

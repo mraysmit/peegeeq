@@ -22,14 +22,12 @@ import dev.mars.peegeeq.performance.suite.BitemporalPerformanceTestSuite;
 import dev.mars.peegeeq.performance.suite.OutboxPerformanceTestSuite;
 import dev.mars.peegeeq.performance.suite.NativeQueuePerformanceTestSuite;
 import dev.mars.peegeeq.performance.suite.DatabasePerformanceTestSuite;
+import io.vertx.core.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.List;
-
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
 /**
  * Main performance test harness that orchestrates the execution of all performance test suites.
@@ -49,12 +47,10 @@ public class PerformanceTestHarness {
     private static final Logger logger = LoggerFactory.getLogger(PerformanceTestHarness.class);
     
     private final PerformanceTestConfig config;
-    private final ExecutorService executorService;
     private final List<PerformanceTestSuite> testSuites;
     
     public PerformanceTestHarness(PerformanceTestConfig config) {
         this.config = config;
-        this.executorService = Executors.newFixedThreadPool(config.getConcurrentThreads());
         this.testSuites = createTestSuites();
         
         logger.info("Initialized PerformanceTestHarness with {} test suites", testSuites.size());
@@ -63,57 +59,59 @@ public class PerformanceTestHarness {
     /**
      * Run all configured performance test suites.
      */
-    public CompletableFuture<PerformanceTestSuite.Results> runAllTests() {
+    public Future<PerformanceTestSuite.Results> runAllTests() {
         logger.info("🚀 Starting performance test execution for suite: {}", config.getTestSuite());
         
-        return CompletableFuture.supplyAsync(() -> {
-            PerformanceTestSuite.Results aggregatedResults = new PerformanceTestSuite.Results();
-            
-            try {
-                // Run warmup if configured
-                if (config.getWarmupIterations() > 0) {
-                    logger.info("🔥 Running warmup phase with {} iterations", config.getWarmupIterations());
-                    runWarmup();
-                }
-                
-                // Execute test suites
-                for (PerformanceTestSuite suite : testSuites) {
-                    logger.info("📊 Executing test suite: {}", suite.getName());
-                    
-                    try {
-                        PerformanceTestSuite.Results suiteResults = suite.execute(config).join();
+        PerformanceTestSuite.Results aggregatedResults = new PerformanceTestSuite.Results();
+        
+        // Run warmup if configured
+        if (config.getWarmupIterations() > 0) {
+            logger.info("🔥 Running warmup phase with {} iterations", config.getWarmupIterations());
+            runWarmup();
+        }
+        
+        // Chain suite executions sequentially using compose
+        Future<Void> chain = Future.succeededFuture();
+        
+        for (PerformanceTestSuite suite : testSuites) {
+            chain = chain.compose(v -> {
+                logger.info("📊 Executing test suite: {}", suite.getName());
+                return suite.execute(config)
+                    .map(suiteResults -> {
                         aggregatedResults.merge(suiteResults);
-                        
                         logger.info("Completed test suite: {} (Success: {}, Failures: {})", 
                                    suite.getName(), suiteResults.getSuccessfulTests(), suiteResults.getFailedTests());
-                        
-                    } catch (Exception e) {
-                        logger.error("❌ Test suite {} failed with error", suite.getName(), e);
-                        aggregatedResults.addFailure(suite.getName(), e);
-                    }
-                }
-                
+                        return (Void) null;
+                    })
+                    .recover(err -> {
+                        logger.error("❌ Test suite {} failed with error", suite.getName(), err);
+                        aggregatedResults.addFailure(suite.getName(), err);
+                        return Future.succeededFuture();
+                    });
+            });
+        }
+        
+        return chain
+            .map(v -> {
                 logger.info("🎯 Performance test execution completed. Total tests: {}, Successful: {}, Failed: {}", 
                            aggregatedResults.getTotalTests(), 
                            aggregatedResults.getSuccessfulTests(), 
                            aggregatedResults.getFailedTests());
-                
-                return aggregatedResults;
-                
-            } catch (Exception e) {
-                logger.error("❌ Performance test execution failed", e);
-                aggregatedResults.addFailure("TestHarness", e);
-                return aggregatedResults;
-            } finally {
                 cleanup();
-            }
-        }, executorService);
+                return aggregatedResults;
+            })
+            .recover(err -> {
+                logger.error("❌ Performance test execution failed", err);
+                aggregatedResults.addFailure("TestHarness", err);
+                cleanup();
+                return Future.succeededFuture(aggregatedResults);
+            });
     }
     
     /**
      * Run a specific test suite by name.
      */
-    public CompletableFuture<PerformanceTestSuite.Results> runTestSuite(String suiteName) {
+    public Future<PerformanceTestSuite.Results> runTestSuite(String suiteName) {
         logger.info("🎯 Running specific test suite: {}", suiteName);
 
         return testSuites.stream()
@@ -124,7 +122,7 @@ public class PerformanceTestHarness {
                     logger.error("❌ Test suite not found: {}", suiteName);
                     PerformanceTestSuite.Results results = new PerformanceTestSuite.Results();
                     results.addFailure(suiteName, new IllegalArgumentException("Test suite not found: " + suiteName));
-                    return CompletableFuture.completedFuture(results);
+                    return Future.succeededFuture(results);
                 });
     }
 
@@ -236,9 +234,6 @@ public class PerformanceTestHarness {
                     logger.warn("⚠️ Error cleaning up test suite: {}", suite.getName(), e);
                 }
             }
-            
-            // Shutdown executor service
-            executorService.shutdown();
             
             logger.info("Performance test harness cleanup completed");
             

@@ -131,6 +131,26 @@ public interface ConsumerGroup<T> extends AutoCloseable {
      * Stops the consumer group. All consumers will stop processing messages.
      */
     void stop();
+
+    /**
+     * Gracefully stops the consumer group.
+     * <p>
+     * If this group was started with {@link #start(SubscriptionOptions)}, the subscription
+     * is cancelled in the database before local resources are stopped. This ensures downstream
+     * systems (heartbeat detection, dead-group cleanup) see the group as explicitly cancelled
+     * rather than dead.
+     * </p>
+     * <p>
+     * If the group was started without subscription options, this behaves identically to {@link #stop()}.
+     * </p>
+     *
+     * @return a Future that completes when the group has been fully stopped
+     * @since 1.2.0
+     */
+    default Future<Void> stopGracefully() {
+        stop();
+        return Future.succeededFuture();
+    }
     
     /**
      * Checks if the consumer group is currently active.

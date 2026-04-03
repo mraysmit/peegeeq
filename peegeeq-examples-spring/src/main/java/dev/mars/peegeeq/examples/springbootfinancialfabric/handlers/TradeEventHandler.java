@@ -95,7 +95,7 @@ public class TradeEventHandler {
                 return handleTradeConfirmation(event);
             } else {
                 log.warn("Unknown trading event type: {}", eventType);
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             }
         } catch (Exception e) {
             log.error("Error processing trading event: {} for trade: {}", eventType, trade.getTradeId(), e);
@@ -130,7 +130,7 @@ public class TradeEventHandler {
         // 3. Notify trading desk
         notifyTradingDesk(trade);
         
-        return CompletableFuture.completedFuture(null);
+        return Future.succeededFuture();
     }
     
     /**
@@ -156,7 +156,7 @@ public class TradeEventHandler {
         // 3. Notify operations team
         notifyOperationsTeam(trade);
         
-        return CompletableFuture.completedFuture(null);
+        return Future.succeededFuture();
     }
     
     // Simulated async processing methods

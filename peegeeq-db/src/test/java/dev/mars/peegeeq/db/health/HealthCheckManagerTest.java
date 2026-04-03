@@ -131,7 +131,7 @@ class HealthCheckManagerTest {
         }
 
         if (connectionManager != null) {
-            connectionManager.close();
+            connectionManager.closeAsync();
         }
     }
 
@@ -390,7 +390,8 @@ class HealthCheckManagerTest {
 
         // Close database connection to simulate failure
         System.out.println("**INTENTIONAL TEST FAILURE** Closing database connection to simulate failure");
-        connectionManager.close();
+        connectionManager.closeAsync()
+            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
 
         // Wait for health checks to detect failure
         awaitTimer(6000); // Wait longer than check interval

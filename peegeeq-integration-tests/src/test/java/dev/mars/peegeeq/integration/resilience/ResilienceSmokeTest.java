@@ -10,7 +10,10 @@ import org.junit.jupiter.api.Tag;
 import java.util.Collections;
 import java.util.UUID;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -45,16 +48,23 @@ public class ResilienceSmokeTest extends SmokeTestBase {
             DatabaseSetupRequest request = new DatabaseSetupRequest(setupId, dbConfig, Collections.emptyList(), Collections.emptyList(), Collections.emptyMap());
 
             // 1. Create setup
-            setupService.createCompleteSetup(request).get(10, TimeUnit.SECONDS);
+            CountDownLatch setupLatch = new CountDownLatch(1);
+            AtomicReference<Throwable> setupError = new AtomicReference<>();
+            setupService.createCompleteSetup(request)
+                    .onSuccess(v -> setupLatch.countDown())
+                    .onFailure(e -> { setupError.set(e); setupLatch.countDown(); });
+            assertTrue(setupLatch.await(10, TimeUnit.SECONDS), "Setup creation timed out");
+            if (setupError.get() != null) throw new RuntimeException("Setup failed", setupError.get());
 
             // 2. Verify Health is UP
-            CompletableFuture<Integer> healthCheck = new CompletableFuture<>();
+            CountDownLatch healthLatch = new CountDownLatch(1);
+            AtomicInteger healthStatus = new AtomicInteger(-1);
             webClient.get("/api/v1/setups/" + setupId + "/health")
                     .send()
-                    .onSuccess(res -> healthCheck.complete(res.statusCode()))
-                    .onFailure(healthCheck::completeExceptionally);
-            
-            assertEquals(200, healthCheck.get(5, TimeUnit.SECONDS));
+                    .onSuccess(res -> { healthStatus.set(res.statusCode()); healthLatch.countDown(); })
+                    .onFailure(e -> healthLatch.countDown());
+            assertTrue(healthLatch.await(5, TimeUnit.SECONDS), "Health check timed out");
+            assertEquals(200, healthStatus.get());
 
             // 3. Pause DB
             postgres.getDockerClient().pauseContainerCmd(postgres.getContainerId()).exec();
@@ -63,19 +73,23 @@ public class ResilienceSmokeTest extends SmokeTestBase {
                 // 4. Verify Health is DOWN (503)
                 boolean serviceUnavailable = false;
                 for (int i = 0; i < 10; i++) { // Retry for up to 10 seconds
-                    CompletableFuture<Integer> check = new CompletableFuture<>();
+                    CountDownLatch checkLatch = new CountDownLatch(1);
+                    AtomicInteger checkStatus = new AtomicInteger(-1);
                     webClient.get("/api/v1/setups/" + setupId + "/health")
                             .timeout(2000)
                             .send()
-                            .onSuccess(res -> check.complete(res.statusCode()))
-                            .onFailure(err -> check.complete(503)); // Treat timeout/error as 503
+                            .onSuccess(res -> { checkStatus.set(res.statusCode()); checkLatch.countDown(); })
+                            .onFailure(err -> { checkStatus.set(503); checkLatch.countDown(); }); // Treat timeout/error as 503
 
-                    int status = check.get(3, TimeUnit.SECONDS);
+                    checkLatch.await(3, TimeUnit.SECONDS);
+                    int status = checkStatus.get();
                     if (status == 503) {
                         serviceUnavailable = true;
                         break;
                     }
-                    vertx.timer(1000).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
+                    CountDownLatch timerLatch = new CountDownLatch(1);
+                    vertx.timer(1000).onComplete(ar -> timerLatch.countDown());
+                    timerLatch.await(5, TimeUnit.SECONDS);
                 }
                 assertTrue(serviceUnavailable, "Service should return 503 when DB is paused");
 
@@ -87,25 +101,31 @@ public class ResilienceSmokeTest extends SmokeTestBase {
             // 6. Verify Health recovers
             boolean recovered = false;
             for (int i = 0; i < 10; i++) {
-                 CompletableFuture<Integer> check = new CompletableFuture<>();
-                    webClient.get("/api/v1/setups/" + setupId + "/health")
-                            .send()
-                            .onSuccess(res -> check.complete(res.statusCode()))
-                            .onFailure(err -> check.complete(500));
+                CountDownLatch recoverLatch = new CountDownLatch(1);
+                AtomicInteger recoverStatus = new AtomicInteger(-1);
+                webClient.get("/api/v1/setups/" + setupId + "/health")
+                        .send()
+                        .onSuccess(res -> { recoverStatus.set(res.statusCode()); recoverLatch.countDown(); })
+                        .onFailure(err -> { recoverStatus.set(500); recoverLatch.countDown(); });
 
-                    try {
-                        int status = check.get(3, TimeUnit.SECONDS);
-                        if (status == 200) {
-                            recovered = true;
-                            break;
-                        }
-                    } catch (Exception ignored) {}
-                    vertx.timer(1000).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
+                try {
+                    recoverLatch.await(3, TimeUnit.SECONDS);
+                    int status = recoverStatus.get();
+                    if (status == 200) {
+                        recovered = true;
+                        break;
+                    }
+                } catch (Exception ignored) {}
+                CountDownLatch timerLatch = new CountDownLatch(1);
+                vertx.timer(1000).onComplete(ar -> timerLatch.countDown());
+                timerLatch.await(5, TimeUnit.SECONDS);
             }
             assertTrue(recovered, "Service should recover (200 OK) after DB is unpaused");
 
             // Cleanup
-            setupService.destroySetup(setupId).get(10, TimeUnit.SECONDS);
+            CountDownLatch destroyLatch = new CountDownLatch(1);
+            setupService.destroySetup(setupId).onComplete(ar -> destroyLatch.countDown());
+            destroyLatch.await(10, TimeUnit.SECONDS);
         } finally {
             if (originalTimeout != null) {
                 System.setProperty("peegeeq.database.pool.connection-timeout-ms", originalTimeout);
@@ -153,7 +173,13 @@ public class ResilienceSmokeTest extends SmokeTestBase {
             DatabaseSetupRequest request = new DatabaseSetupRequest(setupId, dbConfig, Collections.emptyList(), Collections.emptyList(), Collections.emptyMap());
 
             // 1. Create setup
-            setupService.createCompleteSetup(request).get(10, TimeUnit.SECONDS);
+            CountDownLatch setupLatch = new CountDownLatch(1);
+            AtomicReference<Throwable> setupError = new AtomicReference<>();
+            setupService.createCompleteSetup(request)
+                    .onSuccess(v -> setupLatch.countDown())
+                    .onFailure(e -> { setupError.set(e); setupLatch.countDown(); });
+            assertTrue(setupLatch.await(10, TimeUnit.SECONDS), "Setup creation timed out");
+            if (setupError.get() != null) throw new RuntimeException("Setup failed", setupError.get());
 
             // 2. Pause DB to cause failures
             postgres.getDockerClient().pauseContainerCmd(postgres.getContainerId()).exec();
@@ -162,30 +188,34 @@ public class ResilienceSmokeTest extends SmokeTestBase {
                 // 3. Trigger failures to open circuit breaker
                 // We need at least 3 failures.
                 for (int i = 0; i < 6; i++) {
-                    CompletableFuture<Integer> check = new CompletableFuture<>();
+                    CountDownLatch checkLatch = new CountDownLatch(1);
                     webClient.get("/api/v1/setups/" + setupId + "/health")
                             .timeout(2000)
                             .send()
-                            .onSuccess(res -> check.complete(res.statusCode()))
-                            .onFailure(err -> check.complete(503));
+                            .onSuccess(res -> checkLatch.countDown())
+                            .onFailure(err -> checkLatch.countDown());
                     
                     try {
-                        check.get(3, TimeUnit.SECONDS);
+                        checkLatch.await(3, TimeUnit.SECONDS);
                     } catch (Exception ignored) {}
                     
                     // Wait for health check cache to expire (interval is 1s)
-                    vertx.timer(1100).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
+                    CountDownLatch timerLatch = new CountDownLatch(1);
+                    vertx.timer(1100).onComplete(ar -> timerLatch.countDown());
+                    timerLatch.await(5, TimeUnit.SECONDS);
                 }
 
                 // 4. Verify Circuit Breaker is OPEN (Fast failure)
                 long startTime = System.currentTimeMillis();
-                CompletableFuture<Integer> fastCheck = new CompletableFuture<>();
+                CountDownLatch fastLatch = new CountDownLatch(1);
+                AtomicInteger fastStatus = new AtomicInteger(-1);
                 webClient.get("/api/v1/setups/" + setupId + "/health")
                         .send()
-                        .onSuccess(res -> fastCheck.complete(res.statusCode()))
-                        .onFailure(err -> fastCheck.complete(503));
+                        .onSuccess(res -> { fastStatus.set(res.statusCode()); fastLatch.countDown(); })
+                        .onFailure(err -> { fastStatus.set(503); fastLatch.countDown(); });
                 
-                int status = fastCheck.get(5, TimeUnit.SECONDS);
+                assertTrue(fastLatch.await(5, TimeUnit.SECONDS), "Fast check timed out");
+                int status = fastStatus.get();
                 long duration = System.currentTimeMillis() - startTime;
                 
                 // If CB is open, it should fail immediately, much faster than the 1000ms connection timeout
@@ -198,7 +228,9 @@ public class ResilienceSmokeTest extends SmokeTestBase {
             }
             
             // Cleanup
-            setupService.destroySetup(setupId).get(10, TimeUnit.SECONDS);
+            CountDownLatch destroyLatch = new CountDownLatch(1);
+            setupService.destroySetup(setupId).onComplete(ar -> destroyLatch.countDown());
+            destroyLatch.await(10, TimeUnit.SECONDS);
 
         } finally {
             // Restore properties

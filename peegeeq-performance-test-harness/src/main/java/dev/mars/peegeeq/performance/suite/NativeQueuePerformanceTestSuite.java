@@ -17,6 +17,7 @@ package dev.mars.peegeeq.performance.suite;
  */
 
 import dev.mars.peegeeq.performance.config.PerformanceTestConfig;
+import io.vertx.core.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,59 +51,57 @@ public class NativeQueuePerformanceTestSuite implements PerformanceTestSuite {
     }
     
     @Override
-    public CompletableFuture<Results> execute(PerformanceTestConfig config) {
+    public Future<Results> execute(PerformanceTestConfig config) {
         logger.info("⚡ Starting native queue performance test suite");
         
-        return CompletableFuture.supplyAsync(() -> {
-            Results results = new Results();
+        Results results = new Results();
+        
+        try {
+            // Test 1: LISTEN/NOTIFY performance
+            logger.info("📡 Testing LISTEN/NOTIFY performance");
+            double listenNotifyThroughput = testListenNotifyPerformance(config);
+            results.addSuccess();
             
-            try {
-                // Test 1: LISTEN/NOTIFY performance
-                logger.info("📡 Testing LISTEN/NOTIFY performance");
-                double listenNotifyThroughput = testListenNotifyPerformance(config);
-                results.addSuccess();
-                
-                // Test 2: Consumer mode comparison
-                logger.info("🔄 Testing consumer mode performance");
-                double hybridModeLatency = testConsumerModePerformance(config);
-                results.addSuccess();
-                
-                // Test 3: Producer-consumer throughput
-                logger.info("🔄 Testing producer-consumer throughput");
-                double producerConsumerThroughput = testProducerConsumerThroughput(config);
-                results.addSuccess();
-                
-                // Test 4: Message processing latency
-                logger.info("⏱️ Testing message processing latency");
-                LatencyMetrics latencyMetrics = testMessageProcessingLatency(config);
-                results.addSuccess();
-                
-                NativeResults nativeResults = new NativeResults(
-                    producerConsumerThroughput,
-                    latencyMetrics.averageLatency,
-                    latencyMetrics.maxLatency,
-                    latencyMetrics.minLatency,
-                    config.getTestIterations()
-                );
-                
-                results.setNativeResults(nativeResults);
-                results.addMetric("listen_notify_throughput", listenNotifyThroughput);
-                results.addMetric("hybrid_mode_latency", hybridModeLatency);
-                results.addMetric("producer_consumer_throughput", producerConsumerThroughput);
-                results.addMetric("average_latency", latencyMetrics.averageLatency);
-                results.addMetric("max_latency", latencyMetrics.maxLatency);
-                results.addMetric("min_latency", latencyMetrics.minLatency);
-                
-                logger.info("Native queue performance test suite completed successfully");
-                
-            } catch (Exception e) {
-                logger.error("❌ Native queue performance test suite failed", e);
-                results.addFailure("NativeQueueTestSuite", e);
-            }
+            // Test 2: Consumer mode comparison
+            logger.info("🔄 Testing consumer mode performance");
+            double hybridModeLatency = testConsumerModePerformance(config);
+            results.addSuccess();
             
-            results.setEndTime();
-            return results;
-        });
+            // Test 3: Producer-consumer throughput
+            logger.info("🔄 Testing producer-consumer throughput");
+            double producerConsumerThroughput = testProducerConsumerThroughput(config);
+            results.addSuccess();
+            
+            // Test 4: Message processing latency
+            logger.info("⏱️ Testing message processing latency");
+            LatencyMetrics latencyMetrics = testMessageProcessingLatency(config);
+            results.addSuccess();
+            
+            NativeResults nativeResults = new NativeResults(
+                producerConsumerThroughput,
+                latencyMetrics.averageLatency,
+                latencyMetrics.maxLatency,
+                latencyMetrics.minLatency,
+                config.getTestIterations()
+            );
+            
+            results.setNativeResults(nativeResults);
+            results.addMetric("listen_notify_throughput", listenNotifyThroughput);
+            results.addMetric("hybrid_mode_latency", hybridModeLatency);
+            results.addMetric("producer_consumer_throughput", producerConsumerThroughput);
+            results.addMetric("average_latency", latencyMetrics.averageLatency);
+            results.addMetric("max_latency", latencyMetrics.maxLatency);
+            results.addMetric("min_latency", latencyMetrics.minLatency);
+            
+            logger.info("Native queue performance test suite completed successfully");
+            
+        } catch (Exception e) {
+            logger.error("❌ Native queue performance test suite failed", e);
+            results.addFailure("NativeQueueTestSuite", e);
+        }
+        
+        results.setEndTime();
+        return Future.succeededFuture(results);
     }
     
     private double testListenNotifyPerformance(PerformanceTestConfig config) {

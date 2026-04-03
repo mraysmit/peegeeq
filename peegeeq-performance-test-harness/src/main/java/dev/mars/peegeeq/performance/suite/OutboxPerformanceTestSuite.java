@@ -17,6 +17,7 @@ package dev.mars.peegeeq.performance.suite;
  */
 
 import dev.mars.peegeeq.performance.config.PerformanceTestConfig;
+import io.vertx.core.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,60 +51,58 @@ public class OutboxPerformanceTestSuite implements PerformanceTestSuite {
     }
     
     @Override
-    public CompletableFuture<Results> execute(PerformanceTestConfig config) {
+    public Future<Results> execute(PerformanceTestConfig config) {
         logger.info("📤 Starting outbox performance test suite");
         
-        return CompletableFuture.supplyAsync(() -> {
-            Results results = new Results();
+        Results results = new Results();
+        
+        try {
+            // Test 1: Message send throughput
+            logger.info("🚀 Testing message send throughput");
+            double sendThroughput = testMessageSendThroughput(config);
+            results.addSuccess();
             
-            try {
-                // Test 1: Message send throughput
-                logger.info("🚀 Testing message send throughput");
-                double sendThroughput = testMessageSendThroughput(config);
-                results.addSuccess();
-                
-                // Test 2: End-to-end latency
-                logger.info("⏱️ Testing end-to-end message latency");
-                double averageLatency = testEndToEndLatency(config);
-                results.addSuccess();
-                
-                // Test 3: Concurrent producers
-                logger.info("⚡ Testing concurrent producer performance");
-                double concurrentThroughput = testConcurrentProducers(config);
-                results.addSuccess();
-                
-                // Test 4: Transactional outbox performance
-                logger.info("🔗 Testing transactional outbox performance");
-                double transactionalThroughput = testTransactionalOutbox(config);
-                results.addSuccess();
-
-                // Calculate total throughput (accounting for processing overhead)
-                double totalThroughput = sendThroughput * 0.6; // Simulate processing overhead
-
-                OutboxResults outboxResults = new OutboxResults(
-                    sendThroughput,
-                    totalThroughput,
-                    averageLatency,
-                    config.getTestIterations()
-                );
-
-                results.setOutboxResults(outboxResults);
-                results.addMetric("send_throughput", sendThroughput);
-                results.addMetric("total_throughput", totalThroughput);
-                results.addMetric("average_latency", averageLatency);
-                results.addMetric("concurrent_throughput", concurrentThroughput);
-                results.addMetric("transactional_throughput", transactionalThroughput);
-                
-                logger.info("Outbox performance test suite completed successfully");
-                
-            } catch (Exception e) {
-                logger.error("❌ Outbox performance test suite failed", e);
-                results.addFailure("OutboxTestSuite", e);
-            }
+            // Test 2: End-to-end latency
+            logger.info("⏱️ Testing end-to-end message latency");
+            double averageLatency = testEndToEndLatency(config);
+            results.addSuccess();
             
-            results.setEndTime();
-            return results;
-        });
+            // Test 3: Concurrent producers
+            logger.info("⚡ Testing concurrent producer performance");
+            double concurrentThroughput = testConcurrentProducers(config);
+            results.addSuccess();
+            
+            // Test 4: Transactional outbox performance
+            logger.info("🔗 Testing transactional outbox performance");
+            double transactionalThroughput = testTransactionalOutbox(config);
+            results.addSuccess();
+            
+            // Calculate total throughput (accounting for processing overhead)
+            double totalThroughput = sendThroughput * 0.6; // Simulate processing overhead
+            
+            OutboxResults outboxResults = new OutboxResults(
+                sendThroughput,
+                totalThroughput,
+                averageLatency,
+                config.getTestIterations()
+            );
+            
+            results.setOutboxResults(outboxResults);
+            results.addMetric("send_throughput", sendThroughput);
+            results.addMetric("total_throughput", totalThroughput);
+            results.addMetric("average_latency", averageLatency);
+            results.addMetric("concurrent_throughput", concurrentThroughput);
+            results.addMetric("transactional_throughput", transactionalThroughput);
+            
+            logger.info("Outbox performance test suite completed successfully");
+            
+        } catch (Exception e) {
+            logger.error("❌ Outbox performance test suite failed", e);
+            results.addFailure("OutboxTestSuite", e);
+        }
+        
+        results.setEndTime();
+        return Future.succeededFuture(results);
     }
     
     private double testMessageSendThroughput(PerformanceTestConfig config) {

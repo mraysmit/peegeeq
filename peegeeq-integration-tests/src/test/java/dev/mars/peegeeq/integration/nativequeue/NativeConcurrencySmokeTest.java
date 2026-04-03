@@ -10,6 +10,7 @@ import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.setup.DatabaseSetupRequest;
 import dev.mars.peegeeq.api.setup.DatabaseSetupResult;
 import dev.mars.peegeeq.integration.SmokeTestBase;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxExtension;
@@ -31,7 +32,6 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static java.util.concurrent.TimeUnit.SECONDS;
@@ -78,7 +78,7 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
                 }
                 
                 // 2. Get QueueFactory
-                setupService.getSetupResult(setupId).thenAccept(result -> {
+                setupService.getSetupResult(setupId).onSuccess(result -> {
                     QueueFactory factory = result.getQueueFactories().get(queueName);
                     assertNotNull(factory, "Queue factory should exist");
 
@@ -94,7 +94,7 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
                             consumedIds.add(msg.getId());
                             consumedCount.incrementAndGet();
                             allConsumed.countDown();
-                            return java.util.concurrent.CompletableFuture.completedFuture(null);
+                            return Future.succeededFuture();
                         });
                     }
 
@@ -145,9 +145,8 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
                         }
                     }).start();
 
-                }).exceptionally(ex -> {
+                }).onFailure(ex -> {
                     testContext.failNow(ex);
-                    return null;
                 });
             })
             .onFailure(testContext::failNow);
@@ -164,7 +163,7 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
         webClient.post( "/api/v1/database-setup/create")
             .sendJsonObject(setupRequest)
             .onSuccess(res -> {
-                setupService.getSetupResult(setupId).thenAccept(result -> {
+                setupService.getSetupResult(setupId).onSuccess(result -> {
                     QueueFactory factory = result.getQueueFactories().get(queueName);
                     
                     // 1. Start Consumer 1
@@ -173,7 +172,7 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
                     CountDownLatch latch1 = new CountDownLatch(1);
                     consumer1.subscribe(msg -> {
                         latch1.countDown();
-                        return java.util.concurrent.CompletableFuture.completedFuture(null);
+                        return Future.succeededFuture();
                     });
 
                     // 2. Publish Message 1
@@ -209,7 +208,7 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
                                             if (msg.getPayload().toString().contains("msg-2")) {
                                                 latch2.countDown();
                                             }
-                                            return java.util.concurrent.CompletableFuture.completedFuture(null);
+                                            return Future.succeededFuture();
                                         });
                                         
                                         // 6. Verify Consumer 2 picks up the message
@@ -233,9 +232,8 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
                             }
                         });
 
-                }).exceptionally(ex -> {
+                }).onFailure(ex -> {
                     testContext.failNow(ex);
-                    return null;
                 });
             })
             .onFailure(testContext::failNow);
@@ -252,8 +250,15 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
         appender.start();
 
         try {
-            DatabaseSetupResult result = setupService.createCompleteSetup(createSetupRequest(setupId, queueName))
-                    .get(60, TimeUnit.SECONDS);
+            CountDownLatch setupLatch = new CountDownLatch(1);
+            java.util.concurrent.atomic.AtomicReference<DatabaseSetupResult> resultRef = new java.util.concurrent.atomic.AtomicReference<>();
+            java.util.concurrent.atomic.AtomicReference<Throwable> errorRef = new java.util.concurrent.atomic.AtomicReference<>();
+            setupService.createCompleteSetup(createSetupRequest(setupId, queueName))
+                    .onSuccess(r -> { resultRef.set(r); setupLatch.countDown(); })
+                    .onFailure(e -> { errorRef.set(e); setupLatch.countDown(); });
+            assertTrue(setupLatch.await(60, SECONDS), "Setup creation timed out");
+            if (errorRef.get() != null) throw new RuntimeException("Setup failed", errorRef.get());
+            DatabaseSetupResult result = resultRef.get();
             QueueFactory factory = result.getQueueFactories().get(queueName);
 
             assertNotNull(factory, "Queue factory should exist for shutdown regression test");
@@ -261,39 +266,44 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
             MessageConsumer<Object> consumer = factory.createConsumer(queueName, Object.class);
             activeConsumers.add(consumer);
 
-            consumer.subscribe(msg -> java.util.concurrent.CompletableFuture.completedFuture(null));
+            consumer.subscribe(msg -> Future.succeededFuture());
 
-            CompletableFuture<Void> subscriberReady = new CompletableFuture<>();
+            // Wait for subscriber to be ready using periodic check + CountDownLatch
+            CountDownLatch subscriberLatch = new CountDownLatch(1);
             long subscriberTimer = vertx.setPeriodic(100, id -> {
                 try {
                     if (getFieldValue(consumer, "subscriber") != null) {
-                        subscriberReady.complete(null);
+                        subscriberLatch.countDown();
                     }
                 } catch (Exception e) {
-                    subscriberReady.completeExceptionally(e);
+                    // ignore
                 }
             });
-            subscriberReady.orTimeout(5, SECONDS).join();
+            assertTrue(subscriberLatch.await(5, SECONDS), "Subscriber not ready in time");
             vertx.cancelTimer(subscriberTimer);
 
             assertNotNull(getFieldValue(consumer, "subscriber"), "Subscribed native consumer should have a LISTEN connection");
 
             int logStartIndex = appender.size();
 
-            setupService.destroySetup(setupId).get(30, TimeUnit.SECONDS);
+            CountDownLatch destroyLatch = new CountDownLatch(1);
+            setupService.destroySetup(setupId)
+                    .onComplete(ar -> destroyLatch.countDown());
+            assertTrue(destroyLatch.await(30, SECONDS), "Destroy timed out");
             activeConsumers.remove(consumer);
 
-            CompletableFuture<Void> consumerClosed = new CompletableFuture<>();
+            // Wait for consumer closed state using periodic check + CountDownLatch
+            CountDownLatch closedLatch = new CountDownLatch(1);
             long closedTimer = vertx.setPeriodic(100, id -> {
                 try {
                     if (getAtomicBooleanField(consumer, "closed")) {
-                        consumerClosed.complete(null);
+                        closedLatch.countDown();
                     }
                 } catch (Exception e) {
-                    consumerClosed.completeExceptionally(e);
+                    // ignore
                 }
             });
-            consumerClosed.orTimeout(5, SECONDS).join();
+            assertTrue(closedLatch.await(5, SECONDS), "Consumer not closed in time");
             vertx.cancelTimer(closedTimer);
 
             assertNull(getFieldValue(consumer, "subscriber"), "Destroyed setup must clear native LISTEN connection");
@@ -308,8 +318,15 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
             appender.stop();
 
             try {
-                if (setupService.getAllActiveSetupIds().get(5, TimeUnit.SECONDS).contains(setupId)) {
-                    setupService.destroySetup(setupId).get(10, TimeUnit.SECONDS);
+                CountDownLatch idsLatch = new CountDownLatch(1);
+                java.util.concurrent.atomic.AtomicReference<java.util.Set<String>> idsRef = new java.util.concurrent.atomic.AtomicReference<>();
+                setupService.getAllActiveSetupIds()
+                        .onSuccess(ids -> { idsRef.set(ids); idsLatch.countDown(); })
+                        .onFailure(e -> idsLatch.countDown());
+                if (idsLatch.await(5, SECONDS) && idsRef.get() != null && idsRef.get().contains(setupId)) {
+                    CountDownLatch cleanLatch = new CountDownLatch(1);
+                    setupService.destroySetup(setupId).onComplete(ar -> cleanLatch.countDown());
+                    cleanLatch.await(10, SECONDS);
                 }
             } catch (Exception ignore) {
                 // Cleanup best-effort only.

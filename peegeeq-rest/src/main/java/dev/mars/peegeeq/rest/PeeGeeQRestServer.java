@@ -475,6 +475,8 @@ public class PeeGeeQRestServer extends AbstractVerticle {
                 .handler(subscriptionHandler::updateHeartbeat);
         router.delete("/api/v1/setups/:setupId/subscriptions/:topic/:groupName")
                 .handler(subscriptionHandler::cancelSubscription);
+        router.delete("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/force-remove")
+                .handler(subscriptionHandler::forceRemoveConsumerGroup);
 
         // Backfill Lifecycle routes
         router.post("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/backfill")

@@ -57,18 +57,24 @@ public class PerformanceTestRunner {
             
             // Execute performance test suite
             Instant startTime = Instant.now();
-            PerformanceTestSuite.Results results = harness.runAllTests().join();
-            Duration totalDuration = Duration.between(startTime, Instant.now());
-            
-            // Generate performance report
-            PerformanceReportGenerator reportGenerator = new PerformanceReportGenerator();
-            String reportPath = reportGenerator.generateReport(results, totalDuration);
-            
-            // Print summary
-            printSummary(results, totalDuration, reportPath);
-            
-            // Exit with appropriate code
-            System.exit(results.hasFailures() ? 1 : 0);
+            harness.runAllTests()
+                .onSuccess(results -> {
+                    Duration totalDuration = Duration.between(startTime, Instant.now());
+                    
+                    // Generate performance report
+                    PerformanceReportGenerator reportGenerator = new PerformanceReportGenerator();
+                    String reportPath = reportGenerator.generateReport(results, totalDuration);
+                    
+                    // Print summary
+                    printSummary(results, totalDuration, reportPath);
+                    
+                    // Exit with appropriate code
+                    System.exit(results.hasFailures() ? 1 : 0);
+                })
+                .onFailure(err -> {
+                    logger.error("❌ Performance test execution failed", err);
+                    System.exit(1);
+                });
             
         } catch (Exception e) {
             logger.error("❌ Performance test execution failed", e);

@@ -129,19 +129,27 @@ public abstract class SmokeTestBase extends BaseConfigurableTest {
         // Cleanup all setups to stop their managers (and internal Vert.x instances)
         if (setupService != null) {
             try {
-                java.util.Set<String> setupIds = setupService.getAllActiveSetupIds().get(10, TimeUnit.SECONDS);
-                if (setupIds != null && !setupIds.isEmpty()) {
-                    logger.info("Cleaning up {} active setups: {}", setupIds.size(), setupIds);
-                    CountDownLatch cleanupLatch = new CountDownLatch(setupIds.size());
-                    for (String setupId : setupIds) {
-                        setupService.destroySetup(setupId)
-                            .whenComplete((v, e) -> {
-                                if (e != null) logger.warn("Failed to destroy setup " + setupId, e);
-                                cleanupLatch.countDown();
-                            });
-                    }
-                    if (!cleanupLatch.await(30, TimeUnit.SECONDS)) {
-                        logger.warn("Timeout waiting for setups to be destroyed");
+                CountDownLatch idsLatch = new CountDownLatch(1);
+                java.util.concurrent.atomic.AtomicReference<java.util.Set<String>> idsRef =
+                        new java.util.concurrent.atomic.AtomicReference<>();
+                setupService.getAllActiveSetupIds()
+                        .onSuccess(ids -> { idsRef.set(ids); idsLatch.countDown(); })
+                        .onFailure(e -> { logger.warn("Failed to get active setup IDs", e); idsLatch.countDown(); });
+                if (idsLatch.await(10, TimeUnit.SECONDS)) {
+                    java.util.Set<String> setupIds = idsRef.get();
+                    if (setupIds != null && !setupIds.isEmpty()) {
+                        logger.info("Cleaning up {} active setups: {}", setupIds.size(), setupIds);
+                        CountDownLatch cleanupLatch = new CountDownLatch(setupIds.size());
+                        for (String setupId : setupIds) {
+                            setupService.destroySetup(setupId)
+                                    .onComplete(ar -> {
+                                        if (ar.failed()) logger.warn("Failed to destroy setup " + setupId, ar.cause());
+                                        cleanupLatch.countDown();
+                                    });
+                        }
+                        if (!cleanupLatch.await(30, TimeUnit.SECONDS)) {
+                            logger.warn("Timeout waiting for setups to be destroyed");
+                        }
                     }
                 }
             } catch (Exception e) {

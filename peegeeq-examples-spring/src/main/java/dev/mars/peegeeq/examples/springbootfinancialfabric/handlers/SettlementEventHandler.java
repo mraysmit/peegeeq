@@ -91,7 +91,7 @@ public class SettlementEventHandler {
                 return handleSettlementConfirmed(event);
             } else {
                 log.warn("Unknown settlement event type: {}", eventType);
-                return CompletableFuture.completedFuture(null);
+                return Future.succeededFuture();
             }
         } catch (Exception e) {
             log.error("Error processing settlement event: {} for instruction: {}", 
@@ -124,7 +124,7 @@ public class SettlementEventHandler {
         // 3. Notify operations team
         notifyOperations(instruction);
         
-        return CompletableFuture.completedFuture(null);
+        return Future.succeededFuture();
     }
     
     /**
@@ -150,7 +150,7 @@ public class SettlementEventHandler {
         // 3. Notify treasury team
         notifyTreasury(instruction);
         
-        return CompletableFuture.completedFuture(null);
+        return Future.succeededFuture();
     }
     
     // Simulated async processing methods

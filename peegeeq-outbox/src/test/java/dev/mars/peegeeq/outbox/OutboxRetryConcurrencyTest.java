@@ -210,7 +210,7 @@ public class OutboxRetryConcurrencyTest {
 
         if (connectionManager != null) {
             try {
-                connectionManager.close();
+                connectionManager.closeAsync();
             } catch (Exception e) {
                 logger.warn("Error closing connection manager: {}", e.getMessage());
             }

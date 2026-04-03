@@ -20,6 +20,7 @@ import dev.mars.peegeeq.performance.config.PerformanceTestConfig;
 import dev.mars.peegeeq.performance.harness.PerformanceTestHarness;
 import dev.mars.peegeeq.performance.suite.PerformanceTestSuite;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Future;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.condition.EnabledIfSystemProperty;
@@ -70,10 +71,10 @@ class PerformanceTestHarnessIntegrationTest {
         PerformanceTestHarness harness = new PerformanceTestHarness(config);
         
         // Execute all performance tests
-        CompletableFuture<PerformanceTestSuite.Results> resultsFuture = harness.runAllTests();
+        Future<PerformanceTestSuite.Results> resultsFuture = harness.runAllTests();
         
-        // Wait for completion and validate results
-        PerformanceTestSuite.Results results = resultsFuture.join();
+        // Futures complete synchronously for simulation suites
+        PerformanceTestSuite.Results results = resultsFuture.result();
         
         // Validate test execution
         assertNotNull(results, "Results should not be null");
@@ -115,8 +116,8 @@ class PerformanceTestHarnessIntegrationTest {
         PerformanceTestHarness harness = new PerformanceTestHarness(config);
         
         // Execute specific test suite
-        CompletableFuture<PerformanceTestSuite.Results> resultsFuture = harness.runTestSuite("bitemporal");
-        PerformanceTestSuite.Results results = resultsFuture.join();
+        Future<PerformanceTestSuite.Results> resultsFuture = harness.runTestSuite("bitemporal");
+        PerformanceTestSuite.Results results = resultsFuture.result();
         
         // Validate results
         assertNotNull(results, "Results should not be null");

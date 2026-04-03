@@ -139,6 +139,11 @@ public class DeadConsumerDetector {
      *   <li>subscription_status IN ('ACTIVE', 'PAUSED')</li>
      *   <li>last_heartbeat_at + heartbeat_timeout_seconds < NOW()</li>
      * </ul>
+     *
+     * <p>Miss state is stored on the subscription row rather than in memory so it survives
+     * process restarts and detector/job instance changes. Write cost is driven by heartbeat
+     * cadence, not by the two integer columns. Contention is per subscription row — there is
+     * no shared hotspot unless many writers target the same (topic, group_name) pair.</p>
      * 
      * @param topic The topic to check for dead subscriptions
      * @return Future containing the number of subscriptions marked as DEAD
@@ -149,31 +154,56 @@ public class DeadConsumerDetector {
         logger.debug("Detecting dead subscriptions for topic='{}'", topic);
         
         return connectionManager.withConnection(serviceId, connection -> {
-            String sql = """
+            // Two-phase flapping protection using row-local state persisted in the database.
+            // Miss history survives restarts; write volume is dominated by heartbeat cadence,
+            // not these integer columns. No shared hotspot — contention is per subscription row.
+            // Phase 1: Increment consecutive_misses for all expired subscriptions
+            // Phase 2: Mark DEAD only those that reached the threshold
+            String incrementSql = """
+                UPDATE outbox_topic_subscriptions
+                SET consecutive_misses = consecutive_misses + 1,
+                    last_active_at = $1
+                WHERE topic = $2
+                  AND subscription_status IN ('ACTIVE', 'PAUSED')
+                  AND last_heartbeat_at + (heartbeat_timeout_seconds || ' seconds')::INTERVAL < $1
+                """;
+
+            String markDeadSql = """
                 UPDATE outbox_topic_subscriptions
                 SET subscription_status = 'DEAD',
                     last_active_at = $1
                 WHERE topic = $2
                   AND subscription_status IN ('ACTIVE', 'PAUSED')
-                  AND last_heartbeat_at + (heartbeat_timeout_seconds || ' seconds')::INTERVAL < $1
-                RETURNING id, group_name, last_heartbeat_at, heartbeat_timeout_seconds
+                  AND consecutive_misses >= dead_after_misses
+                RETURNING id, group_name, last_heartbeat_at, heartbeat_timeout_seconds, consecutive_misses
                 """;
 
             OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
             Tuple params = Tuple.of(now, topic);
-            
-            return connection.preparedQuery(sql)
+
+            return connection.preparedQuery(incrementSql)
                     .execute(params)
+                    .compose(incrementResult -> {
+                        int incremented = incrementResult.rowCount();
+                        if (incremented > 0) {
+                            logger.debug("Incremented consecutive_misses for {} subscriptions on topic='{}'",
+                                    incremented, topic);
+                        }
+                        return connection.preparedQuery(markDeadSql)
+                                .execute(params);
+                    })
                     .map(rows -> {
                         int markedDead = rows.rowCount();
                         if (markedDead > 0) {
-                            logger.warn("Marked {} subscriptions as DEAD for topic='{}'", markedDead, topic);
+                            logger.warn("Marked {} subscriptions as DEAD for topic='{}' (threshold reached)",
+                                    markedDead, topic);
                             for (var row : rows) {
                                 String groupName = row.getString("group_name");
                                 OffsetDateTime lastHeartbeat = row.getOffsetDateTime("last_heartbeat_at");
                                 Integer timeout = row.getInteger("heartbeat_timeout_seconds");
-                                logger.warn("  - group='{}', last_heartbeat={}, timeout={}s",
-                                        groupName, lastHeartbeat, timeout);
+                                Integer misses = row.getInteger("consecutive_misses");
+                                logger.warn("  - group='{}', last_heartbeat={}, timeout={}s, consecutive_misses={}",
+                                        groupName, lastHeartbeat, timeout, misses);
                             }
                         } else {
                             logger.debug("No dead subscriptions detected for topic='{}'", topic);
@@ -210,21 +240,32 @@ public class DeadConsumerDetector {
                     .compose(countRows -> {
                         long activeCount = countRows.iterator().next().getLong("active_count");
 
-                        // Now mark dead subscriptions
-                        String sql = """
+                        // Phase 1: Increment consecutive_misses for all expired subscriptions
+                        String incrementSql = """
+                            UPDATE outbox_topic_subscriptions
+                            SET consecutive_misses = consecutive_misses + 1,
+                                last_active_at = $1
+                            WHERE subscription_status IN ('ACTIVE', 'PAUSED')
+                              AND last_heartbeat_at + (heartbeat_timeout_seconds || ' seconds')::INTERVAL < $1
+                            """;
+
+                        // Phase 2: Mark DEAD only those that reached the threshold
+                        String markDeadSql = """
                             UPDATE outbox_topic_subscriptions
                             SET subscription_status = 'DEAD',
                                 last_active_at = $1
                             WHERE subscription_status IN ('ACTIVE', 'PAUSED')
-                              AND last_heartbeat_at + (heartbeat_timeout_seconds || ' seconds')::INTERVAL < $1
-                            RETURNING id, topic, group_name, last_heartbeat_at, heartbeat_timeout_seconds
+                              AND consecutive_misses >= dead_after_misses
+                            RETURNING id, topic, group_name, last_heartbeat_at, heartbeat_timeout_seconds, consecutive_misses
                             """;
 
                         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
                         Tuple params = Tuple.of(now);
 
-                        return connection.preparedQuery(sql)
+                        return connection.preparedQuery(incrementSql)
                                 .execute(params)
+                                .compose(incrementResult -> connection.preparedQuery(markDeadSql)
+                                        .execute(params))
                                 .map(rows -> {
                                     long elapsed = System.currentTimeMillis() - startTime;
                                     List<DeadSubscriptionInfo> deadList = new ArrayList<>();

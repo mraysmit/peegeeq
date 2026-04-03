@@ -134,7 +134,7 @@ public class CriticalTradeConsumerService {
             log.warn("⚠️ [CRITICAL] Non-critical message received (filter bypass?): tradeId={}, priority={}",
                 event.getTradeId(), priority);
             messagesFiltered.incrementAndGet();
-            return CompletableFuture.completedFuture(null);
+            return Future.succeededFuture();
         }
 
         log.debug("Critical-trades consumer received: tradeId={}, priority={}, status={}",
@@ -162,8 +162,6 @@ public class CriticalTradeConsumerService {
                         return updateConsumerMetrics(connection);
                     });
             })
-            .toCompletionStage()
-            .toCompletableFuture()
             .map(v -> {
                 // STEP 4: Notify trading desk immediately
                 notifyTradingDesk(event, incidentId);
@@ -309,9 +307,7 @@ public class CriticalTradeConsumerService {
                         ))
                         .map(result -> null);
                 })
-                .toCompletionStage()
-                .toCompletableFuture()
-                .join();
+                .onFailure(e -> log.warn("Failed to update consumer status", e));
         } catch (Exception e) {
             log.warn("Failed to update consumer status", e);
         }

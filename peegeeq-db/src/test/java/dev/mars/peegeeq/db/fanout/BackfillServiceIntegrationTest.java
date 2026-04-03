@@ -16,6 +16,7 @@ import dev.mars.peegeeq.db.subscription.TopicSemantics;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
+import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -29,6 +30,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -85,102 +87,84 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
      * Test backfill of a small number of messages end-to-end.
      */
     @Test
-    void testBackfillSmallBatch() throws Exception {
+    void testBackfillSmallBatch(VertxTestContext testContext) throws InterruptedException {
         String topic = "test-backfill-small-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "backfill-group-1";
+        int messageCount = 5;
 
-        // Create PUB_SUB topic with initial subscription
         topicConfigService.createTopic(TopicConfig.builder()
                         .topic(topic)
                         .semantics(TopicSemantics.PUB_SUB)
                         .messageRetentionHours(24)
                         .build())
-                .toCompletionStage().toCompletableFuture().get();
+                .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults()))
+                .compose(v -> insertMessagesReactive(topic, messageCount))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
+                .compose(v -> backfillService.startBackfill(topic, groupName, 100, 0))
+                .compose(result -> {
+                    testContext.verify(() -> {
+                        assertEquals(BackfillResult.Status.COMPLETED, result.status(),
+                                "Backfill should complete successfully");
+                        assertEquals(messageCount, result.processedMessages(),
+                                "Should process all " + messageCount + " messages");
+                    });
+                    return backfillService.getBackfillProgress(topic, groupName);
+                })
+                .compose(optProgress -> {
+                    BackfillProgress progress = optProgress.orElseThrow();
+                    testContext.verify(() -> {
+                        assertEquals("COMPLETED", progress.status());
+                        assertEquals(messageCount, progress.processedMessages());
+                        assertNotNull(progress.completedAt());
+                    });
+                    return countMessagesWithRequiredGroups(topic, 2);
+                })
+                .onSuccess(incrementedCount -> testContext.verify(() -> {
+                    assertTrue(incrementedCount > 0,
+                            "At least some messages should have required_consumer_groups incremented to 2");
+                    logger.info("Small batch backfill verified: {} messages processed", messageCount);
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
 
-        // Subscribe initial group so messages get required_consumer_groups = 1
-        subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults())
-                .toCompletionStage().toCompletableFuture().get();
-
-        // Insert some messages
-        int messageCount = 5;
-        for (int i = 0; i < messageCount; i++) {
-            insertMessage(topic, new JsonObject().put("index", i))
-                    .toCompletionStage().toCompletableFuture().get();
-        }
-
-        // Late-joining group subscribes from beginning
-        subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning())
-                .toCompletionStage().toCompletableFuture().get();
-
-        // Run backfill
-        BackfillResult result = backfillService.startBackfill(topic, groupName, 100, 0)
-                .toCompletionStage().toCompletableFuture().get();
-
-        assertEquals(BackfillResult.Status.COMPLETED, result.status(),
-                "Backfill should complete successfully");
-        assertEquals(messageCount, result.processedMessages(),
-                "Should process all " + messageCount + " messages");
-
-        // Verify backfill progress shows completed
-        BackfillProgress progress = backfillService.getBackfillProgress(topic, groupName)
-                .toCompletionStage().toCompletableFuture().get().orElseThrow();
-        assertEquals("COMPLETED", progress.status());
-        assertEquals(messageCount, progress.processedMessages());
-        assertNotNull(progress.completedAt());
-
-        // Verify required_consumer_groups was incremented on PENDING messages
-        Long incrementedCount = countMessagesWithRequiredGroups(topic, 2)
-                .toCompletionStage().toCompletableFuture().get();
-        assertTrue(incrementedCount > 0,
-                "At least some messages should have required_consumer_groups incremented to 2");
-
-        logger.info("Small batch backfill verified: {} messages processed", result.processedMessages());
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
      * Test backfill with multiple batches (batch size < total messages).
      */
     @Test
-    void testBackfillMultipleBatches() throws Exception {
+    void testBackfillMultipleBatches(VertxTestContext testContext) throws InterruptedException {
         String topic = "test-backfill-multi-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "backfill-batch-group";
+        int messageCount = 25;
 
         topicConfigService.createTopic(TopicConfig.builder()
                         .topic(topic)
                         .semantics(TopicSemantics.PUB_SUB)
                         .messageRetentionHours(24)
                         .build())
-                .toCompletionStage().toCompletableFuture().get();
+                .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults()))
+                .compose(v -> insertMessagesReactive(topic, messageCount))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
+                .compose(v -> backfillService.startBackfill(topic, groupName, 10, 0))
+                .onSuccess(result -> testContext.verify(() -> {
+                    assertEquals(BackfillResult.Status.COMPLETED, result.status());
+                    assertEquals(messageCount, result.processedMessages(),
+                            "Should process all messages across multiple batches");
+                    logger.info("Multi-batch backfill verified: {} messages in batches of 10", result.processedMessages());
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
 
-        subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults())
-                .toCompletionStage().toCompletableFuture().get();
-
-        // Insert 25 messages
-        int messageCount = 25;
-        for (int i = 0; i < messageCount; i++) {
-            insertMessage(topic, new JsonObject().put("index", i))
-                    .toCompletionStage().toCompletableFuture().get();
-        }
-
-        subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning())
-                .toCompletionStage().toCompletableFuture().get();
-
-        // Run backfill with small batch size (10) to force multiple batches
-        BackfillResult result = backfillService.startBackfill(topic, groupName, 10, 0)
-                .toCompletionStage().toCompletableFuture().get();
-
-        assertEquals(BackfillResult.Status.COMPLETED, result.status());
-        assertEquals(messageCount, result.processedMessages(),
-                "Should process all messages across multiple batches");
-
-        logger.info("Multi-batch backfill verified: {} messages in batches of 10", result.processedMessages());
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
      * Test backfill with max messages limit.
      */
     @Test
-    void testBackfillWithMaxLimit() throws Exception {
+    void testBackfillWithMaxLimit(VertxTestContext testContext) throws InterruptedException {
         String topic = "test-backfill-max-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "backfill-max-group";
 
@@ -189,36 +173,27 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                         .semantics(TopicSemantics.PUB_SUB)
                         .messageRetentionHours(24)
                         .build())
-                .toCompletionStage().toCompletableFuture().get();
+                .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults()))
+                .compose(v -> insertMessagesReactive(topic, 20))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
+                .compose(v -> backfillService.startBackfill(topic, groupName, 5, 10))
+                .onSuccess(result -> testContext.verify(() -> {
+                    assertEquals(BackfillResult.Status.COMPLETED, result.status());
+                    assertEquals(10, result.processedMessages(),
+                            "Should stop after processing maxMessages (10)");
+                    logger.info("Max-limited backfill verified: processed {} of 20", result.processedMessages());
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
 
-        subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults())
-                .toCompletionStage().toCompletableFuture().get();
-
-        // Insert 20 messages
-        for (int i = 0; i < 20; i++) {
-            insertMessage(topic, new JsonObject().put("index", i))
-                    .toCompletionStage().toCompletableFuture().get();
-        }
-
-        subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning())
-                .toCompletionStage().toCompletableFuture().get();
-
-        // Run backfill with max limit of 10
-        BackfillResult result = backfillService.startBackfill(topic, groupName, 5, 10)
-                .toCompletionStage().toCompletableFuture().get();
-
-        assertEquals(BackfillResult.Status.COMPLETED, result.status());
-        assertEquals(10, result.processedMessages(),
-                "Should stop after processing maxMessages (10)");
-
-        logger.info("Max-limited backfill verified: processed {} of 20", result.processedMessages());
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
      * Test that backfill of an already-completed subscription returns immediately.
      */
     @Test
-    void testBackfillAlreadyCompleted() throws Exception {
+    void testBackfillAlreadyCompleted(VertxTestContext testContext) throws InterruptedException {
         String topic = "test-backfill-done-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "backfill-done-group";
 
@@ -227,36 +202,27 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                         .semantics(TopicSemantics.PUB_SUB)
                         .messageRetentionHours(24)
                         .build())
-                .toCompletionStage().toCompletableFuture().get();
+                .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults()))
+                .compose(v -> insertMessage(topic, new JsonObject().put("test", 1)).mapEmpty())
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
+                .compose(v -> backfillService.startBackfill(topic, groupName))
+                .compose(firstResult -> backfillService.startBackfill(topic, groupName))
+                .onSuccess(result -> testContext.verify(() -> {
+                    assertEquals(BackfillResult.Status.ALREADY_COMPLETED, result.status(),
+                            "Second backfill should return ALREADY_COMPLETED");
+                    logger.info("Idempotent backfill verified");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
 
-        subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults())
-                .toCompletionStage().toCompletableFuture().get();
-
-        insertMessage(topic, new JsonObject().put("test", 1))
-                .toCompletionStage().toCompletableFuture().get();
-
-        subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning())
-                .toCompletionStage().toCompletableFuture().get();
-
-        // Run backfill first time
-        backfillService.startBackfill(topic, groupName)
-                .toCompletionStage().toCompletableFuture().get();
-
-        // Run backfill second time - should return ALREADY_COMPLETED
-        BackfillResult result = backfillService.startBackfill(topic, groupName)
-                .toCompletionStage().toCompletableFuture().get();
-
-        assertEquals(BackfillResult.Status.ALREADY_COMPLETED, result.status(),
-                "Second backfill should return ALREADY_COMPLETED");
-
-        logger.info("Idempotent backfill verified");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
      * Test backfill with no messages to process.
      */
     @Test
-    void testBackfillNoMessages() throws Exception {
+    void testBackfillNoMessages(VertxTestContext testContext) throws InterruptedException {
         String topic = "test-backfill-empty-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "backfill-empty-group";
 
@@ -265,26 +231,24 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                         .semantics(TopicSemantics.PUB_SUB)
                         .messageRetentionHours(24)
                         .build())
-                .toCompletionStage().toCompletableFuture().get();
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
+                .compose(v -> backfillService.startBackfill(topic, groupName))
+                .onSuccess(result -> testContext.verify(() -> {
+                    assertEquals(BackfillResult.Status.COMPLETED, result.status());
+                    assertEquals(0, result.processedMessages(), "Should process 0 messages");
+                    logger.info("Empty backfill verified");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
 
-        // Subscribe from beginning but no messages exist
-        subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning())
-                .toCompletionStage().toCompletableFuture().get();
-
-        BackfillResult result = backfillService.startBackfill(topic, groupName)
-                .toCompletionStage().toCompletableFuture().get();
-
-        assertEquals(BackfillResult.Status.COMPLETED, result.status());
-        assertEquals(0, result.processedMessages(), "Should process 0 messages");
-
-        logger.info("Empty backfill verified");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
      * Test backfill cancellation.
      */
     @Test
-    void testBackfillCancellation() throws Exception {
+    void testBackfillCancellation(VertxTestContext testContext) throws InterruptedException {
         String topic = "test-backfill-cancel-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "backfill-cancel-group";
 
@@ -293,52 +257,38 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                         .semantics(TopicSemantics.PUB_SUB)
                         .messageRetentionHours(24)
                         .build())
-                .toCompletionStage().toCompletableFuture().get();
+                .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults()))
+                .compose(v -> insertMessagesReactive(topic, 10))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
+                .compose(v -> connectionManager.withConnection("peegeeq-main", connection -> {
+                    String sql = """
+                        UPDATE outbox_topic_subscriptions
+                        SET backfill_status = 'IN_PROGRESS'
+                        WHERE topic = $1 AND group_name = $2
+                        """;
+                    return connection.preparedQuery(sql)
+                            .execute(Tuple.of(topic, groupName))
+                            .mapEmpty();
+                }))
+                .compose(v -> backfillService.cancelBackfill(topic, groupName))
+                .compose(v -> backfillService.getBackfillProgress(topic, groupName))
+                .onSuccess(optProgress -> testContext.verify(() -> {
+                    BackfillProgress progress = optProgress.orElseThrow();
+                    assertEquals("CANCELLED", progress.status(),
+                            "Backfill should be cancelled");
+                    logger.info("Backfill cancellation verified");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
 
-        subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults())
-                .toCompletionStage().toCompletableFuture().get();
-
-        // Insert messages
-        for (int i = 0; i < 10; i++) {
-            insertMessage(topic, new JsonObject().put("index", i))
-                    .toCompletionStage().toCompletableFuture().get();
-        }
-
-        subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning())
-                .toCompletionStage().toCompletableFuture().get();
-
-        // Set backfill status to IN_PROGRESS, then cancel before processing
-        connectionManager.withConnection("peegeeq-main", connection -> {
-            String sql = """
-                UPDATE outbox_topic_subscriptions
-                SET backfill_status = 'IN_PROGRESS'
-                WHERE topic = $1 AND group_name = $2
-                """;
-            return connection.preparedQuery(sql)
-                    .execute(Tuple.of(topic, groupName))
-                    .mapEmpty();
-        }).toCompletionStage().toCompletableFuture().get();
-
-        // Cancel the backfill
-        backfillService.cancelBackfill(topic, groupName)
-                .toCompletionStage().toCompletableFuture().get();
-
-        // Verify status is CANCELLED
-        BackfillProgress progress = backfillService.getBackfillProgress(topic, groupName)
-                .toCompletionStage().toCompletableFuture().get()
-                .orElseThrow();
-
-        assertEquals("CANCELLED", progress.status(),
-                "Backfill should be cancelled");
-
-        logger.info("Backfill cancellation verified");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
      * Test that backfill fails for non-ACTIVE subscriptions.
      */
     @Test
-    void testBackfillFailsForNonActiveSubscription() throws Exception {
+    void testBackfillFailsForNonActiveSubscription(VertxTestContext testContext) throws InterruptedException {
         String topic = "test-backfill-paused-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "backfill-paused-group";
 
@@ -347,50 +297,42 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                         .semantics(TopicSemantics.PUB_SUB)
                         .messageRetentionHours(24)
                         .build())
-                .toCompletionStage().toCompletableFuture().get();
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
+                .compose(v -> subscriptionManager.pause(topic, groupName))
+                .compose(v -> backfillService.startBackfill(topic, groupName))
+                .onSuccess(result -> testContext.failNow("Backfill should fail for PAUSED subscription"))
+                .onFailure(err -> testContext.verify(() -> {
+                    assertTrue(err.getMessage().contains("ACTIVE"),
+                            "Error should mention ACTIVE requirement");
+                    logger.info("Backfill validation for non-ACTIVE subscription verified");
+                    testContext.completeNow();
+                }));
 
-        subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning())
-                .toCompletionStage().toCompletableFuture().get();
-
-        // Pause the subscription
-        subscriptionManager.pause(topic, groupName)
-                .toCompletionStage().toCompletableFuture().get();
-
-        // Attempt backfill - should fail
-        try {
-            backfillService.startBackfill(topic, groupName)
-                    .toCompletionStage().toCompletableFuture().get();
-            fail("Backfill should fail for PAUSED subscription");
-        } catch (Exception e) {
-            assertTrue(e.getCause().getMessage().contains("ACTIVE"),
-                    "Error should mention ACTIVE requirement");
-        }
-
-        logger.info("Backfill validation for non-ACTIVE subscription verified");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
      * Test that backfill fails for non-existent subscription.
      */
     @Test
-    void testBackfillFailsForMissingSubscription() {
-        try {
-            backfillService.startBackfill("nonexistent-topic", "nonexistent-group")
-                    .toCompletionStage().toCompletableFuture().get();
-            fail("Backfill should fail for non-existent subscription");
-        } catch (Exception e) {
-            assertTrue(e.getCause().getMessage().contains("not found"),
-                    "Error should mention subscription not found");
-        }
+    void testBackfillFailsForMissingSubscription(VertxTestContext testContext) throws InterruptedException {
+        backfillService.startBackfill("nonexistent-topic", "nonexistent-group")
+                .onSuccess(result -> testContext.failNow("Backfill should fail for non-existent subscription"))
+                .onFailure(err -> testContext.verify(() -> {
+                    assertTrue(err.getMessage().contains("not found"),
+                            "Error should mention subscription not found");
+                    logger.info("Backfill validation for missing subscription verified");
+                    testContext.completeNow();
+                }));
 
-        logger.info("Backfill validation for missing subscription verified");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
      * Test backfill progress tracking.
      */
     @Test
-    void testBackfillProgressTracking() throws Exception {
+    void testBackfillProgressTracking(VertxTestContext testContext) throws InterruptedException {
         String topic = "test-backfill-progress-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "backfill-progress-group";
 
@@ -399,99 +341,92 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                         .semantics(TopicSemantics.PUB_SUB)
                         .messageRetentionHours(24)
                         .build())
-                .toCompletionStage().toCompletableFuture().get();
+                .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults()))
+                .compose(v -> insertMessagesReactive(topic, 15))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
+                .compose(v -> backfillService.getBackfillProgress(topic, groupName))
+                .compose(beforeOpt -> {
+                    BackfillProgress before = beforeOpt.orElseThrow();
+                    testContext.verify(() -> assertEquals("NONE", before.status()));
+                    return backfillService.startBackfill(topic, groupName, 5, 0);
+                })
+                .compose(result -> backfillService.getBackfillProgress(topic, groupName))
+                .onSuccess(afterOpt -> testContext.verify(() -> {
+                    BackfillProgress after = afterOpt.orElseThrow();
+                    assertEquals("COMPLETED", after.status());
+                    assertEquals(15, after.processedMessages());
+                    assertNotNull(after.startedAt());
+                    assertNotNull(after.completedAt());
+                    assertEquals(100.0, after.percentComplete(), 0.1);
+                    logger.info("Backfill progress tracking verified");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
 
-        subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults())
-                .toCompletionStage().toCompletableFuture().get();
-
-        for (int i = 0; i < 15; i++) {
-            insertMessage(topic, new JsonObject().put("index", i))
-                    .toCompletionStage().toCompletableFuture().get();
-        }
-
-        subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning())
-                .toCompletionStage().toCompletableFuture().get();
-
-        // Check progress before backfill
-        BackfillProgress before = backfillService.getBackfillProgress(topic, groupName)
-                .toCompletionStage().toCompletableFuture().get().orElseThrow();
-        assertEquals("NONE", before.status());
-
-        // Run backfill
-        backfillService.startBackfill(topic, groupName, 5, 0)
-                .toCompletionStage().toCompletableFuture().get();
-
-        // Check progress after backfill
-        BackfillProgress after = backfillService.getBackfillProgress(topic, groupName)
-                .toCompletionStage().toCompletableFuture().get().orElseThrow();
-        assertEquals("COMPLETED", after.status());
-        assertEquals(15, after.processedMessages());
-        assertNotNull(after.startedAt());
-        assertNotNull(after.completedAt());
-        assertEquals(100.0, after.percentComplete(), 0.1);
-
-        logger.info("Backfill progress tracking verified");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
      * Test that backfill scope changes which message statuses are included.
      */
     @Test
-    void testBackfillScopePendingOnlyVsAllRetained() throws Exception {
+    void testBackfillScopePendingOnlyVsAllRetained(VertxTestContext testContext) throws InterruptedException {
         String topic = "test-backfill-scope-" + UUID.randomUUID().toString().substring(0, 8);
         String pendingOnlyGroup = "scope-pending-only";
         String allRetainedGroup = "scope-all-retained";
+        int totalMessages = 10;
+        int completedMessages = 4;
 
         topicConfigService.createTopic(TopicConfig.builder()
                         .topic(topic)
                         .semantics(TopicSemantics.PUB_SUB)
                         .messageRetentionHours(24)
                         .build())
-                .toCompletionStage().toCompletableFuture().get();
+                .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults()))
+                .compose(v -> insertMessagesReactive(topic, totalMessages))
+                .compose(v -> markOldestMessagesCompleted(topic, completedMessages))
+                .compose(v -> subscriptionManager.subscribe(topic, pendingOnlyGroup,
+                        SubscriptionOptions.fromBeginning(BackfillScope.PENDING_ONLY)))
+                .compose(v -> subscriptionManager.subscribe(topic, allRetainedGroup,
+                        SubscriptionOptions.fromBeginning(BackfillScope.ALL_RETAINED)))
+                .compose(v -> backfillService.startBackfill(topic, pendingOnlyGroup, 100, 0, BackfillScope.PENDING_ONLY))
+                .compose(pendingOnlyResult -> {
+                    testContext.verify(() -> {
+                        int expectedPendingOnly = totalMessages - completedMessages;
+                        assertEquals(BackfillResult.Status.COMPLETED, pendingOnlyResult.status());
+                        assertEquals(expectedPendingOnly, pendingOnlyResult.processedMessages(),
+                                "PENDING_ONLY should exclude COMPLETED rows");
+                    });
+                    return backfillService.startBackfill(topic, allRetainedGroup, 100, 0, BackfillScope.ALL_RETAINED)
+                            .map(allRetainedResult -> new BackfillResult[]{pendingOnlyResult, allRetainedResult});
+                })
+                .onSuccess(results -> testContext.verify(() -> {
+                    BackfillResult pendingOnlyResult = results[0];
+                    BackfillResult allRetainedResult = results[1];
+                    assertEquals(BackfillResult.Status.COMPLETED, allRetainedResult.status());
+                    assertEquals(totalMessages, allRetainedResult.processedMessages(),
+                            "ALL_RETAINED should include COMPLETED rows");
+                    assertTrue(allRetainedResult.processedMessages() > pendingOnlyResult.processedMessages(),
+                            "ALL_RETAINED should process more messages than PENDING_ONLY on mixed-status data");
+                    logger.info("Backfill scope verified: PENDING_ONLY={}, ALL_RETAINED={}",
+                            pendingOnlyResult.processedMessages(), allRetainedResult.processedMessages());
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
 
-        subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults())
-                .toCompletionStage().toCompletableFuture().get();
-
-        int totalMessages = 10;
-        int completedMessages = 4;
-        for (int i = 0; i < totalMessages; i++) {
-            insertMessage(topic, new JsonObject().put("index", i))
-                    .toCompletionStage().toCompletableFuture().get();
-        }
-        markOldestMessagesCompleted(topic, completedMessages)
-                .toCompletionStage().toCompletableFuture().get();
-
-        subscriptionManager.subscribe(topic, pendingOnlyGroup,
-                        SubscriptionOptions.fromBeginning(BackfillScope.PENDING_ONLY))
-                .toCompletionStage().toCompletableFuture().get();
-        subscriptionManager.subscribe(topic, allRetainedGroup,
-                        SubscriptionOptions.fromBeginning(BackfillScope.ALL_RETAINED))
-                .toCompletionStage().toCompletableFuture().get();
-
-        BackfillResult pendingOnlyResult = backfillService
-                .startBackfill(topic, pendingOnlyGroup, 100, 0, BackfillScope.PENDING_ONLY)
-                .toCompletionStage().toCompletableFuture().get();
-        BackfillResult allRetainedResult = backfillService
-                .startBackfill(topic, allRetainedGroup, 100, 0, BackfillScope.ALL_RETAINED)
-                .toCompletionStage().toCompletableFuture().get();
-
-        int expectedPendingOnly = totalMessages - completedMessages;
-        assertEquals(BackfillResult.Status.COMPLETED, pendingOnlyResult.status());
-        assertEquals(expectedPendingOnly, pendingOnlyResult.processedMessages(),
-                "PENDING_ONLY should exclude COMPLETED rows");
-
-        assertEquals(BackfillResult.Status.COMPLETED, allRetainedResult.status());
-        assertEquals(totalMessages, allRetainedResult.processedMessages(),
-                "ALL_RETAINED should include COMPLETED rows");
-
-        assertTrue(allRetainedResult.processedMessages() > pendingOnlyResult.processedMessages(),
-                "ALL_RETAINED should process more messages than PENDING_ONLY on mixed-status data");
-
-        logger.info("Backfill scope verified: PENDING_ONLY={}, ALL_RETAINED={}",
-                pendingOnlyResult.processedMessages(), allRetainedResult.processedMessages());
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     // Helper methods
+
+    private Future<Void> insertMessagesReactive(String topic, int count) {
+        Future<Void> chain = Future.succeededFuture();
+        for (int i = 0; i < count; i++) {
+            final int index = i;
+            chain = chain.compose(v -> insertMessage(topic, new JsonObject().put("index", index)).mapEmpty());
+        }
+        return chain;
+    }
 
     private Future<Long> insertMessage(String topic, JsonObject payload) {
         return connectionManager.withConnection("peegeeq-main", connection -> {

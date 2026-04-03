@@ -21,6 +21,7 @@ public class SubscriptionOptions {
     private final Instant startFromTimestamp;
     private final int heartbeatIntervalSeconds;
     private final int heartbeatTimeoutSeconds;
+    private final int deadAfterMisses;
     private final BackfillScope backfillScope;
     
     private SubscriptionOptions(Builder builder) {
@@ -29,6 +30,7 @@ public class SubscriptionOptions {
         this.startFromTimestamp = builder.startFromTimestamp;
         this.heartbeatIntervalSeconds = builder.heartbeatIntervalSeconds;
         this.heartbeatTimeoutSeconds = builder.heartbeatTimeoutSeconds;
+        this.deadAfterMisses = builder.deadAfterMisses;
         this.backfillScope = builder.backfillScope;
         
         // Validation
@@ -62,6 +64,10 @@ public class SubscriptionOptions {
     
     public int getHeartbeatTimeoutSeconds() {
         return heartbeatTimeoutSeconds;
+    }
+
+    public int getDeadAfterMisses() {
+        return deadAfterMisses;
     }
 
     public BackfillScope getBackfillScope() {
@@ -118,6 +124,7 @@ public class SubscriptionOptions {
         SubscriptionOptions that = (SubscriptionOptions) o;
         return heartbeatIntervalSeconds == that.heartbeatIntervalSeconds &&
                heartbeatTimeoutSeconds == that.heartbeatTimeoutSeconds &&
+               deadAfterMisses == that.deadAfterMisses &&
                startPosition == that.startPosition &&
                backfillScope == that.backfillScope &&
                Objects.equals(startFromMessageId, that.startFromMessageId) &&
@@ -127,7 +134,7 @@ public class SubscriptionOptions {
     @Override
     public int hashCode() {
         return Objects.hash(startPosition, startFromMessageId, startFromTimestamp,
-                          heartbeatIntervalSeconds, heartbeatTimeoutSeconds, backfillScope);
+                          heartbeatIntervalSeconds, heartbeatTimeoutSeconds, deadAfterMisses, backfillScope);
     }
     
     @Override
@@ -138,6 +145,7 @@ public class SubscriptionOptions {
                ", startFromTimestamp=" + startFromTimestamp +
                ", heartbeatIntervalSeconds=" + heartbeatIntervalSeconds +
                ", heartbeatTimeoutSeconds=" + heartbeatTimeoutSeconds +
+               ", deadAfterMisses=" + deadAfterMisses +
                ", backfillScope=" + backfillScope +
                '}';
     }
@@ -151,6 +159,7 @@ public class SubscriptionOptions {
         private Instant startFromTimestamp = null;
         private int heartbeatIntervalSeconds = 60;  // Default: 60 seconds
         private int heartbeatTimeoutSeconds = 300;  // Default: 5 minutes
+        private int deadAfterMisses = 3;             // Default: 3 consecutive misses
         private BackfillScope backfillScope = BackfillScope.PENDING_ONLY;
         
         /**
@@ -213,6 +222,21 @@ public class SubscriptionOptions {
                 throw new IllegalArgumentException("heartbeatTimeoutSeconds must be positive");
             }
             this.heartbeatTimeoutSeconds = seconds;
+            return this;
+        }
+
+        /**
+         * Sets the number of consecutive heartbeat misses required before
+         * marking the subscription DEAD. Must be at least 1.
+         *
+         * @param misses Number of consecutive misses (default: 3)
+         * @return This builder
+         */
+        public Builder deadAfterMisses(int misses) {
+            if (misses < 1) {
+                throw new IllegalArgumentException("deadAfterMisses must be at least 1");
+            }
+            this.deadAfterMisses = misses;
             return this;
         }
 
