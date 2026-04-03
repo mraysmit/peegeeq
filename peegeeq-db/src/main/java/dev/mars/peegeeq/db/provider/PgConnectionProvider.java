@@ -125,7 +125,7 @@ public class PgConnectionProvider implements dev.mars.peegeeq.api.database.Conne
     @Override
     public Future<Boolean> isHealthy() {
         try {
-            boolean healthy = connectionManager.isHealthy();
+            boolean healthy = connectionManager.hasPoolsConfigured();
             return Future.succeededFuture(healthy);
         } catch (Exception e) {
             logger.warn("Health check failed", e);

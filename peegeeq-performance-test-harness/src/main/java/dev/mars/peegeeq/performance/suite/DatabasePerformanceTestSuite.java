@@ -17,6 +17,7 @@ package dev.mars.peegeeq.performance.suite;
  */
 
 import dev.mars.peegeeq.performance.config.PerformanceTestConfig;
+import io.vertx.core.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -51,66 +52,64 @@ public class DatabasePerformanceTestSuite implements PerformanceTestSuite {
     }
     
     @Override
-    public CompletableFuture<Results> execute(PerformanceTestConfig config) {
+    public Future<Results> execute(PerformanceTestConfig config) {
         logger.info("🗄️ Starting database performance test suite");
         
-        return CompletableFuture.supplyAsync(() -> {
-            Results results = new Results();
+        Results results = new Results();
+        
+        try {
+            // Test 1: Query performance
+            logger.info("🔍 Testing database query performance");
+            double queryThroughput = testQueryPerformance(config);
+            results.addSuccess();
             
-            try {
-                // Test 1: Query performance
-                logger.info("🔍 Testing database query performance");
-                double queryThroughput = testQueryPerformance(config);
-                results.addSuccess();
-                
-                // Test 2: Connection pool performance
-                logger.info("🏊 Testing connection pool performance");
-                double poolUtilization = testConnectionPoolPerformance(config);
-                results.addSuccess();
-                
-                // Test 3: Backpressure management
-                logger.info("⚡ Testing backpressure management");
-                double backpressureSuccessRate = testBackpressureManagement(config);
-                results.addSuccess();
-                
-                // Test 4: Health check performance
-                logger.info("❤️ Testing health check performance");
-                double healthCheckThroughput = testHealthCheckPerformance(config);
-                results.addSuccess();
-                
-                // Test 5: Metrics collection performance
-                logger.info("📊 Testing metrics collection performance");
-                double metricsCollectionThroughput = testMetricsCollectionPerformance(config);
-                results.addSuccess();
-                
-                // Calculate average latency
-                double averageLatency = 1000.0 / queryThroughput; // Convert to ms
-                
-                DatabaseResults databaseResults = new DatabaseResults(
-                    queryThroughput,
-                    averageLatency,
-                    poolUtilization,
-                    config.getTestIterations()
-                );
-                
-                results.setDatabaseResults(databaseResults);
-                results.addMetric("query_throughput", queryThroughput);
-                results.addMetric("pool_utilization", poolUtilization);
-                results.addMetric("backpressure_success_rate", backpressureSuccessRate);
-                results.addMetric("health_check_throughput", healthCheckThroughput);
-                results.addMetric("metrics_collection_throughput", metricsCollectionThroughput);
-                results.addMetric("average_latency", averageLatency);
-                
-                logger.info("Database performance test suite completed successfully");
-                
-            } catch (Exception e) {
-                logger.error("❌ Database performance test suite failed", e);
-                results.addFailure("DatabaseTestSuite", e);
-            }
+            // Test 2: Connection pool performance
+            logger.info("🏊 Testing connection pool performance");
+            double poolUtilization = testConnectionPoolPerformance(config);
+            results.addSuccess();
             
-            results.setEndTime();
-            return results;
-        });
+            // Test 3: Backpressure management
+            logger.info("⚡ Testing backpressure management");
+            double backpressureSuccessRate = testBackpressureManagement(config);
+            results.addSuccess();
+            
+            // Test 4: Health check performance
+            logger.info("❤️ Testing health check performance");
+            double healthCheckThroughput = testHealthCheckPerformance(config);
+            results.addSuccess();
+            
+            // Test 5: Metrics collection performance
+            logger.info("📊 Testing metrics collection performance");
+            double metricsCollectionThroughput = testMetricsCollectionPerformance(config);
+            results.addSuccess();
+            
+            // Calculate average latency
+            double averageLatency = 1000.0 / queryThroughput; // Convert to ms
+            
+            DatabaseResults databaseResults = new DatabaseResults(
+                queryThroughput,
+                averageLatency,
+                poolUtilization,
+                config.getTestIterations()
+            );
+            
+            results.setDatabaseResults(databaseResults);
+            results.addMetric("query_throughput", queryThroughput);
+            results.addMetric("pool_utilization", poolUtilization);
+            results.addMetric("backpressure_success_rate", backpressureSuccessRate);
+            results.addMetric("health_check_throughput", healthCheckThroughput);
+            results.addMetric("metrics_collection_throughput", metricsCollectionThroughput);
+            results.addMetric("average_latency", averageLatency);
+            
+            logger.info("Database performance test suite completed successfully");
+            
+        } catch (Exception e) {
+            logger.error("❌ Database performance test suite failed", e);
+            results.addFailure("DatabaseTestSuite", e);
+        }
+        
+        results.setEndTime();
+        return Future.succeededFuture(results);
     }
     
     private double testQueryPerformance(PerformanceTestConfig config) {

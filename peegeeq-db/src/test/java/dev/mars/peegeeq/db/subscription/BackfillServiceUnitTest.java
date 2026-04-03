@@ -36,7 +36,7 @@ class BackfillServiceUnitTest {
 
     @AfterEach
     void tearDown() {
-        if (connectionManager != null) connectionManager.close();
+        if (connectionManager != null) connectionManager.closeAsync();
         if (vertx != null) vertx.close();
     }
 

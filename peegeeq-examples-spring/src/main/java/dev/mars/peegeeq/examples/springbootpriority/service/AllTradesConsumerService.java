@@ -165,8 +165,6 @@ public class AllTradesConsumerService {
                         return updateConsumerMetrics(connection);
                     });
             })
-            .toCompletionStage()
-            .toCompletableFuture()
             .map(v -> (Void) null)
             .otherwise(ex -> {
                 log.error("❌ [ALL-CRITICAL] Failed to process message: tradeId={}", event.getTradeId(), ex);
@@ -197,8 +195,6 @@ public class AllTradesConsumerService {
                         return updateConsumerMetrics(connection);
                     });
             })
-            .toCompletionStage()
-            .toCompletableFuture()
             .map(v -> (Void) null)
             .otherwise(ex -> {
                 log.error("❌ [ALL-HIGH] Failed to process message: tradeId={}", event.getTradeId(), ex);
@@ -229,8 +225,6 @@ public class AllTradesConsumerService {
                         return updateConsumerMetrics(connection);
                     });
             })
-            .toCompletionStage()
-            .toCompletableFuture()
             .map(v -> (Void) null)
             .otherwise(ex -> {
                 log.error("❌ [ALL-NORMAL] Failed to process message: tradeId={}", event.getTradeId(), ex);
@@ -341,9 +335,7 @@ public class AllTradesConsumerService {
                         ))
                         .map(result -> null);
                 })
-                .toCompletionStage()
-                .toCompletableFuture()
-                .join();
+                .onFailure(e -> log.warn("Failed to update consumer status", e));
         } catch (Exception e) {
             log.warn("Failed to update consumer status", e);
         }

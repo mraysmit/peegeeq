@@ -3,11 +3,13 @@ package dev.mars.peegeeq.db.subscription;
 import dev.mars.peegeeq.api.messaging.BackfillScope;
 import dev.mars.peegeeq.api.messaging.StartPosition;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.subscription.ForceRemoveResult;
 import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
 import dev.mars.peegeeq.api.subscription.SubscriptionService;
 import dev.mars.peegeeq.api.subscription.SubscriptionState;
 import dev.mars.peegeeq.api.tracing.TraceCtx;
 import dev.mars.peegeeq.api.tracing.TraceContextUtil;
+import dev.mars.peegeeq.db.cleanup.DeadConsumerGroupCleanup;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
@@ -50,6 +52,7 @@ public class SubscriptionManager implements SubscriptionService {
     private final PgConnectionManager connectionManager;
     private final String serviceId;
     private BackfillService backfillService; // optional — enables auto-backfill on FROM_BEGINNING subscribe
+    private DeadConsumerGroupCleanup deadConsumerGroupCleanup; // optional — required for forceRemove
     
     /**
      * Creates a new SubscriptionManager using the default pool.
@@ -85,6 +88,19 @@ public class SubscriptionManager implements SubscriptionService {
         this.backfillService = backfillService;
         logger.info("BackfillService {} for SubscriptionManager",
                    backfillService != null ? "configured" : "cleared");
+    }
+
+    /**
+     * Sets the DeadConsumerGroupCleanup for force-remove operations.
+     *
+     * <p>When set, {@link #forceRemoveConsumerGroup(String, String)} can mark a consumer group
+     * as dead, run cleanup to unblock stuck messages, and then cancel the subscription.</p>
+     *
+     * @param cleanup The cleanup service (must not be null)
+     */
+    public void setDeadConsumerGroupCleanup(DeadConsumerGroupCleanup cleanup) {
+        this.deadConsumerGroupCleanup = Objects.requireNonNull(cleanup, "cleanup cannot be null");
+        logger.info("DeadConsumerGroupCleanup configured for SubscriptionManager");
     }
     
     /**
@@ -212,8 +228,9 @@ public class SubscriptionManager implements SubscriptionService {
                 topic, group_name, subscription_status,
                 start_from_message_id, start_from_timestamp,
                 heartbeat_interval_seconds, heartbeat_timeout_seconds,
-                subscribed_at, last_active_at, last_heartbeat_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                subscribed_at, last_active_at, last_heartbeat_at,
+                consecutive_misses, dead_after_misses
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 0, $11)
             ON CONFLICT (topic, group_name) DO UPDATE SET
                 subscription_status = CASE
                     WHEN outbox_topic_subscriptions.subscription_status = 'CANCELLED'
@@ -225,7 +242,11 @@ public class SubscriptionManager implements SubscriptionService {
                 last_active_at = EXCLUDED.last_active_at,
                 last_heartbeat_at = EXCLUDED.last_heartbeat_at,
                 heartbeat_interval_seconds = EXCLUDED.heartbeat_interval_seconds,
-                heartbeat_timeout_seconds = EXCLUDED.heartbeat_timeout_seconds
+                heartbeat_timeout_seconds = EXCLUDED.heartbeat_timeout_seconds,
+                dead_after_misses = EXCLUDED.dead_after_misses,
+                -- Intentional reset: stale miss history must not survive resubscription.
+                -- Write cost is driven by heartbeat cadence, not this counter.
+                consecutive_misses = 0
             """;
 
         OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
@@ -245,7 +266,8 @@ public class SubscriptionManager implements SubscriptionService {
             options.getHeartbeatTimeoutSeconds(),
             now,
             now,
-            now
+            now,
+            options.getDeadAfterMisses()
         );
 
         return connection.preparedQuery(sql)
@@ -334,6 +356,82 @@ public class SubscriptionManager implements SubscriptionService {
     }
 
     /**
+     * Force-removes a consumer group from a topic.
+     *
+     * <p>This administrative operation:</p>
+     * <ol>
+     *   <li>Reads the current subscription status (must not be CANCELLED)</li>
+     *   <li>Marks the subscription as DEAD</li>
+     *   <li>Runs dead-group cleanup (decrement required_consumer_groups,
+     *       remove orphaned tracking rows, auto-complete unblocked messages)</li>
+     *   <li>Marks the subscription as CANCELLED (terminal state)</li>
+     * </ol>
+     *
+     * @param topic The topic name
+     * @param groupName The consumer group name to force-remove
+     * @return Future containing the cleanup result details
+     */
+    @Override
+    public Future<ForceRemoveResult> forceRemoveConsumerGroup(String topic, String groupName) {
+        Objects.requireNonNull(topic, "topic cannot be null");
+        Objects.requireNonNull(groupName, "groupName cannot be null");
+
+        if (deadConsumerGroupCleanup == null) {
+            return Future.failedFuture(new IllegalStateException(
+                    "DeadConsumerGroupCleanup is not configured. " +
+                    "Call setDeadConsumerGroupCleanup() before using forceRemoveConsumerGroup()."));
+        }
+
+        TraceCtx trace = TraceCtx.createNew();
+        try (var scope = TraceContextUtil.mdcScope(trace)) {
+            logger.info("Force-removing consumer group '{}' on topic '{}'", groupName, topic);
+        }
+
+        // Step 1: Get current subscription status
+        return getSubscription(topic, groupName)
+                .compose(info -> {
+                    if (info == null) {
+                        return Future.failedFuture(new IllegalArgumentException(
+                                "No subscription found for group '" + groupName + "' on topic '" + topic + "'"));
+                    }
+                    String previousStatus = info.state().name();
+                    if (info.state() == SubscriptionState.CANCELLED) {
+                        return Future.failedFuture(new IllegalStateException(
+                                "Subscription for group '" + groupName + "' on topic '" + topic +
+                                "' is already CANCELLED and cannot be force-removed"));
+                    }
+
+                    // Step 2: Mark DEAD (if not already)
+                    Future<Void> markDeadFuture;
+                    if (info.state() == SubscriptionState.DEAD) {
+                        markDeadFuture = Future.succeededFuture();
+                    } else {
+                        markDeadFuture = updateStatus(trace, topic, groupName, SubscriptionStatus.DEAD);
+                    }
+
+                    // Step 3: Run cleanup, then Step 4: Mark CANCELLED
+                    return markDeadFuture
+                            .compose(v -> deadConsumerGroupCleanup.cleanupDeadGroup(topic, groupName))
+                            .compose(cleanupResult -> {
+                                try (var scope = TraceContextUtil.mdcScope(trace)) {
+                                    logger.info("Force-remove cleanup for group '{}' on topic '{}': " +
+                                                    "decremented={}, orphans={}, autoCompleted={}",
+                                            groupName, topic,
+                                            cleanupResult.messagesDecremented(),
+                                            cleanupResult.orphanRowsRemoved(),
+                                            cleanupResult.messagesAutoCompleted());
+                                }
+                                return updateStatus(trace, topic, groupName, SubscriptionStatus.CANCELLED)
+                                        .map(v -> new ForceRemoveResult(
+                                                topic, groupName, previousStatus,
+                                                cleanupResult.messagesDecremented(),
+                                                cleanupResult.orphanRowsRemoved(),
+                                                cleanupResult.messagesAutoCompleted()));
+                            });
+                });
+    }
+
+    /**
      * Updates the heartbeat timestamp for a subscription.
      *
      * <p>Consumer groups must call this method periodically to prevent being marked as DEAD.
@@ -369,6 +467,9 @@ public class SubscriptionManager implements SubscriptionService {
                     UPDATE outbox_topic_subscriptions
                     SET last_heartbeat_at = $1,
                         last_active_at = $1,
+                        -- Intentional reset: a real heartbeat clears stale miss history.
+                        -- Moderate heartbeat cadence (30-60s) matters more than this counter.
+                        consecutive_misses = 0,
                         subscription_status = CASE
                             WHEN subscription_status = 'DEAD' THEN 'ACTIVE'
                             ELSE subscription_status

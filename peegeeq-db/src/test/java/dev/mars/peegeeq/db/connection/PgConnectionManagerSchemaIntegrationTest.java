@@ -22,7 +22,6 @@ import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
-import io.vertx.sqlclient.TransactionPropagation;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -46,7 +45,6 @@ import static org.junit.jupiter.api.Assertions.*;
  * - getReactiveConnection()
  * - withConnection()
  * - withTransaction()
- * - withTransaction(TransactionPropagation)
  * - checkHealth()
  *
  * Uses TestContainers with real PostgreSQL to verify schema isolation and search_path behavior.
@@ -77,7 +75,8 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
     void tearDown() throws Exception {
         logger.info("=== Tearing down PgConnectionManager Schema Integration Test ===");
         if (connectionManager != null) {
-            connectionManager.close();
+            connectionManager.closeAsync()
+                .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
         }
         if (vertx != null) {
             vertx.close().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
@@ -253,9 +252,9 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
     }
 
     @Test
-    @DisplayName("Test schema enforcement with TransactionPropagation.NONE")
-    void testSchemaEnforcementWithTransactionPropagation() throws Exception {
-        logger.info("TEST: Schema enforcement with TransactionPropagation.NONE");
+    @DisplayName("Test schema enforcement with withTransaction using schema_b")
+    void testSchemaEnforcementWithTransactionSchemaB() throws Exception {
+        logger.info("TEST: Schema enforcement with withTransaction using schema_b");
 
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
@@ -274,9 +273,7 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
 
         connectionManager.getOrCreateReactivePool("test-propagation", config, poolConfig);
 
-        // Use TransactionPropagation.NONE - connection is local to this function execution
-        // Note: CONTEXT propagation requires an existing Vert.x context which isn't available in JUnit threads
-        String result = connectionManager.withTransaction("test-propagation", TransactionPropagation.NONE, conn ->
+        String result = connectionManager.withTransaction("test-propagation", conn ->
             conn.query("SELECT name FROM test_table WHERE id = 2").execute()
                 .map(rows -> rows.iterator().next().getString("name"))
         )
@@ -284,8 +281,8 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
         .toCompletableFuture()
         .get(10, TimeUnit.SECONDS);
 
-        assertEquals("schema_b_data", result, "Should query from schema_b with NONE propagation");
-        logger.info("withTransaction(NONE) correctly applied schema_b");
+        assertEquals("schema_b_data", result, "Should query from schema_b");
+        logger.info("withTransaction() correctly applied schema_b");
     }
 
     @Test

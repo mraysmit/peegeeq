@@ -72,6 +72,7 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
 
     private volatile Predicate<Message<T>> groupFilter;
     private volatile MessageConsumer<T> underlyingConsumer;
+    private volatile boolean startedWithSubscription;
 
     public PgNativeConsumerGroup(String groupName, String topic, Class<T> payloadType,
                                 VertxPoolAdapter poolAdapter, ObjectMapper objectMapper,
@@ -215,6 +216,7 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
                 .subscribe(topic, groupName, subscriptionOptions)
                 .map(v -> {
                     logger.info("Subscription created successfully for group '{}' on topic '{}'", groupName, topic);
+                    startedWithSubscription = true;
                     start();
                     return null;
                 });
@@ -229,20 +231,54 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
     @Override
     public void stop() {
         if (active.compareAndSet(true, false)) {
-            logger.info("Stopping consumer group '{}' for topic '{}'", groupName, topic);
-            
-            // Stop all members
-            members.values().forEach(PgNativeConsumerGroupMember::stop);
-            
-            // Stop the underlying consumer
-            if (underlyingConsumer != null) {
-                underlyingConsumer.unsubscribe();
-                underlyingConsumer.close();
-                underlyingConsumer = null;
-            }
-            
-            logger.info("Consumer group '{}' stopped", groupName);
+            stopInternal();
         }
+    }
+
+    @Override
+    public Future<Void> stopGracefully() {
+        if (!active.compareAndSet(true, false)) {
+            return Future.succeededFuture();
+        }
+
+        if (startedWithSubscription && databaseService != null) {
+            logger.info("Gracefully stopping consumer group '{}': cancelling subscription for topic '{}'",
+                    groupName, topic);
+            return databaseService.getSubscriptionService()
+                    .cancel(topic, groupName)
+                    .recover(err -> {
+                        logger.warn("Failed to cancel subscription for group '{}' on topic '{}': {}",
+                                groupName, topic, err.getMessage());
+                        return Future.succeededFuture();
+                    })
+                    .map(v -> {
+                        stopInternal();
+                        return null;
+                    });
+        }
+
+        stopInternal();
+        return Future.succeededFuture();
+    }
+
+    /**
+     * Internal stop logic — assumes active flag is already set to false.
+     */
+    private void stopInternal() {
+        logger.info("Stopping consumer group '{}' for topic '{}'", groupName, topic);
+
+        // Stop all members
+        members.values().forEach(PgNativeConsumerGroupMember::stop);
+
+        // Stop the underlying consumer
+        if (underlyingConsumer != null) {
+            underlyingConsumer.unsubscribe();
+            underlyingConsumer.close();
+            underlyingConsumer = null;
+        }
+
+        startedWithSubscription = false;
+        logger.info("Consumer group '{}' stopped", groupName);
     }
     
     @Override

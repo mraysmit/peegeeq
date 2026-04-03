@@ -517,9 +517,10 @@ public class PeeGeeQManager implements AutoCloseable {
     /**
      * Returns a cached SubscriptionService for managing consumer group subscriptions.
      * The service is created lazily on first call and reused thereafter.
-     * Includes BackfillService for resumable backfill support via REST endpoints.
+     * Includes BackfillService (with Vertx for rate-limited backfill) and
+     * DeadConsumerGroupCleanup (for admin force-remove) wired.
      *
-     * @return A shared SubscriptionService instance with BackfillService wired
+     * @return A shared SubscriptionService instance with BackfillService and cleanup wired
      */
     public dev.mars.peegeeq.api.subscription.SubscriptionService createSubscriptionService() {
         dev.mars.peegeeq.api.subscription.SubscriptionService service = cachedSubscriptionService;
@@ -534,6 +535,13 @@ public class PeeGeeQManager implements AutoCloseable {
                         );
                     manager.setBackfillService(
                         new dev.mars.peegeeq.db.subscription.BackfillService(
+                            clientFactory.getConnectionManager(),
+                            PeeGeeQDefaults.DEFAULT_POOL_ID,
+                            vertx
+                        )
+                    );
+                    manager.setDeadConsumerGroupCleanup(
+                        new dev.mars.peegeeq.db.cleanup.DeadConsumerGroupCleanup(
                             clientFactory.getConnectionManager(),
                             PeeGeeQDefaults.DEFAULT_POOL_ID
                         )

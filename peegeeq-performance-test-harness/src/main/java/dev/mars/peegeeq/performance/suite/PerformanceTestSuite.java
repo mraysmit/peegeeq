@@ -17,6 +17,7 @@ package dev.mars.peegeeq.performance.suite;
  */
 
 import dev.mars.peegeeq.performance.config.PerformanceTestConfig;
+import io.vertx.core.Future;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -51,7 +52,7 @@ public interface PerformanceTestSuite {
     /**
      * Execute the performance test suite with the given configuration.
      */
-    CompletableFuture<Results> execute(PerformanceTestConfig config);
+    Future<Results> execute(PerformanceTestConfig config);
     
     /**
      * Clean up any resources used by this test suite.

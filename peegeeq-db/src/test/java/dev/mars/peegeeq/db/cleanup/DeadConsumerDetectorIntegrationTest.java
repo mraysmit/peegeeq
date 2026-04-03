@@ -101,10 +101,12 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                 .build();
         topicConfigService.createTopic(topicConfig)
                 .compose(v -> {
-                    // Subscribe with 60 second timeout
+                    // Subscribe with 60 second timeout, deadAfterMisses=1 since this test
+                    // verifies detection correctness, not flapping thresholds
                     SubscriptionOptions options = SubscriptionOptions.builder()
                             .heartbeatIntervalSeconds(30)
                             .heartbeatTimeoutSeconds(60)
+                            .deadAfterMisses(1)
                             .build();
                     return subscriptionManager.subscribe(topic, groupName, options);
                 })
@@ -159,10 +161,11 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                 .build();
         topicConfigService.createTopic(topicConfig)
                 .compose(v -> {
-                    // Subscribe with 60 second timeout
+                    // Subscribe with 60 second timeout, deadAfterMisses=1
                     SubscriptionOptions options = SubscriptionOptions.builder()
                             .heartbeatIntervalSeconds(30)
                             .heartbeatTimeoutSeconds(60)
+                            .deadAfterMisses(1)
                             .build();
                     return subscriptionManager.subscribe(topic, groupName, options);
                 })
@@ -216,10 +219,11 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
         topicConfigService.createTopic(topicConfig1)
                 .compose(v -> topicConfigService.createTopic(topicConfig2))
                 .compose(v -> {
-                    // Subscribe to both topics
+                    // Subscribe to both topics with deadAfterMisses=1
                     SubscriptionOptions options = SubscriptionOptions.builder()
                             .heartbeatIntervalSeconds(30)
                             .heartbeatTimeoutSeconds(60)
+                            .deadAfterMisses(1)
                             .build();
                     return subscriptionManager.subscribe(topic1, group1, options);
                 })
@@ -227,6 +231,7 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                     SubscriptionOptions options = SubscriptionOptions.builder()
                             .heartbeatIntervalSeconds(30)
                             .heartbeatTimeoutSeconds(60)
+                            .deadAfterMisses(1)
                             .build();
                     return subscriptionManager.subscribe(topic2, group2, options);
                 })
@@ -287,10 +292,11 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                 .build();
         topicConfigService.createTopic(topicConfig)
                 .compose(v -> {
-                    // Subscribe two groups
+                    // Subscribe two groups with deadAfterMisses=1
                     SubscriptionOptions options = SubscriptionOptions.builder()
                             .heartbeatIntervalSeconds(30)
                             .heartbeatTimeoutSeconds(60)
+                            .deadAfterMisses(1)
                             .build();
                     return subscriptionManager.subscribe(topic, group1, options);
                 })
@@ -298,6 +304,7 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                     SubscriptionOptions options = SubscriptionOptions.builder()
                             .heartbeatIntervalSeconds(30)
                             .heartbeatTimeoutSeconds(60)
+                            .deadAfterMisses(1)
                             .build();
                     return subscriptionManager.subscribe(topic, group2, options);
                 })

@@ -38,13 +38,14 @@ import org.slf4j.LoggerFactory;
 import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import io.vertx.sqlclient.TransactionPropagation;
 
 /**
  * Manages PostgreSQL connections for different services using Vert.x 5.x reactive patterns.
@@ -57,7 +58,7 @@ import io.vertx.sqlclient.TransactionPropagation;
  * @since 2025-07-13
  * @version 2.0 - Migrated to Vert.x 5.x reactive patterns
  */
-public class PgConnectionManager implements AutoCloseable {
+public class PgConnectionManager {
     private static final Logger logger = LoggerFactory.getLogger(PgConnectionManager.class);
     private static final Pattern PEEGEEQ_INFO_CODE_PATTERN = Pattern.compile("PGQINF\\d{4}");
 
@@ -151,7 +152,9 @@ public class PgConnectionManager implements AutoCloseable {
                 return pool;
             } catch (Exception e) {
                 logger.error("Failed to create pool for {}: {}", id, e.getMessage());
-                reactivePools.remove(id); // Clean up failed entry
+                // Note: do NOT call reactivePools.remove(id) here — we are inside
+                // computeIfAbsent, which does not store the value when the lambda throws,
+                // and ConcurrentHashMap forbids recursive structural modifications.
                 if (meter != null) {
                     Counter.builder("peegeeq.db.pool.create.failed")
                         .tag("service", id)
@@ -166,9 +169,6 @@ public class PgConnectionManager implements AutoCloseable {
     /**
      * Gets a reactive connection from a specific service's pool.
      * Returns a Future that completes with a SqlConnection for reactive operations.
-     *
-     * NOTE: search_path is now set at connection level via PgConnectOptions.setProperties()
-     * in createReactivePool(), so we no longer need to execute SET search_path here.
      *
      * @param serviceId The unique identifier for the service, or null/blank for the default pool
      * @return Future<SqlConnection> for reactive database operations
@@ -200,9 +200,6 @@ public class PgConnectionManager implements AutoCloseable {
     /**
      * Executes an operation with a pooled connection.
      *
-     * NOTE: search_path is now set at connection level via PgConnectOptions.setProperties()
-     * in createReactivePool(), so we no longer need to execute SET search_path here.
-     *
      * @param serviceId The service ID, or null/blank for the default pool
      */
     public <T> Future<T> withConnection(String serviceId, Function<SqlConnection, Future<T>> operation) {
@@ -220,9 +217,6 @@ public class PgConnectionManager implements AutoCloseable {
     /**
      * Executes an operation within a transaction.
      *
-     * NOTE: search_path is now set at connection level via PgConnectOptions.setProperties()
-     * in createReactivePool(), so we no longer need to execute SET search_path here.
-     *
      * @param serviceId The service ID, or null/blank for the default pool
      */
     public <T> Future<T> withTransaction(String serviceId, Function<SqlConnection, Future<T>> operation) {
@@ -234,33 +228,6 @@ public class PgConnectionManager implements AutoCloseable {
         return pool.withTransaction(conn -> {
             setupNoticeHandler(conn);
             return operation.apply(conn);
-        });
-    }
-
-    /**
-     * Executes an operation within a transaction using TransactionPropagation, applying configured search_path first.
-     *
-     * @param serviceId The service ID, or null/blank for the default pool
-     */
-    public <T> Future<T> withTransaction(String serviceId, TransactionPropagation propagation, Function<SqlConnection, Future<T>> operation) {
-        String resolvedId = resolveServiceId(serviceId);
-        Pool pool = reactivePools.get(resolvedId);
-        if (pool == null) {
-            return Future.failedFuture(new IllegalStateException("No reactive pool found for service: " + resolvedId));
-        }
-        String searchPath = serviceSchemas.get(resolvedId);
-        if (searchPath == null || searchPath.isBlank()) {
-            return pool.withTransaction(propagation, conn -> {
-                setupNoticeHandler(conn);
-                return operation.apply(conn);
-            });
-        }
-        return pool.withTransaction(propagation, conn -> {
-            setupNoticeHandler(conn);
-            return conn.query("SET search_path TO " + searchPath)
-                .execute()
-                .onFailure(err -> logger.warn("Failed to apply search_path '{}' for service '{}': {}", searchPath, resolvedId, err.toString()))
-                .compose(rs -> operation.apply(conn));
         });
     }
 
@@ -280,10 +247,8 @@ public class PgConnectionManager implements AutoCloseable {
      * Creates a Vert.x reactive pool following the established patterns from other modules.
      * Uses PgBuilder.pool() as recommended in Vert.x 5.x documentation.
      *
-     * CRITICAL: Sets search_path at connection level using PgConnectOptions.setProperties()
-     * so that ALL connections from the pool automatically use the configured schema.
-     * This eliminates the need to manually qualify table names or execute SET search_path
-     * before each query.
+     * Sets search_path via PgConnectOptions.setProperties() so all connections from the pool
+     * automatically use the configured schema.
      *
      * @param connectionConfig The PostgreSQL connection configuration
      * @param poolConfig The connection pool configuration
@@ -309,9 +274,9 @@ public class PgConnectionManager implements AutoCloseable {
             connectOptions.setSslMode(io.vertx.pgclient.SslMode.DISABLE);
         }
 
-        // : Set search_path at connection level so all connections from the pool
-        // automatically use the configured schema. This is the proper Vert.x 5.x approach
-        // as documented in https://vertx.io/docs/vertx-pg-client/java/
+        // Set search_path at connection level so all connections from the pool
+        // automatically use the configured schema.
+        // See https://vertx.io/docs/vertx-pg-client/java/ — "Configuration / data object"
         String configuredSchema = connectionConfig.getSchema();
         if (configuredSchema != null && !configuredSchema.isBlank()) {
             String normalized = normalizeSearchPath(configuredSchema);
@@ -341,8 +306,15 @@ public class PgConnectionManager implements AutoCloseable {
 
     /**
      * Normalizes and validates a configured schema/search_path string.
-     * Accepts identifiers separated by commas; allows letters, digits, underscore.
-     * Fails fast on suspicious characters per project guidelines.
+     *
+     * This enforces a project-specific restricted naming policy (letters, digits,
+     * underscore, comma) — not general PostgreSQL identifier validation. Quoted
+     * identifiers, {@code $user}, and case-sensitive quoting are intentionally
+     * rejected.
+     *
+     * The strict whitelist also serves as a security boundary: the result may be
+     * concatenated into SQL (e.g. connection properties), so only known-safe
+     * characters are permitted.
      */
     private String normalizeSearchPath(String schemaConfig) {
         if (schemaConfig == null) return "";
@@ -391,13 +363,14 @@ public class PgConnectionManager implements AutoCloseable {
     }
 
     /**
-     * Checks if the connection manager is healthy.
-     * This is a simplified check that only verifies pools exist.
-     * For real health checks, use checkHealth(serviceId) for specific pools.
+     * Checks whether all registered pools are non-null.
      *
-     * @return true if all reactive pools exist, false otherwise
+     * This is NOT a database connectivity check — it only verifies that pool
+     * objects exist. For actual health probes, use {@link #checkHealth(String)}.
+     *
+     * @return true if no pools are registered, or all registered pools are non-null
      */
-    public boolean isHealthy() {
+    public boolean hasPoolsConfigured() {
         if (reactivePools.isEmpty()) {
             return true; // No pools to check
         }
@@ -406,8 +379,6 @@ public class PgConnectionManager implements AutoCloseable {
             if (pool == null) {
                 return false;
             }
-            // Note: This only checks pool existence, not actual database connectivity
-            // Use checkHealth(serviceId) for real database health checks
         }
 
         return true;
@@ -481,10 +452,11 @@ public class PgConnectionManager implements AutoCloseable {
             return Future.succeededFuture();
         }
 
-        // Create a list of futures for closing all pools
-        java.util.List<Future<Void>> closeFutures = new java.util.ArrayList<>();
+        // Snapshot keys before iterating — closePoolAsync mutates the map
+        List<String> serviceIds = new ArrayList<>(reactivePools.keySet());
+        List<Future<Void>> closeFutures = new ArrayList<>();
 
-        for (String serviceId : reactivePools.keySet()) {
+        for (String serviceId : serviceIds) {
             closeFutures.add(closePoolAsync(serviceId));
         }
 
@@ -497,18 +469,6 @@ public class PgConnectionManager implements AutoCloseable {
                 logger.error("PgConnectionManager@{}: Some pools failed to close cleanly: {}", instanceId, throwable.getMessage(), throwable);
                 return Future.<Void>succeededFuture(); // Don't fail the overall close operation
             });
-    }
-
-    /**
-     * Closes all pools and data sources managed by this connection manager.
-     * Delegates to closeAsync() reactively.
-     */
-    @Override
-    public void close() {
-        logger.debug("Closing PgConnectionManager and all pools");
-        closeAsync()
-            .onSuccess(v -> logger.debug("PgConnectionManager closed successfully"))
-            .onFailure(e -> logger.error("Error closing PgConnectionManager", e));
     }
 
     /**

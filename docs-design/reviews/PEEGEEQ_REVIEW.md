@@ -1,3 +1,119 @@
+## PeeGeeQ Bitemporal Review Plan (March 30, 2026)
+
+This document captures the execution plan for a complete code review of peegeeq-bitemporal and a test coverage assessment for both core functionality and typical bitemporal event store use cases.
+
+### Scope
+
+1. Primary module review target:
+- peegeeq-bitemporal production code
+- peegeeq-bitemporal tests
+
+2. Direct contract surfaces included for correctness validation:
+- peegeeq-api bitemporal interfaces and models
+- peegeeq-db event store schema templates and indexes
+- bitemporal documentation that defines expected behavior and invariants
+
+3. Runtime evidence included:
+- CORE test execution
+- INTEGRATION test execution (with integration profile)
+
+### Deliverable Style
+
+Findings-first report with severity ordering and concrete file/line citations, followed by a coverage matrix and prioritized test gap backlog.
+
+### Execution Phases
+
+#### Phase A: Static Code Review
+
+1. Review bitemporal production classes for:
+- Correctness defects and behavioral regressions
+- Reactive compliance (Future-based flow, no blocking bridges)
+- Lifecycle and resource management correctness
+- Concurrency/race-risk paths
+- Schema isolation and multi-tenant channel behavior
+
+2. Focus files:
+- peegeeq-bitemporal/src/main/java/dev/mars/peegeeq/bitemporal/PgBiTemporalEventStore.java
+- peegeeq-bitemporal/src/main/java/dev/mars/peegeeq/bitemporal/ReactiveNotificationHandler.java
+- peegeeq-bitemporal/src/main/java/dev/mars/peegeeq/bitemporal/BiTemporalEventStoreFactory.java
+- peegeeq-bitemporal/src/main/java/dev/mars/peegeeq/bitemporal/BiTemporalPoolFactory.java
+
+3. Constraints verified during review:
+- Vert.x 5 Future-only composition patterns
+- No CompletableFuture, join/get blocking bridges, or sleep polling
+- No raw JDBC patterns in module scope
+- No hardcoded global schema assumptions in bitemporal paths
+
+#### Phase B: Static Coverage Mapping
+
+1. Build a scenario matrix of expected bitemporal behaviors.
+2. Map each scenario to existing tests.
+3. Classify coverage status as:
+- Covered
+- Partially covered
+- Uncovered
+
+4. Coverage dimensions include:
+- Core append/query/correction/version semantics
+- Valid-time and transaction-time query behaviors
+- Causality and correlation traversal
+- Subscription behavior (exact, wildcard, all-events)
+- Transaction participation and rollback behavior
+- Failure and resilience paths (reconnect/retry/recovery)
+- Concurrency and ordering behavior
+- Boundary/scale conditions
+
+#### Phase C: Runtime Evidence (CORE + INTEGRATION)
+
+1. Execute module tests in:
+- Default profile for CORE tests
+- Integration profile for INTEGRATION tests
+
+2. Capture evidence:
+- Tests executed count
+- Pass/fail/skipped outcomes
+- Profile correctness
+- Notable runtime warnings/errors
+- Flaky or nondeterministic behavior signals
+
+3. Correlate runtime evidence with static findings to identify:
+- Confirmed defects
+- Latent risks
+- False positives from static-only analysis
+
+#### Phase D: Gap Prioritization and Recommendations
+
+1. Produce prioritized missing test backlog for core and typical use cases.
+2. For each gap define:
+- Objective/invariant
+- Recommended test category/tag
+- Priority and estimated effort
+- Why it matters to production risk
+
+3. Separate:
+- Immediate high-value additions
+- Medium-term hardening items
+
+### Typical Bitemporal Use Cases To Validate
+
+1. Append immutable events with valid-time and transaction-time separation.
+2. Correct prior events while preserving version lineage.
+3. Query state as-of transaction time and across valid-time windows.
+4. Reconstruct aggregate/event history reliably.
+5. Trace event causality and correlation chains.
+6. Route and deliver subscriptions accurately across exact and wildcard patterns.
+7. Enforce tenant/schema isolation in storage and notification channels.
+8. Maintain correctness under concurrent writes, retries, and transient DB failures.
+
+### Quality Gate Before Review Is Marked Complete
+
+1. All findings severity-ranked with file and line citations.
+2. Coverage matrix includes core functionality and typical use-case mapping.
+3. Runtime evidence from CORE and INTEGRATION test runs is present.
+4. Residual risks and untested high-impact scenarios are explicitly listed.
+
+---
+
 Good bones, but there are a few real production-grade problems here. The class is readable and the intent is clear, but the lifecycle, concurrency, and failure semantics are not tight enough yet.
 
 My review is limited to this class only. The real truth depends on what `OutboxConsumer`, `OutboxConsumerGroupMember`, and your Postgres claim/reset semantics actually do.
@@ -17,7 +133,9 @@ A few things are solid:
 
 ## The biggest problems
 
-### 1. `start(SubscriptionOptions)` has a race and inconsistent lifecycle semantics
+### 1. `start(SubscriptionOptions)` has a race and inconsistent lifecycle semantics — RESOLVED
+
+> **Resolution (pre-session):** Replaced `active`/`closed` booleans with `enum State { NEW, STARTING, ACTIVE, STOPPING, CLOSED }` backed by `AtomicReference<State>` with CAS transitions throughout.
 
 This is the biggest design flaw in the class.
 
@@ -67,7 +185,9 @@ Right now the lifecycle is too loose.
 
 ---
 
-### 2. `start(subscriptionOptions)` claims to be blocking, but it is not
+### 2. `start(subscriptionOptions)` claims to be blocking, but it is not — RESOLVED
+
+> **Resolution (pre-session):** The misleading `isEventLoopContext` guard was removed. The method is now correctly non-blocking, returns `Future<Void>`, and uses `.compose()` for async chaining.
 
 This comment/guard is misleading:
 
@@ -93,7 +213,9 @@ As written, the API contract is confused.
 
 ---
 
-### 3. `containsKey` + `put` is a race
+### 3. `containsKey` + `put` is a race — RESOLVED
+
+> **Resolution (pre-session):** `addConsumer` now uses `putIfAbsent(consumerId, member)` with a null check on the return value.
 
 Here:
 
@@ -122,7 +244,9 @@ Same kind of issue exists in `setMessageHandler()` with the default ID path.
 
 ---
 
-### 4. Your “round-robin” is not round-robin
+### 4. Your "round-robin" is not round-robin — RESOLVED
+
+> **Resolution (pre-session):** Routing comment and Javadoc renamed to "deterministic hash-based routing". `selectConsumer()` method documented accordingly.
 
 This comment is wrong:
 
@@ -156,7 +280,9 @@ For message queues, this choice is architectural, not cosmetic.
 
 ---
 
-### 5. Failure semantics for filtered / no-eligible-consumer look dangerous
+### 5. Failure semantics for filtered / no-eligible-consumer look dangerous — RESOLVED
+
+> **Resolution (pre-session):** Exception hierarchy now separates permanent rejection (`RejectedMessageException` for group filter) from transient filtering (`MessageFilteredException` for no eligible consumer / removed member). `OutboxConsumer` treats these differently at the claim/reset level.
 
 This bit worries me a lot:
 
@@ -196,7 +322,9 @@ This is probably the most important semantic question in the whole design.
 
 ---
 
-### 6. No protection against concurrent delivery to the same member
+### 6. No protection against concurrent delivery to the same member — RESOLVED
+
+> **Resolution (2026-03-30):** Added `AtomicInteger inFlightCount` with configurable `maxConcurrency` (default 1) to `OutboxConsumerGroupMember`. `processMessage()` now enforces a concurrency gate — checks `inFlightCount.get() >= maxConcurrency` before accepting, atomically increments on accept, and decrements on success/failure/filter.
 
 You select a member and call:
 
@@ -219,7 +347,9 @@ Without seeing `OutboxConsumerGroupMember`, I would treat this as a likely corre
 
 ---
 
-### 7. `getStats()` computes misleading aggregates
+### 7. `getStats()` computes misleading aggregates — RESOLVED
+
+> **Resolution (pre-session):** `getStats()` now uses a weighted average (`weightedTotalMs += stats.getAverageProcessingTimeMs() * processed`, divided by `totalProcessed`). Redundant counters reconciled.
 
 This line is mathematically wrong for heterogeneous workloads:
 
@@ -255,7 +385,9 @@ Pick one source of truth.
 
 ---
 
-### 8. Stop/close semantics are not robust enough for async resources
+### 8. Stop/close semantics are not robust enough for async resources — RESOLVED
+
+> **Resolution (2026-03-30):** Added `closeAsync()` returning `Future<Void>` to `OutboxConsumer`. `OutboxConsumerGroup.stop()` and `close()` now call `closeAsync()` via `instanceof OutboxConsumer<?> oc` pattern match for non-blocking shutdown. Shared scheduler is shut down with `awaitTermination`.
 
 You do:
 
@@ -291,7 +423,9 @@ The current lifecycle is too eager.
 
 ---
 
-### 9. `synchronized` on `setMessageHandler()` is awkward in Vert.x code
+### 9. `synchronized` on `setMessageHandler()` is awkward in Vert.x code — RESOLVED
+
+> **Resolution (pre-session):** `setMessageHandler()` is no longer `synchronized`. Consistent with the rest of the class's use of concurrent primitives.
 
 This is not automatically wrong, but it is suspicious:
 
@@ -307,7 +441,9 @@ A proper state/members CAS strategy would let you remove it.
 
 ---
 
-### 10. Member removal can race with message assignment
+### 10. Member removal can race with message assignment — RESOLVED
+
+> **Resolution (2026-03-30):** Added post-selection liveness check in `distributeMessage()`: after `selectConsumer()`, verifies `members.containsValue(selectedConsumer) && selectedConsumer.isActive()` before dispatch. Returns `MessageFilteredException` if the member was removed or deactivated between selection and dispatch.
 
 This sequence is possible:
 
@@ -326,13 +462,17 @@ You need either:
 
 ---
 
-## Less critical, but still worth fixing
+## Less critical, but still worth fixing — ALL RESOLVED
 
-### Constructor overload explosion
+### Constructor overload explosion — RESOLVED
+
+> **Resolution (pre-session):** `Builder<T>` pattern introduced. Overloads retained for backward compatibility but delegate to the builder-constructed path.
 
 Too many overloads. It is already awkward and will get worse. A builder would be cleaner.
 
-### Null validation
+### Null validation — RESOLVED
+
+> **Resolution (pre-session):** `Objects.requireNonNull()` calls added for `groupName`, `topic`, `payloadType` in the constructor.
 
 You do not validate key ctor arguments like `groupName`, `topic`, `payloadType`, `objectMapper`, `configuration`. Fail fast.
 
@@ -507,17 +647,24 @@ If you do not model those separately, you will get retry storms, stuck messages,
 
 ## Bottom line
 
-This is decent skeleton code, but not yet something I would trust in a hard production queue.
+~~This is decent skeleton code, but not yet something I would trust in a hard production queue.~~
 
-The main issues are:
+**Update (2026-03-30): All 10 major findings and all minor items are now resolved.** The class has been hardened with:
 
-* lifecycle state is racy
-* `start(subscriptionOptions)` semantics are confused
-* duplicate consumer add is not concurrency-safe
-* routing is mislabeled
-* reject vs retry semantics are probably wrong
-* shutdown is too optimistic
-* stats aggregation is misleading
+* Proper `enum State` machine with CAS transitions (was: racy booleans)
+* Non-blocking `start(subscriptionOptions)` with correct `Future<Void>` semantics (was: misleading blocking guard)
+* `putIfAbsent` for member registration (was: check-then-act race)
+* Honest "hash-based routing" labeling (was: mislabeled "round-robin")
+* Separated `RejectedMessageException` / `MessageFilteredException` (was: ambiguous failure semantics)
+* Per-member concurrency gate with `maxConcurrency` (was: unbounded concurrent delivery)
+* Weighted average stats aggregation (was: average-of-averages)
+* `closeAsync()` for non-blocking shutdown (was: synchronous eager close)
+* Removed `synchronized` from `setMessageHandler` (was: blocking lock in Vert.x code)
+* Post-selection liveness check for remove/route race (was: unguarded)
+* Builder pattern and `Objects.requireNonNull` validation
+* Shared `ScheduledExecutorService` for filter retry (was: per-member thread)
+
+**Verification:** 246 CORE tests pass (0 failures, 0 errors, 0 skipped). No forbidden patterns (`CompletableFuture`, `.join()`, `.get()` blocking, `Thread.sleep`) in touched files.
 
 If you want, send `OutboxConsumer`, `OutboxConsumerGroupMember`, and the SQL/schema for claim/ack/retry/reset. That is where the real queue correctness lives.
 

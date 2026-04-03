@@ -17,6 +17,7 @@ package dev.mars.peegeeq.performance.suite;
  */
 
 import dev.mars.peegeeq.performance.config.PerformanceTestConfig;
+import io.vertx.core.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -50,62 +51,60 @@ public class BitemporalPerformanceTestSuite implements PerformanceTestSuite {
     }
     
     @Override
-    public CompletableFuture<Results> execute(PerformanceTestConfig config) {
+    public Future<Results> execute(PerformanceTestConfig config) {
         logger.info("🔄 Starting bi-temporal performance test suite");
         
-        return CompletableFuture.supplyAsync(() -> {
-            Results results = new Results();
+        Results results = new Results();
+        
+        try {
+            // Test 1: Individual append performance
+            logger.info("📝 Testing individual event append performance");
+            double individualAppendThroughput = testIndividualAppendPerformance(config);
+            results.addSuccess();
             
-            try {
-                // Test 1: Individual append performance
-                logger.info("📝 Testing individual event append performance");
-                double individualAppendThroughput = testIndividualAppendPerformance(config);
-                results.addSuccess();
-                
-                // Test 2: Batch append performance
-                logger.info("📦 Testing batch event append performance");
-                double batchAppendThroughput = testBatchAppendPerformance(config);
-                results.addSuccess();
-                
-                // Test 3: Query performance
-                logger.info("🔍 Testing temporal query performance");
-                double queryThroughput = testQueryPerformance(config);
-                results.addSuccess();
-                
-                // Test 4: Concurrent operations
-                logger.info("⚡ Testing concurrent operation performance");
-                double concurrentThroughput = testConcurrentOperations(config);
-                results.addSuccess();
-                
-                // Calculate averages and create results
-                double avgAppendThroughput = (individualAppendThroughput + batchAppendThroughput) / 2;
-                double avgQueryLatency = 1000.0 / queryThroughput; // Convert to ms
-                double avgAppendLatency = 1000.0 / avgAppendThroughput; // Convert to ms
-                
-                BitemporalResults bitemporalResults = new BitemporalResults(
-                    queryThroughput,
-                    avgAppendThroughput,
-                    avgQueryLatency,
-                    avgAppendLatency,
-                    config.getTestIterations()
-                );
-                
-                results.setBitemporalResults(bitemporalResults);
-                results.addMetric("individual_append_throughput", individualAppendThroughput);
-                results.addMetric("batch_append_throughput", batchAppendThroughput);
-                results.addMetric("query_throughput", queryThroughput);
-                results.addMetric("concurrent_throughput", concurrentThroughput);
-                
-                logger.info("Bi-temporal performance test suite completed successfully");
-                
-            } catch (Exception e) {
-                logger.error("❌ Bi-temporal performance test suite failed", e);
-                results.addFailure("BitemporalTestSuite", e);
-            }
+            // Test 2: Batch append performance
+            logger.info("📦 Testing batch event append performance");
+            double batchAppendThroughput = testBatchAppendPerformance(config);
+            results.addSuccess();
             
-            results.setEndTime();
-            return results;
-        });
+            // Test 3: Query performance
+            logger.info("🔍 Testing temporal query performance");
+            double queryThroughput = testQueryPerformance(config);
+            results.addSuccess();
+            
+            // Test 4: Concurrent operations
+            logger.info("⚡ Testing concurrent operation performance");
+            double concurrentThroughput = testConcurrentOperations(config);
+            results.addSuccess();
+            
+            // Calculate averages and create results
+            double avgAppendThroughput = (individualAppendThroughput + batchAppendThroughput) / 2;
+            double avgQueryLatency = 1000.0 / queryThroughput; // Convert to ms
+            double avgAppendLatency = 1000.0 / avgAppendThroughput; // Convert to ms
+            
+            BitemporalResults bitemporalResults = new BitemporalResults(
+                queryThroughput,
+                avgAppendThroughput,
+                avgQueryLatency,
+                avgAppendLatency,
+                config.getTestIterations()
+            );
+            
+            results.setBitemporalResults(bitemporalResults);
+            results.addMetric("individual_append_throughput", individualAppendThroughput);
+            results.addMetric("batch_append_throughput", batchAppendThroughput);
+            results.addMetric("query_throughput", queryThroughput);
+            results.addMetric("concurrent_throughput", concurrentThroughput);
+            
+            logger.info("Bi-temporal performance test suite completed successfully");
+            
+        } catch (Exception e) {
+            logger.error("❌ Bi-temporal performance test suite failed", e);
+            results.addFailure("BitemporalTestSuite", e);
+        }
+        
+        results.setEndTime();
+        return Future.succeededFuture(results);
     }
     
     private double testIndividualAppendPerformance(PerformanceTestConfig config) {

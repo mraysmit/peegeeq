@@ -11,7 +11,6 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.SqlConnection;
-import io.vertx.sqlclient.TransactionPropagation;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -52,7 +51,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
     @AfterEach
     void tearDown() throws Exception {
         if (connectionManager != null) {
-            connectionManager.close();
+            connectionManager.closeAsync();
         }
     }
 
@@ -70,7 +69,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
     void testPgConnectionManagerCreationWithoutMeterRegistry() {
         PgConnectionManager cm = new PgConnectionManager(manager.getVertx());
         assertNotNull(cm);
-        cm.close();
+        cm.closeAsync();
     }
 
     @Test
@@ -267,31 +266,6 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testWithTransactionPropagation() throws Exception {
-        PostgreSQLContainer postgres = getPostgres();
-        PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
-            .host(postgres.getHost())
-            .port(postgres.getFirstMappedPort())
-            .database(postgres.getDatabaseName())
-            .username(postgres.getUsername())
-            .password(postgres.getPassword())
-            .build();
-
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
-        connectionManager.getOrCreateReactivePool("test-service", connectionConfig, poolConfig);
-
-        // Execute operation within transaction with propagation
-        // Use NONE propagation - connection is local to this function execution
-        Integer result = connectionManager.withTransaction("test-service", TransactionPropagation.NONE, conn ->
-            conn.query("SELECT 77 as value")
-                .execute()
-                .map(rowSet -> rowSet.iterator().next().getInteger("value"))
-        ).toCompletionStage().toCompletableFuture().get();
-
-        assertEquals(77, result);
-    }
-
-    @Test
     void testCheckHealth() throws Exception {
         PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
@@ -322,7 +296,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testIsHealthy() {
+    void testHasPoolsConfigured() {
         PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
@@ -334,14 +308,14 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
 
-        // Initially healthy (no pools)
-        assertTrue(connectionManager.isHealthy());
+        // Initially true (no pools)
+        assertTrue(connectionManager.hasPoolsConfigured());
 
         // Create pool
         connectionManager.getOrCreateReactivePool("test-service", connectionConfig, poolConfig);
 
-        // Still healthy
-        assertTrue(connectionManager.isHealthy());
+        // Still true
+        assertTrue(connectionManager.hasPoolsConfigured());
     }
 
     @Test
@@ -412,7 +386,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testClose() {
+    void testClose() throws Exception {
         PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
@@ -428,8 +402,9 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
         // Verify pool exists
         assertNotNull(connectionManager.getExistingPool("test-service"));
 
-        // Close synchronously
-        connectionManager.close();
+        // Close asynchronously and await
+        connectionManager.closeAsync()
+            .toCompletionStage().toCompletableFuture().get();
 
         // Verify pool is removed
         assertNull(connectionManager.getExistingPool("test-service"));

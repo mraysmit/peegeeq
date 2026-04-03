@@ -65,6 +65,7 @@ public final class PeeGeeQErrorCodes {
     public static final String BACKFILL_START_FAILED = "PGQERR0058";
     public static final String BACKFILL_CANCEL_FAILED = "PGQERR0059";
     public static final String BACKFILL_INVALID_STATE = "PGQERR0061";
+    public static final String FORCE_REMOVE_FAILED = "PGQERR0062";
 
     // ========================================================================
     // Setup/Configuration Errors (0100-0149)

@@ -77,8 +77,6 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
     private final ScheduledExecutorService filterScheduler;
     private final boolean ownsScheduler;
     private final DeadLetterQueueManager deadLetterQueueManager;
-    private final FilterRetryManager filterRetryManager;
-
     // Performance tracking
     private final AtomicLong totalProcessingTimeMs = new AtomicLong(0);
     
@@ -155,7 +153,7 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
             this.deadLetterQueueManager = null;
         }
 
-        this.filterRetryManager = new FilterRetryManager(
+        new FilterRetryManager(
             consumerId + "-filter", filterErrorConfig, filterScheduler, deadLetterQueueManager);
 
         logger.debug("Created outbox consumer group member '{}' in group '{}' for topic '{}' with filter error handling (DLQ enabled: {})",

@@ -157,5 +157,29 @@ public interface SubscriptionService {
     default Future<Void> cancelBackfill(String topic, String groupName) {
         return Future.failedFuture(new UnsupportedOperationException("Backfill not supported"));
     }
+
+    /**
+     * Force-removes a consumer group from a topic.
+     *
+     * <p>This is an administrative operation that:</p>
+     * <ol>
+     *   <li>Marks the subscription as DEAD</li>
+     *   <li>Runs dead-group cleanup (decrement required_consumer_groups,
+     *       remove orphaned tracking rows, auto-complete unblocked messages)</li>
+     *   <li>Marks the subscription as CANCELLED (terminal state)</li>
+     * </ol>
+     *
+     * <p>Use this when a consumer group is permanently gone and its presence is
+     * blocking message delivery to other groups.</p>
+     *
+     * @param topic The topic name
+     * @param groupName The consumer group name to force-remove
+     * @return Future containing the cleanup result details
+     * @throws UnsupportedOperationException if force-remove is not supported by this implementation
+     * @since 1.2.0
+     */
+    default Future<ForceRemoveResult> forceRemoveConsumerGroup(String topic, String groupName) {
+        return Future.failedFuture(new UnsupportedOperationException("Force-remove not supported"));
+    }
 }
 

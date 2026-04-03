@@ -86,6 +86,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
 
     private volatile Predicate<Message<T>> groupFilter;
     private volatile MessageConsumer<T> underlyingConsumer;
+    private volatile boolean startedWithSubscription;
 
     /**
      * Builder for constructing {@link OutboxConsumerGroup} instances.
@@ -373,6 +374,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
                 .subscribe(topic, groupName, subscriptionOptions)
                 .compose(v -> {
                     logger.info("Subscription created successfully for group '{}' on topic '{}'", groupName, topic);
+                    startedWithSubscription = true;
                     // Transition from STARTING to ACTIVE via the internal start path
                     try {
                         startInternal();
@@ -426,13 +428,47 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
             // Not active — nothing to stop
             return;
         }
+        stopInternal();
+    }
 
+    @Override
+    public Future<Void> stopGracefully() {
+        if (!state.compareAndSet(State.ACTIVE, State.STOPPING)) {
+            // Not active — nothing to stop
+            return Future.succeededFuture();
+        }
+
+        if (startedWithSubscription && databaseService != null) {
+            logger.info("Gracefully stopping outbox consumer group '{}': cancelling subscription for topic '{}'",
+                    groupName, topic);
+            return databaseService.getSubscriptionService()
+                    .cancel(topic, groupName)
+                    .recover(err -> {
+                        logger.warn("Failed to cancel subscription for group '{}' on topic '{}': {}",
+                                groupName, topic, err.getMessage());
+                        return Future.succeededFuture();
+                    })
+                    .map(v -> {
+                        stopInternal();
+                        return null;
+                    });
+        }
+
+        stopInternal();
+        return Future.succeededFuture();
+    }
+
+    /**
+     * Internal stop logic — assumes state is already STOPPING.
+     * Transitions state to NEW on completion.
+     */
+    private void stopInternal() {
         try {
             logger.info("Stopping outbox consumer group '{}' for topic '{}'", groupName, topic);
-            
+
             // Stop all members
             members.values().forEach(OutboxConsumerGroupMember::stop);
-            
+
             // Stop the underlying consumer (non-blocking)
             if (underlyingConsumer != null) {
                 underlyingConsumer.unsubscribe();
@@ -443,7 +479,8 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
                 }
                 underlyingConsumer = null;
             }
-            
+
+            startedWithSubscription = false;
             logger.info("Outbox consumer group '{}' stopped", groupName);
         } finally {
             state.set(State.NEW);

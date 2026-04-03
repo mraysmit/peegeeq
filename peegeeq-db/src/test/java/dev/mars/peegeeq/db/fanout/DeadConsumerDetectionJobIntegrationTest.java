@@ -120,7 +120,13 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
         // Set heartbeat to the past to simulate timeout
         setHeartbeatInPast(topic, groupName, 10);
 
-        // Run detection
+        // Run detection — with flapping protection, need 3 consecutive misses (default threshold)
+        detector.detectDeadSubscriptions(topic)
+                .toCompletionStage().toCompletableFuture().get();
+        setHeartbeatInPast(topic, groupName, 10);
+        detector.detectDeadSubscriptions(topic)
+                .toCompletionStage().toCompletableFuture().get();
+        setHeartbeatInPast(topic, groupName, 10);
         Integer markedDead = detector.detectDeadSubscriptions(topic)
                 .toCompletionStage().toCompletableFuture().get();
 
@@ -200,13 +206,13 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
         subscriptionManager.subscribe(topic2, "dead-group", shortTimeout)
                 .toCompletionStage().toCompletableFuture().get();
 
-        // Expire both heartbeats
-        setHeartbeatInPast(topic1, "dead-group", 10);
-        setHeartbeatInPast(topic2, "dead-group", 10);
-
-        // Run detection across all topics
-        Integer markedDead = detector.detectAllDeadSubscriptions()
-                .toCompletionStage().toCompletableFuture().get();
+        // Expire both heartbeats and run detection cycles to reach flapping threshold
+        for (int i = 0; i < 3; i++) {
+            setHeartbeatInPast(topic1, "dead-group", 10);
+            setHeartbeatInPast(topic2, "dead-group", 10);
+            detector.detectAllDeadSubscriptions()
+                    .toCompletionStage().toCompletableFuture().get();
+        }
 
         // Don't assert exact count — other parallel test classes may have already detected ours
         // Instead, verify our specific subscriptions ended up DEAD
@@ -218,7 +224,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
         assertEquals("DEAD", status1, topic1 + "/dead-group should be DEAD");
         assertEquals("DEAD", status2, topic2 + "/dead-group should be DEAD");
 
-        logger.info("Cross-topic dead detection verified (markedDead={})", markedDead);
+        logger.info("Cross-topic dead detection verified");
     }
 
     /**
@@ -278,6 +284,12 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
         subscriptionManager.subscribe(topic, "manual-group", shortTimeout)
                 .toCompletionStage().toCompletableFuture().get();
 
+        // Pre-run 2 detection cycles to reach just below flapping threshold
+        for (int i = 0; i < 2; i++) {
+            setHeartbeatInPast(topic, "manual-group", 10);
+            detector.detectAllDeadSubscriptions()
+                    .toCompletionStage().toCompletableFuture().get();
+        }
         setHeartbeatInPast(topic, "manual-group", 10);
 
         // Use job's runDetectionOnce without starting periodic schedule
@@ -338,6 +350,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
         SubscriptionOptions groupBOptions = SubscriptionOptions.builder()
                 .heartbeatIntervalSeconds(1)
                 .heartbeatTimeoutSeconds(2)
+                .deadAfterMisses(1)
                 .build();
         subscriptionManager.subscribe(topic, "group-b", groupBOptions)
                 .toCompletionStage().toCompletableFuture().get();
@@ -347,7 +360,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
             completeMessage(msgId, "group-a");
         }
 
-        // Expire group-b so detector marks it DEAD.
+        // Expire group-b heartbeat for the job's detection run to mark DEAD
         setHeartbeatInPast(topic, "group-b", 10);
 
         job = new DeadConsumerDetectionJob(manager.getVertx(), detector, cleanup);

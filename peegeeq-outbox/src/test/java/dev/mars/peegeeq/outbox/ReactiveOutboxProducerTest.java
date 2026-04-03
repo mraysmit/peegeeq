@@ -126,7 +126,7 @@ public class ReactiveOutboxProducerTest {
             manager.closeReactive().onComplete(ar -> closeLatch.countDown());
             closeLatch.await(10, TimeUnit.SECONDS);
         }
-        if (connectionManager != null) connectionManager.close();
+        if (connectionManager != null) connectionManager.closeAsync();
 
         // Close the test-specific Vert.x instance to prevent resource leaks
         if (testVertx != null) {
