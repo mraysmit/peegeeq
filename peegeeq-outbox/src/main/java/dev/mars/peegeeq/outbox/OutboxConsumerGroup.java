@@ -36,6 +36,9 @@ import org.slf4j.LoggerFactory;
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
@@ -77,6 +80,9 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     private final Map<String, OutboxConsumerGroupMember<T>> members = new ConcurrentHashMap<>();
     private final AtomicReference<State> state = new AtomicReference<>(State.NEW);
     private final AtomicLong totalMessagesFiltered = new AtomicLong(0);
+
+    // Shared scheduler for filter retry across all members — avoids one thread per member
+    private final ScheduledExecutorService sharedFilterScheduler;
 
     private volatile Predicate<Message<T>> groupFilter;
     private volatile MessageConsumer<T> underlyingConsumer;
@@ -203,15 +209,24 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
         this.configuration = configuration;
         this.clientId = clientId;
         this.createdAt = Instant.now();
+        this.sharedFilterScheduler = Executors.newScheduledThreadPool(1, r -> {
+            Thread t = new Thread(r, "filter-retry-" + groupName);
+            t.setDaemon(true);
+            return t;
+        });
 
         logger.info("Created outbox consumer group '{}' for topic '{}' (clientId: {})",
                 groupName, topic, clientId != null ? clientId : "default");
     }
 
-    // -- Package-private state accessor for testing --
+    // -- Package-private accessors for testing and member construction --
 
     State getState() {
         return state.get();
+    }
+
+    ScheduledExecutorService getSharedFilterScheduler() {
+        return sharedFilterScheduler;
     }
     
     @Override
@@ -418,10 +433,14 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
             // Stop all members
             members.values().forEach(OutboxConsumerGroupMember::stop);
             
-            // Stop the underlying consumer
+            // Stop the underlying consumer (non-blocking)
             if (underlyingConsumer != null) {
                 underlyingConsumer.unsubscribe();
-                underlyingConsumer.close();
+                if (underlyingConsumer instanceof OutboxConsumer<?> oc) {
+                    oc.closeAsync();
+                } else {
+                    underlyingConsumer.close();
+                }
                 underlyingConsumer = null;
             }
             
@@ -530,7 +549,11 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
             members.values().forEach(OutboxConsumerGroupMember::stop);
             if (underlyingConsumer != null) {
                 underlyingConsumer.unsubscribe();
-                underlyingConsumer.close();
+                if (underlyingConsumer instanceof OutboxConsumer<?> oc) {
+                    oc.closeAsync();
+                } else {
+                    underlyingConsumer.close();
+                }
                 underlyingConsumer = null;
             }
         }
@@ -538,6 +561,17 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
         // Close all members
         members.values().forEach(OutboxConsumerGroupMember::close);
         members.clear();
+
+        // Shutdown shared filter retry scheduler
+        sharedFilterScheduler.shutdown();
+        try {
+            if (!sharedFilterScheduler.awaitTermination(5, TimeUnit.SECONDS)) {
+                sharedFilterScheduler.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            sharedFilterScheduler.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
 
         logger.info("Outbox consumer group '{}' closed", groupName);
     }
@@ -579,6 +613,16 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
         
         // Deterministic hash-based routing on message ID
         OutboxConsumerGroupMember<T> selectedConsumer = selectConsumer(eligibleConsumers, message);
+
+        // Verify the selected member is still in the group and active (guards against
+        // a concurrent removeConsumer call between the snapshot and dispatch)
+        if (!members.containsValue(selectedConsumer) || !selectedConsumer.isActive()) {
+            logger.debug("Selected consumer '{}' was removed or deactivated before dispatch, resetting message {} to PENDING",
+                selectedConsumer.getConsumerId(), message.getId());
+            return Future.failedFuture(
+                    new MessageFilteredException(message.getId(), groupName,
+                        "selected consumer removed before dispatch"));
+        }
         
         logger.debug("Distributing message {} to consumer '{}' in outbox group '{}'", 
             message.getId(), selectedConsumer.getConsumerId(), groupName);
