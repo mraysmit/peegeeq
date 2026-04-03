@@ -879,6 +879,42 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
     // All database operations should now use getReactivePoolFuture().compose(...)
     // for better performance and consistency
 
+    /**
+     * Non-blocking close that initiates orderly shutdown and returns a Future
+     * that completes when the reactive pool is closed. Executors are signalled
+     * to stop but allowed to drain on their own threads without blocking.
+     * Safe to call from a Vert.x event-loop context.
+     *
+     * @return Future that completes when the reactive pool (the primary resource) is closed
+     */
+    public Future<Void> closeAsync() {
+        if (!closed.compareAndSet(false, true)) {
+            return Future.succeededFuture();
+        }
+
+        unsubscribe();
+
+        // Initiate orderly shutdown of executors (non-blocking)
+        if (scheduler != null) {
+            scheduler.shutdown();
+        }
+        if (messageProcessingExecutor != null) {
+            messageProcessingExecutor.shutdown();
+        }
+
+        // Close reactive pool — this is the resource that matters for callers
+        Future<Void> poolClose;
+        if (reactivePool != null) {
+            poolClose = reactivePool.close()
+                .onSuccess(v -> logger.debug("Closed reactive pool for topic: {}", topic))
+                .onFailure(err -> logger.warn("Error closing reactive pool for topic {}: {}", topic, err.getMessage()));
+        } else {
+            poolClose = Future.succeededFuture();
+        }
+
+        return poolClose.onSuccess(v -> logger.info("Closed outbox consumer for topic: {}", topic));
+    }
+
     @Override
     public void close() {
         if (closed.compareAndSet(false, true)) {
