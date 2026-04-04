@@ -1,5 +1,7 @@
 package dev.mars.peegeeq.db.consumer;
 
+import dev.mars.peegeeq.api.tracing.TraceCtx;
+import dev.mars.peegeeq.api.tracing.TraceContextUtil;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Tuple;
@@ -64,8 +66,11 @@ public class CompletionTracker {
      * @return Future that completes when the operation is done
      */
     public Future<Void> markCompleted(Long messageId, String groupName, String topic) {
-        logger.debug("Marking message {} as completed for group '{}' on topic '{}'",
-                messageId, groupName, topic);
+        TraceCtx trace = TraceCtx.createNew();
+        try (var scope = TraceContextUtil.mdcScope(trace)) {
+            logger.debug("Marking message {} as completed for group '{}' on topic '{}'",
+                    messageId, groupName, topic);
+        }
 
         return connectionManager.withTransaction(serviceId, connection -> {
             String validateSql = """
@@ -89,7 +94,9 @@ public class CompletionTracker {
                             String message = String.format(
                                     "Cannot mark completed: no ACTIVE subscription for topic='%s' and group='%s' (messageId=%d)",
                                     topic, groupName, messageId);
-                            logger.warn(message);
+                            try (var innerScope = TraceContextUtil.mdcScope(trace)) {
+                                logger.warn(message);
+                            }
                             return Future.failedFuture(new IllegalArgumentException(message));
                         }
 
@@ -112,8 +119,10 @@ public class CompletionTracker {
                                 .compose(trackingResult -> {
                                     int rowsAffected = trackingResult.rowCount();
                                     if (rowsAffected == 0) {
-                                        logger.debug("Message {} already completed for group '{}' (idempotent)",
-                                                messageId, groupName);
+                                        try (var innerScope = TraceContextUtil.mdcScope(trace)) {
+                                            logger.debug("Message {} already completed for group '{}' (idempotent)",
+                                                    messageId, groupName);
+                                        }
                                         return Future.succeededFuture((Void) null);
                                     }
 
@@ -147,15 +156,19 @@ public class CompletionTracker {
                                                     int required = row.getInteger("required_consumer_groups");
                                                     String status = row.getString("status");
 
-                                                    logger.debug("Message {} completion: {}/{} groups completed, status={}",
-                                                            messageId, completed, required, status);
+                                                    try (var innerScope = TraceContextUtil.mdcScope(trace)) {
+                                                        logger.debug("Message {} completion: {}/{} groups completed, status={}",
+                                                                messageId, completed, required, status);
 
-                                                    if (status.equals("COMPLETED")) {
-                                                        logger.info("Message {} fully completed - all {} groups finished",
-                                                                messageId, required);
+                                                        if (status.equals("COMPLETED")) {
+                                                            logger.info("Message {} fully completed - all {} groups finished",
+                                                                    messageId, required);
+                                                        }
                                                     }
                                                 } else {
-                                                    logger.debug("Message {} counter already at max (idempotent)", messageId);
+                                                    try (var innerScope = TraceContextUtil.mdcScope(trace)) {
+                                                        logger.debug("Message {} counter already at max (idempotent)", messageId);
+                                                    }
                                                 }
                                                 return null;
                                             });
@@ -177,8 +190,11 @@ public class CompletionTracker {
      * @return Future that completes when the operation is done
      */
     public Future<Void> markFailed(Long messageId, String groupName, String topic, String errorMessage) {
-        logger.warn("Marking message {} as failed for group '{}' on topic '{}': {}",
-                messageId, groupName, topic, errorMessage);
+        TraceCtx trace = TraceCtx.createNew();
+        try (var scope = TraceContextUtil.mdcScope(trace)) {
+            logger.warn("Marking message {} as failed for group '{}' on topic '{}': {}",
+                    messageId, groupName, topic, errorMessage);
+        }
 
         return connectionManager.withConnection(serviceId, connection -> {
                         String validateSql = """
@@ -216,7 +232,9 @@ public class CompletionTracker {
                             String message = String.format(
                                     "Cannot mark failed: no ACTIVE subscription for topic='%s' and group='%s' (messageId=%d)",
                                     topic, groupName, messageId);
-                            logger.warn(message);
+                            try (var innerScope = TraceContextUtil.mdcScope(trace)) {
+                                logger.warn(message);
+                            }
                             return Future.failedFuture(new IllegalArgumentException(message));
                         }
 
@@ -224,11 +242,15 @@ public class CompletionTracker {
                                 .execute(params)
                                 .map(result -> {
                                     if (result.rowCount() == 0) {
-                                        logger.debug("Ignoring failed mark for message {} group '{}' because it is already COMPLETED",
-                                                messageId, groupName);
+                                        try (var innerScope = TraceContextUtil.mdcScope(trace)) {
+                                            logger.debug("Ignoring failed mark for message {} group '{}' because it is already COMPLETED",
+                                                    messageId, groupName);
+                                        }
                                         return null;
                                     }
-                                    logger.debug("Marked message {} as failed for group '{}'", messageId, groupName);
+                                    try (var innerScope = TraceContextUtil.mdcScope(trace)) {
+                                        logger.debug("Marked message {} as failed for group '{}'", messageId, groupName);
+                                    }
                                     return null;
                                 });
                     });

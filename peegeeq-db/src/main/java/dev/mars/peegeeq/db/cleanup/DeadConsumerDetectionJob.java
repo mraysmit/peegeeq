@@ -275,30 +275,32 @@ public class DeadConsumerDetectionJob {
 
                     if (result.hasDeadSubscriptions()) {
                         totalDeadDetected.addAndGet(result.deadCount());
-                        logDeadConsumersDetected(runNumber, result, detectionMs);
+                        logDeadConsumersDetected(runNumber, result, detectionMs, trace);
 
                         // Query blocked message stats for newly dead + any previously dead consumers
                         return detector.getBlockedMessageStats()
                                 .compose(blockedStats -> {
-                                    logBlockedMessageStats(blockedStats);
+                                    logBlockedMessageStats(blockedStats, trace);
 
                                     // Run cleanup for all dead groups (newly detected + previously dead)
-                                    logger.info("  Starting cleanup for dead consumer groups...");
+                                    try (var innerScope = TraceContextUtil.mdcScope(trace)) {
+                                        logger.info("  Starting cleanup for dead consumer groups...");
+                                    }
                                     return cleanup.cleanupAllDeadGroups();
                                 })
                                 .compose(cleanupResults -> {
-                                    logCleanupResults(runNumber, cleanupResults);
+                                    logCleanupResults(runNumber, cleanupResults, trace);
                                     return detector.getSubscriptionSummary();
                                 })
                                 .map(summary -> {
-                                    logSubscriptionSummary(runNumber, summary, System.currentTimeMillis() - overallStartMs);
+                                    logSubscriptionSummary(runNumber, summary, System.currentTimeMillis() - overallStartMs, trace);
                                     return result.deadCount();
                                 });
                     } else {
                         // No dead consumers — still log a periodic health summary
                         return detector.getSubscriptionSummary()
                                 .map(summary -> {
-                                    logHealthyRun(runNumber, result, summary, detectionMs);
+                                    logHealthyRun(runNumber, result, summary, detectionMs, trace);
                                     return 0;
                                 });
                     }
@@ -330,7 +332,8 @@ public class DeadConsumerDetectionJob {
     /**
      * Logs cleanup results after dead consumer group message cleanup.
      */
-    private void logCleanupResults(long runNumber, List<CleanupResult> cleanupResults) {
+    private void logCleanupResults(long runNumber, List<CleanupResult> cleanupResults, TraceCtx trace) {
+        try (var scope = TraceContextUtil.mdcScope(trace)) {
         if (cleanupResults.isEmpty()) {
             logger.debug("  Run #{}: No dead consumer groups required cleanup", runNumber);
             return;
@@ -378,12 +381,14 @@ public class DeadConsumerDetectionJob {
             logger.debug("  {} of {} cleanup(s) had no work (may already be cleaned or failed)",
                     failedCleanups, cleanupResults.size());
         }
+        } // end mdcScope
     }
 
     /**
      * Logs detailed information about dead consumers that were just detected.
      */
-    private void logDeadConsumersDetected(long runNumber, DetectionResult result, long detectionMs) {
+    private void logDeadConsumersDetected(long runNumber, DetectionResult result, long detectionMs, TraceCtx trace) {
+        try (var scope = TraceContextUtil.mdcScope(trace)) {
         logger.warn("=== Detection Run #{}: {} DEAD consumer(s) detected in {}ms " +
                         "(checked {} active subscriptions across {} topic(s)) ===",
                 runNumber, result.deadCount(), detectionMs,
@@ -408,12 +413,14 @@ public class DeadConsumerDetectionJob {
                         formatDuration(info.silenceDuration()));
             }
         }
+        } // end mdcScope
     }
 
     /**
      * Logs the impact of dead consumers — how many messages they are blocking.
      */
-    private void logBlockedMessageStats(List<BlockedMessageStats> statsList) {
+    private void logBlockedMessageStats(List<BlockedMessageStats> statsList, TraceCtx trace) {
+        try (var scope = TraceContextUtil.mdcScope(trace)) {
         if (statsList.isEmpty()) {
             logger.info("  No messages currently blocked by dead consumers");
             return;
@@ -461,25 +468,29 @@ public class DeadConsumerDetectionJob {
                         formatDuration(stats.oldestBlockedAge()));
             }
         }
+        } // end mdcScope
     }
 
     /**
      * Logs the overall subscription landscape summary after a run that found dead consumers.
      */
-    private void logSubscriptionSummary(long runNumber, SubscriptionSummary summary, long totalMs) {
+    private void logSubscriptionSummary(long runNumber, SubscriptionSummary summary, long totalMs, TraceCtx trace) {
+        try (var scope = TraceContextUtil.mdcScope(trace)) {
         logger.warn("  Subscription landscape: {} active, {} paused, {} dead, {} cancelled " +
                         "({} total across {} topic(s)) — run #{} completed in {}ms",
                 summary.activeCount(), summary.pausedCount(),
                 summary.deadCount(), summary.cancelledCount(),
                 summary.totalCount(), summary.topicCount(),
                 runNumber, totalMs);
+        }
     }
 
     /**
      * Logs a concise summary for a healthy run where no dead consumers were found.
      */
     private void logHealthyRun(long runNumber, DetectionResult result,
-                               SubscriptionSummary summary, long detectionMs) {
+                               SubscriptionSummary summary, long detectionMs, TraceCtx trace) {
+        try (var scope = TraceContextUtil.mdcScope(trace)) {
         if (summary.hasDeadSubscriptions()) {
             // No NEW dead consumers, but there are previously-dead ones still present
             logger.info("Detection run #{}: no new dead consumers ({}ms). " +
@@ -496,6 +507,7 @@ public class DeadConsumerDetectionJob {
                     runNumber, detectionMs,
                     summary.activeCount(), summary.pausedCount(),
                     summary.topicCount());
+        }
         }
     }
 

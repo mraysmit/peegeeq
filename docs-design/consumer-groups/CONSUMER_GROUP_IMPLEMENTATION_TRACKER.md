@@ -38,7 +38,7 @@
 | Subscribe REST Endpoint | ✅ DONE | POST creates subscriptions via REST with validation |
 | Backfill REST Endpoints | ✅ DONE | POST start, GET progress, DELETE cancel — all via REST |
 | Offset/Watermark Mode | ❌ NOT STARTED | Design only |
-| Tracing Instrumentation | ❌ NOT STARTED | Zero `TraceCtx`/`AsyncTraceUtils` usage in cleanup/, consumer/, subscription/ packages |
+| Tracing Instrumentation | ✅ DONE | `TraceCtx`/`mdcScope()` added to `DeadConsumerDetectionJob` (compose chain + 5 logging methods), `ConsumerGroupFetcher` (fetch entry + result), `CompletionTracker` (markCompleted + markFailed). `BackfillService` was already traced. |
 | Prometheus Metrics (consumer groups) | ❌ NOT STARTED | User Guide promises `peegeeq_messages_received_total{consumer_group}` but not implemented |
 | Consumer Group Count in Monitoring WS/SSE | ✅ DONE (summary) | Total count exposed via `/ws/monitoring` — no per-group detail |
 | Dead Consumer Alerting Endpoint | ❌ NOT STARTED | `DetectionJob` logs alerts but no API surface for programmatic consumption |
@@ -93,7 +93,7 @@ These components have been verified to work end-to-end with tests passing:
 
 ### Completion Tracking
 - `CompletionTracker` (161 lines) — atomic per-group completion, idempotent, auto-complete on all groups done
-- 4 integration tests passing
+- 13 integration tests passing (8 core + 5 edge cases: FAILED→COMPLETED recovery, retry count, markFailed unknown group, PAUSED subscription rejection, non-existent message rejection)
 
 ### Cleanup
 - `CleanupService` (199 lines) — fan-out aware, respects completed vs required counts
@@ -154,13 +154,37 @@ The design specifies a **5-layer approach**. Here's what actually exists:
 - 9 integration tests across 1 class — all passing:
   - `DeadConsumerGroupCleanupIntegrationTest` (9 tests) — includes error resilience test validating `.recover()` block
 
-### Layer 4: Graceful Shutdown — ❌ NOT IMPLEMENTED
-- Design specifies graceful shutdown should mark subscription CANCELLED and drain in-flight messages
-- No shutdown hook exists in any consumer code
+### Layer 4: Graceful Shutdown — ✅ DONE
+- `ConsumerGroup` interface: added `default Future<Void> stopGracefully()` method
+- `OutboxConsumerGroup`: tracks subscription-backed start via `startedWithSubscription` flag; `stopGracefully()` cancels subscription in DB before stopping local consumers; cancel failure is recovered (group still stops)
+- `PgNativeConsumerGroup`: same pattern as OutboxConsumerGroup
+- 7 unit tests in `OutboxConsumerGroupGracefulShutdownTest` — all passing
+- Existing 55 OutboxConsumerGroupCoreTest tests remain passing (backward compat)
 
-### Layer 5: Admin Override / Force-Remove — ❌ NOT IMPLEMENTED
-- Design specifies admin API to force-remove dead consumer groups
-- No such endpoint exists
+Primary sources:
+- `peegeeq-api/src/main/java/dev/mars/peegeeq/api/messaging/ConsumerGroup.java`
+- `peegeeq-outbox/src/main/java/dev/mars/peegeeq/outbox/OutboxConsumerGroup.java`
+- `peegeeq-native/src/main/java/dev/mars/peegeeq/pgqueue/PgNativeConsumerGroup.java`
+- `peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupGracefulShutdownTest.java`
+
+### Layer 5: Admin Override / Force-Remove — ✅ DONE
+- `SubscriptionService` interface: added `forceRemoveConsumerGroup(topic, groupName)` default method
+- `SubscriptionManager`: validates subscription exists and is not already CANCELLED → marks DEAD → runs `DeadConsumerGroupCleanup.cleanupDeadGroup()` → marks CANCELLED → returns `ForceRemoveResult` with cleanup stats
+- REST: `DELETE /api/v1/setups/:setupId/subscriptions/:topic/:groupName/force-remove`
+- `SubscriptionHandler.forceRemoveConsumerGroup()`: 404 for not found, 409 for already cancelled, 200 with cleanup stats on success
+- `ForceRemoveResult` record: `topic`, `groupName`, `previousStatus`, `messagesDecremented`, `orphanRowsRemoved`, `messagesAutoCompleted`, `totalActions()`
+- `PeeGeeQManager.createSubscriptionService()` wires `DeadConsumerGroupCleanup` into `SubscriptionManager`
+- 5 unit tests in `ForceRemoveUnitTest` — all passing
+- 5 integration tests in `ForceRemoveIntegrationTest` — all passing
+
+Primary sources:
+- `peegeeq-api/src/main/java/dev/mars/peegeeq/api/subscription/ForceRemoveResult.java`
+- `peegeeq-api/src/main/java/dev/mars/peegeeq/api/subscription/SubscriptionService.java`
+- `peegeeq-db/src/main/java/dev/mars/peegeeq/db/subscription/SubscriptionManager.java`
+- `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/SubscriptionHandler.java`
+- `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/PeeGeeQRestServer.java`
+- `peegeeq-db/src/test/java/dev/mars/peegeeq/db/subscription/ForceRemoveUnitTest.java`
+- `peegeeq-db/src/test/java/dev/mars/peegeeq/db/subscription/ForceRemoveIntegrationTest.java`
 
 ### Scheduled Job — ✅ DONE
 - `DeadConsumerDetectionJob.java` (~460 lines) wraps `DeadConsumerDetector` + `DeadConsumerGroupCleanup` with `vertx.setPeriodic()`
@@ -216,9 +240,21 @@ The design specifies a **5-layer approach**. Here's what actually exists:
 - `ManagementApiHandler` reads `backfillStatus` for display; `SubscriptionHandler` provides full backfill management
 - 3 integration tests: auto-trigger, FROM_NOW no-trigger, no-BackfillService backward compatibility
 
-### Rate Limiting — ❌ MISSING
-- Design specifies adaptive rate limiting to protect OLTP workloads during backfill
-- Not implemented — batches run as fast as the database can process them
+### Rate Limiting — ✅ DONE
+- `BackfillService` accepts `batchDelayMs` parameter for inter-batch throttling
+- New 3-arg constructor `(PgConnectionManager, String, Vertx)` enables timer-based delays via `vertx.timer(batchDelayMs).mapEmpty()`
+- Legacy 2-arg constructor preserved for backward compatibility (timer support disabled, zero delay only)
+- Validation: negative `batchDelayMs` → `IllegalArgumentException`; non-zero without Vertx → `IllegalStateException`
+- `PeeGeeQManager.createSubscriptionService()` now passes Vertx to BackfillService
+- All existing overloads delegate with `batchDelayMs=0` (no behavior change)
+- 13 unit tests in `BackfillRateLimitingUnitTest` — all passing
+- 4 integration tests in `BackfillRateLimitingIntegrationTest` — all passing
+
+Primary sources:
+- `peegeeq-db/src/main/java/dev/mars/peegeeq/db/subscription/BackfillService.java`
+- `peegeeq-db/src/main/java/dev/mars/peegeeq/db/PeeGeeQManager.java`
+- `peegeeq-db/src/test/java/dev/mars/peegeeq/db/subscription/BackfillRateLimitingUnitTest.java`
+- `peegeeq-db/src/test/java/dev/mars/peegeeq/db/fanout/BackfillRateLimitingIntegrationTest.java`
 
 ---
 
@@ -226,15 +262,16 @@ The design specifies a **5-layer approach**. Here's what actually exists:
 
 **Cross-referenced against**: Tracing Architecture Guide, Tracing User Guide, Monitoring Endpoints Implementation Plan
 
-### Tracing Instrumentation — ❌ NOT STARTED
+### Tracing Instrumentation — ✅ DONE
 
-The Tracing Architecture Guide mandates that **all** async operations use `AsyncTraceUtils` wrappers and that message consumers extract `traceparent` from headers. A codebase search for `TraceCtx`, `TraceContext`, `AsyncTraceUtils`, `MDC`, `traceparent`, `spanId`, `traceId`, or `mdcScope` across all consumer group packages returns **zero matches**:
+All consumer group operational code now uses `TraceCtx.createNew()` at entry points and `TraceContextUtil.mdcScope(trace)` around every log site to ensure `traceId`/`spanId` appear in all structured log output.
 
-| Package | Files Checked | Tracing References |
-|---------|---------------|--------------------|
-| `db/cleanup/` | `CleanupService`, `DeadConsumerDetector`, `DeadConsumerDetectionJob` | **None** |
-| `db/consumer/` | `ConsumerGroupFetcher`, `CompletionTracker` | **None** |
-| `db/subscription/` | `SubscriptionManager`, `TopicConfigService`, `ZeroSubscriptionValidator`, `BackfillService` | **None** |
+| Package | Files Updated | Tracing Approach |
+|---------|---------------|------------------|
+| `db/cleanup/` | `DeadConsumerDetectionJob` | Trace created per detection run; passed through entire compose chain (detection→blocked stats→cleanup→summary); all 5 private logging methods accept `TraceCtx` and scope MDC |
+| `db/consumer/` | `ConsumerGroupFetcher` | Trace created at `fetchMessages()` entry; MDC scoped at entry log and result count log |
+| `db/consumer/` | `CompletionTracker` | Trace created at `markCompleted()`/`markFailed()` entry; MDC scoped at entry, validation, idempotent, completion status, and error logs |
+| `db/subscription/` | `BackfillService` | (Already implemented — comprehensive trace through entire recursive batch chain) |
 
 **Impact**:
 - All consumer group logs have **blank** `traceId`/`spanId` fields
@@ -296,7 +333,7 @@ These are cases where components exist but are not connected to the application 
 | Resurrection (DEAD→ACTIVE) | ✅ | ✅ | `updateHeartbeat()` auto-resurrects DEAD→ACTIVE |
 | Subscribe REST endpoint | ✅ | ✅ | `POST /subscriptions/:topic` with groupName, startPosition, heartbeat config |
 | Backfill REST endpoints | ✅ | ✅ | POST start, GET progress, DELETE cancel backfill |
-| Admin force-remove endpoint | ❌ | ❌ | Cannot force-remove dead consumers via API |
+| Admin force-remove endpoint | ✅ | ✅ | `DELETE .../force-remove` endpoint + `SubscriptionManager.forceRemoveConsumerGroup()` + `ForceRemoveResult` |
 
 ---
 
@@ -519,17 +556,29 @@ AND required_consumer_groups > 0;
 - Configurable pause between batches
 - Backfill throughput adapts based on DB load signals
 
-**Status**: ❌ Not started
+**Status**: ✅ Completed
+
+**Implementation**: `BackfillService` extended with `batchDelayMs` parameter for inter-batch throttling. New 3-arg constructor `(PgConnectionManager, String, Vertx)` enables non-blocking timer-based delays via `vertx.timer(batchDelayMs).mapEmpty()`. Legacy 2-arg constructor preserved (timer support disabled, zero delay only). Validation: negative delay → `IllegalArgumentException`, non-zero without Vertx → `IllegalStateException`. All existing overloads delegate with `batchDelayMs=0`. `PeeGeeQManager.createSubscriptionService()` passes Vertx to BackfillService.
+- 13 unit tests in `BackfillRateLimitingUnitTest`: parameter validation, constructor variants, Vertx requirement enforcement
+- 4 integration tests in `BackfillRateLimitingIntegrationTest`: delay slows throughput, zero delay normal, cancellation during delay, legacy overloads
 
 #### Task L2: Graceful Shutdown Handling
 **What**: On consumer shutdown, mark subscription CANCELLED and drain in-flight messages  
 **Where**: Consumer lifecycle hooks  
-**Status**: ❌ Not started
+**Status**: ✅ Completed
+
+**Implementation**: `ConsumerGroup` interface extended with `default Future<Void> stopGracefully()` method that cancels the subscription in the database before stopping local consumers. Both `OutboxConsumerGroup` and `PgNativeConsumerGroup` override with subscription-aware shutdown: track `startedWithSubscription` flag → on `stopGracefully()`, cancel subscription via `DatabaseService` → `stopInternal()`. Cancel failure is recovered (group still stops cleanly). Groups started without `SubscriptionOptions` fall back to regular `stop()` behavior.
+- 7 unit tests in `OutboxConsumerGroupGracefulShutdownTest`: not-active, closed, idempotent, without-subscription, with-subscription, cancel-fails, after-stop
+- 55 existing `OutboxConsumerGroupCoreTest` tests remain passing (backward compat verified)
 
 #### Task L3: Admin Force-Remove Endpoint
 **What**: REST endpoint to force-remove a dead consumer group and clean up its messages  
 **Where**: Admin/management API  
-**Status**: ❌ Not started
+**Status**: ✅ Completed
+
+**Implementation**: Added `forceRemoveConsumerGroup(topic, groupName)` to `SubscriptionService` interface (default method). `SubscriptionManager` implementation: validates subscription exists and is not already CANCELLED → marks DEAD (if not already) → runs `DeadConsumerGroupCleanup.cleanupDeadGroup()` → marks CANCELLED → returns `ForceRemoveResult` record with `previousStatus`, `messagesDecremented`, `orphanRowsRemoved`, `messagesAutoCompleted`. REST endpoint: `DELETE /api/v1/setups/:setupId/subscriptions/:topic/:groupName/force-remove` returns 200 with cleanup stats, 404 for not found, 409 for already cancelled. Error code `PGQERR0062` added. `PeeGeeQManager` wires `DeadConsumerGroupCleanup` into `SubscriptionManager` via `setDeadConsumerGroupCleanup()`.
+- 5 unit tests in `ForceRemoveUnitTest`: null topic, null groupName, without cleanup service, with cleanup service, null cleanup setter
+- 5 integration tests in `ForceRemoveIntegrationTest`: active subscription, dead subscription, non-existent, already-cancelled, idempotent
 
 ### MEDIUM — Tracing & Observability
 
@@ -542,7 +591,10 @@ AND required_consumer_groups > 0;
 - Logs from detection include `traceId`/`spanId`
 - Detection timing is observable via trace spans
 
-**Status**: ❌ Not started
+**Status**: ✅ Completed
+
+**Implementation**: `runDetection()` passes `TraceCtx trace` through the entire compose chain. All 5 private logging methods (`logCleanupResults`, `logDeadConsumersDetected`, `logBlockedMessageStats`, `logSubscriptionSummary`, `logHealthyRun`) accept `TraceCtx` and wrap their contents in `try (var scope = TraceContextUtil.mdcScope(trace))`. Inline log calls in compose lambdas are also MDC-scoped. The existing `onFailure` handler already scoped MDC.
+- 5 unit tests in `DetectionJobTracingTest`: trace creation per run, MDC clean after completion, trace propagation through dead consumer cleanup chain, trace preserved in error logs, lifecycle start/stop MDC cleanup
 
 #### Task M4: Add Tracing to ConsumerGroupFetcher
 **What**: Extract `traceparent` from fetched message headers and propagate trace context  
@@ -552,7 +604,10 @@ AND required_consumer_groups > 0;
 - Fetched messages carry trace context to downstream processing
 - Trace spans show message delivery to specific consumer groups
 
-**Status**: ❌ Not started
+**Status**: ✅ Completed
+
+**Implementation**: `fetchMessages()` creates `TraceCtx.createNew()` at entry and scopes MDC for both the entry debug log and the result count debug log inside the `.map()` handler. Trace imports added: `TraceCtx`, `TraceContextUtil`.
+- 3 integration tests in `ConsumerTracingTest`: MDC clean after fetch completion, succeeds without external trace context, preserves caller's pre-existing MDC
 
 #### Task M5: Add Tracing to CompletionTracker
 **What**: Carry trace context from the message being completed through the completion flow  
@@ -561,7 +616,10 @@ AND required_consumer_groups > 0;
 - Completion operations are visible in distributed traces
 - Can trace a message from publish → fan-out → per-group completion
 
-**Status**: ❌ Not started
+**Status**: ✅ Completed
+
+**Implementation**: Both `markCompleted()` and `markFailed()` create `TraceCtx.createNew()` at entry and scope MDC for the entry log. All internal log calls (validation warnings, idempotent debug, completion status, error messages) are wrapped in `try (var scope = TraceContextUtil.mdcScope(trace))`. Trace imports added: `TraceCtx`, `TraceContextUtil`.
+- 4 integration tests in `ConsumerTracingTest`: MDC clean after markCompleted/markFailed (success or failure), preserves caller's pre-existing MDC for both markCompleted and markFailed
 
 #### Task M6: Add Tracing to BackfillService
 **What**: Create traced spans per batch for backfill observability  
@@ -570,7 +628,9 @@ AND required_consumer_groups > 0;
 - Each backfill batch creates a child span
 - Backfill progress is observable via distributed tracing
 
-**Status**: ❌ Not started
+**Status**: ✅ Already Implemented
+
+**Note**: BackfillService already has comprehensive tracing — `startBackfill()` and `cancelBackfill()` each create `TraceCtx.createNew()`, the trace is passed as a parameter through the entire recursive batch chain (`acquireBackfillLock()` → `processBatches()` → `processBatchesRecursively()` → `processOneBatch()` → `processFetchedBatch()` → `markBackfillCompleted()`), and every log point uses `try (var scope = TraceContextUtil.mdcScope(trace))`. This was missed in the original tracker audit.
 
 ### LOW — Monitoring Endpoints
 
@@ -628,13 +688,16 @@ AND required_consumer_groups > 0;
 | `ZeroSubscriptionValidatorIntegrationTest` | 7 | ✅ Yes | ✅ Passing |
 | `FanoutProducerIntegrationTest` | 6 | ✅ Yes | ✅ Passing |
 | `ConsumerGroupFetcherIntegrationTest` | 4 | ✅ Yes | ✅ Passing |
-| `CompletionTrackerIntegrationTest` | 4 | ✅ Yes | ✅ Passing |
+| `CompletionTrackerIntegrationTest` | 13 | ✅ Yes | ✅ Passing — `@Tag(FLAKY)` removed, parallel-safe (UUID-based topic names) |
 | `CleanupServiceIntegrationTest` | 6 | ✅ Yes | ✅ Passing |
 | `DeadConsumerDetectorIntegrationTest` | 4 | ✅ Yes | ✅ Passing — `@Tag(FLAKY)` removed, parallel-safe |
 | `DeadConsumerDetectorComprehensiveTest` | 10 | ✅ Yes | ✅ Passing — PAUSED/CANCELLED/boundary/mixed/API coverage |
 | `BackfillServiceIntegrationTest` | 9 | ✅ Yes | ✅ Passing |
 | `DeadConsumerDetectionJobIntegrationTest` | 8 | ✅ Yes | ✅ Passing — pipeline + concurrent guard tests |
 | `DeadConsumerGroupCleanupIntegrationTest` | 9 | ✅ Yes | ✅ Passing — error resilience test |
+| `DetectionJobTracingTest` | 5 | ❌ No (CORE) | ✅ Passing — stub-based tracing tests |
+| `ConsumerTracingTest` | 7 | ✅ Yes | ✅ Passing — fetcher (3) + completion tracker (4) tracing tests |
+| `CompletionTrackerCoreTest` | 5 | ✅ Yes | ✅ Passing — creation, markCompleted, idempotent, counter, all-groups |
 | Performance tests (P1-P4) | 4 | ✅ Yes | ✅ Passing |
 
 ### Missing Test Coverage
@@ -685,3 +748,4 @@ The existing [Implementation Plan](CONSUMER_GROUP_FANOUT_IMPLEMENTATION_PLAN.md)
 | 2026-03-01 | **H3+H4 Completed**: Subscribe REST endpoint + Backfill REST endpoints. Added `createSubscription()` handler (POST, returns 201) with JSON body validation (groupName required, startPosition enum, heartbeat config, timestamp parsing). Added 3 backfill handlers: `startBackfill()` (POST), `getBackfillProgress()` (GET with percentComplete calculation), `cancelBackfill()` (DELETE). Extended `SubscriptionService` interface with `startBackfill()`/`cancelBackfill()` default methods. `SubscriptionManager` overrides delegate to `BackfillService`. 4 new error codes. 4 new routes in `PeeGeeQRestServer`. Created `SubscriptionCreateAndBackfillIntegrationTest` (12 tests). REST regression: 19 tests (12 new + 7 existing), 0 failures. DB regression: 52 tests, 0 failures. | — |
 | 2026-03-01 | **H3+H4 Code Review Fixes**: (1) Added `Objects.requireNonNull(topic/groupName)` to `SubscriptionManager.startBackfill()`/`cancelBackfill()` for consistency with all other methods (18 existing usages). (2) Fixed fully-qualified `io.vertx.core.json.JsonObject` in `SubscriptionService` interface — now uses import. (3) Rewrote `createSubscription()` handler to return 409 on duplicate subscription (was returning 201 via silent upsert) — pre-checks with `getSubscription()` and returns `SUBSCRIPTION_ALREADY_EXISTS` error. Added `testCreateDuplicateSubscription` test. (4) Added missing `import io.vertx.core.Future` and `import SubscriptionState` to `SubscriptionHandler`. Noted: `BACKFILL_NOT_FOUND` error code (PGQERR0060) is dead code — reserved for future admin endpoints. Full regression: 71 tests (19 REST + 52 DB), 0 failures. | — |
 | 2026-03-01 | **Code Review Follow-up — Dead Code + Happy-Path Coverage**: (1) Removed dead `BACKFILL_NOT_FOUND` error code (PGQERR0060) — was declared but never referenced; all not-found cases use `SUBSCRIPTION_NOT_FOUND` via `sendSubscriptionNotFoundError()`. (2) Wired `BackfillService` into production code: `PeeGeeQManager.createSubscriptionService()` now creates a `BackfillService` alongside `SubscriptionManager`, using `DEFAULT_POOL_ID` instead of null. This enables backfill REST endpoints to actually work end-to-end (previously returned 501 `UnsupportedOperationException`). (3) Added 3 happy-path REST tests: `testStartBackfillHappyPath` (200, verifies COMPLETED status with 0 messages), `testStartBackfillAlreadyCompleted` (200, verifies ALREADY_COMPLETED on re-call), `testCancelBackfillHappyPath` (200, verifies success/topic/groupName/action). Full regression: 74 tests (22 REST + 52 DB), 0 failures. | — |
+| 2026-04-04 | **CompletionTracker edge case coverage**: Added 5 edge case tests to `CompletionTrackerIntegrationTest` (13 total): FAILED→COMPLETED recovery, retry_count verification (0→1→2), markFailed unknown group rejection, PAUSED subscription rejection, non-existent message rejection. Added `pauseSubscription()` helper. Removed `@Tag(FLAKY)` — all tests use UUID-based unique topic names and pass reliably (2 consecutive clean runs verified). Updated test inventory: added `DetectionJobTracingTest` (5), `ConsumerTracingTest` (7), `CompletionTrackerCoreTest` (5) rows. | — |

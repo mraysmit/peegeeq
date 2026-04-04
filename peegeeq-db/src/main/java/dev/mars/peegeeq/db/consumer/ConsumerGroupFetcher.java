@@ -1,5 +1,7 @@
 package dev.mars.peegeeq.db.consumer;
 
+import dev.mars.peegeeq.api.tracing.TraceCtx;
+import dev.mars.peegeeq.api.tracing.TraceContextUtil;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
@@ -71,7 +73,10 @@ public class ConsumerGroupFetcher {
      * @return Future containing list of fetched messages
      */
     public Future<List<OutboxMessage>> fetchMessages(String topic, String groupName, int batchSize) {
-        logger.debug("Fetching messages for topic='{}', group='{}', batchSize={}", topic, groupName, batchSize);
+        TraceCtx trace = TraceCtx.createNew();
+        try (var scope = TraceContextUtil.mdcScope(trace)) {
+            logger.debug("Fetching messages for topic='{}', group='{}', batchSize={}", topic, groupName, batchSize);
+        }
 
         return connectionManager.withTransaction(serviceId, connection -> {
             // Atomically select and claim messages as PROCESSING so concurrent fetchers
@@ -126,8 +131,10 @@ public class ConsumerGroupFetcher {
                         for (Row row : rows) {
                             messages.add(mapRowToOutboxMessage(row));
                         }
-                        logger.debug("Fetched {} messages for topic='{}', group='{}'",
-                                messages.size(), topic, groupName);
+                        try (var scope = TraceContextUtil.mdcScope(trace)) {
+                            logger.debug("Fetched {} messages for topic='{}', group='{}'",
+                                    messages.size(), topic, groupName);
+                        }
                         return messages;
                     });
         });
