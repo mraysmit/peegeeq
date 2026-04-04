@@ -64,21 +64,64 @@ Primary sources:
 - `peegeeq-api/src/main/java/dev/mars/peegeeq/api/messaging/SubscriptionOptions.java`
 - `peegeeq-db/src/test/java/dev/mars/peegeeq/db/fanout/FlappingProtectionIntegrationTest.java`
 
-## Verified Missing Or Incomplete
+## Verified Implemented (April 2026 Update)
 
 ### Graceful Shutdown Handling For Subscription-Backed Consumer Groups
 
-Graceful shutdown is still incomplete for subscription-backed consumer groups.
+Graceful shutdown is now implemented for subscription-backed consumer groups.
 
-- `OutboxConsumerGroup` and `PgNativeConsumerGroup` create subscriptions when started with `SubscriptionOptions`.
-- Their `stop()` and `close()` paths stop local consumers and unsubscribe the underlying consumer.
-- They do not cancel subscriptions or implement a subscription-state drain/transition workflow during shutdown.
+- `ConsumerGroup` interface: added `default Future<Void> stopGracefully()` method.
+- `OutboxConsumerGroup` and `PgNativeConsumerGroup` track whether they were started with `SubscriptionOptions` via a `startedWithSubscription` flag.
+- On `stopGracefully()`, if started with subscription: cancel subscription in database → stop internal consumers. Cancel failure is recovered (group still stops).
+- Groups started without `SubscriptionOptions` fall back to regular `stop()` behavior.
+- 7 unit tests in `OutboxConsumerGroupGracefulShutdownTest` — all passing.
+- 55 existing `OutboxConsumerGroupCoreTest` tests remain passing (backward compat verified).
 
 Primary sources:
 
+- `peegeeq-api/src/main/java/dev/mars/peegeeq/api/messaging/ConsumerGroup.java`
 - `peegeeq-outbox/src/main/java/dev/mars/peegeeq/outbox/OutboxConsumerGroup.java`
 - `peegeeq-native/src/main/java/dev/mars/peegeeq/pgqueue/PgNativeConsumerGroup.java`
+- `peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupGracefulShutdownTest.java`
+
+### Adaptive Rate Limiting for Backfill
+
+Backfill rate limiting is now implemented.
+
+- `BackfillService` accepts `batchDelayMs` parameter for configurable inter-batch throttling.
+- New 3-arg constructor `(PgConnectionManager, String, Vertx)` enables non-blocking timer-based delays via `vertx.timer(batchDelayMs).mapEmpty()`.
+- Legacy 2-arg constructor preserved for backward compatibility (timer support disabled, zero delay only).
+- `PeeGeeQManager.createSubscriptionService()` passes Vertx to BackfillService.
+- 13 unit tests + 4 integration tests — all passing.
+
+Primary sources:
+
+- `peegeeq-db/src/main/java/dev/mars/peegeeq/db/subscription/BackfillService.java`
+- `peegeeq-db/src/main/java/dev/mars/peegeeq/db/PeeGeeQManager.java`
+- `peegeeq-db/src/test/java/dev/mars/peegeeq/db/subscription/BackfillRateLimitingUnitTest.java`
+- `peegeeq-db/src/test/java/dev/mars/peegeeq/db/fanout/BackfillRateLimitingIntegrationTest.java`
+
+### Admin Force-Remove Endpoint
+
+Admin force-remove is now implemented.
+
+- `SubscriptionService` interface: added `forceRemoveConsumerGroup(topic, groupName)` default method.
+- `SubscriptionManager`: validates → marks DEAD → runs `DeadConsumerGroupCleanup.cleanupDeadGroup()` → marks CANCELLED → returns `ForceRemoveResult`.
+- REST: `DELETE /api/v1/setups/:setupId/subscriptions/:topic/:groupName/force-remove`.
+- `PeeGeeQManager.createSubscriptionService()` wires `DeadConsumerGroupCleanup` into `SubscriptionManager`.
+- 5 unit tests + 5 integration tests — all passing.
+
+Primary sources:
+
+- `peegeeq-api/src/main/java/dev/mars/peegeeq/api/subscription/ForceRemoveResult.java`
+- `peegeeq-api/src/main/java/dev/mars/peegeeq/api/subscription/SubscriptionService.java`
 - `peegeeq-db/src/main/java/dev/mars/peegeeq/db/subscription/SubscriptionManager.java`
+- `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/handlers/SubscriptionHandler.java`
+- `peegeeq-rest/src/main/java/dev/mars/peegeeq/rest/PeeGeeQRestServer.java`
+- `peegeeq-db/src/test/java/dev/mars/peegeeq/db/subscription/ForceRemoveUnitTest.java`
+- `peegeeq-db/src/test/java/dev/mars/peegeeq/db/subscription/ForceRemoveIntegrationTest.java`
+
+## Verified Missing Or Incomplete
 
 ### Fanout Retry And DLQ Automation
 
@@ -113,16 +156,16 @@ Primary sources:
 - `peegeeq-db/src/main/java/dev/mars/peegeeq/db/metrics/PeeGeeQMetrics.java`
 - `peegeeq-db/src/main/java/dev/mars/peegeeq/db/provider/PgMetricsProvider.java`
 
-## Partially Correct Documentation Claim
+## Tracing Instrumentation — Updated Status
 
-The earlier statement that tracing instrumentation was missing needs refinement.
+The consumer-group fanout path now has comprehensive `TraceCtx` + `TraceContextUtil.mdcScope()` instrumentation:
 
-Accurate source-based position:
+- **`DeadConsumerDetectionJob`**: Trace created per detection run, propagated through entire compose chain (detection→blocked stats→cleanup→summary→healthy run). All 5 private logging methods accept `TraceCtx` and scope MDC. The `onFailure` handler was already scoped.
+- **`ConsumerGroupFetcher`**: Trace created at `fetchMessages()` entry; MDC scoped at both the entry log and the result count log.
+- **`CompletionTracker`**: Trace created at `markCompleted()` and `markFailed()` entry; MDC scoped at all internal log points (validation warnings, idempotent detection, completion status, error messages).
+- **`BackfillService`**: Already had comprehensive tracing through the entire recursive batch chain (verified in earlier audit).
 
-- The consumer-group fanout path does use `TraceCtx` and `TraceContextUtil` for MDC/log correlation.
-- The consumer-group fanout path does not use `AsyncTraceUtils` in the way described by the tracing design documents.
-
-This means tracing is partially implemented, but the richer async/distributed tracing instrumentation is still absent from the fanout path.
+**Remaining gap**: `AsyncTraceUtils` wrappers (for cross-Vertx-context propagation) and fan-out trace branching design are still not implemented; current instrumentation covers MDC/log correlation within single Vert.x context.
 
 Primary sources:
 
@@ -130,8 +173,10 @@ Primary sources:
 - `peegeeq-db/src/main/java/dev/mars/peegeeq/db/subscription/BackfillService.java`
 - `peegeeq-db/src/main/java/dev/mars/peegeeq/db/cleanup/DeadConsumerGroupCleanup.java`
 - `peegeeq-db/src/main/java/dev/mars/peegeeq/db/cleanup/DeadConsumerDetectionJob.java`
+- `peegeeq-db/src/main/java/dev/mars/peegeeq/db/consumer/ConsumerGroupFetcher.java`
+- `peegeeq-db/src/main/java/dev/mars/peegeeq/db/consumer/CompletionTracker.java`
 - `peegeeq-db/src/main/java/dev/mars/peegeeq/db/PeeGeeQManager.java`
 
 ## Recommended Corrected Summary
 
-Backfill, dead-consumer cleanup, and flapping protection are implemented. Graceful shutdown of subscription-backed consumer groups, fanout-specific retry/DLQ automation, and per-consumer-group metrics are still missing. Tracing is partially implemented through `TraceCtx` and MDC correlation, but the consumer-group fanout path still lacks `AsyncTraceUtils`-based async/distributed tracing.
+Backfill (with rate limiting), dead-consumer cleanup, flapping protection, graceful shutdown, and admin force-remove are all implemented. Fanout-specific retry/DLQ automation and per-consumer-group metrics are still missing. Tracing is now implemented across all consumer group operational code via `TraceCtx`/`mdcScope()` MDC correlation. The richer `AsyncTraceUtils`-based cross-context propagation and fan-out trace branching design remain as future work.

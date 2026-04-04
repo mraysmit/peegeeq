@@ -48,7 +48,6 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
-@Tag(TestCategories.FLAKY)  // Tests are unstable in parallel execution - needs investigation
 public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(CompletionTrackerIntegrationTest.class);
@@ -520,6 +519,240 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
         logger.info("=== TEST: testLateFailureInMultiGroupDoesNotCreateInconsistentState COMPLETED ===");
     }
 
+    @Test
+    public void testMarkFailedThenCompletedRecovery(VertxTestContext testContext) throws Exception {
+        logger.info("=== TEST: testMarkFailedThenCompletedRecovery STARTED ===");
+
+        String topic = "test-recovery-" + UUID.randomUUID().toString().substring(0, 8);
+        String groupName = "group1";
+
+        TopicConfig topicConfig = TopicConfig.builder()
+                .topic(topic)
+                .semantics(TopicSemantics.QUEUE)
+                .build();
+        SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+
+        topicConfigService.createTopic(topicConfig)
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
+                .compose(v -> insertMessage(topic, new JsonObject().put("test", "recovery")))
+                .compose(messageId ->
+                    tracker.markFailed(messageId, groupName, topic, "transient error")
+                        .compose(v -> getTrackingRowStatus(messageId, groupName))
+                        .compose(failedStatus -> {
+                            assertEquals("FAILED", failedStatus.getString("status"),
+                                    "Tracking row should be FAILED before recovery");
+                            return tracker.markCompleted(messageId, groupName, topic);
+                        })
+                        .compose(v -> getTrackingRowStatus(messageId, groupName)
+                                .compose(trackingStatus -> getMessageStatus(messageId)
+                                        .map(messageStatus -> new JsonObject()
+                                                .put("tracking", trackingStatus)
+                                                .put("message", messageStatus)))))
+                .onSuccess(statuses -> {
+                    try {
+                        JsonObject tracking = statuses.getJsonObject("tracking");
+                        JsonObject message = statuses.getJsonObject("message");
+
+                        assertEquals("COMPLETED", tracking.getString("status"),
+                                "Tracking row must transition from FAILED to COMPLETED on recovery");
+                        assertEquals("COMPLETED", message.getString("status"),
+                                "Message should be COMPLETED after group recovers");
+                        assertEquals(1, message.getInteger("completed_consumer_groups"));
+                    } catch (Throwable t) {
+                        errorRef.set(t);
+                    } finally {
+                        testContext.completeNow();
+                    }
+                })
+                .onFailure(throwable -> {
+                    errorRef.set(throwable);
+                    testContext.completeNow();
+                });
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) {
+            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        }
+        logger.info("=== TEST: testMarkFailedThenCompletedRecovery COMPLETED ===");
+    }
+
+    @Test
+    public void testMarkFailedRepeatedlyIncrementsRetryCount(VertxTestContext testContext) throws Exception {
+        logger.info("=== TEST: testMarkFailedRepeatedlyIncrementsRetryCount STARTED ===");
+
+        String topic = "test-retry-count-" + UUID.randomUUID().toString().substring(0, 8);
+        String groupName = "group1";
+
+        TopicConfig topicConfig = TopicConfig.builder()
+                .topic(topic)
+                .semantics(TopicSemantics.QUEUE)
+                .build();
+        SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+
+        topicConfigService.createTopic(topicConfig)
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
+                .compose(v -> insertMessage(topic, new JsonObject().put("test", "retry")))
+                .compose(messageId ->
+                    tracker.markFailed(messageId, groupName, topic, "error 1")
+                        .compose(v -> getTrackingRowStatus(messageId, groupName))
+                        .compose(status1 -> {
+                            assertEquals(0, status1.getInteger("retry_count"),
+                                    "Initial insert should have retry_count=0");
+                            assertEquals("error 1", status1.getString("error_message"));
+                            return tracker.markFailed(messageId, groupName, topic, "error 2");
+                        })
+                        .compose(v -> getTrackingRowStatus(messageId, groupName))
+                        .compose(status2 -> {
+                            assertEquals(1, status2.getInteger("retry_count"),
+                                    "Second failure should increment retry_count to 1");
+                            assertEquals("error 2", status2.getString("error_message"),
+                                    "Error message should be updated");
+                            return tracker.markFailed(messageId, groupName, topic, "error 3");
+                        })
+                        .compose(v -> getTrackingRowStatus(messageId, groupName)))
+                .onSuccess(status3 -> {
+                    try {
+                        assertEquals(2, status3.getInteger("retry_count"),
+                                "Third failure should increment retry_count to 2");
+                        assertEquals("error 3", status3.getString("error_message"),
+                                "Error message should be latest");
+                        assertEquals("FAILED", status3.getString("status"));
+                    } catch (Throwable t) {
+                        errorRef.set(t);
+                    } finally {
+                        testContext.completeNow();
+                    }
+                })
+                .onFailure(throwable -> {
+                    errorRef.set(throwable);
+                    testContext.completeNow();
+                });
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) {
+            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        }
+        logger.info("=== TEST: testMarkFailedRepeatedlyIncrementsRetryCount COMPLETED ===");
+    }
+
+    @Test
+    public void testMarkFailedRejectsUnknownGroup(VertxTestContext testContext) throws Exception {
+        logger.info("=== TEST: testMarkFailedRejectsUnknownGroup STARTED ===");
+
+        String topic = "test-failed-unknown-group-" + UUID.randomUUID().toString().substring(0, 8);
+        String validGroup = "group1";
+        String invalidGroup = "group-does-not-exist";
+
+        TopicConfig topicConfig = TopicConfig.builder()
+                .topic(topic)
+                .semantics(TopicSemantics.QUEUE)
+                .build();
+        SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+
+        topicConfigService.createTopic(topicConfig)
+                .compose(v -> subscriptionManager.subscribe(topic, validGroup, subscriptionOptions))
+                .compose(v -> insertMessage(topic, new JsonObject().put("test", "message1")))
+                .compose(messageId -> tracker.markFailed(messageId, invalidGroup, topic, "should reject")
+                        .compose(v -> Future.failedFuture(new AssertionError("Expected markFailed to reject unknown group")))
+                        .recover(throwable -> {
+                            if (throwable instanceof IllegalArgumentException) {
+                                return Future.succeededFuture();
+                            }
+                            return Future.failedFuture(throwable);
+                        }))
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(throwable -> {
+                    errorRef.set(throwable);
+                    testContext.completeNow();
+                });
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) {
+            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        }
+        logger.info("=== TEST: testMarkFailedRejectsUnknownGroup COMPLETED ===");
+    }
+
+    @Test
+    public void testMarkCompletedRejectsPausedSubscription(VertxTestContext testContext) throws Exception {
+        logger.info("=== TEST: testMarkCompletedRejectsPausedSubscription STARTED ===");
+
+        String topic = "test-paused-sub-" + UUID.randomUUID().toString().substring(0, 8);
+        String groupName = "group1";
+
+        TopicConfig topicConfig = TopicConfig.builder()
+                .topic(topic)
+                .semantics(TopicSemantics.QUEUE)
+                .build();
+        SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+
+        topicConfigService.createTopic(topicConfig)
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
+                .compose(v -> pauseSubscription(topic, groupName))
+                .compose(v -> insertMessage(topic, new JsonObject().put("test", "message1")))
+                .compose(messageId -> tracker.markCompleted(messageId, groupName, topic)
+                        .compose(v2 -> Future.<Void>failedFuture(new AssertionError("Expected markCompleted to reject paused subscription")))
+                        .recover(throwable -> {
+                            if (throwable instanceof IllegalArgumentException) {
+                                return Future.succeededFuture();
+                            }
+                            return Future.failedFuture(throwable);
+                        }))
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(throwable -> {
+                    errorRef.set(throwable);
+                    testContext.completeNow();
+                });
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) {
+            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        }
+        logger.info("=== TEST: testMarkCompletedRejectsPausedSubscription COMPLETED ===");
+    }
+
+    @Test
+    public void testMarkCompletedRejectsNonExistentMessage(VertxTestContext testContext) throws Exception {
+        logger.info("=== TEST: testMarkCompletedRejectsNonExistentMessage STARTED ===");
+
+        String topic = "test-nonexistent-msg-" + UUID.randomUUID().toString().substring(0, 8);
+        String groupName = "group1";
+
+        TopicConfig topicConfig = TopicConfig.builder()
+                .topic(topic)
+                .semantics(TopicSemantics.QUEUE)
+                .build();
+        SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        long nonExistentMessageId = 999999999L;
+
+        topicConfigService.createTopic(topicConfig)
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
+                .compose(v -> tracker.markCompleted(nonExistentMessageId, groupName, topic)
+                        .compose(v2 -> Future.<Void>failedFuture(new AssertionError("Expected markCompleted to reject non-existent message")))
+                        .recover(throwable -> {
+                            if (throwable instanceof IllegalArgumentException) {
+                                return Future.succeededFuture();
+                            }
+                            return Future.failedFuture(throwable);
+                        }))
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(throwable -> {
+                    errorRef.set(throwable);
+                    testContext.completeNow();
+                });
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) {
+            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        }
+        logger.info("=== TEST: testMarkCompletedRejectsNonExistentMessage COMPLETED ===");
+    }
+
     // Helper method to insert a message
     private Future<Long> insertMessage(String topic, JsonObject payload) {
         return connectionManager.withConnection("peegeeq-main", connection -> {
@@ -550,6 +783,19 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                                 .put("completed_consumer_groups", row.getInteger("completed_consumer_groups"))
                                 .put("required_consumer_groups", row.getInteger("required_consumer_groups"));
                     });
+        });
+    }
+
+    // Helper method to pause a subscription
+    private Future<Void> pauseSubscription(String topic, String groupName) {
+        return connectionManager.withConnection("peegeeq-main", connection -> {
+            String sql = """
+                UPDATE outbox_topic_subscriptions
+                SET subscription_status = 'PAUSED'
+                WHERE topic = $1 AND group_name = $2
+                """;
+            return connection.preparedQuery(sql).execute(Tuple.of(topic, groupName))
+                    .mapEmpty();
         });
     }
 

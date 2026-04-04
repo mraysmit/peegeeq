@@ -124,7 +124,7 @@
           <groupId>dev.mars</groupId>
         </exclusion>
         <exclusion>
-          <artifactId>postgresql</artifactId>
+          <artifactId>testcontainers-jdbc</artifactId>
           <groupId>org.testcontainers</groupId>
         </exclusion>
         <exclusion>

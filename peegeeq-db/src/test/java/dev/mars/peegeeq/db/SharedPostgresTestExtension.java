@@ -297,7 +297,7 @@ public class SharedPostgresTestExtension implements BeforeAllCallback {
                         id BIGSERIAL PRIMARY KEY,
                         message_id BIGINT NOT NULL,
                         group_name VARCHAR(255) NOT NULL,
-                        status VARCHAR(20) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED')),
+                        status VARCHAR(20) NOT NULL DEFAULT 'PENDING' CHECK (status IN ('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED', 'DEAD_LETTER')),
                         processed_at TIMESTAMP WITH TIME ZONE,
                         error_message TEXT,
                         retry_count INT DEFAULT 0,
