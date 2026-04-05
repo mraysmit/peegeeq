@@ -9,9 +9,11 @@ import dev.mars.peegeeq.api.subscription.SubscriptionService;
 import dev.mars.peegeeq.api.subscription.SubscriptionState;
 import dev.mars.peegeeq.api.tracing.TraceCtx;
 import dev.mars.peegeeq.api.tracing.TraceContextUtil;
+import dev.mars.peegeeq.db.cleanup.DeadConsumerDetector;
 import dev.mars.peegeeq.db.cleanup.DeadConsumerGroupCleanup;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import io.vertx.core.Future;
+import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.SqlConnection;
@@ -830,6 +832,66 @@ public class SubscriptionManager implements SubscriptionService {
             case CANCELLED -> SubscriptionState.CANCELLED;
             case DEAD -> SubscriptionState.DEAD;
         };
+    }
+
+    @Override
+    public Future<List<SubscriptionInfo>> listDeadSubscriptions() {
+        return connectionManager.withConnection(serviceId, connection -> {
+            String sql = """
+                SELECT *
+                FROM outbox_topic_subscriptions
+                WHERE subscription_status = 'DEAD'
+                ORDER BY last_active_at DESC
+                """;
+
+            return connection.preparedQuery(sql)
+                    .execute()
+                    .map(rows -> {
+                        List<SubscriptionInfo> result = new ArrayList<>();
+                        for (Row row : rows) {
+                            result.add(toSubscriptionInfo(mapRowToSubscription(row)));
+                        }
+                        return result;
+                    });
+        });
+    }
+
+    @Override
+    public Future<JsonObject> getSubscriptionHealthSummary() {
+        DeadConsumerDetector detector = new DeadConsumerDetector(connectionManager, serviceId);
+        return detector.getSubscriptionSummary()
+                .map(summary -> new JsonObject()
+                        .put("activeCount", summary.activeCount())
+                        .put("pausedCount", summary.pausedCount())
+                        .put("deadCount", summary.deadCount())
+                        .put("cancelledCount", summary.cancelledCount())
+                        .put("topicCount", summary.topicCount())
+                        .put("totalCount", summary.totalCount())
+                        .put("hasDeadSubscriptions", summary.hasDeadSubscriptions()));
+    }
+
+    @Override
+    public Future<JsonObject> getBlockedMessageStats() {
+        DeadConsumerDetector detector = new DeadConsumerDetector(connectionManager, serviceId);
+        return detector.getBlockedMessageStats()
+                .map(statsList -> {
+                    JsonArray statsArray = new JsonArray();
+                    for (DeadConsumerDetector.BlockedMessageStats stats : statsList) {
+                        JsonObject stat = new JsonObject()
+                                .put("topic", stats.topic())
+                                .put("groupName", stats.groupName())
+                                .put("blockedPending", stats.blockedPending())
+                                .put("blockedProcessing", stats.blockedProcessing())
+                                .put("totalBlocked", stats.totalBlocked());
+                        if (stats.oldestBlockedAge() != null) {
+                            stat.put("oldestBlockedAgeSeconds", stats.oldestBlockedAge().getSeconds());
+                        }
+                        statsArray.add(stat);
+                    }
+                    return new JsonObject()
+                            .put("blockedStats", statsArray)
+                            .put("totalBlockedGroups", statsArray.size());
+                });
     }
 }
 

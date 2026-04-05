@@ -28,6 +28,7 @@ import dev.mars.peegeeq.rest.handlers.QueueHandler;
 import dev.mars.peegeeq.rest.handlers.SubscriptionHandler;
 import dev.mars.peegeeq.rest.handlers.WebSocketHandler;
 import dev.mars.peegeeq.rest.handlers.ServerSentEventsHandler;
+import dev.mars.peegeeq.rest.handlers.ConsumerAlertHandler;
 import dev.mars.peegeeq.rest.handlers.ConsumerGroupHandler;
 import dev.mars.peegeeq.rest.handlers.SystemMonitoringHandler;
 import io.vertx.core.json.JsonObject;
@@ -307,6 +308,7 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         DeadLetterHandler deadLetterHandler = new DeadLetterHandler(setupService, objectMapper);
         SubscriptionHandler subscriptionHandler = new SubscriptionHandler(setupService, objectMapper);
         HealthHandler healthHandler = new HealthHandler(setupService, objectMapper);
+        ConsumerAlertHandler consumerAlertHandler = new ConsumerAlertHandler(setupService);
 
         // System monitoring handler for real-time metrics streaming
         this.monitoringHandler = new SystemMonitoringHandler(
@@ -485,6 +487,14 @@ public class PeeGeeQRestServer extends AbstractVerticle {
                 .handler(subscriptionHandler::getBackfillProgress);
         router.delete("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/backfill")
                 .handler(subscriptionHandler::cancelBackfill);
+
+        // Consumer Alerting routes - dead consumer detection and blocked message stats
+        router.get("/api/v1/setups/:setupId/consumer-alerts/dead")
+                .handler(consumerAlertHandler::listDeadSubscriptions);
+        router.get("/api/v1/setups/:setupId/consumer-alerts/summary")
+                .handler(consumerAlertHandler::getHealthSummary);
+        router.get("/api/v1/setups/:setupId/consumer-alerts/blocked")
+                .handler(consumerAlertHandler::getBlockedStats);
 
         // Health API routes - per-setup health endpoints
         router.get("/api/v1/setups/:setupId/health").handler(healthHandler::getOverallHealth);

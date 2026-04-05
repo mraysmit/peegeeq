@@ -181,5 +181,35 @@ public interface SubscriptionService {
     default Future<ForceRemoveResult> forceRemoveConsumerGroup(String topic, String groupName) {
         return Future.failedFuture(new UnsupportedOperationException("Force-remove not supported"));
     }
+
+    /**
+     * Lists all subscriptions currently in DEAD state.
+     *
+     * @return Future containing the list of dead subscriptions
+     * @throws UnsupportedOperationException if alerting is not supported by this implementation
+     */
+    default Future<List<SubscriptionInfo>> listDeadSubscriptions() {
+        return Future.failedFuture(new UnsupportedOperationException("Dead subscription alerting not supported"));
+    }
+
+    /**
+     * Returns a health summary of all subscriptions grouped by status.
+     *
+     * @return Future containing the summary as a JSON object
+     * @throws UnsupportedOperationException if alerting is not supported by this implementation
+     */
+    default Future<JsonObject> getSubscriptionHealthSummary() {
+        return Future.failedFuture(new UnsupportedOperationException("Subscription health summary not supported"));
+    }
+
+    /**
+     * Returns statistics about messages blocked by dead consumer groups.
+     *
+     * @return Future containing the blocked message stats as a JSON object
+     * @throws UnsupportedOperationException if alerting is not supported by this implementation
+     */
+    default Future<JsonObject> getBlockedMessageStats() {
+        return Future.failedFuture(new UnsupportedOperationException("Blocked message stats not supported"));
+    }
 }
 
