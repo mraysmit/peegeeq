@@ -261,9 +261,19 @@ class SystemMonitoringHandlerTest {
                             assertNotNull(data.getLong("uptime"), "uptime should be present");
                             assertNotNull(data.getLong("memoryUsed"), "memoryUsed should be present");
                             assertNotNull(data.getInteger("cpuCores"), "cpuCores should be present");
+
+                            // Verify subscription health breakdown (L5)
+                            JsonObject health = data.getJsonObject("subscriptionHealth");
+                            assertNotNull(health, "subscriptionHealth should be present in monitoring payload");
+                            assertNotNull(health.getInteger("active"), "subscriptionHealth.active should be present");
+                            assertNotNull(health.getInteger("paused"), "subscriptionHealth.paused should be present");
+                            assertNotNull(health.getInteger("dead"), "subscriptionHealth.dead should be present");
+                            assertNotNull(health.getInteger("cancelled"), "subscriptionHealth.cancelled should be present");
+                            assertNotNull(health.getInteger("total"), "subscriptionHealth.total should be present");
+                            assertNotNull(health.getInteger("topics"), "subscriptionHealth.topics should be present");
                             
-                            logger.info("Metrics received - totalQueues: {}, totalMessages: {}", 
-                                       data.getInteger("totalQueues"), data.getLong("totalMessages"));
+                            logger.info("Metrics received - totalQueues: {}, totalMessages: {}, subscriptionHealth: {}", 
+                                       data.getInteger("totalQueues"), data.getLong("totalMessages"), health.encode());
                             
                             ws.close();
                             testContext.completeNow();

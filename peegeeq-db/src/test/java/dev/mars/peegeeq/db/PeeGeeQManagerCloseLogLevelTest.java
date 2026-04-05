@@ -390,6 +390,8 @@ public class PeeGeeQManagerCloseLogLevelTest {
                     backfill_total_messages BIGINT,
                     backfill_started_at TIMESTAMP WITH TIME ZONE,
                     backfill_completed_at TIMESTAMP WITH TIME ZONE,
+                    consecutive_misses INTEGER NOT NULL DEFAULT 0,
+                    dead_after_misses INTEGER NOT NULL DEFAULT 3,
                     UNIQUE (topic, group_name)
                 )
                 """);

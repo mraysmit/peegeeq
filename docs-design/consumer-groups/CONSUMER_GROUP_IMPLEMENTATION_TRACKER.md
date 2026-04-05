@@ -39,12 +39,12 @@
 | Backfill REST Endpoints | ✅ DONE | POST start, GET progress, DELETE cancel — all via REST |
 | Offset/Watermark Mode | ❌ NOT STARTED | Design only |
 | Tracing Instrumentation | ✅ DONE | `TraceCtx`/`mdcScope()` added to `DeadConsumerDetectionJob` (compose chain + 5 logging methods), `ConsumerGroupFetcher` (fetch entry + result), `CompletionTracker` (markCompleted + markFailed). `BackfillService` was already traced. |
-| Prometheus Metrics (consumer groups) | ❌ NOT STARTED | User Guide promises `peegeeq_messages_received_total{consumer_group}` but not implemented |
+| Prometheus Metrics (consumer groups) | ✅ DONE | `ConsumerGroupMetrics` implements `MeterBinder`, registers 6 gauges: active/paused/dead/cancelled/total/topics. Refresh via `Future<Void> refresh()` from `DeadConsumerDetector.getSubscriptionSummary()`. 7 integration tests GREEN. |
 | Consumer Group Count in Monitoring WS/SSE | ✅ DONE (summary) | Total count exposed via `/ws/monitoring` — no per-group detail |
 | Dead Consumer Alerting Endpoint | ❌ NOT STARTED | `DetectionJob` logs alerts but no API surface for programmatic consumption |
-| Subscription Health Monitoring Endpoint | ❌ NOT STARTED | `getSubscriptionSummary()` exists but not exposed through any endpoint |
-| Backfill Progress Monitoring Endpoint | ❌ NOT STARTED | `getBackfillProgress()` exists but not exposed through any endpoint |
-| Fan-Out Trace Propagation Design | ❌ NOT STARTED | No design for how traces branch across N consumer groups |
+| Subscription Health Monitoring Endpoint | ✅ DONE | `/ws/monitoring` payload now includes `subscriptionHealth` object with active/paused/dead/cancelled/total/topics breakdown |
+| Backfill Progress Monitoring Endpoint | ✅ DONE | `/ws/monitoring` payload now includes `activeBackfills` array with topic/groupName/processedMessages/totalMessages/percentComplete per in-progress backfill |
+| Fan-Out Trace Propagation Design | ✅ DONE | Design document: `CONSUMER_GROUP_FANOUT_TRACE_PROPAGATION.md` — recommends child spans per consumer group (Option A), details current gaps and implementation scope |
 
 ---
 
@@ -638,29 +638,19 @@ AND required_consumer_groups > 0;
 **What**: Publish `peegeeq_dead_consumers_total{topic}` and `peegeeq_blocked_messages_total{topic,group}` as Prometheus metrics  
 **Where**: Metrics integration layer  
 **Rationale**: `DeadConsumerDetector` already computes this data but it's only available in logs. The Tracing User Guide promises per-consumer-group metrics that don't exist.  
-**Status**: ❌ Not started
-
-#### Task L5: Add Subscription Health to /ws/monitoring
+**Status**: ✅ Complete — `ConsumerGroupMetrics.java` implements `MeterBinder`, 6 gauges backed by `AtomicLong`, `refresh()` calls `getSubscriptionSummary()`. 7 integration tests GREEN.
 **What**: Include active/paused/dead/cancelled breakdown in the `/ws/monitoring` payload  
 **Where**: Monitoring endpoint data source  
 **Rationale**: `getSubscriptionSummary()` already returns this data. Monitoring endpoint currently only shows total consumer group count.  
-**Status**: ❌ Not started
-
-#### Task L6: Design Fan-Out Trace Propagation
+**Status**: ✅ Complete — `SystemMonitoringHandler.collectMetricsFromServices()` now counts by `SubscriptionState` and adds `subscriptionHealth` JSON object.
 **What**: Define how traces branch when one message is delivered to N consumer groups  
 **Where**: Design document / Tracing Architecture Guide  
 **Open Questions**: Should each group get a child span? Parallel branches? How to visualise in Jaeger?  
-**Status**: ❌ Not started
-
-#### Task L7: Add Backfill Progress to /ws/monitoring
+**Status**: ✅ Complete — `CONSUMER_GROUP_FANOUT_TRACE_PROPAGATION.md` created. Recommends Option A (child spans per consumer group).
 **What**: Include in-progress backfill status in the monitoring payload  
 **Where**: Monitoring endpoint data source  
 **Rationale**: `BackfillService.getBackfillProgress()` already returns status/checkpoint/percentage but isn't exposed.  
-**Status**: ❌ Not started
-
----
-
-## File Inventory
+**Status**: ✅ Complete — `SystemMonitoringHandler` collects in-progress backfills and adds `activeBackfills` array to payload.
 
 ### Production Code — Verified Existing
 
@@ -678,6 +668,7 @@ AND required_consumer_groups > 0;
 | `BackfillService.java` | `db.subscription` | 545 | ✅ Complete — wired into lifecycle, REST endpoints available |
 | `SubscriptionHandler.java` | REST handler | ~650 | ✅ Complete — subscribe, backfill endpoints implemented |
 | `ManagementApiHandler.java` | REST handler | — | ✅ Read-only backfill status |
+| `ConsumerGroupMetrics.java` | `db.metrics` | ~95 | ✅ Complete — `MeterBinder` with 6 gauges, `refresh()` via `getSubscriptionSummary()` |
 
 ### Test Code — Verified Existing
 
@@ -695,9 +686,16 @@ AND required_consumer_groups > 0;
 | `BackfillServiceIntegrationTest` | 9 | ✅ Yes | ✅ Passing |
 | `DeadConsumerDetectionJobIntegrationTest` | 8 | ✅ Yes | ✅ Passing — pipeline + concurrent guard tests |
 | `DeadConsumerGroupCleanupIntegrationTest` | 9 | ✅ Yes | ✅ Passing — error resilience test |
+| `FlappingProtectionIntegrationTest` | 12 | ✅ Yes | ✅ Passing — single miss, recovery reset, threshold, isolation, PAUSED, intermittent flapping, resubscribe, resurrection, differential, persistence, all-topics, cross-topic |
 | `DetectionJobTracingTest` | 5 | ❌ No (CORE) | ✅ Passing — stub-based tracing tests |
 | `ConsumerTracingTest` | 7 | ✅ Yes | ✅ Passing — fetcher (3) + completion tracker (4) tracing tests |
 | `CompletionTrackerCoreTest` | 5 | ✅ Yes | ✅ Passing — creation, markCompleted, idempotent, counter, all-groups |
+| `ForceRemoveUnitTest` | 5 | ❌ No (CORE) | ✅ Passing — null validation, without/with cleanup service, null setter |
+| `ForceRemoveIntegrationTest` | 5 | ✅ Yes | ✅ Passing — active, dead, non-existent, already-cancelled, idempotent |
+| `BackfillRateLimitingUnitTest` | 13 | ❌ No (CORE) | ✅ Passing — parameter validation, constructor variants, Vertx requirement |
+| `BackfillRateLimitingIntegrationTest` | 4 | ✅ Yes | ✅ Passing — delay slows throughput, zero delay, cancellation, legacy overloads |
+| `SubscriptionCreateAndBackfillIntegrationTest` | 15 | ✅ Yes | ✅ Passing — subscribe REST + backfill REST endpoints |
+| `ConsumerGroupMetricsIntegrationTest` | 7 | ✅ Yes | ✅ Passing — gauge registration, active/dead/paused/topics counts, refresh replacement, detection run |
 | Performance tests (P1-P4) | 4 | ✅ Yes | ✅ Passing |
 
 ### Missing Test Coverage
@@ -709,11 +707,11 @@ AND required_consumer_groups > 0;
 | Service manager starts/stops detection job | C3 |
 | Resurrection via heartbeat | H1 — ✅ completed |
 | Subscribe FROM_BEGINNING triggers backfill | H2 |
-| Flapping protection (1 miss = no DEAD, 3 = DEAD) | M1 |
-| Detection job runs with trace context | M3 |
-| Consumer group fetch with trace propagation | M4 |
-| Completion tracking with trace context | M5 |
-| Backfill operations with traced spans | M6 |
+| Flapping protection (1 miss = no DEAD, 3 = DEAD) | M1 — ✅ covered by `FlappingProtectionIntegrationTest` (12 tests) |
+| Detection job runs with trace context | M3 — ✅ covered by `DetectionJobTracingTest` (5 tests) |
+| Consumer group fetch with trace propagation | M4 — ✅ covered by `ConsumerTracingTest` (3 tests) |
+| Completion tracking with trace context | M5 — ✅ covered by `ConsumerTracingTest` (4 tests) |
+| Backfill operations with traced spans | M6 — ✅ already implemented |
 
 ---
 
@@ -749,3 +747,5 @@ The existing [Implementation Plan](CONSUMER_GROUP_FANOUT_IMPLEMENTATION_PLAN.md)
 | 2026-03-01 | **H3+H4 Code Review Fixes**: (1) Added `Objects.requireNonNull(topic/groupName)` to `SubscriptionManager.startBackfill()`/`cancelBackfill()` for consistency with all other methods (18 existing usages). (2) Fixed fully-qualified `io.vertx.core.json.JsonObject` in `SubscriptionService` interface — now uses import. (3) Rewrote `createSubscription()` handler to return 409 on duplicate subscription (was returning 201 via silent upsert) — pre-checks with `getSubscription()` and returns `SUBSCRIPTION_ALREADY_EXISTS` error. Added `testCreateDuplicateSubscription` test. (4) Added missing `import io.vertx.core.Future` and `import SubscriptionState` to `SubscriptionHandler`. Noted: `BACKFILL_NOT_FOUND` error code (PGQERR0060) is dead code — reserved for future admin endpoints. Full regression: 71 tests (19 REST + 52 DB), 0 failures. | — |
 | 2026-03-01 | **Code Review Follow-up — Dead Code + Happy-Path Coverage**: (1) Removed dead `BACKFILL_NOT_FOUND` error code (PGQERR0060) — was declared but never referenced; all not-found cases use `SUBSCRIPTION_NOT_FOUND` via `sendSubscriptionNotFoundError()`. (2) Wired `BackfillService` into production code: `PeeGeeQManager.createSubscriptionService()` now creates a `BackfillService` alongside `SubscriptionManager`, using `DEFAULT_POOL_ID` instead of null. This enables backfill REST endpoints to actually work end-to-end (previously returned 501 `UnsupportedOperationException`). (3) Added 3 happy-path REST tests: `testStartBackfillHappyPath` (200, verifies COMPLETED status with 0 messages), `testStartBackfillAlreadyCompleted` (200, verifies ALREADY_COMPLETED on re-call), `testCancelBackfillHappyPath` (200, verifies success/topic/groupName/action). Full regression: 74 tests (22 REST + 52 DB), 0 failures. | — |
 | 2026-04-04 | **CompletionTracker edge case coverage**: Added 5 edge case tests to `CompletionTrackerIntegrationTest` (13 total): FAILED→COMPLETED recovery, retry_count verification (0→1→2), markFailed unknown group rejection, PAUSED subscription rejection, non-existent message rejection. Added `pauseSubscription()` helper. Removed `@Tag(FLAKY)` — all tests use UUID-based unique topic names and pass reliably (2 consecutive clean runs verified). Updated test inventory: added `DetectionJobTracingTest` (5), `ConsumerTracingTest` (7), `CompletionTrackerCoreTest` (5) rows. | — |
+| 2026-04-05 | **Schema template + test schema alignment**: Added `consecutive_misses INTEGER NOT NULL DEFAULT 0` and `dead_after_misses INTEGER NOT NULL DEFAULT 3` to `08b-consumer-table-subscriptions.sql` (multi-tenant schema template) and `PeeGeeQManagerCloseLogLevelTest.java` (standalone test schema). These were missed when V015 migration and `SharedPostgresTestExtension` were updated earlier. Updated Missing Test Coverage section — M1, M3-M6 now cross-referenced to their test classes. Full regression: 571 tests (3 pre-existing `ConsumerTracingTest` MDC failures unrelated to flapping), 82 dead-consumer-related tests all passing. | — |
+| 2026-04-05 | **L4-L7 Complete**: (L4) Created `ConsumerGroupMetrics.java` — `MeterBinder` with 6 gauges (active/paused/dead/cancelled/total/topics), `refresh()` via `DeadConsumerDetector.getSubscriptionSummary()`, 7 integration tests GREEN, full module regression clean. (L5) Extended `SystemMonitoringHandler.collectMetricsFromServices()` — counts subscriptions by `SubscriptionState`, adds `subscriptionHealth` JSON object to `/ws/monitoring` payload. (L6) Created `CONSUMER_GROUP_FANOUT_TRACE_PROPAGATION.md` design document — recommends child spans per consumer group (Option A), documents current trace gap and implementation scope. (L7) Extended handler to collect in-progress backfills from `SubscriptionInfo.backfillStatus()`, adds `activeBackfills` array to payload with topic/groupName/processedMessages/totalMessages/percentComplete. | — |

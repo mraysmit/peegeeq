@@ -446,6 +446,12 @@ public class SystemMonitoringHandler {
             int totalEventStores = 0;
             long totalMessages = 0;
             int activeConsumerConnections = 0;
+            int activeSubscriptions = 0;
+            int pausedSubscriptions = 0;
+            int deadSubscriptions = 0;
+            int cancelledSubscriptions = 0;
+            java.util.Set<String> subscribedTopics = new java.util.HashSet<>();
+            java.util.List<JsonObject> activeBackfills = new java.util.ArrayList<>();
 
             for (String setupId : activeSetupIds) {
                 try {
@@ -480,9 +486,28 @@ public class SystemMonitoringHandler {
                                             .listSubscriptions(topic)
                                             .await();
                                     totalConsumerGroups += subs.size();
-                                    // Sum up active members if we had that info, for now use 1 per active group
-                                    // as a proxy for active connections if we don't have deeper registry access
                                     activeConsumerConnections += subs.size();
+                                    for (dev.mars.peegeeq.api.subscription.SubscriptionInfo sub : subs) {
+                                        subscribedTopics.add(topic);
+                                        switch (sub.state()) {
+                                            case ACTIVE -> activeSubscriptions++;
+                                            case PAUSED -> pausedSubscriptions++;
+                                            case DEAD -> deadSubscriptions++;
+                                            case CANCELLED -> cancelledSubscriptions++;
+                                        }
+                                        // Collect in-progress backfills
+                                        if ("IN_PROGRESS".equals(sub.backfillStatus())) {
+                                            long processed = sub.backfillProcessedMessages() != null ? sub.backfillProcessedMessages() : 0;
+                                            long total = sub.backfillTotalMessages() != null ? sub.backfillTotalMessages() : 0;
+                                            double percentComplete = total > 0 ? (processed * 100.0) / total : 0.0;
+                                            activeBackfills.add(new JsonObject()
+                                                    .put("topic", sub.topic())
+                                                    .put("groupName", sub.groupName())
+                                                    .put("processedMessages", processed)
+                                                    .put("totalMessages", total)
+                                                    .put("percentComplete", Math.round(percentComplete * 10.0) / 10.0));
+                                        }
+                                    }
                                 } catch (Exception e) {
                                     log.debug("Could not list subscriptions for topic {}", topic, e);
                                 }
@@ -515,7 +540,15 @@ public class SystemMonitoringHandler {
                     .put("totalQueues", totalQueues)
                     .put("totalConsumerGroups", totalConsumerGroups)
                     .put("totalEventStores", totalEventStores)
-                    .put("totalSetups", activeSetupIds.size());
+                    .put("totalSetups", activeSetupIds.size())
+                    .put("subscriptionHealth", new JsonObject()
+                            .put("active", activeSubscriptions)
+                            .put("paused", pausedSubscriptions)
+                            .put("dead", deadSubscriptions)
+                            .put("cancelled", cancelledSubscriptions)
+                            .put("total", totalConsumerGroups)
+                            .put("topics", subscribedTopics.size()))
+                    .put("activeBackfills", new io.vertx.core.json.JsonArray(activeBackfills));
 
         } catch (Exception e) {
             log.error("Error collecting metrics from services", e);
