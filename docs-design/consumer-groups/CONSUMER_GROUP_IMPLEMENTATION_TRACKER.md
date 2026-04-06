@@ -37,7 +37,7 @@
 | Backfill Lifecycle Integration | ✅ DONE | Auto-triggers backfill on FROM_BEGINNING subscription via `setBackfillService()` |
 | Subscribe REST Endpoint | ✅ DONE | POST creates subscriptions via REST with validation |
 | Backfill REST Endpoints | ✅ DONE | POST start, GET progress, DELETE cancel — all via REST |
-| Offset/Watermark Mode | ❌ NOT STARTED | See [PARTITIONED_CONSUMER_GROUPS_DESIGN.md](PARTITIONED_CONSUMER_GROUPS_DESIGN.md) for schema, phases, and open questions |
+| Offset/Watermark Mode | ❌ NOT STARTED | See [PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md §19](PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md#partitioned-consumer-groups-offsetwatermark-mode) for schema, phases, and open questions |
 | Tracing Instrumentation | ✅ DONE | `TraceCtx`/`mdcScope()` added to `DeadConsumerDetectionJob` (compose chain + 5 logging methods), `ConsumerGroupFetcher` (fetch entry + result), `CompletionTracker` (markCompleted + markFailed). `BackfillService` was already traced. |
 | Prometheus Metrics (consumer groups) | ✅ DONE | `ConsumerGroupMetrics` implements `MeterBinder`, registers 6 gauges: active/paused/dead/cancelled/total/topics. Refresh via `Future<Void> refresh()` from `DeadConsumerDetector.getSubscriptionSummary()`. 7 integration tests GREEN. |
 | Consumer Group Count in Monitoring WS/SSE | ✅ DONE (summary) | Total count exposed via `/ws/monitoring` — no per-group detail |
@@ -45,7 +45,7 @@
 | Subscription Health Monitoring Endpoint | ✅ DONE | `/ws/monitoring` payload now includes `subscriptionHealth` object with active/paused/dead/cancelled/total/topics breakdown |
 | Backfill Progress Monitoring Endpoint | ✅ DONE | `/ws/monitoring` payload now includes `activeBackfills` array with topic/groupName/processedMessages/totalMessages/percentComplete per in-progress backfill |
 | Fan-Out Trace Propagation Design | ✅ DONE | Design document: `CONSUMER_GROUP_FANOUT_TRACE_PROPAGATION.md` — recommends child spans per consumer group (Option A), details current gaps and implementation scope |
-| Partitioned Consumer Groups Design | ✅ DONE (draft) | Design document: `PARTITIONED_CONSUMER_GROUPS_DESIGN.md` — offset/watermark mode + partitioned consumption, 6 implementation phases, 5 open questions |
+| Partitioned Consumer Groups Design | ✅ DONE (draft) | Consolidated into [PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md §19](PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md#partitioned-consumer-groups-offsetwatermark-mode) — offset/watermark mode + partitioned consumption, 6 implementation phases, 5 open questions |
 
 ---
 
@@ -337,7 +337,7 @@ These are cases where components exist but are not connected to the application 
 |--------------|-----------|--------|-------|
 | `consecutive_misses` on `outbox_topic_subscriptions` | Flapping protection | ✅ | V015 migration; default 0, reset on heartbeat/resubscribe |
 | `dead_after_misses` on `outbox_topic_subscriptions` | Flapping protection | ✅ | V015 migration; default 3, configurable per subscription |
-| Partitioned consumer group tables | Offset/Watermark mode | ❌ | 3 new tables + 2 indexes defined in [PARTITIONED_CONSUMER_GROUPS_DESIGN.md §4](PARTITIONED_CONSUMER_GROUPS_DESIGN.md) — supersedes old Phase 7 plan |
+| Partitioned consumer group tables | Offset/Watermark mode | ❌ | 3 new tables + 2 indexes defined in [PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md §19.4](PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md#partitioned-consumer-groups-offsetwatermark-mode) — supersedes old Phase 7 plan |
 
 ---
 
@@ -736,16 +736,10 @@ Primary sources:
 
 ## Previous Document Corrections
 
-The existing [Implementation Plan](CONSUMER_GROUP_FANOUT_IMPLEMENTATION_PLAN.md) contains these inaccuracies:
-
-| Claim | Reality |
-|-------|---------|
-| "Phase 5: ✅ COMPLETE — Dead Consumer Detection" | Phase 5 is now COMPLETE — detection, cleanup, and scheduling all implemented |
-| "Dead subscriptions automatically resurrect when heartbeat resumes" (line ~238) | NOW TRUE — `updateHeartbeat()` conditionally sets `subscription_status = 'ACTIVE'` when current status is `DEAD` |
-| "Phase 8: ⏸️ NOT STARTED — Resumable Backfill" | OUTDATED — `BackfillService` now exists with full batch processing AND is wired into subscription lifecycle via `setBackfillService()` |
-| "DeadConsumerDetector… ⚠️ No scheduled job" (Component Status table) | OUTDATED — `DeadConsumerDetectionJob` exists and is wired into `PeeGeeQManager` |
-| "Backfill Support… ❌ Missing" (Component Status table) | OUTDATED — `BackfillService` now exists |
-| "Manual Workaround: call SQL function periodically" | OUTDATED — detection now runs automatically via `PeeGeeQManager` on configurable schedule |
+The previous `CONSUMER_GROUP_FANOUT_IMPLEMENTATION_PLAN.md` was removed (2026-04-06) because it was
+heavily stale — incorrect status claims, missing features (flapping protection, tracing, Prometheus
+metrics, force-remove, alerting endpoints), outdated test counts, and contradictory phase statuses.
+This tracker is the sole source of truth for consumer group fan-out implementation status.
 
 ---
 
@@ -769,5 +763,5 @@ The existing [Implementation Plan](CONSUMER_GROUP_FANOUT_IMPLEMENTATION_PLAN.md)
 | 2026-04-05 | **Schema template + test schema alignment**: Added `consecutive_misses INTEGER NOT NULL DEFAULT 0` and `dead_after_misses INTEGER NOT NULL DEFAULT 3` to `08b-consumer-table-subscriptions.sql` (multi-tenant schema template) and `PeeGeeQManagerCloseLogLevelTest.java` (standalone test schema). These were missed when V015 migration and `SharedPostgresTestExtension` were updated earlier. Updated Missing Test Coverage section — M1, M3-M6 now cross-referenced to their test classes. Full regression: 571 tests (3 pre-existing `ConsumerTracingTest` MDC failures unrelated to flapping), 82 dead-consumer-related tests all passing. | — |
 | 2026-04-05 | **L4-L7 Complete**: (L4) Created `ConsumerGroupMetrics.java` — `MeterBinder` with 6 gauges (active/paused/dead/cancelled/total/topics), `refresh()` via `DeadConsumerDetector.getSubscriptionSummary()`, 7 integration tests GREEN, full module regression clean. (L5) Extended `SystemMonitoringHandler.collectMetricsFromServices()` — counts subscriptions by `SubscriptionState`, adds `subscriptionHealth` JSON object to `/ws/monitoring` payload. (L6) Created `CONSUMER_GROUP_FANOUT_TRACE_PROPAGATION.md` design document — recommends child spans per consumer group (Option A), documents current trace gap and implementation scope. (L7) Extended handler to collect in-progress backfills from `SubscriptionInfo.backfillStatus()`, adds `activeBackfills` array to payload with topic/groupName/processedMessages/totalMessages/percentComplete. | — |
 | 2026-04-05 | **L8 Complete (Dead Consumer Alerting Endpoint)**: Created `ConsumerAlertHandler.java` (~130 lines) with 3 REST endpoints: `GET .../consumer-alerts/dead` (dead subscription list with timing), `GET .../consumer-alerts/summary` (health summary), `GET .../consumer-alerts/blocked` (blocked message stats). Extended `SubscriptionService` with 3 default methods, `SubscriptionManager` implements via `DeadConsumerDetector`. Error code `PGQERR0063`. 7 integration tests GREEN, 103/103 core tests passing. | — |
-| 2026-04-05 | **Partitioned Consumer Groups Design**: Created `PARTITIONED_CONSUMER_GROUPS_DESIGN.md` — comprehensive design for offset/watermark mode + partitioned consumption. Covers partition key (reuse `message_group`), 3 new tables, generation-based fencing, watermark sweep, 6 implementation phases, 5 open questions. | — |
+| 2026-04-05 | **Partitioned Consumer Groups Design**: Created partitioned design (now consolidated into [PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md §19](PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md#partitioned-consumer-groups-offsetwatermark-mode)) — comprehensive design for offset/watermark mode + partitioned consumption. Covers partition key (reuse `message_group`), 3 new tables, generation-based fencing, watermark sweep, 6 implementation phases, 5 open questions. | — |
 | 2026-04-05 | **Tracker refresh**: Updated stale entries — Dead Consumer Alerting `❌ NOT STARTED` → `✅ DONE`, Prometheus Metrics `❌ NOT STARTED` → `✅ DONE`, Fan-Out Trace Propagation `❌ NOT DESIGNED` → `✅ DONE (design)`, Monitoring upgraded from summary-only to full breakdown. Removed stale "Impact" / "Specific violations" text from Tracing section (all fixed by M3-M6). Resolved all 3 overlaps. Added `ConsumerAlertHandler.java` and `DeadConsumerAlertingIntegrationTest` to inventories. Added Partitioned Consumer Groups Design to status summary. | — |
