@@ -266,7 +266,7 @@ class SystemMonitoringHandlerTest {
                             // wrong thread type), the response contains an "error" field
                             // instead.  Verify the full breakdown only when present.
                             if (data.getString("error") == null) {
-                                assertNotNull(data.getLong("uptime"), "uptime should be present");
+                                assertNotNull(data.getString("uptime"), "uptime should be present");
                                 JsonObject health = data.getJsonObject("subscriptionHealth");
                                 assertNotNull(health, "subscriptionHealth should be present in monitoring payload");
                                 assertNotNull(health.getInteger("active"), "subscriptionHealth.active should be present");
