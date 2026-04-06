@@ -413,11 +413,22 @@ public class SystemMonitoringHandler {
                         .description("Total errors during monitoring operations")
                         .register(meterRegistry)
                         .increment();
-                return current != null ? current.json : new JsonObject();
+                return current != null ? current.json : collectMinimalRuntimeMetrics();
             }
         }
 
         return current.json;
+    }
+
+    private JsonObject collectMinimalRuntimeMetrics() {
+        Runtime runtime = Runtime.getRuntime();
+        return new JsonObject()
+                .put("timestamp", System.currentTimeMillis())
+                .put("uptime", ManagementFactory.getRuntimeMXBean().getUptime())
+                .put("cpuCores", runtime.availableProcessors())
+                .put("memoryUsed", runtime.totalMemory() - runtime.freeMemory())
+                .put("memoryTotal", runtime.totalMemory())
+                .put("memoryMax", runtime.maxMemory());
     }
 
     /**
@@ -552,12 +563,16 @@ public class SystemMonitoringHandler {
 
         } catch (Exception e) {
             log.error("Error collecting metrics from services", e);
-            // Return minimal metrics on error
+            // Return minimal metrics on error — include Runtime-sourced fields
+            // that don't depend on database connectivity
             Runtime runtime = Runtime.getRuntime();
             return new JsonObject()
                     .put("timestamp", now)
                     .put("uptime", ManagementFactory.getRuntimeMXBean().getUptime())
+                    .put("cpuCores", runtime.availableProcessors())
                     .put("memoryUsed", runtime.totalMemory() - runtime.freeMemory())
+                    .put("memoryTotal", runtime.totalMemory())
+                    .put("memoryMax", runtime.maxMemory())
                     .put("error", "Could not collect full metrics: " + e.getMessage());
         }
     }
