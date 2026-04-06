@@ -17,14 +17,15 @@ package dev.mars.peegeeq.rest.handlers;
  */
 
 import dev.mars.peegeeq.api.messaging.QueueFactory;
-import dev.mars.peegeeq.api.setup.DatabaseSetupResult;
 import dev.mars.peegeeq.api.setup.DatabaseSetupService;
 import dev.mars.peegeeq.api.setup.DatabaseSetupStatus;
 import dev.mars.peegeeq.rest.config.RestServerConfig;
+import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.http.HttpServerRequest;
 import io.vertx.core.http.HttpServerResponse;
 import io.vertx.core.http.ServerWebSocket;
+import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
 import org.slf4j.Logger;
@@ -33,7 +34,6 @@ import org.slf4j.LoggerFactory;
 import java.lang.management.ManagementFactory;
 import java.util.Map;
 import java.util.Random;
-import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import io.micrometer.core.instrument.Gauge;
 import io.micrometer.core.instrument.MeterRegistry;
@@ -386,38 +386,39 @@ public class SystemMonitoringHandler {
      * Helper methods
      */
 
-    private JsonObject getOrUpdateCachedMetrics() {
+    private Future<JsonObject> getOrUpdateCachedMetrics() {
         long now = System.currentTimeMillis();
         CachedMetrics current = cachedMetrics.get();
 
         if (current == null || current.isExpired(now, config.cacheTtlMs())) {
             // Start timer for metrics collection overhead
             Timer.Sample sample = Timer.start(meterRegistry);
-            try {
-                // Use DatabaseSetupService directly (hexagonal architecture)
-                JsonObject metrics = collectMetricsFromServices();
-                CachedMetrics newCache = new CachedMetrics(metrics, now);
 
-                // Atomic update attempt - if it fails, another thread succeeded, which is fine
-                cachedMetrics.compareAndSet(current, newCache);
+            return collectMetricsFromServices()
+                    .map(metrics -> {
+                        CachedMetrics newCache = new CachedMetrics(metrics, now);
+                        // Atomic update attempt - if it fails, another thread succeeded, which is fine
+                        cachedMetrics.compareAndSet(current, newCache);
 
-                sample.stop(Timer.builder("peegeeq.monitoring.collection.duration")
-                        .description("Time taken to collect and aggregate system metrics")
-                        .register(meterRegistry));
+                        sample.stop(Timer.builder("peegeeq.monitoring.collection.duration")
+                                .description("Time taken to collect and aggregate system metrics")
+                                .register(meterRegistry));
 
-                return newCache.json;
-            } catch (Exception e) {
-                log.error("Failed to collect monitoring metrics", e);
-                Counter.builder("peegeeq.monitoring.errors")
-                        .tag("operation", "collection")
-                        .description("Total errors during monitoring operations")
-                        .register(meterRegistry)
-                        .increment();
-                return current != null ? current.json : collectMinimalRuntimeMetrics();
-            }
+                        return newCache.json;
+                    })
+                    .recover(e -> {
+                        log.error("Failed to collect monitoring metrics", e);
+                        Counter.builder("peegeeq.monitoring.errors")
+                                .tag("operation", "collection")
+                                .description("Total errors during monitoring operations")
+                                .register(meterRegistry)
+                                .increment();
+                        return Future.succeededFuture(
+                                current != null ? current.json : collectMinimalRuntimeMetrics());
+                    });
         }
 
-        return current.json;
+        return Future.succeededFuture(current.json);
     }
 
     private JsonObject collectMinimalRuntimeMetrics() {
@@ -440,141 +441,189 @@ public class SystemMonitoringHandler {
      * but does NOT call ManagementApiHandler directly. Both handlers independently
      * access the same DatabaseSetupService facade, maintaining clean separation.
      */
-    private JsonObject collectMetricsFromServices() {
+    private Future<JsonObject> collectMetricsFromServices() {
         long now = System.currentTimeMillis();
+        Runtime runtime = Runtime.getRuntime();
+        long uptime = ManagementFactory.getRuntimeMXBean().getUptime();
 
-        try {
-            // JVM metrics
-            Runtime runtime = Runtime.getRuntime();
-            long uptime = ManagementFactory.getRuntimeMXBean().getUptime();
+        return setupService.getAllActiveSetupIds()
+                .compose(activeSetupIds -> {
+                    // Collect metrics from each setup sequentially to avoid overwhelming the pool
+                    Future<JsonObject> accumulator = Future.succeededFuture(new JsonObject()
+                            .put("totalQueues", 0)
+                            .put("totalConsumerGroups", 0)
+                            .put("totalEventStores", 0)
+                            .put("totalMessages", 0L)
+                            .put("activeConsumerConnections", 0)
+                            .put("activeSubscriptions", 0)
+                            .put("pausedSubscriptions", 0)
+                            .put("deadSubscriptions", 0)
+                            .put("cancelledSubscriptions", 0)
+                            .put("subscribedTopics", new JsonArray())
+                            .put("activeBackfills", new JsonArray())
+                            .put("totalSetups", activeSetupIds.size()));
 
-            // Get active setups from service layer
-            Set<String> activeSetupIds = setupService.getAllActiveSetupIds().await();
+                    for (String setupId : activeSetupIds) {
+                        accumulator = accumulator.compose(agg -> collectSetupMetrics(setupId, agg));
+                    }
 
-            // Aggregate system-wide statistics
-            int totalQueues = 0;
-            int totalConsumerGroups = 0;
-            int totalEventStores = 0;
-            long totalMessages = 0;
-            int activeConsumerConnections = 0;
-            int activeSubscriptions = 0;
-            int pausedSubscriptions = 0;
-            int deadSubscriptions = 0;
-            int cancelledSubscriptions = 0;
-            java.util.Set<String> subscribedTopics = new java.util.HashSet<>();
-            java.util.List<JsonObject> activeBackfills = new java.util.ArrayList<>();
+                    return accumulator;
+                })
+                .map(agg -> {
+                    int totalMessages_i = agg.getInteger("totalMessages", 0);
+                    long totalMessages = agg.getLong("totalMessages", (long) totalMessages_i);
+                    int totalConsumerGroups = agg.getInteger("totalConsumerGroups", 0);
+                    double messagesPerSecond = totalMessages > 0 && uptime > 0
+                            ? totalMessages / (uptime / 1000.0) : 0.0;
+                    int activeConnectionsTotal = totalConnections.get()
+                            + agg.getInteger("activeConsumerConnections", 0);
+                    JsonArray topicsArray = agg.getJsonArray("subscribedTopics", new JsonArray());
 
-            for (String setupId : activeSetupIds) {
-                try {
-                    DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).await();
+                    return new JsonObject()
+                            .put("type", "system_stats")
+                            .put("timestamp", now)
+                            .put("uptime", getUptimeString(uptime))
+                            .put("memoryUsed", runtime.totalMemory() - runtime.freeMemory())
+                            .put("memoryTotal", runtime.totalMemory())
+                            .put("memoryMax", runtime.maxMemory())
+                            .put("cpuCores", runtime.availableProcessors())
+                            .put("threadsActive", Thread.activeCount())
+                            .put("messagesPerSecond", messagesPerSecond)
+                            .put("activeConnections", activeConnectionsTotal)
+                            .put("totalMessages", totalMessages)
+                            .put("totalQueues", agg.getInteger("totalQueues", 0))
+                            .put("totalConsumerGroups", totalConsumerGroups)
+                            .put("totalEventStores", agg.getInteger("totalEventStores", 0))
+                            .put("totalSetups", agg.getInteger("totalSetups", 0))
+                            .put("subscriptionHealth", new JsonObject()
+                                    .put("active", agg.getInteger("activeSubscriptions", 0))
+                                    .put("paused", agg.getInteger("pausedSubscriptions", 0))
+                                    .put("dead", agg.getInteger("deadSubscriptions", 0))
+                                    .put("cancelled", agg.getInteger("cancelledSubscriptions", 0))
+                                    .put("total", totalConsumerGroups)
+                                    .put("topics", topicsArray.size()))
+                            .put("activeBackfills", agg.getJsonArray("activeBackfills", new JsonArray()));
+                })
+                .recover(e -> {
+                    log.error("Error collecting metrics from services", e);
+                    return Future.succeededFuture(new JsonObject()
+                            .put("timestamp", now)
+                            .put("uptime", ManagementFactory.getRuntimeMXBean().getUptime())
+                            .put("cpuCores", runtime.availableProcessors())
+                            .put("memoryUsed", runtime.totalMemory() - runtime.freeMemory())
+                            .put("memoryTotal", runtime.totalMemory())
+                            .put("memoryMax", runtime.maxMemory())
+                            .put("error", "Could not collect full metrics: " + e.getMessage()));
+                });
+    }
 
-                    if (setupResult.getStatus() == DatabaseSetupStatus.ACTIVE) {
-                        // Queues and Messages
-                        Map<String, QueueFactory> queueFactories = setupResult.getQueueFactories();
-                        totalQueues += queueFactories.size();
+    /**
+     * Collect metrics for a single setup and merge into the accumulator.
+     */
+    private Future<JsonObject> collectSetupMetrics(String setupId, JsonObject agg) {
+        return setupService.getSetupResult(setupId)
+                .compose(setupResult -> {
+                    if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
+                        return Future.succeededFuture(agg);
+                    }
 
-                        for (Map.Entry<String, QueueFactory> entry : queueFactories.entrySet()) {
-                            String queueName = entry.getKey();
-                            QueueFactory factory = entry.getValue();
-                            try {
-                                var stats = factory.getStats(queueName);
-                                totalMessages += stats.getPendingMessages();
-                            } catch (Exception e) {
-                                log.debug("Could not get stats for queue {}", queueName, e);
-                            }
-                        }
-
-                        // Event Stores
-                        totalEventStores += setupResult.getEventStores().size();
-
-                        // Consumer Groups and Connections
-                        dev.mars.peegeeq.api.subscription.SubscriptionService subService = setupService
-                                .getSubscriptionServiceForSetup(setupId);
-                        if (subService != null) {
-                            for (String topic : queueFactories.keySet()) {
-                                try {
-                                    java.util.List<dev.mars.peegeeq.api.subscription.SubscriptionInfo> subs = subService
-                                            .listSubscriptions(topic)
-                                            .await();
-                                    totalConsumerGroups += subs.size();
-                                    activeConsumerConnections += subs.size();
-                                    for (dev.mars.peegeeq.api.subscription.SubscriptionInfo sub : subs) {
-                                        subscribedTopics.add(topic);
-                                        switch (sub.state()) {
-                                            case ACTIVE -> activeSubscriptions++;
-                                            case PAUSED -> pausedSubscriptions++;
-                                            case DEAD -> deadSubscriptions++;
-                                            case CANCELLED -> cancelledSubscriptions++;
-                                        }
-                                        // Collect in-progress backfills
-                                        if ("IN_PROGRESS".equals(sub.backfillStatus())) {
-                                            long processed = sub.backfillProcessedMessages() != null ? sub.backfillProcessedMessages() : 0;
-                                            long total = sub.backfillTotalMessages() != null ? sub.backfillTotalMessages() : 0;
-                                            double percentComplete = total > 0 ? (processed * 100.0) / total : 0.0;
-                                            activeBackfills.add(new JsonObject()
-                                                    .put("topic", sub.topic())
-                                                    .put("groupName", sub.groupName())
-                                                    .put("processedMessages", processed)
-                                                    .put("totalMessages", total)
-                                                    .put("percentComplete", Math.round(percentComplete * 10.0) / 10.0));
-                                        }
-                                    }
-                                } catch (Exception e) {
-                                    log.debug("Could not list subscriptions for topic {}", topic, e);
-                                }
-                            }
+                    // Queues and Messages (synchronous — no DB call)
+                    Map<String, QueueFactory> queueFactories = setupResult.getQueueFactories();
+                    int setupQueues = queueFactories.size();
+                    long setupMessages = 0;
+                    for (Map.Entry<String, QueueFactory> entry : queueFactories.entrySet()) {
+                        try {
+                            var stats = entry.getValue().getStats(entry.getKey());
+                            setupMessages += stats.getPendingMessages();
+                        } catch (Exception e) {
+                            log.debug("Could not get stats for queue {}", entry.getKey(), e);
                         }
                     }
-                } catch (Exception e) {
+
+                    // Event Stores (synchronous)
+                    int setupEventStores = setupResult.getEventStores().size();
+
+                    // Update accumulator with synchronous metrics
+                    long totalMessagesNow = agg.getLong("totalMessages", 0L) + setupMessages;
+                    agg.put("totalQueues", agg.getInteger("totalQueues", 0) + setupQueues);
+                    agg.put("totalMessages", totalMessagesNow);
+                    agg.put("totalEventStores", agg.getInteger("totalEventStores", 0) + setupEventStores);
+
+                    // Consumer Groups and Connections (async — listSubscriptions returns Future)
+                    dev.mars.peegeeq.api.subscription.SubscriptionService subService = setupService
+                            .getSubscriptionServiceForSetup(setupId);
+                    if (subService == null) {
+                        return Future.succeededFuture(agg);
+                    }
+
+                    // Collect subscription metrics for each topic sequentially
+                    Future<JsonObject> topicAccumulator = Future.succeededFuture(agg);
+                    for (String topic : queueFactories.keySet()) {
+                        topicAccumulator = topicAccumulator.compose(
+                                acc -> collectTopicSubscriptionMetrics(subService, topic, acc));
+                    }
+                    return topicAccumulator;
+                })
+                .recover(e -> {
                     log.debug("Could not process setup {}", setupId, e);
-                }
-            }
+                    return Future.succeededFuture(agg);
+                });
+    }
 
-            // Calculate messages per second (simplified)
-            double messagesPerSecond = totalMessages > 0 && uptime > 0 ? totalMessages / (uptime / 1000.0) : 0.0;
+    /**
+     * Collect subscription metrics for a single topic and merge into the accumulator.
+     */
+    private Future<JsonObject> collectTopicSubscriptionMetrics(
+            dev.mars.peegeeq.api.subscription.SubscriptionService subService,
+            String topic, JsonObject agg) {
+        return subService.listSubscriptions(topic)
+                .map(subs -> {
+                    agg.put("totalConsumerGroups",
+                            agg.getInteger("totalConsumerGroups", 0) + subs.size());
+                    agg.put("activeConsumerConnections",
+                            agg.getInteger("activeConsumerConnections", 0) + subs.size());
 
-            // Combine monitoring connections (ours) + consumer connections
-            int activeConnectionsTotal = totalConnections.get() + activeConsumerConnections;
+                    JsonArray subscribedTopics = agg.getJsonArray("subscribedTopics", new JsonArray());
+                    JsonArray activeBackfills = agg.getJsonArray("activeBackfills", new JsonArray());
 
-            return new JsonObject()
-                    .put("type", "system_stats") // Add type for easier frontend routing
-                    .put("timestamp", now)
-                    .put("uptime", getUptimeString(uptime))
-                    .put("memoryUsed", runtime.totalMemory() - runtime.freeMemory())
-                    .put("memoryTotal", runtime.totalMemory())
-                    .put("memoryMax", runtime.maxMemory())
-                    .put("cpuCores", runtime.availableProcessors())
-                    .put("threadsActive", Thread.activeCount())
-                    .put("messagesPerSecond", messagesPerSecond)
-                    .put("activeConnections", activeConnectionsTotal)
-                    .put("totalMessages", totalMessages)
-                    .put("totalQueues", totalQueues)
-                    .put("totalConsumerGroups", totalConsumerGroups)
-                    .put("totalEventStores", totalEventStores)
-                    .put("totalSetups", activeSetupIds.size())
-                    .put("subscriptionHealth", new JsonObject()
-                            .put("active", activeSubscriptions)
-                            .put("paused", pausedSubscriptions)
-                            .put("dead", deadSubscriptions)
-                            .put("cancelled", cancelledSubscriptions)
-                            .put("total", totalConsumerGroups)
-                            .put("topics", subscribedTopics.size()))
-                    .put("activeBackfills", new io.vertx.core.json.JsonArray(activeBackfills));
-
-        } catch (Exception e) {
-            log.error("Error collecting metrics from services", e);
-            // Return minimal metrics on error — include Runtime-sourced fields
-            // that don't depend on database connectivity
-            Runtime runtime = Runtime.getRuntime();
-            return new JsonObject()
-                    .put("timestamp", now)
-                    .put("uptime", ManagementFactory.getRuntimeMXBean().getUptime())
-                    .put("cpuCores", runtime.availableProcessors())
-                    .put("memoryUsed", runtime.totalMemory() - runtime.freeMemory())
-                    .put("memoryTotal", runtime.totalMemory())
-                    .put("memoryMax", runtime.maxMemory())
-                    .put("error", "Could not collect full metrics: " + e.getMessage());
-        }
+                    for (dev.mars.peegeeq.api.subscription.SubscriptionInfo sub : subs) {
+                        if (!subscribedTopics.contains(topic)) {
+                            subscribedTopics.add(topic);
+                        }
+                        switch (sub.state()) {
+                            case ACTIVE -> agg.put("activeSubscriptions",
+                                    agg.getInteger("activeSubscriptions", 0) + 1);
+                            case PAUSED -> agg.put("pausedSubscriptions",
+                                    agg.getInteger("pausedSubscriptions", 0) + 1);
+                            case DEAD -> agg.put("deadSubscriptions",
+                                    agg.getInteger("deadSubscriptions", 0) + 1);
+                            case CANCELLED -> agg.put("cancelledSubscriptions",
+                                    agg.getInteger("cancelledSubscriptions", 0) + 1);
+                        }
+                        if ("IN_PROGRESS".equals(sub.backfillStatus())) {
+                            long processed = sub.backfillProcessedMessages() != null
+                                    ? sub.backfillProcessedMessages() : 0;
+                            long total = sub.backfillTotalMessages() != null
+                                    ? sub.backfillTotalMessages() : 0;
+                            double percentComplete = total > 0
+                                    ? (processed * 100.0) / total : 0.0;
+                            activeBackfills.add(new JsonObject()
+                                    .put("topic", sub.topic())
+                                    .put("groupName", sub.groupName())
+                                    .put("processedMessages", processed)
+                                    .put("totalMessages", total)
+                                    .put("percentComplete",
+                                            Math.round(percentComplete * 10.0) / 10.0));
+                        }
+                    }
+                    agg.put("subscribedTopics", subscribedTopics);
+                    agg.put("activeBackfills", activeBackfills);
+                    return agg;
+                })
+                .recover(e -> {
+                    log.debug("Could not list subscriptions for topic {}", topic, e);
+                    return Future.succeededFuture(agg);
+                });
     }
 
     private void handleWebSocketCommand(WebSocketConnection connection, JsonObject command) {
@@ -713,7 +762,7 @@ public class SystemMonitoringHandler {
 
     private void collectMetricsOnWorker(java.util.function.Consumer<JsonObject> onSuccess,
             java.util.function.Consumer<Throwable> onFailure) {
-        vertx.<JsonObject>executeBlocking(this::getOrUpdateCachedMetrics)
+        getOrUpdateCachedMetrics()
             .onSuccess(result -> onSuccess.accept(result))
             .onFailure(error -> onFailure.accept(error));
     }
