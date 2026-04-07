@@ -75,7 +75,7 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
     void tearDown() throws Exception {
         logger.info("=== Tearing down PgConnectionManager Schema Integration Test ===");
         if (connectionManager != null) {
-            connectionManager.closeAsync()
+            connectionManager.close()
                 .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
         }
         if (vertx != null) {
@@ -490,7 +490,7 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
         assertNotNull(connectionManager.getExistingPool("test-cleanup"), "Pool should exist");
 
         // Close the pool
-        connectionManager.closePoolAsync("test-cleanup")
+        connectionManager.closePool("test-cleanup")
             .toCompletionStage()
             .toCompletableFuture()
             .get(10, TimeUnit.SECONDS);

@@ -408,7 +408,7 @@ public class PgConnectionManager {
      * @param serviceId The unique identifier for the service
      * @return Future<Void> that completes when the pool is closed
      */
-    public Future<Void> closePoolAsync(String serviceId) {
+    public Future<Void> closePool(String serviceId) {
         Pool pool = reactivePools.remove(serviceId);
         serviceSchemas.remove(serviceId);
         if (pool == null) {
@@ -444,7 +444,7 @@ public class PgConnectionManager {
      *
      * @return Future<Void> that completes when all pools are closed
      */
-    public Future<Void> closeAsync() {
+    public Future<Void> close() {
         logger.info("PgConnectionManager@{}: Closing all {} pool(s) asynchronously", instanceId, reactivePools.size());
 
         if (reactivePools.isEmpty()) {
@@ -452,12 +452,12 @@ public class PgConnectionManager {
             return Future.succeededFuture();
         }
 
-        // Snapshot keys before iterating — closePoolAsync mutates the map
+        // Snapshot keys before iterating — closePool mutates the map
         List<String> serviceIds = new ArrayList<>(reactivePools.keySet());
         List<Future<Void>> closeFutures = new ArrayList<>();
 
         for (String serviceId : serviceIds) {
-            closeFutures.add(closePoolAsync(serviceId));
+            closeFutures.add(closePool(serviceId));
         }
 
         return Future.all(closeFutures)

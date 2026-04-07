@@ -3,7 +3,7 @@
 **Purpose**: Honest, verified tracking of what is actually implemented vs what the design specifies.  
 **Author**: Mark Andrew Ray-Smith, Cityline Ltd  
 **Created**: 2026-03-01  
-**Last Verified**: 2026-04-05 (updated after Dead Consumer Alerting endpoint completion)  
+**Last Verified**: 2026-04-06 (updated after document consolidation and future work audit)  
 **Design Reference**: [PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md](PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md)  
 **Tracing/Observability References**:  
 - [PEEGEEQ_TRACING_ARCHITECTURE_GUIDE.md](../tracing-observability/PEEGEEQ_TRACING_ARCHITECTURE_GUIDE.md) — All async code must use `AsyncTraceUtils` wrappers  
@@ -38,6 +38,11 @@
 | Subscribe REST Endpoint | ✅ DONE | POST creates subscriptions via REST with validation |
 | Backfill REST Endpoints | ✅ DONE | POST start, GET progress, DELETE cancel — all via REST |
 | Offset/Watermark Mode | ❌ NOT STARTED | See [PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md §19](PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md#partitioned-consumer-groups-offsetwatermark-mode) for schema, phases, and open questions |
+| Resurrection Re-Backfill | ✅ DONE | Task H5 — `updateHeartbeat()` detects DEAD→ACTIVE, resets backfill status, chains `BackfillService.startBackfill()` with `.recover()`. 6 integration tests (3 RED-verified). |
+| CANCELLED Orphan Cleanup | ✅ DONE | Task H6 — `cancel()` chains `DeadConsumerGroupCleanup.cleanupDeadGroup()` with `.recover()`. 4 integration tests (1 RED-verified). |
+| Service Manager Integration Test | ✅ DONE | Task M7 — 3 integration tests verify detection job start/stop/disabled lifecycle via `PeeGeeQManager` |
+| Fan-Out Trace Propagation (impl) | ❌ NOT STARTED | Task L9 — design doc complete, child span implementation not done |
+| Remaining Prometheus Metrics | ✅ DONE | Task L10 — 3 metrics implemented; processing timer and backfill progress dropped (invasive, no concrete need) |
 | Tracing Instrumentation | ✅ DONE | `TraceCtx`/`mdcScope()` added to `DeadConsumerDetectionJob` (compose chain + 5 logging methods), `ConsumerGroupFetcher` (fetch entry + result), `CompletionTracker` (markCompleted + markFailed). `BackfillService` was already traced. |
 | Prometheus Metrics (consumer groups) | ✅ DONE | `ConsumerGroupMetrics` implements `MeterBinder`, registers 6 gauges: active/paused/dead/cancelled/total/topics. Refresh via `Future<Void> refresh()` from `DeadConsumerDetector.getSubscriptionSummary()`. 7 integration tests GREEN. |
 | Consumer Group Count in Monitoring WS/SSE | ✅ DONE (summary) | Total count exposed via `/ws/monitoring` — no per-group detail |
@@ -362,7 +367,11 @@ These are cases where components exist but are not connected to the application 
 | Backfill lifecycle (auto-trigger on subscribe) | ✅ | 3 tests in `SubscriptionManagerIntegrationTest` |
 | DeadConsumerDetectionJob integration tests | ✅ | 8 tests verified against actual DB |
 | DeadConsumerGroupCleanup integration tests | ✅ | 9 tests verified against actual DB |
-| Service manager starts detection job on boot | ❌ | Integration not wired (C3 wires job, but no service manager integration test) |
+| Service manager starts detection job on boot | ✅ | Task M7 — 3 tests in `DeadConsumerDetectionJobLifecycleTest` |
+| Cancel subscription cleans up orphaned rows | ✅ | Task H6 — 4 tests in `CancelCleanupIntegrationTest` |
+| Resurrection triggers re-backfill of missed messages | ✅ | Task H5 — 6 tests in `ResurrectionReBackfillIntegrationTest` |
+| Fan-out trace propagation (child spans per group) | ❌ | Task L9 — design complete, no implementation |
+| Remaining Prometheus metrics registered | ✅ | Task L10 — `completions.total`, `blocked.messages`, `detection.run.duration.seconds`, `detection.runs.total` done; `processing_seconds` and `backfill_progress` dropped |
 | REST-triggered backfill | ✅ | 15 tests in `SubscriptionCreateAndBackfillIntegrationTest` |
 
 ---
@@ -625,6 +634,50 @@ AND required_consumer_groups > 0;
 
 **Note**: BackfillService already has comprehensive tracing — `startBackfill()` and `cancelBackfill()` each create `TraceCtx.createNew()`, the trace is passed as a parameter through the entire recursive batch chain (`acquireBackfillLock()` → `processBatches()` → `processBatchesRecursively()` → `processOneBatch()` → `processFetchedBatch()` → `markBackfillCompleted()`), and every log point uses `try (var scope = TraceContextUtil.mdcScope(trace))`. This was missed in the original tracker audit.
 
+### HIGH — Should Fix (future)
+
+#### Task H5: Resurrection Re-Backfill
+**What**: When a DEAD consumer resumes via heartbeat (DEAD→ACTIVE), re-backfill messages that were cleaned up (decremented) during the DEAD period  
+**Where**: `SubscriptionManager.updateHeartbeat()` → trigger `BackfillService`  
+**Previous Behaviour**: `updateHeartbeat()` transitioned DEAD→ACTIVE but did not re-backfill. Messages cleaned up by `DeadConsumerGroupCleanup` during the DEAD period were permanently lost to this consumer group.  
+**Fixed Behaviour**: `updateHeartbeat()` now detects DEAD→ACTIVE resurrection, resets backfill status (`backfill_status`, `backfill_checkpoint_id`, `backfill_processed_messages`), and chains `BackfillService.startBackfill(topic, groupName, BackfillScope.PENDING_ONLY)` with `.recover()` for resilience. If `BackfillService` is not configured, resurrection succeeds with a debug log.  
+**Acceptance Criteria**:
+- On DEAD→ACTIVE resurrection, automatically trigger a backfill scoped to messages missed during the DEAD period
+- Backfill uses the same `BackfillService` infrastructure (checkpoint, cancellation, progress)
+- Test: publish 10 messages → consumer dies → 5 messages cleaned up → consumer resurrects → re-backfill delivers the 5 cleaned messages
+- If `BackfillService` is not configured, resurrection still works (log WARNING, no backfill)
+
+**Status**: ✅ Complete — `updateHeartbeat()` modified in `SubscriptionManager.java` to detect DEAD→ACTIVE resurrection, call `resetBackfillStatus()`, and chain `backfillService.startBackfill(topic, groupName, BackfillScope.PENDING_ONLY)` with `.recover()` for resilience. New `resetBackfillStatus()` method clears backfill_status, checkpoint_id, processed_messages. 6 integration tests in `ResurrectionReBackfillIntegrationTest.java` (3 RED-verified). 12 existing SubscriptionManager tests GREEN (zero regressions).
+
+#### Task H6: CANCELLED Subscription Orphan Cleanup
+**What**: When a subscription is cancelled via `cancel()`, clean up its PENDING/PROCESSING rows in `outbox_consumer_groups` and decrement `required_consumer_groups` on affected messages  
+**Where**: `SubscriptionManager.cancel()` or chain `DeadConsumerGroupCleanup` after cancel  
+**Previous Behaviour**: `cancel()` only called `updateStatus(CANCELLED)`. No `outbox_consumer_groups` rows were removed. Messages remained blocked waiting for a group that would never process them. `forceRemoveConsumerGroup()` did run cleanup, but plain `cancel()` did not.  
+**Fixed Behaviour**: `cancel()` now chains `DeadConsumerGroupCleanup.cleanupDeadGroup()` after `updateStatus(CANCELLED)` with `.recover()` for resilience. Cleanup decrements `required_consumer_groups`, removes orphaned tracking rows, and auto-completes unblocked messages. If `DeadConsumerGroupCleanup` is not configured, cancel succeeds without cleanup.  
+**Acceptance Criteria**:
+- `cancel()` chains `DeadConsumerGroupCleanup.cleanupDeadGroup()` (or equivalent) after marking CANCELLED
+- `required_consumer_groups` is decremented on affected messages
+- Messages where `completed >= required` after decrement are auto-completed
+- Orphaned `outbox_consumer_groups` rows are removed
+- Test: subscribe → publish messages → cancel subscription → verify messages are no longer blocked
+- `forceRemoveConsumerGroup()` behaviour unchanged (already works correctly)
+
+**Status**: ✅ Complete — `cancel()` modified in `SubscriptionManager.java` to chain `DeadConsumerGroupCleanup.cleanupDeadGroup()` after `updateStatus(CANCELLED)` with `.recover()` for resilience. 4 integration tests in `CancelCleanupIntegrationTest.java` (1 RED-verified). 27 subscription tests GREEN across 4 test classes (zero regressions).
+
+### MEDIUM — Should Address (future)
+
+#### Task M7: Service Manager Integration Test
+**What**: Verify that `PeeGeeQManager.startBackgroundTasksReactive()` actually starts the `DeadConsumerDetectionJob` and that shutdown stops it  
+**Where**: New integration test in `peegeeq-db` or `peegeeq-integration-tests`  
+**Current State**: C3 wired the job into `PeeGeeQManager`, but no test verified the boot→run→shutdown lifecycle via the manager  
+**Acceptance Criteria**:
+- Test creates a `PeeGeeQManager`, calls `start()` (which calls `startBackgroundTasksReactive()`)
+- Verifies `DeadConsumerDetectionJob` is running (e.g., `getTotalRunCount() > 0` after a delay)
+- Calls manager shutdown and verifies job is stopped
+- Uses real PostgreSQL via Testcontainers
+
+**Status**: ✅ Complete — `DeadConsumerDetectionJobLifecycleTest.java` in `peegeeq-db` with 3 integration tests: (1) `testDetectionJobStartsWithManager` — verifies job is running and `getTotalRunCount() > 0` after start, (2) `testDetectionJobStopsWithManager` — verifies job reference is null and `isStarted()` false after `stop()`, (3) `testDetectionJobDisabledByConfig` — verifies job is null when `dead-consumer-detection.enabled=false`. Added package-visible `getDeadConsumerDetectionJob()` getter to `PeeGeeQManager`. 14 tests GREEN (11 existing + 3 new, zero regressions).
+
 ### LOW — Monitoring Endpoints
 
 #### Task L4: Expose Dead Consumer Stats via Prometheus
@@ -644,6 +697,66 @@ AND required_consumer_groups > 0;
 **Where**: Monitoring endpoint data source  
 **Rationale**: `BackfillService.getBackfillProgress()` already returns status/checkpoint/percentage but isn't exposed.  
 **Status**: ✅ Complete — `SystemMonitoringHandler` collects in-progress backfills and adds `activeBackfills` array to payload.
+
+#### Task L9: Fan-Out Trace Propagation Implementation
+**What**: When one message is delivered to N consumer groups, create a child span per group so fan-out is visible as a span tree in Jaeger/Zipkin  
+**Where**: `ConsumerGroupFetcher` (or the delivery loop that invokes handlers per group)  
+**Design**: `CONSUMER_GROUP_FANOUT_TRACE_PROPAGATION.md` recommends Option A — child spans per consumer group  
+**Prerequisite**: `TraceCtx.childSpan()` infrastructure already exists and is tested  
+**Acceptance Criteria**:
+- Each consumer group delivery creates a child span from the message's root trace
+- Span attributes include `topic`, `group_name`, `message_id`
+- Fan-out is visible as parallel branches in a trace visualiser
+- Existing `ConsumerTracingTest` updated or extended to verify child span creation
+
+**Status**: ❌ Not Started (design complete, implementation not done)
+
+#### Task L10: Remaining Prometheus Metrics
+**What**: Implement the 5 Prometheus metrics listed in the Tracing User Guide that are not yet registered  
+**Where**: `ConsumerGroupMetrics.java` or new `MeterBinder` classes  
+**Metrics**:
+
+| Metric | Labels | Source Data |
+|--------|--------|-------------|
+| `peegeeq_messages_received_total` | `topic`, `consumer_group` | Increment in `CompletionTracker.markCompleted()` |
+| `peegeeq_blocked_messages_total` | `topic`, `group` | `DeadConsumerDetector.getBlockedMessageStats()` |
+| `peegeeq_consumer_group_processing_seconds` | `topic`, `group`, `quantile` | Timer around message handler callback |
+| `peegeeq_backfill_progress_ratio` | `topic`, `group` | `BackfillService.getBackfillProgress()` |
+| `peegeeq_detection_run_duration_seconds` | — | `DetectionResult.detectionTimeMs` |
+
+**Acceptance Criteria**:
+- All 5 metrics registered and producing non-zero values during integration tests
+- `peegeeq_messages_received_total` increments on each successful completion
+- `peegeeq_blocked_messages_total` refreshes on each detection run
+- Timer metrics use Micrometer `Timer` with p50/p95/p99 percentiles
+
+**Status**: ✅ DONE
+
+**Implemented Metrics** (4 tests GREEN):
+
+| Metric | Labels | Source Data | Status |
+|--------|--------|-------------|--------|
+| `peegeeq.completions.total` | `topic`, `group` | Counter in `CompletionTracker.markCompleted()` via optional `MeterRegistry` | ✅ |
+| `peegeeq.blocked.messages` | `topic`, `group` | Dynamic gauge from `DeadConsumerDetector.getBlockedMessageStats()` during `ConsumerGroupMetrics.refresh()` | ✅ |
+| `peegeeq.detection.run.duration.seconds` | — | Gauge from `DeadConsumerDetectionJob.getTotalRunTimeMs()` | ✅ |
+| `peegeeq.detection.runs.total` | — | Gauge from `DeadConsumerDetectionJob.getTotalRunCount()` | ✅ |
+| `peegeeq_consumer_group_processing_seconds` | `topic`, `group`, `quantile` | Timer around message handler callback | ❌ Dropped — invasive hot-path change, no concrete need |
+| `peegeeq_backfill_progress_ratio` | `topic`, `group` | `BackfillService.getBackfillProgress()` | ❌ Dropped — invasive wiring change, no concrete need |
+
+**Implementation**:
+- `CompletionTracker.java` — added optional `MeterRegistry` field and overloaded constructor `(PgConnectionManager, String, MeterRegistry)`. `recordCompletion()` increments `peegeeq.completions.total` counter with topic+group tags on successful completion.
+- `ConsumerGroupMetrics.java` — extended with: `setDetectionJob()` setter, dynamic blocked messages gauges per topic+group, detection run duration/count gauges. `refresh()` now also calls `getBlockedMessageStats()` and reads detection job stats.
+- `DeadConsumerDetectionJob.java` — added `getTotalRunTimeMs()` getter for cumulative run time.
+- `BaseIntegrationTest.java` — changed `awaitFuture()` from `private` to `protected` (subclass access).
+- `HealthCheckManagerCoreTest.java` — removed duplicate `awaitFuture()` (now inherited).
+
+**Test Evidence**: `RemainingPrometheusMetricsIntegrationTest.java` — 4 tests:
+- `testCompletionCounterIncrementsOnMarkCompleted` — verifies counter increments with topic+group tags
+- `testCompletionCounterWithoutRegistryStillWorks` — verifies backward compatibility (no registry)
+- `testBlockedMessagesGaugeAfterRefresh` — verifies dynamic gauge creation for dead group blocked messages
+- `testDetectionRunDurationGaugeAfterRefresh` — verifies detection duration and run count gauges after `start()`
+
+**Regression**: 39/39 tests pass across `ConsumerGroupMetricsIntegrationTest` (7), `RemainingPrometheusMetricsIntegrationTest` (4), `CompletionTrackerIntegrationTest` (15), `HealthCheckManagerCoreTest` (13).
 
 #### Task L8: Dead Consumer Alerting REST Endpoints
 **What**: REST API surface for programmatic consumption of dead consumer alerts, health summaries, and blocked message stats  
@@ -764,4 +877,4 @@ This tracker is the sole source of truth for consumer group fan-out implementati
 | 2026-04-05 | **L4-L7 Complete**: (L4) Created `ConsumerGroupMetrics.java` — `MeterBinder` with 6 gauges (active/paused/dead/cancelled/total/topics), `refresh()` via `DeadConsumerDetector.getSubscriptionSummary()`, 7 integration tests GREEN, full module regression clean. (L5) Extended `SystemMonitoringHandler.collectMetricsFromServices()` — counts subscriptions by `SubscriptionState`, adds `subscriptionHealth` JSON object to `/ws/monitoring` payload. (L6) Created `CONSUMER_GROUP_FANOUT_TRACE_PROPAGATION.md` design document — recommends child spans per consumer group (Option A), documents current trace gap and implementation scope. (L7) Extended handler to collect in-progress backfills from `SubscriptionInfo.backfillStatus()`, adds `activeBackfills` array to payload with topic/groupName/processedMessages/totalMessages/percentComplete. | — |
 | 2026-04-05 | **L8 Complete (Dead Consumer Alerting Endpoint)**: Created `ConsumerAlertHandler.java` (~130 lines) with 3 REST endpoints: `GET .../consumer-alerts/dead` (dead subscription list with timing), `GET .../consumer-alerts/summary` (health summary), `GET .../consumer-alerts/blocked` (blocked message stats). Extended `SubscriptionService` with 3 default methods, `SubscriptionManager` implements via `DeadConsumerDetector`. Error code `PGQERR0063`. 7 integration tests GREEN, 103/103 core tests passing. | — |
 | 2026-04-05 | **Partitioned Consumer Groups Design**: Created partitioned design (now consolidated into [PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md §19](PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md#partitioned-consumer-groups-offsetwatermark-mode)) — comprehensive design for offset/watermark mode + partitioned consumption. Covers partition key (reuse `message_group`), 3 new tables, generation-based fencing, watermark sweep, 6 implementation phases, 5 open questions. | — |
-| 2026-04-05 | **Tracker refresh**: Updated stale entries — Dead Consumer Alerting `❌ NOT STARTED` → `✅ DONE`, Prometheus Metrics `❌ NOT STARTED` → `✅ DONE`, Fan-Out Trace Propagation `❌ NOT DESIGNED` → `✅ DONE (design)`, Monitoring upgraded from summary-only to full breakdown. Removed stale "Impact" / "Specific violations" text from Tracing section (all fixed by M3-M6). Resolved all 3 overlaps. Added `ConsumerAlertHandler.java` and `DeadConsumerAlertingIntegrationTest` to inventories. Added Partitioned Consumer Groups Design to status summary. | — |
+| 2026-04-05 | **Tracker refresh**: Updated stale entries — Dead Consumer Alerting `❌ NOT STARTED` → `✅ DONE`, Prometheus Metrics `❌ NOT STARTED` → `✅ DONE`, Fan-Out Trace Propagation `❌ NOT DESIGNED` → `✅ DONE (design)`, Monitoring upgraded from summary-only to full breakdown. Removed stale "Impact" / "Specific violations" text from Tracing section (all fixed by M3-M6). Resolved all 3 overlaps. Added `ConsumerAlertHandler.java` and `DeadConsumerAlertingIntegrationTest` to inventories. Added Partitioned Consumer Groups Design to status summary. | — || 2026-04-06 | **Document consolidation + future work audit**: Merged `PARTITIONED_CONSUMER_GROUPS_DESIGN.md` into [PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md §19](PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md#partitioned-consumer-groups-offsetwatermark-mode). Updated all tracker references to point to consolidated doc. Deleted standalone partitioned design doc. Audited 5 un-tracked future work items and confirmed all are genuinely not implemented: (H5) Resurrection re-backfill, (H6) CANCELLED orphan cleanup, (M7) Service manager integration test, (L9) Fan-out trace propagation implementation, (L10) 5 remaining Prometheus metrics. Added formal task definitions with acceptance criteria for each. Updated status summary and test coverage gaps tables. | — |

@@ -57,9 +57,9 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 /**
  * Tests for OutboxConsumer failure handling paths to increase coverage.
  * Specifically targets:
- * - markMessageFailedReactive() - 0% coverage (38 instructions)
+ * - markMessageFailed() - 0% coverage (38 instructions)
  * - Error handler lambdas - 0% coverage (~93 instructions)
- * - processAvailableMessagesReactive() edge cases - 33% → 80% (+92 instructions)
+ * - processAvailableMessages() edge cases - 33% → 80% (+92 instructions)
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
@@ -166,11 +166,11 @@ public class OutboxConsumerFailureHandlingTest {
     }
 
     /**
-     * Test processAvailableMessagesReactive() when consumer is closed during processing.
+     * Test processAvailableMessages() when consumer is closed during processing.
      * This tests the closed.get() check at line 249-251 and 277-280.
      */
     @Test
-    void testProcessAvailableMessagesReactive_ConsumerClosedDuringProcessing(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testProcessAvailableMessages_ConsumerClosedDuringProcessing(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
         CountDownLatch startSignal = new CountDownLatch(1);
         CountDownLatch finishGate = new CountDownLatch(1);
         
@@ -208,11 +208,11 @@ public class OutboxConsumerFailureHandlingTest {
     }
 
     /**
-     * Test processAvailableMessagesReactive() with batch processing.
+     * Test processAvailableMessages() with batch processing.
      * This tests the batch size logic at line 257.
      */
     @Test
-    void testProcessAvailableMessagesReactive_BatchProcessing(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testProcessAvailableMessages_BatchProcessing(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
         int messageCount = 5;
         Checkpoint latch = testContext.checkpoint(messageCount);
         
@@ -408,7 +408,7 @@ public class OutboxConsumerFailureHandlingTest {
      * connections to force retry increment to fail.
      * 
      * Coverage target:
-     * - lambda$incrementRetryAndResetReactive$22 (line 591, 31 instructions)
+     * - lambda$incrementRetryAndReset (line 591, 31 instructions)
      */
     @Test
     void testRetryIncrementConnectionFailure(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {

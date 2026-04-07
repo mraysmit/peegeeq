@@ -384,7 +384,7 @@ public class PgClientFactoryCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testRemoveClientAsync() throws Exception {
+    void testRemoveClient() throws Exception {
         PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
@@ -398,16 +398,16 @@ public class PgClientFactoryCoreTest extends BaseIntegrationTest {
 
         factory.createClient("test-client", connectionConfig, poolConfig);
 
-        factory.removeClientAsync("test-client").toCompletionStage().toCompletableFuture().get();
+        factory.removeClient("test-client").toCompletionStage().toCompletableFuture().get();
 
         Optional<PgClient> client = factory.getClient("test-client");
         assertFalse(client.isPresent());
     }
 
     @Test
-    void testRemoveClientAsyncNonExistent() throws Exception {
+    void testRemoveClientNonExistent() throws Exception {
         // Should not throw exception
-        factory.removeClientAsync("non-existent").toCompletionStage().toCompletableFuture().get();
+        factory.removeClient("non-existent").toCompletionStage().toCompletableFuture().get();
     }
 
     @Test

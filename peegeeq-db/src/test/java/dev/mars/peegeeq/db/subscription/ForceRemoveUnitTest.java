@@ -54,7 +54,7 @@ class ForceRemoveUnitTest {
 
     @AfterEach
     void tearDown() {
-        if (connectionManager != null) connectionManager.closeAsync();
+        if (connectionManager != null) connectionManager.close();
         if (vertx != null) vertx.close();
     }
 

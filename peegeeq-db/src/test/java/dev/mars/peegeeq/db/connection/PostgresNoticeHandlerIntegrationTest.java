@@ -98,7 +98,7 @@ public class PostgresNoticeHandlerIntegrationTest {
             closeFuture = closeFuture.compose(v -> pool.close());
         }
         if (connectionManager != null) {
-            closeFuture = closeFuture.compose(v -> connectionManager.closeAsync());
+            closeFuture = closeFuture.compose(v -> connectionManager.close());
         }
         if (vertx != null) {
             closeFuture = closeFuture.compose(v -> vertx.close());

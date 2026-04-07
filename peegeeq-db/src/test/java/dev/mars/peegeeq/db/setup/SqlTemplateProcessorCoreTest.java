@@ -68,7 +68,7 @@ public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
     @AfterEach
     void tearDown() throws Exception {
         if (connectionManager != null) {
-            connectionManager.closeAsync();
+            connectionManager.close();
         }
     }
 
@@ -78,13 +78,13 @@ public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testApplyTemplateReactiveWithSimpleTable() throws Exception {
+    void testApplyTemplateWithSimpleTable() throws Exception {
         // Apply the test-simple-table template
         Map<String, String> parameters = new HashMap<>();
         parameters.put("TABLE_NAME", "test_simple_table");
 
         reactivePool.withConnection(connection ->
-            sqlTemplateProcessor.applyTemplateReactive(connection, "test-simple-table.sql", parameters)
+            sqlTemplateProcessor.applyTemplate(connection, "test-simple-table.sql", parameters)
         ).toCompletionStage().toCompletableFuture().get();
 
         // Verify table was created
@@ -104,13 +104,13 @@ public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testApplyTemplateReactiveWithMultipleParameters() throws Exception {
+    void testApplyTemplateWithMultipleParameters() throws Exception {
         // Create a table with a different name using the same template
         Map<String, String> parameters = new HashMap<>();
         parameters.put("TABLE_NAME", "test_another_table");
 
         reactivePool.withConnection(connection ->
-            sqlTemplateProcessor.applyTemplateReactive(connection, "test-simple-table.sql", parameters)
+            sqlTemplateProcessor.applyTemplate(connection, "test-simple-table.sql", parameters)
         ).toCompletionStage().toCompletableFuture().get();
 
         // Verify table was created
@@ -130,13 +130,13 @@ public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testApplyTemplateReactiveWithNonExistentTemplate() {
+    void testApplyTemplateWithNonExistentTemplate() {
         // Try to apply a non-existent template
         Map<String, String> parameters = new HashMap<>();
 
         assertThrows(Exception.class, () -> {
             reactivePool.withConnection(connection ->
-                sqlTemplateProcessor.applyTemplateReactive(connection, "non-existent-template.sql", parameters)
+                sqlTemplateProcessor.applyTemplate(connection, "non-existent-template.sql", parameters)
             ).toCompletionStage().toCompletableFuture().get();
         });
     }
@@ -152,7 +152,7 @@ public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
 
         ExecutionException ex = assertThrows(ExecutionException.class, () ->
             reactivePool.withConnection(connection ->
-                sqlTemplateProcessor.applyTemplateReactive(connection, "test-simple-table.sql", parameters)
+                sqlTemplateProcessor.applyTemplate(connection, "test-simple-table.sql", parameters)
             ).toCompletionStage().toCompletableFuture().get()
         );
         assertInstanceOf(IllegalArgumentException.class, ex.getCause());
@@ -165,7 +165,7 @@ public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
 
         ExecutionException ex = assertThrows(ExecutionException.class, () ->
             reactivePool.withConnection(connection ->
-                sqlTemplateProcessor.applyTemplateReactive(connection, "test-simple-table.sql", parameters)
+                sqlTemplateProcessor.applyTemplate(connection, "test-simple-table.sql", parameters)
             ).toCompletionStage().toCompletableFuture().get()
         );
         assertInstanceOf(IllegalArgumentException.class, ex.getCause());
@@ -178,7 +178,7 @@ public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
 
         ExecutionException ex = assertThrows(ExecutionException.class, () ->
             reactivePool.withConnection(connection ->
-                sqlTemplateProcessor.applyTemplateReactive(connection, "test-simple-table.sql", parameters)
+                sqlTemplateProcessor.applyTemplate(connection, "test-simple-table.sql", parameters)
             ).toCompletionStage().toCompletableFuture().get()
         );
         assertInstanceOf(IllegalArgumentException.class, ex.getCause());
@@ -191,7 +191,7 @@ public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
 
         ExecutionException ex = assertThrows(ExecutionException.class, () ->
             reactivePool.withConnection(connection ->
-                sqlTemplateProcessor.applyTemplateReactive(connection, "test-simple-table.sql", parameters)
+                sqlTemplateProcessor.applyTemplate(connection, "test-simple-table.sql", parameters)
             ).toCompletionStage().toCompletableFuture().get()
         );
         assertInstanceOf(IllegalArgumentException.class, ex.getCause());

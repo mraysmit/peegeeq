@@ -246,16 +246,6 @@ public class EventStoreAppendBuilder<T> {
     }
     
     /**
-     * Executes the append operation and returns a Vert.x Future (reactive version).
-     * 
-     * @return A Vert.x Future that completes with the stored event
-     * @throws IllegalStateException if required fields are missing
-     */
-    public Future<BiTemporalEvent<T>> executeReactive() {
-        return execute();
-    }
-    
-    /**
      * Validates that all required fields are set.
      * 
      * @throws IllegalStateException if required fields are missing

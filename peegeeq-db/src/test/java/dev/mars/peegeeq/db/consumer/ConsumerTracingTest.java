@@ -61,7 +61,7 @@ public class ConsumerTracingTest extends BaseIntegrationTest {
     void tearDown() {
         TraceContextUtil.clearTraceMDC();
         if (connectionManager != null) {
-            connectionManager.closeAsync();
+            connectionManager.close();
         }
     }
 

@@ -244,7 +244,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
         // Poll for messages at configured interval
         try {
             logger.debug("About to schedule polling task for topic {}", topic);
-            scheduler.scheduleWithFixedDelay(this::processAvailableMessages, 0, pollingIntervalMs,
+            scheduler.scheduleWithFixedDelay(this::scheduledProcessMessages, 0, pollingIntervalMs,
                     TimeUnit.MILLISECONDS);
             logger.debug("Polling task scheduled successfully for topic {}", topic);
         } catch (Exception e) {
@@ -256,7 +256,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
 
     }
 
-    private void processAvailableMessages() {
+    private void scheduledProcessMessages() {
         if (!subscribed.get() || closed.get()) {
             logger.debug("Skipping message processing - subscribed: {}, closed: {} for topic {}",
                     subscribed.get(), closed.get(), topic);
@@ -266,7 +266,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
 
         // Use reactive processing for Vert.x 5.x compliance
         try {
-            processAvailableMessagesReactive()
+            processAvailableMessages()
                     .onSuccess(result -> logger.debug("Successfully processed messages for topic {}", topic))
                     .onFailure(error -> {
                         logger.error("Reactive message processing failed for topic {}: {}", topic, error.getMessage(),
@@ -278,11 +278,10 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
     }
 
     /**
-     * Reactive message processing using Vert.x 5.x patterns.
-     * This is the preferred method for non-blocking database operations.
+     * Processes available messages using Vert.x 5.x patterns.
      */
-    private Future<Void> processAvailableMessagesReactive() {
-        logger.debug("OUTBOX-DEBUG: processAvailableMessagesReactive() called for topic: {}", topic);
+    private Future<Void> processAvailableMessages() {
+        logger.debug("OUTBOX-DEBUG: processAvailableMessages() called for topic: {}", topic);
         // : Check if consumer is closed to prevent infinite retry loops
         // during shutdown
         if (closed.get()) {
@@ -365,7 +364,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                         // Process each message
                         Future<Void> processingChain = Future.succeededFuture();
                         for (Row row : rowSet) {
-                            processingChain = processingChain.compose(v -> processRowReactive(row));
+                            processingChain = processingChain.compose(v -> processRow(row));
                         }
 
                         return processingChain;
@@ -414,9 +413,9 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
     }
 
     /**
-     * Processes a single row from the database reactively.
+     * Processes a single row from the database.
      */
-    private Future<Void> processRowReactive(Row row) {
+    private Future<Void> processRow(Row row) {
         try {
             String messageId = String.valueOf(row.getLong("id"));
             JsonObject payloadJson = row.getJsonObject("payload");
@@ -462,7 +461,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                     .recover(e -> {
                         logger.error("Failed to process message {} for topic {}: {}", messageId, topic,
                                 e.getMessage(), e);
-                        return markMessageFailedReactive(messageId, e.getMessage());
+                        return markMessageFailed(messageId, e.getMessage());
                     })
                     .eventually(() -> {
                         TraceContextUtil.clearTraceMDC();
@@ -476,9 +475,9 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
     }
 
     /**
-     * Marks a message as failed using reactive patterns.
+     * Marks a message as failed.
      */
-    private Future<Void> markMessageFailedReactive(String messageId, String errorMessage) {
+    private Future<Void> markMessageFailed(String messageId, String errorMessage) {
         try {
             String sql = "UPDATE outbox SET status = 'FAILED', processed_at = $1 WHERE id = $2";
             Tuple params = Tuple.of(OffsetDateTime.now(), Long.parseLong(messageId));
@@ -694,7 +693,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                         if (currentRetryCount >= maxRetries) {
                             return storeDeadLetterMessage(messageId, currentRetryCount, errorMessage);
                         } else {
-                            return incrementRetryAndResetReactive(messageId, currentRetryCount, errorMessage);
+                            return incrementRetryAndReset(messageId, currentRetryCount, errorMessage);
                         }
                     } else {
                         logger.warn("Message {} not found when handling failure", messageId);
@@ -734,7 +733,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
      * Increments retry count and resets message for retry using Vert.x reactive
      * patterns.
      */
-    private Future<Void> incrementRetryAndResetReactive(String messageId, int currentRetryCount, String errorMessage) {
+    private Future<Void> incrementRetryAndReset(String messageId, int currentRetryCount, String errorMessage) {
         if (closed.get()) {
             logger.debug("Consumer is closed, skipping retry increment for message {}", messageId);
             return Future.succeededFuture();

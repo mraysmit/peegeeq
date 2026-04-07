@@ -221,6 +221,13 @@ public class DeadConsumerDetectionJob {
     }
 
     /**
+     * Returns the total cumulative run time in milliseconds across all detection runs.
+     */
+    public long getTotalRunTimeMs() {
+        return totalRunTimeMs.get();
+    }
+
+    /**
      * Triggers a single detection run manually (useful for testing).
      *
      * @return Future containing the number of subscriptions marked as DEAD

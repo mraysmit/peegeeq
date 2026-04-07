@@ -131,7 +131,7 @@ class HealthCheckManagerTest {
         }
 
         if (connectionManager != null) {
-            connectionManager.closeAsync();
+            connectionManager.close();
         }
     }
 
@@ -390,7 +390,7 @@ class HealthCheckManagerTest {
 
         // Close database connection to simulate failure
         System.out.println("**INTENTIONAL TEST FAILURE** Closing database connection to simulate failure");
-        connectionManager.closeAsync()
+        connectionManager.close()
             .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
 
         // Wait for health checks to detect failure
@@ -594,7 +594,7 @@ class HealthCheckManagerTest {
 
     private void startManager(HealthCheckManager manager) {
         try {
-            awaitFuture(manager.startReactive());
+            awaitFuture(manager.start());
         } catch (Exception e) {
             throw new RuntimeException("Failed to start HealthCheckManager reactively", e);
         }
@@ -602,7 +602,7 @@ class HealthCheckManagerTest {
 
     private void stopManager(HealthCheckManager manager) {
         try {
-            awaitFuture(manager.stopReactive());
+            awaitFuture(manager.stop());
         } catch (Exception e) {
             throw new RuntimeException("Failed to stop HealthCheckManager reactively", e);
         }

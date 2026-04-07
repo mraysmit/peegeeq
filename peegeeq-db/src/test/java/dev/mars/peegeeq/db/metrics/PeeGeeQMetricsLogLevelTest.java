@@ -101,7 +101,7 @@ public class PeeGeeQMetricsLogLevelTest {
         logCapture.stop();
 
         if (connectionManager != null) {
-            connectionManager.closeAsync()
+            connectionManager.close()
                     .recover(t -> Future.succeededFuture())
                     .onComplete(v -> testContext.completeNow());
         } else {
@@ -193,7 +193,7 @@ public class PeeGeeQMetricsLogLevelTest {
         logCapture.clear();
 
         ownMetrics.persistMetrics(registry)
-                .compose(v -> ownConnMgr.closeAsync().recover(t -> Future.succeededFuture()))
+                .compose(v -> ownConnMgr.close().recover(t -> Future.succeededFuture()))
                 .onComplete(ar -> testContext.verify(() -> {
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
                     boolean hasErrorForPersist = errors.stream()

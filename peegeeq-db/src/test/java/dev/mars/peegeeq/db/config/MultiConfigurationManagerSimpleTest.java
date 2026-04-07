@@ -187,7 +187,7 @@ class MultiConfigurationManagerSimpleTest {
             
             // Can call start (will fail due to no configurations, but method exists)
             assertDoesNotThrow(() -> {
-                configManager.startReactive().toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS); // Should not throw, just do nothing
+                configManager.start().toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS); // Should not throw, just do nothing
             });
             
             // After start with no configurations, should still work
@@ -195,7 +195,7 @@ class MultiConfigurationManagerSimpleTest {
             
             // Can call start again (should be idempotent)
             assertDoesNotThrow(() -> {
-                configManager.startReactive().toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
+                configManager.start().toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
             });
             
             logger.info("Manager lifecycle tests passed");
@@ -234,7 +234,7 @@ class MultiConfigurationManagerSimpleTest {
         MultiConfigurationManager configManager = new MultiConfigurationManager();
 
         try {
-            configManager.startReactive().toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
+            configManager.start().toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
             assertTrue(configManager.isStarted());
 
             IllegalStateException exception = assertThrows(IllegalStateException.class,
@@ -356,7 +356,7 @@ class MultiConfigurationManagerSimpleTest {
 
     private void closeManager(MultiConfigurationManager configManager) {
         try {
-            configManager.closeReactive().toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
+            configManager.close().toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
         } catch (Exception e) {
             throw new RuntimeException("Failed to close MultiConfigurationManager reactively", e);
         }

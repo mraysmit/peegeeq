@@ -273,7 +273,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
         assertNotEventLoopForBlocking("createBrowser()", "use a worker thread for browser creation");
         logger.debug("Creating browser for topic: {}", topic);
 
-        io.vertx.sqlclient.Pool pool = getPool();
+        io.vertx.sqlclient.Pool pool = getPoolBlocking();
         if (pool == null) {
             throw new IllegalStateException("Pool not available for browser creation");
         }
@@ -351,7 +351,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
                     WHERE topic = $1
                     """.formatted(quoteIdentifier(configuration != null ? configuration.getDatabaseConfig().getSchema() : "peegeeq"));
 
-            io.vertx.sqlclient.Pool pool = getPool();
+            io.vertx.sqlclient.Pool pool = getPoolBlocking();
             if (pool == null) {
                 logger.warn("Pool not available for stats query");
                 return dev.mars.peegeeq.api.messaging.QueueStats.basic(topic, 0, 0, 0);
@@ -418,7 +418,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
                 WHERE topic = $1
                 """.formatted(quoteIdentifier(configuration != null ? configuration.getDatabaseConfig().getSchema() : "peegeeq"));
 
-        return getPoolAsync()
+        return getPool()
                 .compose(pool -> {
                     if (pool == null) {
                         logger.warn("Pool not available for async stats query");
@@ -475,7 +475,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
         String sql = "SELECT COUNT(*) AS total FROM %s.outbox WHERE topic = $1"
                 .formatted(quoteIdentifier(configuration != null ? configuration.getDatabaseConfig().getSchema() : "peegeeq"));
 
-        return getPoolAsync()
+        return getPool()
                 .compose(pool -> {
                     if (pool == null) {
                         return io.vertx.core.Future.failedFuture(
@@ -498,7 +498,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
         String sql = "DELETE FROM %s.outbox WHERE topic = $1"
                 .formatted(quoteIdentifier(configuration != null ? configuration.getDatabaseConfig().getSchema() : "peegeeq"));
 
-        return getPoolAsync()
+        return getPool()
                 .compose(pool -> {
                     if (pool == null) {
                         return io.vertx.core.Future.failedFuture(
@@ -510,15 +510,15 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
                 });
     }
 
-    private io.vertx.core.Future<io.vertx.sqlclient.Pool> getPoolAsync() {
+    private io.vertx.core.Future<io.vertx.sqlclient.Pool> getPool() {
         if (databaseService != null) {
             return databaseService.getConnectionProvider().getReactivePool(clientId);
         }
         return io.vertx.core.Future.succeededFuture(null);
     }
 
-    private io.vertx.sqlclient.Pool getPool() {
-        assertNotEventLoopForBlocking("getPool()", "use async pool acquisition on Vert.x contexts");
+    private io.vertx.sqlclient.Pool getPoolBlocking() {
+        assertNotEventLoopForBlocking("getPoolBlocking()", "use async pool acquisition on Vert.x contexts");
         // clientId can be null - ConnectionProvider resolves null to the default pool
         try {
             if (databaseService != null) {

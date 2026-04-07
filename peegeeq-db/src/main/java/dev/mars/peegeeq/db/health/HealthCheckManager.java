@@ -203,7 +203,7 @@ public class HealthCheckManager implements HealthService {
      * Stops the health check manager reactively.
      * This method shuts down the scheduler without blocking the calling thread.
      */
-    public Future<Void> stopReactive() {
+    public Future<Void> stop() {
         if (!running) {
             return Future.succeededFuture();
         }
@@ -251,7 +251,7 @@ public class HealthCheckManager implements HealthService {
      * Starts health checks reactively without blocking operations.
      * This is the preferred method for event-driven startup orchestration.
      */
-    public Future<Void> startReactive() {
+    public Future<Void> start() {
         if (running) {
             logger.warn("Health check manager is already running");
             return Future.succeededFuture();
@@ -623,12 +623,12 @@ public class HealthCheckManager implements HealthService {
     private class DatabaseHealthCheck implements AsyncHealthCheck {
         @Override
         public Future<HealthStatus> checkReactive() {
-            return executeWithCircuitBreaker("database", this::checkDatabaseReactive)
+            return executeWithCircuitBreaker("database", this::checkDatabase)
                 .recover(t -> Future.succeededFuture(
                     HealthStatus.unhealthy("database", "Reactive database health check failed: " + t.getMessage())));
         }
 
-        private Future<HealthStatus> checkDatabaseReactive() {
+        private Future<HealthStatus> checkDatabase() {
             return reactivePool.withConnection(connection -> {
                 // Simple query to test connection health
                 return connection.preparedQuery("SELECT 1").execute()
@@ -649,12 +649,12 @@ public class HealthCheckManager implements HealthService {
         @Override
         public Future<HealthStatus> checkReactive() {
             // Use "database" circuit breaker for queue checks too, as they depend on the DB
-            return executeWithCircuitBreaker("database", this::checkOutboxQueueReactive)
+            return executeWithCircuitBreaker("database", this::checkOutboxQueue)
                 .recover(t -> Future.succeededFuture(
                     HealthStatus.unhealthy("outbox-queue", "Reactive outbox queue health check failed: " + t.getMessage())));
         }
 
-        private Future<HealthStatus> checkOutboxQueueReactive() {
+        private Future<HealthStatus> checkOutboxQueue() {
             String sql = String.format("SELECT COUNT(*) FROM %s WHERE status = 'PENDING' AND created_at > NOW() - INTERVAL '1 hour'", qualifiedTable("outbox"));
             return reactivePool.withConnection(connection -> {
                 return connection.preparedQuery(sql).execute()
@@ -688,12 +688,12 @@ public class HealthCheckManager implements HealthService {
     private class NativeQueueHealthCheck implements AsyncHealthCheck {
         @Override
         public Future<HealthStatus> checkReactive() {
-            return executeWithCircuitBreaker("database", this::checkNativeQueueReactive)
+            return executeWithCircuitBreaker("database", this::checkNativeQueue)
                 .recover(t -> Future.succeededFuture(
                     HealthStatus.unhealthy("native-queue", "Reactive native queue health check failed: " + t.getMessage())));
         }
 
-        private Future<HealthStatus> checkNativeQueueReactive() {
+        private Future<HealthStatus> checkNativeQueue() {
             String sql = String.format("SELECT COUNT(*) FROM %s WHERE status = 'AVAILABLE'", qualifiedTable("queue_messages"));
             return reactivePool.withConnection(connection -> {
                 return connection.preparedQuery(sql).execute()
@@ -723,12 +723,12 @@ public class HealthCheckManager implements HealthService {
     private class DeadLetterQueueHealthCheck implements AsyncHealthCheck {
         @Override
         public Future<HealthStatus> checkReactive() {
-            return executeWithCircuitBreaker("database", this::checkDeadLetterQueueReactive)
+            return executeWithCircuitBreaker("database", this::checkDeadLetterQueue)
                 .recover(t -> Future.succeededFuture(
                     HealthStatus.unhealthy("dead-letter-queue", "Reactive dead letter queue health check failed: " + t.getMessage())));
         }
 
-        private Future<HealthStatus> checkDeadLetterQueueReactive() {
+        private Future<HealthStatus> checkDeadLetterQueue() {
             String sql = String.format("SELECT COUNT(*) FROM %s WHERE failed_at > NOW() - INTERVAL '1 hour'", qualifiedTable("dead_letter_queue"));
             return reactivePool.withConnection(connection -> {
                 return connection.preparedQuery(sql).execute()

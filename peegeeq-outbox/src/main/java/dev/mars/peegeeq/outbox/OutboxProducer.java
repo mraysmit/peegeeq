@@ -118,7 +118,7 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      */
     @Override
     public Future<Void> send(T payload) {
-        return sendInternalReactive(payload, null, null, null);
+        return sendInternal(payload, null, null, null);
     }
 
     /**
@@ -133,7 +133,7 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      */
     @Override
     public Future<Void> send(T payload, Map<String, String> headers) {
-        return sendInternalReactive(payload, headers, null, null);
+        return sendInternal(payload, headers, null, null);
     }
 
     /**
@@ -149,7 +149,7 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
      */
     @Override
     public Future<Void> send(T payload, Map<String, String> headers, String correlationId) {
-        return sendInternalReactive(payload, headers, correlationId, null);
+        return sendInternal(payload, headers, correlationId, null);
     }
 
     /**
@@ -167,14 +167,14 @@ public class OutboxProducer<T> implements dev.mars.peegeeq.api.messaging.Message
     @Override
     public Future<Void> send(T payload, Map<String, String> headers, String correlationId,
             String messageGroup) {
-        return sendInternalReactive(payload, headers, correlationId, messageGroup);
+        return sendInternal(payload, headers, correlationId, messageGroup);
     }
 
     /**
      * Core send implementation using pure Vert.x Future patterns.
      * Uses ON CONFLICT for SQL-native idempotency handling.
      */
-    private Future<Void> sendInternalReactive(T payload, Map<String, String> headers,
+    private Future<Void> sendInternal(T payload, Map<String, String> headers,
             String correlationId, String messageGroup) {
         if (closed) {
             return Future.failedFuture(new IllegalStateException("Producer is closed"));

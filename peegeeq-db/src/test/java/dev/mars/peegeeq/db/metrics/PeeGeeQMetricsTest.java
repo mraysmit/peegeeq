@@ -99,7 +99,7 @@ class PeeGeeQMetricsTest {
         }
 
         if (connectionManager != null) {
-            connectionManager.closeAsync();
+            connectionManager.close();
         }
     }
 
@@ -423,7 +423,7 @@ class PeeGeeQMetricsTest {
 
         // Close the connection manager to simulate database failure
         System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Closing database connection to simulate failure");
-        connectionManager.closeAsync();
+        connectionManager.close();
 
         // Metrics recording should still work (not throw exceptions)
         System.out.println("Testing that metrics recording continues to work despite database failure");

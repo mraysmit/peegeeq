@@ -52,7 +52,7 @@ public class DetectionJobTracingTest {
     void tearDown() {
         TraceContextUtil.clearTraceMDC();
         if (stubConnectionManager != null) {
-            stubConnectionManager.closeAsync();
+            stubConnectionManager.close();
         }
         if (vertx != null) {
             vertx.close();

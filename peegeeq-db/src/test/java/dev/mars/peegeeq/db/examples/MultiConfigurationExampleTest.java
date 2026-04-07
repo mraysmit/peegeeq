@@ -83,7 +83,7 @@ public class MultiConfigurationExampleTest {
 
         if (configManager != null) {
             try {
-                awaitFuture(configManager.closeReactive());
+                awaitFuture(configManager.close());
             } catch (Throwable e) {
                 logger.warn("Error closing configManager during tearDown: {}", e.getMessage());
             }
@@ -144,7 +144,7 @@ public class MultiConfigurationExampleTest {
         configManager.registerConfiguration("config2", "test");
         
         // Start all configurations
-        assertDoesNotThrow(() -> awaitFuture(configManager.startReactive()));
+        assertDoesNotThrow(() -> awaitFuture(configManager.start()));
         assertTrue(configManager.isStarted());
         
         // Validate configurations are accessible
@@ -166,7 +166,7 @@ public class MultiConfigurationExampleTest {
         
         // Register and start high-throughput configuration
         configManager.registerConfiguration("high-throughput", "test");
-        awaitFuture(configManager.startReactive());
+        awaitFuture(configManager.start());
         
         // Get database service for high-throughput configuration
         DatabaseService databaseService = configManager.getDatabaseService("high-throughput");
@@ -196,7 +196,7 @@ public class MultiConfigurationExampleTest {
         
         // Register and start low-latency configuration
         configManager.registerConfiguration("low-latency", "test");
-        awaitFuture(configManager.startReactive());
+        awaitFuture(configManager.start());
         
         // Get database service for low-latency configuration
         DatabaseService databaseService = configManager.getDatabaseService("low-latency");
@@ -225,7 +225,7 @@ public class MultiConfigurationExampleTest {
         
         // Register and start reliable configuration
         configManager.registerConfiguration("reliable", "test");
-        awaitFuture(configManager.startReactive());
+        awaitFuture(configManager.start());
         
         // Get database service for reliable configuration
         DatabaseService databaseService = configManager.getDatabaseService("reliable");
@@ -254,7 +254,7 @@ public class MultiConfigurationExampleTest {
         
         // Register and start development configuration
         configManager.registerConfiguration("development", "test");
-        awaitFuture(configManager.startReactive());
+        awaitFuture(configManager.start());
         
         // Get database service for custom configuration
         DatabaseService databaseService = configManager.getDatabaseService("development");

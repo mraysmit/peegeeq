@@ -98,7 +98,7 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                         .messageRetentionHours(24)
                         .build())
                 .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults()))
-                .compose(v -> insertMessagesReactive(topic, messageCount))
+                .compose(v -> insertMessages(topic, messageCount))
                 .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
                 .compose(v -> backfillService.startBackfill(topic, groupName, 100, 0))
                 .compose(result -> {
@@ -145,7 +145,7 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                         .messageRetentionHours(24)
                         .build())
                 .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults()))
-                .compose(v -> insertMessagesReactive(topic, messageCount))
+                .compose(v -> insertMessages(topic, messageCount))
                 .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
                 .compose(v -> backfillService.startBackfill(topic, groupName, 10, 0))
                 .onSuccess(result -> testContext.verify(() -> {
@@ -174,7 +174,7 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                         .messageRetentionHours(24)
                         .build())
                 .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults()))
-                .compose(v -> insertMessagesReactive(topic, 20))
+                .compose(v -> insertMessages(topic, 20))
                 .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
                 .compose(v -> backfillService.startBackfill(topic, groupName, 5, 10))
                 .onSuccess(result -> testContext.verify(() -> {
@@ -258,7 +258,7 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                         .messageRetentionHours(24)
                         .build())
                 .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults()))
-                .compose(v -> insertMessagesReactive(topic, 10))
+                .compose(v -> insertMessages(topic, 10))
                 .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
                 .compose(v -> connectionManager.withConnection("peegeeq-main", connection -> {
                     String sql = """
@@ -342,7 +342,7 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                         .messageRetentionHours(24)
                         .build())
                 .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults()))
-                .compose(v -> insertMessagesReactive(topic, 15))
+                .compose(v -> insertMessages(topic, 15))
                 .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
                 .compose(v -> backfillService.getBackfillProgress(topic, groupName))
                 .compose(beforeOpt -> {
@@ -383,7 +383,7 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                         .messageRetentionHours(24)
                         .build())
                 .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults()))
-                .compose(v -> insertMessagesReactive(topic, totalMessages))
+                .compose(v -> insertMessages(topic, totalMessages))
                 .compose(v -> markOldestMessagesCompleted(topic, completedMessages))
                 .compose(v -> subscriptionManager.subscribe(topic, pendingOnlyGroup,
                         SubscriptionOptions.fromBeginning(BackfillScope.PENDING_ONLY)))
@@ -419,7 +419,7 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
 
     // Helper methods
 
-    private Future<Void> insertMessagesReactive(String topic, int count) {
+    private Future<Void> insertMessages(String topic, int count) {
         Future<Void> chain = Future.succeededFuture();
         for (int i = 0; i < count; i++) {
             final int index = i;
