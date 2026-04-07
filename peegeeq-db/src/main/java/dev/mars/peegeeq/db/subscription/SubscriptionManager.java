@@ -340,6 +340,11 @@ public class SubscriptionManager implements SubscriptionService {
      * <p>Cancelled subscriptions cannot be reactivated. This is a terminal state.
      * The consumer group will not receive any messages from this topic.</p>
      *
+     * <p>If a {@link DeadConsumerGroupCleanup} is configured, cancel also runs
+     * cleanup to decrement {@code required_consumer_groups}, remove orphaned
+     * tracking rows, and auto-complete unblocked messages. Cleanup failure
+     * does not fail the cancel operation.</p>
+     *
      * @param topic The topic name
      * @param groupName The consumer group name
      * @return Future that completes when subscription is cancelled
@@ -354,7 +359,38 @@ public class SubscriptionManager implements SubscriptionService {
             logger.info("Cancelling subscription for consumer group '{}' on topic '{}'", groupName, topic);
         }
 
-        return updateStatus(trace, topic, groupName, SubscriptionStatus.CANCELLED);
+        return updateStatus(trace, topic, groupName, SubscriptionStatus.CANCELLED)
+                .compose(v -> {
+                    if (deadConsumerGroupCleanup == null) {
+                        try (var scope = TraceContextUtil.mdcScope(trace)) {
+                            logger.debug("No DeadConsumerGroupCleanup configured — skipping cancel cleanup " +
+                                    "for group='{}' on topic='{}'", groupName, topic);
+                        }
+                        return Future.succeededFuture();
+                    }
+
+                    return deadConsumerGroupCleanup.cleanupDeadGroup(topic, groupName)
+                            .map(result -> {
+                                try (var scope = TraceContextUtil.mdcScope(trace)) {
+                                    logger.info("Cancel cleanup for group='{}' on topic='{}': " +
+                                                    "{} messages decremented, {} orphan rows removed, " +
+                                                    "{} messages auto-completed",
+                                            groupName, topic,
+                                            result.messagesDecremented(),
+                                            result.orphanRowsRemoved(),
+                                            result.messagesAutoCompleted());
+                                }
+                                return (Void) null;
+                            })
+                            .recover(err -> {
+                                try (var scope = TraceContextUtil.mdcScope(trace)) {
+                                    logger.warn("Cancel cleanup failed for group='{}' on topic='{}' " +
+                                                    "(cancel still succeeded): {}",
+                                            groupName, topic, err.getMessage());
+                                }
+                                return Future.succeededFuture();
+                            });
+                });
     }
 
     /**
@@ -499,14 +535,58 @@ public class SubscriptionManager implements SubscriptionService {
                     Row row = result.iterator().next();
                     String oldStatus = row.getString("old_status");
                     String newStatus = row.getString("new_status");
-                    if ("DEAD".equals(oldStatus) && "ACTIVE".equals(newStatus)) {
+                    boolean resurrected = "DEAD".equals(oldStatus) && "ACTIVE".equals(newStatus);
+                    if (resurrected) {
                         try (var scope = TraceContextUtil.mdcScope(trace)) {
                             logger.info("Consumer group '{}' on topic '{}' resurrected: DEAD → ACTIVE via heartbeat",
                                        groupName, topic);
                         }
                     }
+                    // Trigger re-backfill on resurrection to recover messages cleaned up during DEAD period
+                    if (resurrected && backfillService != null) {
+                        try (var scope = TraceContextUtil.mdcScope(trace)) {
+                            logger.info("Triggering re-backfill after resurrection: topic='{}', group='{}'",
+                                       topic, groupName);
+                        }
+                        // Reset backfill status so BackfillService doesn't skip as ALREADY_COMPLETED
+                        return resetBackfillStatus(topic, groupName)
+                            .compose(v2 -> backfillService.startBackfill(topic, groupName, BackfillScope.PENDING_ONLY))
+                            .map(backfillResult -> {
+                                try (var scope = TraceContextUtil.mdcScope(trace)) {
+                                    logger.info("Resurrection re-backfill completed: topic='{}', group='{}', status={}, processed={}",
+                                               topic, groupName, backfillResult.status(), backfillResult.processedMessages());
+                                }
+                                return (Void) null;
+                            })
+                            .recover(error -> {
+                                try (var scope = TraceContextUtil.mdcScope(trace)) {
+                                    logger.warn("Resurrection re-backfill failed for topic='{}', group='{}': {} (resurrection was still successful)",
+                                               topic, groupName, error.getMessage());
+                                }
+                                return Future.succeededFuture();
+                            });
+                    }
                     return Future.succeededFuture();
                 });
+        });
+    }
+
+    /**
+     * Resets the backfill status for a subscription so that a new backfill can be triggered.
+     * Used during resurrection to allow re-backfill of messages cleaned up during the DEAD period.
+     */
+    private Future<Void> resetBackfillStatus(String topic, String groupName) {
+        return connectionManager.withConnection(serviceId, connection -> {
+            String sql = """
+                UPDATE outbox_topic_subscriptions
+                SET backfill_status = NULL,
+                    backfill_checkpoint_id = NULL,
+                    backfill_processed_messages = 0
+                WHERE topic = $1 AND group_name = $2
+                """;
+            return connection.preparedQuery(sql)
+                .execute(Tuple.of(topic, groupName))
+                .mapEmpty();
         });
     }
 

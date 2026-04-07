@@ -269,7 +269,7 @@ public class PgClientFactory implements AutoCloseable {
      * @param clientId The client ID to remove
      * @return Future<Void> that completes when the client is removed
      */
-    public Future<Void> removeClientAsync(String clientId) {
+    public Future<Void> removeClient(String clientId) {
         boolean removed = clients.remove(clientId) != null;
         connectionConfigs.remove(clientId);
         poolConfigs.remove(clientId);
@@ -279,7 +279,7 @@ public class PgClientFactory implements AutoCloseable {
                 .register(meter)
                 .increment();
         }
-        return connectionManager.closePoolAsync(clientId)
+        return connectionManager.closePool(clientId)
             .onSuccess(v -> logger.info("Closed pool for client '{}'", clientId))
             .onFailure(err -> logger.warn("Error closing pool for client '{}': {}", clientId, err.getMessage()));
     }
@@ -293,7 +293,7 @@ public class PgClientFactory implements AutoCloseable {
         clients.clear();
         connectionConfigs.clear();
         poolConfigs.clear();
-        return connectionManager.closeAsync()
+        return connectionManager.close()
             .onSuccess(v -> logger.info("PgClientFactory closed"))
             .onFailure(err -> logger.warn("PgClientFactory close encountered errors: {}", err.toString()));
     }

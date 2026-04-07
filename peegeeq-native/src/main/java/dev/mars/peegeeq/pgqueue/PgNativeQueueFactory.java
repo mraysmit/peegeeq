@@ -409,13 +409,7 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
         closed = true;
 
         closeManagedResources();
-        if (poolAdapter != null) {
-            poolAdapter.closeAsync()
-                    .onSuccess(v -> logger.info("PgNativeQueueFactory closed successfully"))
-                    .onFailure(e -> logger.error("Error closing pool adapter", e));
-        } else {
-            logger.info("PgNativeQueueFactory closed successfully");
-        }
+        logger.info("PgNativeQueueFactory closed successfully");
     }
 
     /**

@@ -224,7 +224,7 @@ public abstract class BaseIntegrationTest {
         return testProfile;
     }
 
-    private <T> T awaitFuture(Future<T> future) {
+    protected <T> T awaitFuture(Future<T> future) {
         VertxTestContext testContext = new VertxTestContext();
         AtomicReference<T> result = new AtomicReference<>();
         AtomicReference<Throwable> failure = new AtomicReference<>();

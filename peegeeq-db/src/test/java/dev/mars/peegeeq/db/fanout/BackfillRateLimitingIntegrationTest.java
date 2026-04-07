@@ -261,10 +261,10 @@ public class BackfillRateLimitingIntegrationTest extends BaseIntegrationTest {
                         .messageRetentionHours(24)
                         .build())
                 .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults()))
-                .compose(v -> insertMessagesReactive(topic, messageCount));
+                .compose(v -> insertMessages(topic, messageCount));
     }
 
-    private Future<Void> insertMessagesReactive(String topic, int count) {
+    private Future<Void> insertMessages(String topic, int count) {
         Future<Void> chain = Future.succeededFuture();
         for (int i = 0; i < count; i++) {
             final int idx = i;

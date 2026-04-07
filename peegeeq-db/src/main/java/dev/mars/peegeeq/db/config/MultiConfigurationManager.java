@@ -144,7 +144,7 @@ public class MultiConfigurationManager {
      *
      * @return A Future that completes when all configurations are started
      */
-    public Future<Void> startReactive() {
+    public Future<Void> start() {
         if (!state.compareAndSet(State.STOPPED, State.STARTING)) {
             State current = state.get();
             if (current == State.STARTED || current == State.STARTING) {
@@ -311,7 +311,7 @@ public class MultiConfigurationManager {
      *
      * @return A Future that completes when all configurations are closed
      */
-    public Future<Void> closeReactive() {
+    public Future<Void> close() {
         State previous = state.getAndSet(State.CLOSING);
         if (previous == State.STOPPED || previous == State.CLOSING) {
             logger.info("MultiConfigurationManager is already {} — skipping close", previous);

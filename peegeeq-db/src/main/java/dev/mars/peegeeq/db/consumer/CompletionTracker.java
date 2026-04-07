@@ -3,6 +3,8 @@ package dev.mars.peegeeq.db.consumer;
 import dev.mars.peegeeq.api.tracing.TraceCtx;
 import dev.mars.peegeeq.api.tracing.TraceContextUtil;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
+import io.micrometer.core.instrument.Counter;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Tuple;
 import org.slf4j.Logger;
@@ -34,16 +36,29 @@ public class CompletionTracker {
 
     private final PgConnectionManager connectionManager;
     private final String serviceId;
+    private final MeterRegistry meterRegistry;
 
     /**
-     * Creates a new CompletionTracker.
+     * Creates a new CompletionTracker without metrics.
      *
      * @param connectionManager The connection manager for database operations
      * @param serviceId The service ID for connection tracking
      */
     public CompletionTracker(PgConnectionManager connectionManager, String serviceId) {
+        this(connectionManager, serviceId, null);
+    }
+
+    /**
+     * Creates a new CompletionTracker with optional Prometheus metrics.
+     *
+     * @param connectionManager The connection manager for database operations
+     * @param serviceId The service ID for connection tracking
+     * @param meterRegistry The meter registry for recording completion counters, or null
+     */
+    public CompletionTracker(PgConnectionManager connectionManager, String serviceId, MeterRegistry meterRegistry) {
         this.connectionManager = connectionManager;
         this.serviceId = serviceId;
+        this.meterRegistry = meterRegistry;
     }
 
     /**
@@ -125,6 +140,8 @@ public class CompletionTracker {
                                         }
                                         return Future.succeededFuture((Void) null);
                                     }
+
+                                    recordCompletion(topic, groupName);
 
                                     // Step 2: Increment completed_consumer_groups counter
                                     String updateCounterSql = """
@@ -256,5 +273,15 @@ public class CompletionTracker {
                     });
         }).mapEmpty();
     }
-}
 
+    private void recordCompletion(String topic, String groupName) {
+        if (meterRegistry != null) {
+            Counter.builder("peegeeq.completions.total")
+                    .tag("topic", topic)
+                    .tag("group", groupName)
+                    .description("Total message completions per consumer group")
+                    .register(meterRegistry)
+                    .increment();
+        }
+    }
+}

@@ -15,7 +15,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class PeeGeeQDatabaseSetupServiceLifecycleTest {
 
     @Test
-    void closeAsyncShouldCloseSetupWorkerExecutor() throws Exception {
+    void closeShouldCloseSetupWorkerExecutor() throws Exception {
         PeeGeeQDatabaseSetupService service = new PeeGeeQDatabaseSetupService();
         WorkerExecutor worker = service.setupWorkerExecutor();
 
@@ -25,7 +25,7 @@ class PeeGeeQDatabaseSetupServiceLifecycleTest {
                 .toCompletableFuture()
                 .get(5, TimeUnit.SECONDS);
 
-        service.closeAsync().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+        service.close().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
 
         RuntimeException thrown = assertThrows(RuntimeException.class, () ->
             worker.executeBlocking(() -> "after-close", false)
@@ -41,44 +41,16 @@ class PeeGeeQDatabaseSetupServiceLifecycleTest {
     }
 
     @Test
-    void closeAsyncShouldNotCloseExternalVertx() throws Exception {
+    void closeShouldNotCloseExternalVertx() throws Exception {
         Vertx externalVertx = Vertx.vertx();
         try {
             PeeGeeQDatabaseSetupService service = createServiceInsideVertxContext(externalVertx);
 
-            service.closeAsync().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+            service.close().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
 
             CompletableFuture<Void> stillUsable = new CompletableFuture<>();
             externalVertx.runOnContext(v -> stillUsable.complete(null));
             stillUsable.get(5, TimeUnit.SECONDS);
-        } finally {
-            externalVertx.close().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        }
-    }
-
-    @Test
-    void closeShouldThrowOnEventLoopThread() throws Exception {
-        Vertx externalVertx = Vertx.vertx();
-        try {
-            PeeGeeQDatabaseSetupService service = createServiceInsideVertxContext(externalVertx);
-
-            CompletableFuture<Throwable> failure = new CompletableFuture<>();
-            externalVertx.runOnContext(v -> {
-                try {
-                    service.close();
-                    failure.complete(null);
-                } catch (Throwable t) {
-                    failure.complete(t);
-                }
-            });
-
-            Throwable thrown = failure.get(5, TimeUnit.SECONDS);
-            assertNotNull(thrown);
-            assertTrue(thrown instanceof IllegalStateException);
-            assertTrue(thrown.getMessage().contains("closeAsync()"));
-
-            // Close service properly from non-event-loop thread.
-            service.closeAsync().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
         } finally {
             externalVertx.close().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
         }

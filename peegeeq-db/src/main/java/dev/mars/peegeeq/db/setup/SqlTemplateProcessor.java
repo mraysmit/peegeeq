@@ -30,7 +30,7 @@ public class SqlTemplateProcessor {
      * @param parameters The parameters to substitute in the templates
      * @return Future that completes when all templates have been applied
      */
-    public Future<Void> applyTemplateReactive(SqlConnection connection, String templateDir,
+    public Future<Void> applyTemplate(SqlConnection connection, String templateDir,
                                             Map<String, String> parameters) {
         logger.debug("Applying template directory: {}", templateDir);
 

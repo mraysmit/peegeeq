@@ -63,7 +63,7 @@ public class PgConnectionManagerTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) {
         if (connectionManager != null) {
-            connectionManager.closeAsync()
+            connectionManager.close()
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
         } else {

@@ -149,7 +149,7 @@ class OutboxConsumerSurgicalCoverageTest {
 
     /**
      * Test consumer with custom batch size to cover batchSize configuration branch.
-     * processAvailableMessagesReactive() uses configuration.getQueueConfig().getBatchSize().
+     * processAvailableMessages() uses configuration.getQueueConfig().getBatchSize().
      */
     @Test
     void testConsumerWithCustomBatchSize(Vertx vertx, VertxTestContext testContext) throws Exception {
@@ -280,7 +280,7 @@ class OutboxConsumerSurgicalCoverageTest {
 
     /**
      * Test message with all header fields populated including correlationId.
-     * processRowReactive() adds correlationId to headers if present.
+     * processRow() adds correlationId to headers if present.
      */
     @Test
     void testMessageWithCorrelationId(Vertx vertx, VertxTestContext testContext) throws Exception {

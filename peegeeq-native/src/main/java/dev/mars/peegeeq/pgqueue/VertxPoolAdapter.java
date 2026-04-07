@@ -80,23 +80,6 @@ public class VertxPoolAdapter {
     }
 
     /**
-     * Closes the adapter (no-op as adapter does not own resources).
-     */
-    public void close() {
-        // No-op: adapter does not own Vert.x or the pool
-        logger.debug("Closed VertxPoolAdapter (no-op)");
-    }
-
-    /**
-     * Async close (no-op as adapter does not own resources).
-     *
-     * @return A succeeded future
-     */
-    public Future<Void> closeAsync() {
-        return Future.succeededFuture();
-    }
-
-    /**
      * Gets the Vert.x instance.
      *
      * @return The Vert.x instance

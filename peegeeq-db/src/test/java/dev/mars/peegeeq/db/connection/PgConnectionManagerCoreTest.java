@@ -51,7 +51,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
     @AfterEach
     void tearDown() throws Exception {
         if (connectionManager != null) {
-            connectionManager.closeAsync();
+            connectionManager.close();
         }
     }
 
@@ -69,7 +69,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
     void testPgConnectionManagerCreationWithoutMeterRegistry() {
         PgConnectionManager cm = new PgConnectionManager(manager.getVertx());
         assertNotNull(cm);
-        cm.closeAsync();
+        cm.close();
     }
 
     @Test
@@ -319,7 +319,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testClosePoolAsync() throws Exception {
+    void testClosePool() throws Exception {
         PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
@@ -336,7 +336,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
         assertNotNull(connectionManager.getExistingPool("test-service"));
 
         // Close pool
-        connectionManager.closePoolAsync("test-service")
+        connectionManager.closePool("test-service")
             .toCompletionStage().toCompletableFuture().get();
 
         // Verify pool is removed
@@ -344,9 +344,9 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testClosePoolAsyncNonExistentService() throws Exception {
+    void testClosePoolNonExistentService() throws Exception {
         // Closing non-existent pool should succeed without error
-        connectionManager.closePoolAsync("non-existent-service")
+        connectionManager.closePool("non-existent-service")
             .toCompletionStage().toCompletableFuture().get();
     }
 
@@ -370,7 +370,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
         assertNotNull(connectionManager.getExistingPool("test-service-2"));
 
         // Close all pools
-        connectionManager.closeAsync()
+        connectionManager.close()
             .toCompletionStage().toCompletableFuture().get();
 
         // Verify all pools are removed
@@ -381,7 +381,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
     @Test
     void testCloseAsyncWithNoPools() throws Exception {
         // Closing with no pools should succeed without error
-        connectionManager.closeAsync()
+        connectionManager.close()
             .toCompletionStage().toCompletableFuture().get();
     }
 
@@ -403,7 +403,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
         assertNotNull(connectionManager.getExistingPool("test-service"));
 
         // Close asynchronously and await
-        connectionManager.closeAsync()
+        connectionManager.close()
             .toCompletionStage().toCompletableFuture().get();
 
         // Verify pool is removed

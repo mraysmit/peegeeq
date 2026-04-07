@@ -81,7 +81,7 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
     @AfterEach
     void tearDown() throws Exception {
         if (connectionManager != null) {
-            connectionManager.closeAsync();
+            connectionManager.close();
         }
     }
 

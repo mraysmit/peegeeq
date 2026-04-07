@@ -206,7 +206,7 @@ public class PgClientFactoryTest {
 
     @Test
     void testAsyncLifecycleManagement() throws Exception {
-        logger.info("TEST: Async lifecycle management - closeAsync and removeClientAsync");
+        logger.info("TEST: Async lifecycle management - close and removeClient");
         
         String client1Id = "test-client-async-1";
         String client2Id = "test-client-async-2";
@@ -221,7 +221,7 @@ public class PgClientFactoryTest {
         
         VertxTestContext testContext = new VertxTestContext();
         
-        factory.removeClientAsync(client1Id)
+        factory.removeClient(client1Id)
             .compose(v -> {
                 testContext.verify(() -> {
                     assertEquals(1, factory.getAvailableClients().size(), "Should have 1 client after removal");

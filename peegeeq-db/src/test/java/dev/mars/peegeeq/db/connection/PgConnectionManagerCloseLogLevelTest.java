@@ -90,7 +90,7 @@ public class PgConnectionManagerCloseLogLevelTest {
         logCapture.stop();
 
         if (connectionManager != null) {
-            connectionManager.closeAsync()
+            connectionManager.close()
                     .recover(t -> Future.succeededFuture())
                     .onComplete(v -> testContext.completeNow());
         } else {
@@ -118,7 +118,7 @@ public class PgConnectionManagerCloseLogLevelTest {
         connectionManager.getOrCreateReactivePool("test-service", config, poolConfig);
 
         logCapture.clear();
-        connectionManager.closeAsync()
+        connectionManager.close()
                 .onSuccess(v -> testContext.verify(() -> {
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
                     boolean hasPoolCloseError = errors.stream()
@@ -177,7 +177,7 @@ public class PgConnectionManagerCloseLogLevelTest {
                     // Stop the database to cause pool close failures
                     ownContainer.stop();
                     ownCapture.clear();
-                    return ownConnMgr.closeAsync();
+                    return ownConnMgr.close();
                 })
                 .onComplete(ar -> testContext.verify(() -> {
                     // closeAsync() completes via .recover() even when pools fail
@@ -203,7 +203,7 @@ public class PgConnectionManagerCloseLogLevelTest {
     void testCloseWithNoPoolsNoError(VertxTestContext testContext) throws InterruptedException {
         // Don't create any pools
         logCapture.clear();
-        connectionManager.closeAsync()
+        connectionManager.close()
                 .onSuccess(v -> testContext.verify(() -> {
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
                     assertTrue(errors.isEmpty(),

@@ -36,7 +36,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 
 /**
  * Coverage-focused tests for OutboxConsumer error handling paths.
- * Targets specific uncovered branches in markMessageFailedReactive, 
+ * Targets specific uncovered branches in markMessageFailed, 
  * retry exhaustion, and DLQ operations.
  */
 @Tag(TestCategories.INTEGRATION)

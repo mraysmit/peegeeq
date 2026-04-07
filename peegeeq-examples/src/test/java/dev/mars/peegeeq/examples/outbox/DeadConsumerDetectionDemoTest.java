@@ -167,7 +167,7 @@ class DeadConsumerDetectionDemoTest {
     void tearDown() {
         if (connectionManager != null) {
             try {
-                connectionManager.closeAsync();
+                connectionManager.close();
             } catch (Exception e) {
                 logger.warn("Error closing connection manager: {}", e.getMessage());
             }

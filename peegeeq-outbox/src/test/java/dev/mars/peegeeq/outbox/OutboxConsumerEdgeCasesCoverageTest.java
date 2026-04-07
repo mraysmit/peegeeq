@@ -109,7 +109,7 @@ class OutboxConsumerEdgeCasesCoverageTest {
     }
 
     /**
-     * Tests shutdown race condition at the start of processAvailableMessagesReactive (line 249).
+     * Tests shutdown race condition at the start of processAvailableMessages (line 249).
      * This test closes the consumer immediately after subscribe to trigger the closed.get() check.
      */
     @Test
@@ -203,7 +203,7 @@ class OutboxConsumerEdgeCasesCoverageTest {
     }
 
     /**
-     * Tests error handler in incrementRetryAndResetReactive (lines 591-598).
+     * Tests error handler in incrementRetryAndReset (lines 591-598).
      * This tests the onFailure handler for retry count increment operations.
      */
     @Test

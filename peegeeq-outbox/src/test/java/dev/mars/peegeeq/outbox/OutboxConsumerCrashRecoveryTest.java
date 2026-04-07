@@ -142,7 +142,7 @@ public class OutboxConsumerCrashRecoveryTest {
             closeLatch.await(10, TimeUnit.SECONDS);
         }
         if (connectionManager != null) {
-            connectionManager.closeAsync();
+            connectionManager.close();
         }
         
         // Clear system properties

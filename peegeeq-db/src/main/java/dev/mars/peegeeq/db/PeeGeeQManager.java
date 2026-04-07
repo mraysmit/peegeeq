@@ -273,7 +273,7 @@ public class PeeGeeQManager implements AutoCloseable {
                 // Stop background tasks and health checks on failure to prevent leaks
                 stopBackgroundTasks();
                 
-                return healthCheckManager.stopReactive()
+                return healthCheckManager.stop()
                     .recover(e -> Future.succeededFuture()) // Ignore errors during stop
                     .compose(v -> publishLifecycleEvent("manager.failed"))
                     .compose(v -> Future.failedFuture(new RuntimeException("Failed to start PeeGeeQ Manager", throwable)));
@@ -298,7 +298,7 @@ public class PeeGeeQManager implements AutoCloseable {
 
         // Stop health checks asynchronously to avoid blocking event loop
         logger.debug("DB-DEBUG: Stopping health check manager");
-        return healthCheckManager.stopReactive()
+        return healthCheckManager.stop()
             .compose(v -> {
                 logger.debug("DB-DEBUG: Health check manager stopped successfully");
                 started = false;
@@ -395,7 +395,7 @@ public class PeeGeeQManager implements AutoCloseable {
                 return chain;
             })
             .compose(v -> {
-                // 3. Timer cancellation already handled by stopReactive()->stopBackgroundTasks()
+                // 3. Timer cancellation already handled by stop()->stopBackgroundTasks()
                 //    No duplicate cancellation needed here (H4 remediation)
 
                 // 4. Close worker executor (finish pending tasks)
@@ -503,6 +503,9 @@ public class PeeGeeQManager implements AutoCloseable {
     // Getters for new provider interfaces
     public DatabaseService getDatabaseService() { return databaseService; }
     public QueueFactoryProvider getQueueFactoryProvider() { return queueFactoryProvider; }
+
+    /** Returns the dead consumer detection job, or {@code null} if not configured/started. */
+    DeadConsumerDetectionJob getDeadConsumerDetectionJob() { return deadConsumerDetectionJob; }
 
     /**
      * Gets the queue factory registrar for registering new factory implementations.
@@ -729,9 +732,9 @@ public class PeeGeeQManager implements AutoCloseable {
 
         return AsyncTraceUtils.traceAsyncAction(vertx, "manager.start_components", () ->
             Future.all(
-                startHealthChecksReactive(),
-                startMetricsCollectionReactive(),
-                startBackgroundTasksReactive()
+                startHealthChecks(),
+                startMetricsCollection(),
+                startBackgroundTasks()
             ).compose(compositeFuture -> {
                 logger.info("All PeeGeeQ components started successfully");
                 return Future.succeededFuture();
@@ -742,10 +745,10 @@ public class PeeGeeQManager implements AutoCloseable {
     /**
      * Starts health checks reactively without blocking operations.
      */
-    private Future<Void> startHealthChecksReactive() {
+    private Future<Void> startHealthChecks() {
         return AsyncTraceUtils.traceAsyncAction(vertx, "manager.start_health_checks", () -> {
             logger.debug("DB-DEBUG: Starting health check manager reactively");
-            return healthCheckManager.startReactive()
+            return healthCheckManager.start()
                 .onSuccess(v -> logger.debug("DB-DEBUG: Health check manager started successfully"))
                 .onFailure(throwable -> logger.error("DB-DEBUG: Failed to start health check manager", throwable));
         });
@@ -754,7 +757,7 @@ public class PeeGeeQManager implements AutoCloseable {
     /**
      * Starts metrics collection reactively using Vert.x timers.
      */
-    private Future<Void> startMetricsCollectionReactive() {
+    private Future<Void> startMetricsCollection() {
         return AsyncTraceUtils.traceAsyncAction(vertx, "manager.start_metrics", () -> {
             if (!configuration.getMetricsConfig().isEnabled()) {
                 logger.debug("DB-DEBUG: Metrics collection disabled by configuration");
@@ -783,11 +786,11 @@ public class PeeGeeQManager implements AutoCloseable {
     }
 
     /**
-     * Starts background tasks reactively using Vert.x timers.
+     * Starts background tasks using Vert.x timers.
      */
-    private Future<Void> startBackgroundTasksReactive() {
+    private Future<Void> startBackgroundTasks() {
         return AsyncTraceUtils.traceAsyncAction(vertx, "manager.start_background_tasks", () -> {
-            logger.debug("DB-DEBUG: Starting background cleanup tasks reactively");
+            logger.debug("DB-DEBUG: Starting background cleanup tasks");
 
             // Dead letter queue cleanup every 24 hours
             dlqTimerId = vertx.setPeriodic(TimeUnit.HOURS.toMillis(DLQ_CLEANUP_INTERVAL_HOURS), id -> {

@@ -92,13 +92,13 @@ class MultiConfigurationIntegrationTest {
         configManager.registerConfiguration("reliable", "test");
         configManager.registerConfiguration("test", "test");
 
-        configManager.startReactive().await();
+        configManager.start().await();
     }
 
     @AfterEach
     void tearDown() {
         if (configManager != null) {
-            configManager.closeReactive().await();
+            configManager.close().await();
         }
         if (postgres != null) {
             postgres.stop();

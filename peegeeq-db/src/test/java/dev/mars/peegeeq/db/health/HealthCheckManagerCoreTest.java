@@ -81,10 +81,10 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
     @AfterEach
     void tearDown() throws Exception {
         if (healthCheckManager != null && healthCheckManager.isRunning()) {
-            awaitFuture(healthCheckManager.stopReactive());
+            awaitFuture(healthCheckManager.stop());
         }
         if (connectionManager != null) {
-            connectionManager.closeAsync();
+            connectionManager.close();
         }
     }
 
@@ -97,19 +97,19 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
     @Test
     void testStartAndStop() throws Exception {
         // Start health check manager
-        awaitFuture(healthCheckManager.startReactive());
+        awaitFuture(healthCheckManager.start());
 
         assertTrue(healthCheckManager.isRunning());
 
         // Stop health check manager
-        awaitFuture(healthCheckManager.stopReactive());
+        awaitFuture(healthCheckManager.stop());
         assertFalse(healthCheckManager.isRunning());
     }
 
     @Test
     void testDatabaseHealthCheck() throws Exception {
         // Start health check manager
-        awaitFuture(healthCheckManager.startReactive());
+        awaitFuture(healthCheckManager.start());
 
         // Wait for health checks to run
         awaitTimer(500);
@@ -124,7 +124,7 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
     @Test
     void testMemoryHealthCheck() throws Exception {
         // Start health check manager
-        awaitFuture(healthCheckManager.startReactive());
+        awaitFuture(healthCheckManager.start());
 
         // Wait for health checks to run
         awaitTimer(500);
@@ -144,7 +144,7 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
     @Test
     void testDiskSpaceHealthCheck() throws Exception {
         // Start health check manager
-        awaitFuture(healthCheckManager.startReactive());
+        awaitFuture(healthCheckManager.start());
 
         // Wait for health checks to run
         awaitTimer(500);
@@ -164,7 +164,7 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
     @Test
     void testOverallHealthStatus() throws Exception {
         // Start health check manager
-        awaitFuture(healthCheckManager.startReactive());
+        awaitFuture(healthCheckManager.start());
 
         // Wait for health checks to run
         awaitTimer(500);
@@ -183,7 +183,7 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
     @Test
     void testIsHealthy() throws Exception {
         // Start health check manager
-        awaitFuture(healthCheckManager.startReactive());
+        awaitFuture(healthCheckManager.start());
 
         // Wait for health checks to run
         awaitTimer(500);
@@ -199,7 +199,7 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
         healthCheckManager.registerHealthCheck("custom-check", customCheck);
 
         // Start health check manager
-        awaitFuture(healthCheckManager.startReactive());
+        awaitFuture(healthCheckManager.start());
 
         // Wait for health checks to run
         awaitTimer(500);
@@ -214,7 +214,7 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
     @Test
     void testQueueHealthChecksDisabled() throws Exception {
         // Start health check manager (queue health checks disabled in setUp)
-        awaitFuture(healthCheckManager.startReactive());
+        awaitFuture(healthCheckManager.start());
 
         // Wait for health checks to run
         awaitTimer(500);
@@ -238,7 +238,7 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
 
         try {
             // Start health check manager
-            awaitFuture(queueEnabledManager.startReactive());
+            awaitFuture(queueEnabledManager.start());
 
             // Wait for health checks to run
             awaitTimer(500);
@@ -259,7 +259,7 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
 
         } finally {
             if (queueEnabledManager.isRunning()) {
-                awaitFuture(queueEnabledManager.stopReactive());
+                awaitFuture(queueEnabledManager.stop());
             }
         }
     }
@@ -267,12 +267,12 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
     @Test
     void testStartWhenAlreadyRunning() throws Exception {
         // Start health check manager
-        awaitFuture(healthCheckManager.startReactive());
+        awaitFuture(healthCheckManager.start());
 
         assertTrue(healthCheckManager.isRunning());
 
         // Try to start again - should log warning but not fail
-        awaitFuture(healthCheckManager.startReactive());
+        awaitFuture(healthCheckManager.start());
 
         assertTrue(healthCheckManager.isRunning());
     }
@@ -280,20 +280,20 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
     @Test
     void testStopWhenNotRunning() {
         // Stop when not running - should not throw exception
-        assertDoesNotThrow(() -> awaitFuture(healthCheckManager.stopReactive()));
+        assertDoesNotThrow(() -> awaitFuture(healthCheckManager.stop()));
         assertFalse(healthCheckManager.isRunning());
     }
 
     @Test
     void testRestartAfterStop() throws Exception {
-        awaitFuture(healthCheckManager.startReactive());
+        awaitFuture(healthCheckManager.start());
         assertTrue(healthCheckManager.isRunning());
 
-        awaitFuture(healthCheckManager.stopReactive());
+        awaitFuture(healthCheckManager.stop());
         assertFalse(healthCheckManager.isRunning());
 
         // Should be restartable on the same instance.
-        awaitFuture(healthCheckManager.startReactive());
+        awaitFuture(healthCheckManager.start());
         assertTrue(healthCheckManager.isRunning());
     }
 
@@ -334,45 +334,19 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
 
         try {
             fastManager.registerHealthCheck("slow", nonInterruptibleSlowCheck);
-            awaitFuture(fastManager.startReactive());
+            awaitFuture(fastManager.start());
 
             manager.getVertx().timer(700).toCompletionStage().toCompletableFuture().join();
 
             assertEquals(1, invocations.get(),
                 "Timed-out checks must not be re-started while a prior run is still in-flight");
         } finally {
-            awaitFuture(fastManager.stopReactive());
+            awaitFuture(fastManager.stop());
         }
     }
 
     private void awaitTimer(long delayMs) {
         awaitFuture(manager.getVertx().timer(delayMs).mapEmpty());
-    }
-
-    private <T> T awaitFuture(Future<T> future) {
-        VertxTestContext testContext = new VertxTestContext();
-        AtomicReference<T> result = new AtomicReference<>();
-        AtomicReference<Throwable> failure = new AtomicReference<>();
-
-        future
-            .onSuccess(result::set)
-            .onFailure(failure::set)
-            .eventually(() -> {
-                testContext.completeNow();
-                return Future.succeededFuture();
-            });
-
-        try {
-            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Timed out waiting for Future completion");
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new RuntimeException("Interrupted while waiting for Future completion", e);
-        }
-
-        if (failure.get() != null) {
-            throw new RuntimeException(failure.get());
-        }
-        return result.get();
     }
 }
 

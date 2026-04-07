@@ -109,7 +109,7 @@ class DeadLetterQueueManagerTest {
 
         cleanup.compose(v -> {
             if (connectionManager != null) {
-                return connectionManager.closeAsync();
+                return connectionManager.close();
             }
             return Future.succeededFuture();
         })
