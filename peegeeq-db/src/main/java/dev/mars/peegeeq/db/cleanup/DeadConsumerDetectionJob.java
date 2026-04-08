@@ -79,6 +79,7 @@ public class DeadConsumerDetectionJob {
     private volatile long timerId = -1;
     private volatile boolean running = false;
     private final AtomicBoolean detectionInProgress = new AtomicBoolean(false);
+    private volatile Future<Void> inFlightDetection = null;
 
     // Trace context for the lifecycle of this job (start → stop)
     private volatile TraceCtx lifecycleTrace;
@@ -158,11 +159,16 @@ public class DeadConsumerDetectionJob {
 
     /**
      * Stops the periodic dead consumer detection job.
+     *
+     * <p>Returns a Future that completes when any in-flight detection run finishes,
+     * ensuring callers can await clean shutdown before closing DB pools.</p>
+     *
+     * @return Future that completes when the job is fully stopped
      */
-    public void stop() {
+    public Future<Void> stop() {
         if (!running) {
             logger.debug("DeadConsumerDetectionJob is not running, nothing to stop");
-            return;
+            return Future.succeededFuture();
         }
 
         TraceCtx stopTrace = lifecycleTrace != null ? lifecycleTrace : TraceCtx.createNew();
@@ -184,10 +190,27 @@ public class DeadConsumerDetectionJob {
             timerId = -1;
         }
 
+        // Await any in-flight detection run before declaring stop complete
+        Future<Void> pending = inFlightDetection;
+        if (pending != null) {
+            try (var scope = TraceContextUtil.mdcScope(stopTrace)) {
+                logger.info("Awaiting in-flight detection run before stop completes");
+            }
+            return pending.recover(e -> Future.succeededFuture())
+                    .map(v -> {
+                        try (var scope = TraceContextUtil.mdcScope(stopTrace)) {
+                            logger.info("DeadConsumerDetectionJob stopped");
+                        }
+                        lifecycleTrace = null;
+                        return (Void) null;
+                    });
+        }
+
         try (var scope = TraceContextUtil.mdcScope(stopTrace)) {
             logger.info("DeadConsumerDetectionJob stopped");
         }
         lifecycleTrace = null;
+        return Future.succeededFuture();
     }
 
     /**
@@ -275,7 +298,7 @@ public class DeadConsumerDetectionJob {
             logger.debug("Detection run #{} starting", runNumber);
         }
 
-        detector.detectAllDeadSubscriptionsWithDetails()
+        Future<Integer> detection = detector.detectAllDeadSubscriptionsWithDetails()
                 .compose(result -> {
                     long detectionMs = System.currentTimeMillis() - overallStartMs;
                     consecutiveFailures.set(0);
@@ -333,6 +356,14 @@ public class DeadConsumerDetectionJob {
                                     runNumber, elapsed, error.getMessage(), error);
                         }
                     }
+                });
+
+        // Track in-flight detection so stop() can await it before pools close
+        inFlightDetection = detection.<Void>mapEmpty()
+                .recover(e -> Future.succeededFuture())
+                .eventually(() -> {
+                    inFlightDetection = null;
+                    return Future.succeededFuture();
                 });
     }
 

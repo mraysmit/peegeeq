@@ -46,6 +46,7 @@ public class TraceContextUtil {
     public static final String MDC_MESSAGE_ID = "messageId";
     public static final String MDC_SETUP_ID = "setupId";
     public static final String MDC_QUEUE_NAME = "queueName";
+    public static final String MDC_CONSUMER_GROUP = "consumerGroup";
     
     // Vert.x Context keys
     public static final String CONTEXT_TRACE_KEY = "trace.ctx";
@@ -229,6 +230,7 @@ public class TraceContextUtil {
         MDC.remove(MDC_MESSAGE_ID);
         MDC.remove(MDC_SETUP_ID);
         MDC.remove(MDC_QUEUE_NAME);
+        MDC.remove(MDC_CONSUMER_GROUP);
     }
     
     /**

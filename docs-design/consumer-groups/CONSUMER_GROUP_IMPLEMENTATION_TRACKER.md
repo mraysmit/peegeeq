@@ -3,7 +3,7 @@
 **Purpose**: Honest, verified tracking of what is actually implemented vs what the design specifies.  
 **Author**: Mark Andrew Ray-Smith, Cityline Ltd  
 **Created**: 2026-03-01  
-**Last Verified**: 2026-04-06 (updated after document consolidation and future work audit)  
+**Last Verified**: 2026-04-08 (updated method names after Async/Reactive suffix cleanup)  
 **Design Reference**: [PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md](PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md)  
 **Tracing/Observability References**:  
 - [PEEGEEQ_TRACING_ARCHITECTURE_GUIDE.md](../tracing-observability/PEEGEEQ_TRACING_ARCHITECTURE_GUIDE.md) — All async code must use `AsyncTraceUtils` wrappers  
@@ -199,7 +199,7 @@ Primary sources:
 - Detection → cleanup chained automatically: after detecting dead consumers, `cleanup.cleanupAllDeadGroups()` runs
 - Overlap guard: skips detection if previous run still in progress (verified by concurrent guard integration test)
 - Lifetime stats accessible: `getTotalRunCount()`, `getTotalDeadDetected()`, `getTotalFailures()`
-- Wired into `PeeGeeQManager.startBackgroundTasksReactive()` with auto-start on boot and auto-stop on shutdown
+- Wired into `PeeGeeQManager.startBackgroundTasks()` with auto-start on boot and auto-stop on shutdown
 - Configurable via `peegeeq.queue.dead-consumer-detection.enabled` (default: true) and `peegeeq.queue.dead-consumer-detection.interval` (default: 60s)
 - 8 integration tests across 1 class — all passing:
   - `DeadConsumerDetectionJobIntegrationTest` (8 tests) — includes end-to-end pipeline test and concurrent overlap guard test
@@ -454,7 +454,7 @@ AND required_consumer_groups > 0;
 
 **Status**: ✅ Completed
 
-**Implementation**: Wired into `PeeGeeQManager.startBackgroundTasksReactive()` with auto-start on boot and auto-stop on shutdown. Added configurable properties `peegeeq.queue.dead-consumer-detection.enabled` (default: true) and `peegeeq.queue.dead-consumer-detection.interval` (default: 60s) to `QueueConfig`. Config validation enforces interval ≥ 10s. All 3 CRITICAL tasks (C1, C2, C3) now complete.
+**Implementation**: Wired into `PeeGeeQManager.startBackgroundTasks()` with auto-start on boot and auto-stop on shutdown. Added configurable properties `peegeeq.queue.dead-consumer-detection.enabled` (default: true) and `peegeeq.queue.dead-consumer-detection.interval` (default: 60s) to `QueueConfig`. Config validation enforces interval ≥ 10s. All 3 CRITICAL tasks (C1, C2, C3) now complete.
 
 ### HIGH — Should Fix (functional gaps that affect correctness)
 
@@ -667,11 +667,11 @@ AND required_consumer_groups > 0;
 ### MEDIUM — Should Address (future)
 
 #### Task M7: Service Manager Integration Test
-**What**: Verify that `PeeGeeQManager.startBackgroundTasksReactive()` actually starts the `DeadConsumerDetectionJob` and that shutdown stops it  
+**What**: Verify that `PeeGeeQManager.startBackgroundTasks()` actually starts the `DeadConsumerDetectionJob` and that shutdown stops it  
 **Where**: New integration test in `peegeeq-db` or `peegeeq-integration-tests`  
 **Current State**: C3 wired the job into `PeeGeeQManager`, but no test verified the boot→run→shutdown lifecycle via the manager  
 **Acceptance Criteria**:
-- Test creates a `PeeGeeQManager`, calls `start()` (which calls `startBackgroundTasksReactive()`)
+- Test creates a `PeeGeeQManager`, calls `start()` (which calls `startBackgroundTasks()`)
 - Verifies `DeadConsumerDetectionJob` is running (e.g., `getTotalRunCount() > 0` after a delay)
 - Calls manager shutdown and verifies job is stopped
 - Uses real PostgreSQL via Testcontainers
@@ -864,7 +864,7 @@ This tracker is the sole source of truth for consumer group fan-out implementati
 | 2026-03-01 | Added operational logging: `DeadConsumerDetector` now returns structured `DetectionResult`, `BlockedMessageStats`, `SubscriptionSummary`. `DeadConsumerDetectionJob` rewritten with per-run summaries, blocked message impact, critical alerts (>1000 msgs or >24h blocked), subscription landscape, failure tracking, overlap guard, lifetime stats, human-readable durations. | — |
 | 2026-03-01 | Tracing/observability cross-reference: Expanded "Metrics/Monitoring" into 7 granular rows. Added new section "Tracing & Observability — Gap Analysis" documenting zero tracing instrumentation across all consumer group code, inconsistency where User Guide promises Prometheus metrics that don't exist, and summary-only monitoring endpoint coverage. Added tasks M3-M6 (tracing instrumentation) and L4-L7 (monitoring endpoints). Added tracing doc references to header. | — |
 | 2026-03-01 | **C1+C2 Completed**: Created `DeadConsumerGroupCleanup.java` (~250 lines) with 3-step transactional cleanup (decrement → orphan removal → auto-complete). Wired into `DeadConsumerDetectionJob` — detection now chains cleanup automatically with per-group logging, cumulative stats, and cleanup failure tracking. Created `DeadConsumerGroupCleanupIntegrationTest.java` (8 tests). Updated job constructor to require cleanup dependency. | — |
-| 2026-03-01 | **C3 Completed**: Wired `DeadConsumerDetectionJob` into `PeeGeeQManager.startBackgroundTasksReactive()` with auto-start on boot and auto-stop on shutdown. Added configurable properties `peegeeq.queue.dead-consumer-detection.enabled` (default: true) and `peegeeq.queue.dead-consumer-detection.interval` (default: 60s) to `QueueConfig`. Added config validation (interval ≥ 10s). All 3 CRITICAL tasks (C1, C2, C3) now complete. | — |
+| 2026-03-01 | **C3 Completed**: Wired `DeadConsumerDetectionJob` into `PeeGeeQManager.startBackgroundTasks()` with auto-start on boot and auto-stop on shutdown. Added configurable properties `peegeeq.queue.dead-consumer-detection.enabled` (default: true) and `peegeeq.queue.dead-consumer-detection.interval` (default: 60s) to `QueueConfig`. Added config validation (interval ≥ 10s). All 3 CRITICAL tasks (C1, C2, C3) now complete. | — |
 | 2026-03-01 | **Comprehensive test coverage pass**: Created `DeadConsumerDetectorComprehensiveTest.java` (10 tests, 695 lines) covering PAUSED detection, CANCELLED exclusion, already-DEAD re-detection, mixed subscription states, `DetectionResult`/`BlockedMessageStats`/`SubscriptionSummary` API validation, `countEligibleForDeadDetection`, and boundary conditions. Added `testEndToEndDetectCleanupPipeline` (detect→cleanup→auto-complete full pipeline) and `testConcurrentDetectionGuardPreventsOverlap` (pure integration, validates overlap guard skips concurrent invocations) to `DeadConsumerDetectionJobIntegrationTest`. Added `testCleanupContinuesAfterOneGroupFails` (subclass override injection, validates `.recover()` error isolation) to `DeadConsumerGroupCleanupIntegrationTest`. | — |
 | 2026-03-01 | **Test infrastructure fixes**: Fixed 4 test classes for JUnit 5 parallel execution safety — added `@Execution(ExecutionMode.SAME_THREAD)` to prevent intra-class parallel interference. Removed `@Tag(FLAKY)` from `DeadConsumerDetectorIntegrationTest` after fixing root cause (hardcoded topic names + exact count assertions in parallel environment). All tests now use UUID-based unique topic names and verify final subscription status instead of exact detection counts. Fixed 3 pre-existing `SubscriptionOptions` builder validation bugs (`heartbeatTimeoutSeconds` must be strictly > `heartbeatIntervalSeconds`). All 40 dead consumer tests across 5 classes now passing with 0 failures. Test classes verified as actually running against real PostgreSQL via Testcontainers. | — |
 | 2026-03-01 | **H1 Completed**: Heartbeat auto-resurrection. `SubscriptionManager.updateHeartbeat()` now conditionally transitions DEAD→ACTIVE using `CASE WHEN subscription_status = 'DEAD' THEN 'ACTIVE' ELSE subscription_status END`. CTE captures pre-update status for INFO-level resurrection logging. CANCELLED and PAUSED subscriptions are unaffected. 3 new tests added to `SubscriptionManagerIntegrationTest`. Full regression: 49 tests, 0 failures across 6 classes. | — |
