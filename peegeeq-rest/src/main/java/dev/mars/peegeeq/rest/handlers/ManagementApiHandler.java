@@ -11,6 +11,7 @@ import dev.mars.peegeeq.api.setup.DatabaseSetupResult;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
 import dev.mars.peegeeq.api.subscription.SubscriptionService;
+import io.vertx.core.Future;
 import io.vertx.core.json.JsonArray;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.web.RoutingContext;
@@ -80,24 +81,30 @@ public class ManagementApiHandler {
     public void getSystemOverview(RoutingContext ctx) {
         logger.debug("System overview requested");
 
-        try {
-            JsonObject overview = new JsonObject()
-                    .put("systemStats", getSystemStats())
-                    .put("queueSummary", getQueueSummary())
-                    .put("consumerGroupSummary", getConsumerGroupSummary())
-                    .put("eventStoreSummary", getEventStoreSummary())
-                    .put("recentActivity", getRecentActivity())
-                    .put("timestamp", System.currentTimeMillis());
+        Future.all(getRealQueues(), getRealConsumerGroups(), getRealEventStores(), getRecentActivity())
+                .onSuccess(cf -> {
+                    JsonArray queues = cf.resultAt(0);
+                    JsonArray consumerGroups = cf.resultAt(1);
+                    JsonArray eventStores = cf.resultAt(2);
+                    JsonArray recentActivity = cf.resultAt(3);
 
-            ctx.response()
-                    .setStatusCode(200)
-                    .putHeader("content-type", "application/json")
-                    .end(overview.encode());
+                    JsonObject overview = new JsonObject()
+                            .put("systemStats", buildSystemStats(queues, consumerGroups, eventStores))
+                            .put("queueSummary", buildQueueSummary(queues))
+                            .put("consumerGroupSummary", buildConsumerGroupSummary(consumerGroups))
+                            .put("eventStoreSummary", buildEventStoreSummary(eventStores))
+                            .put("recentActivity", recentActivity)
+                            .put("timestamp", System.currentTimeMillis());
 
-        } catch (Exception e) {
-            logger.error("Error getting system overview: {}", e.getMessage(), e);
-            sendError(ctx, 500, "Failed to get system overview: " + e.getMessage());
-        }
+                    ctx.response()
+                            .setStatusCode(200)
+                            .putHeader("content-type", "application/json")
+                            .end(overview.encode());
+                })
+                .onFailure(e -> {
+                    logger.error("Error getting system overview: {}", e.getMessage(), e);
+                    sendError(ctx, 500, "Failed to get system overview: " + e.getMessage());
+                });
     }
 
     /**
@@ -107,88 +114,102 @@ public class ManagementApiHandler {
     public void getQueues(RoutingContext ctx) {
         logger.debug("Queue list requested");
 
-        try {
-            // Get all active setups and their queues
-            JsonArray queues = getRealQueues();
+        getRealQueues()
+                .onSuccess(queues -> {
+                    JsonObject response = new JsonObject()
+                            .put("message", "Queues retrieved successfully")
+                            .put("queueCount", queues.size())
+                            .put("queues", queues)
+                            .put("timestamp", System.currentTimeMillis());
 
-            JsonObject response = new JsonObject()
-                    .put("message", "Queues retrieved successfully")
-                    .put("queueCount", queues.size())
-                    .put("queues", queues)
-                    .put("timestamp", System.currentTimeMillis());
-
-            ctx.response()
-                    .setStatusCode(200)
-                    .putHeader("content-type", "application/json")
-                    .end(response.encode());
-        } catch (Exception e) {
-            logger.error("Error retrieving queues", e);
-            sendError(ctx, 500, "Failed to retrieve queues: " + e.getMessage());
-        }
+                    ctx.response()
+                            .setStatusCode(200)
+                            .putHeader("content-type", "application/json")
+                            .end(response.encode());
+                })
+                .onFailure(e -> {
+                    logger.error("Error retrieving queues", e);
+                    sendError(ctx, 500, "Failed to retrieve queues: " + e.getMessage());
+                });
     }
 
     /**
      * Gets real queue data from active setups.
      */
-    private JsonArray getRealQueues() {
-        JsonArray queues = new JsonArray();
-
-        try {
-            // Get all active setups and their queues synchronously
-            Set<String> activeSetupIds = setupService.getAllActiveSetupIds().await();
-
-            for (String setupId : activeSetupIds) {
-                try {
-                    DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).await();
-
-                    if (setupResult.getStatus() == DatabaseSetupStatus.ACTIVE) {
-                        // Get all queue factories from this setup
-                        Map<String, QueueFactory> queueFactories = setupResult.getQueueFactories();
-
-                        for (Map.Entry<String, QueueFactory> entry : queueFactories.entrySet()) {
-                            String queueName = entry.getKey();
-                            QueueFactory factory = entry.getValue();
-
-                            // Get real statistics for this queue
-                            long messageCount = getRealMessageCount(setupResult, queueName);
-                            int consumerCount = getRealConsumerCount(setupResult, queueName);
-                            double messageRate = getRealMessageRate(setupResult, queueName);
-                            double avgProcessingTime = getRealAvgProcessingTime(setupResult, queueName);
-
-                            // Create queue object with flat structure matching frontend Queue type
-                            JsonObject queue = new JsonObject()
-                                    .put("setupId", setupId)
-                                    .put("setup", setupId) // Alias for UI compatibility
-                                    .put("queueName", queueName)
-                                    .put("name", queueName) // Alias for UI compatibility
-                                    .put("type", factory.getImplementationType())
-                                    .put("status", factory.isHealthy() ? "active" : "error")
-                                    .put("messageCount", messageCount)
-                                    .put("messages", messageCount) // Alias for UI compatibility
-                                    .put("consumerCount", consumerCount)
-                                    .put("consumers", consumerCount) // Alias for UI compatibility
-                                    .put("messagesPerSecond", messageRate)
-                                    .put("messageRate", messageRate) // Alias for UI compatibility
-                                    .put("errorRate", 0.0)
-                                    .put("createdAt", setupResult.getCreatedAt())
-                                    .put("updatedAt", Instant.now().toString());
-
-                            queues.add(queue);
-                        }
+    private Future<JsonArray> getRealQueues() {
+        return setupService.getAllActiveSetupIds()
+                .compose(activeSetupIds -> {
+                    List<Future<JsonArray>> setupFutures = new ArrayList<>();
+                    for (String setupId : activeSetupIds) {
+                        setupFutures.add(getQueuesForSetup(setupId));
                     }
+                    if (setupFutures.isEmpty()) {
+                        return Future.succeededFuture(new JsonArray());
+                    }
+                    return Future.all(setupFutures).map(cf -> {
+                        JsonArray queues = new JsonArray();
+                        for (int i = 0; i < cf.size(); i++) {
+                            JsonArray partial = cf.resultAt(i);
+                            partial.forEach(queues::add);
+                        }
+                        return queues;
+                    });
+                })
+                .recover(e -> {
+                    logger.warn("Failed to retrieve real queue data", e);
+                    return Future.failedFuture(new RuntimeException("Failed to retrieve queue data", e));
+                });
+    }
 
-                } catch (Exception e) {
-                    // Setup doesn't exist or error occurred, continue with next
+    private Future<JsonArray> getQueuesForSetup(String setupId) {
+        return setupService.getSetupResult(setupId)
+                .compose(setupResult -> {
+                    if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
+                        return Future.succeededFuture(new JsonArray());
+                    }
+                    Map<String, QueueFactory> queueFactories = setupResult.getQueueFactories();
+                    List<Future<JsonObject>> queueFutures = new ArrayList<>();
+                    for (Map.Entry<String, QueueFactory> entry : queueFactories.entrySet()) {
+                        String queueName = entry.getKey();
+                        QueueFactory factory = entry.getValue();
+                        queueFutures.add(
+                                getRealConsumerCount(setupResult, queueName).map(consumerCount -> {
+                                    long messageCount = getRealMessageCount(setupResult, queueName);
+                                    double messageRate = getRealMessageRate(setupResult, queueName);
+                                    double avgProcessingTime = getRealAvgProcessingTime(setupResult, queueName);
+                                    return new JsonObject()
+                                            .put("setupId", setupId)
+                                            .put("setup", setupId)
+                                            .put("queueName", queueName)
+                                            .put("name", queueName)
+                                            .put("type", factory.getImplementationType())
+                                            .put("status", factory.isHealthy() ? "active" : "error")
+                                            .put("messageCount", messageCount)
+                                            .put("messages", messageCount)
+                                            .put("consumerCount", consumerCount)
+                                            .put("consumers", consumerCount)
+                                            .put("messagesPerSecond", messageRate)
+                                            .put("messageRate", messageRate)
+                                            .put("errorRate", 0.0)
+                                            .put("createdAt", setupResult.getCreatedAt())
+                                            .put("updatedAt", Instant.now().toString());
+                                }));
+                    }
+                    if (queueFutures.isEmpty()) {
+                        return Future.succeededFuture(new JsonArray());
+                    }
+                    return Future.all(queueFutures).map(cf -> {
+                        JsonArray queues = new JsonArray();
+                        for (int i = 0; i < cf.size(); i++) {
+                            queues.add(cf.<JsonObject>resultAt(i));
+                        }
+                        return queues;
+                    });
+                })
+                .recover(e -> {
                     logger.debug("Setup {} not found or error occurred: {}", setupId, e.getMessage());
-                }
-            }
-
-            return queues;
-
-        } catch (Exception e) {
-            logger.warn("Failed to retrieve real queue data", e);
-            throw new RuntimeException("Failed to retrieve queue data", e);
-        }
+                    return Future.succeededFuture(new JsonArray());
+                });
     }
 
     /**
@@ -198,23 +219,23 @@ public class ManagementApiHandler {
     public void getConsumerGroups(RoutingContext ctx) {
         logger.debug("Consumer groups list requested");
 
-        try {
-            JsonArray consumerGroups = getRealConsumerGroups();
+        getRealConsumerGroups()
+                .onSuccess(consumerGroups -> {
+                    JsonObject response = new JsonObject()
+                            .put("message", "Consumer groups retrieved successfully")
+                            .put("groupCount", consumerGroups.size())
+                            .put("consumerGroups", consumerGroups)
+                            .put("timestamp", System.currentTimeMillis());
 
-            JsonObject response = new JsonObject()
-                    .put("message", "Consumer groups retrieved successfully")
-                    .put("groupCount", consumerGroups.size())
-                    .put("consumerGroups", consumerGroups)
-                    .put("timestamp", System.currentTimeMillis());
-
-            ctx.response()
-                    .setStatusCode(200)
-                    .putHeader("content-type", "application/json")
-                    .end(response.encode());
-        } catch (Exception e) {
-            logger.error("Error retrieving consumer groups", e);
-            sendError(ctx, 500, "Failed to retrieve consumer groups: " + e.getMessage());
-        }
+                    ctx.response()
+                            .setStatusCode(200)
+                            .putHeader("content-type", "application/json")
+                            .end(response.encode());
+                })
+                .onFailure(e -> {
+                    logger.error("Error retrieving consumer groups", e);
+                    sendError(ctx, 500, "Failed to retrieve consumer groups: " + e.getMessage());
+                });
     }
 
     /**
@@ -224,23 +245,23 @@ public class ManagementApiHandler {
     public void getEventStores(RoutingContext ctx) {
         logger.debug("Event stores list requested");
 
-        try {
-            JsonArray eventStores = getRealEventStores();
+        getRealEventStores()
+                .onSuccess(eventStores -> {
+                    JsonObject response = new JsonObject()
+                            .put("message", "Event stores retrieved successfully")
+                            .put("eventStoreCount", eventStores.size())
+                            .put("eventStores", eventStores)
+                            .put("timestamp", System.currentTimeMillis());
 
-            JsonObject response = new JsonObject()
-                    .put("message", "Event stores retrieved successfully")
-                    .put("eventStoreCount", eventStores.size())
-                    .put("eventStores", eventStores)
-                    .put("timestamp", System.currentTimeMillis());
-
-            ctx.response()
-                    .setStatusCode(200)
-                    .putHeader("content-type", "application/json")
-                    .end(response.encode());
-        } catch (Exception e) {
-            logger.error("Error retrieving event stores", e);
-            sendError(ctx, 500, "Failed to retrieve event stores: " + e.getMessage());
-        }
+                    ctx.response()
+                            .setStatusCode(200)
+                            .putHeader("content-type", "application/json")
+                            .end(response.encode());
+                })
+                .onFailure(e -> {
+                    logger.error("Error retrieving event stores", e);
+                    sendError(ctx, 500, "Failed to retrieve event stores: " + e.getMessage());
+                });
     }
 
     /**
@@ -250,29 +271,28 @@ public class ManagementApiHandler {
     public void getMessages(RoutingContext ctx) {
         logger.debug("Messages list requested");
 
-        try {
-            // Get query parameters
-            String setupId = ctx.request().getParam("setup");
-            String queueName = ctx.request().getParam("queue");
-            String limit = ctx.request().getParam("limit");
-            String offset = ctx.request().getParam("offset");
+        String setupId = ctx.request().getParam("setup");
+        String queueName = ctx.request().getParam("queue");
+        String limit = ctx.request().getParam("limit");
+        String offset = ctx.request().getParam("offset");
 
-            JsonArray messages = getRealMessages(setupId, queueName, limit, offset);
+        getRealMessages(setupId, queueName, limit, offset)
+                .onSuccess(messages -> {
+                    JsonObject response = new JsonObject()
+                            .put("message", "Messages retrieved successfully")
+                            .put("messageCount", messages.size())
+                            .put("messages", messages)
+                            .put("timestamp", System.currentTimeMillis());
 
-            JsonObject response = new JsonObject()
-                    .put("message", "Messages retrieved successfully")
-                    .put("messageCount", messages.size())
-                    .put("messages", messages)
-                    .put("timestamp", System.currentTimeMillis());
-
-            ctx.response()
-                    .setStatusCode(200)
-                    .putHeader("content-type", "application/json")
-                    .end(response.encode());
-        } catch (Exception e) {
-            logger.error("Error retrieving messages", e);
-            sendError(ctx, 500, "Failed to retrieve messages: " + e.getMessage());
-        }
+                    ctx.response()
+                            .setStatusCode(200)
+                            .putHeader("content-type", "application/json")
+                            .end(response.encode());
+                })
+                .onFailure(e -> {
+                    logger.error("Error retrieving messages", e);
+                    sendError(ctx, 500, "Failed to retrieve messages: " + e.getMessage());
+                });
     }
 
     /**
@@ -325,34 +345,17 @@ public class ManagementApiHandler {
     }
 
     /**
-     * Gets system statistics for the overview dashboard.
+     * Builds system statistics from pre-fetched data.
      */
-    private JsonObject getSystemStats() {
-        try {
-            // Get real data counts from active setups
-            JsonArray queues = getRealQueues();
-            JsonArray consumerGroups = getRealConsumerGroups();
-            JsonArray eventStores = getRealEventStores();
-
-            return new JsonObject()
-                    .put("totalQueues", queues.size())
-                    .put("totalConsumerGroups", consumerGroups.size())
-                    .put("totalEventStores", eventStores.size())
-                    .put("totalMessages", calculateTotalMessages(queues))
-                    .put("messagesPerSecond", calculateMessagesPerSecond(queues))
-                    .put("activeConnections", calculateActiveConnections(consumerGroups))
-                    .put("uptime", getUptimeString());
-        } catch (Exception e) {
-            logger.warn("Failed to get real system stats, returning minimal data", e);
-            return new JsonObject()
-                    .put("totalQueues", 0)
-                    .put("totalConsumerGroups", 0)
-                    .put("totalEventStores", 0)
-                    .put("totalMessages", 0)
-                    .put("messagesPerSecond", 0.0)
-                    .put("activeConnections", 0)
-                    .put("uptime", getUptimeString());
-        }
+    private JsonObject buildSystemStats(JsonArray queues, JsonArray consumerGroups, JsonArray eventStores) {
+        return new JsonObject()
+                .put("totalQueues", queues.size())
+                .put("totalConsumerGroups", consumerGroups.size())
+                .put("totalEventStores", eventStores.size())
+                .put("totalMessages", calculateTotalMessages(queues))
+                .put("messagesPerSecond", calculateMessagesPerSecond(queues))
+                .put("activeConnections", calculateActiveConnections(consumerGroups))
+                .put("uptime", getUptimeString());
     }
 
     /**
@@ -412,166 +415,138 @@ public class ManagementApiHandler {
     /**
      * Get real event count for a specific event store using EventStore.getStats().
      */
-    private long getRealEventCount(String setupId, String storeName) {
-        try {
-            DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).await();
-            var eventStore = setupResult.getEventStores().get(storeName);
-            if (eventStore != null) {
-                var stats = eventStore.getStats().await();
-                return stats.getTotalEvents();
-            }
-            return 0;
-        } catch (Exception e) {
-            logger.debug("Failed to get real event count for store {}: {}", storeName, e.getMessage());
-            return 0;
-        }
+    private Future<Long> getRealEventCount(String setupId, String storeName) {
+        return setupService.getSetupResult(setupId)
+                .compose(setupResult -> {
+                    var eventStore = setupResult.getEventStores().get(storeName);
+                    if (eventStore != null) {
+                        return eventStore.getStats().map(stats -> stats.getTotalEvents());
+                    }
+                    return Future.succeededFuture(0L);
+                })
+                .recover(e -> {
+                    logger.debug("Failed to get real event count for store {}: {}", storeName, e.getMessage());
+                    return Future.succeededFuture(0L);
+                });
     }
 
     /**
      * Get real aggregate count for a specific event store using
      * EventStore.getStats().
      */
-    private long getRealAggregateCount(String setupId, String storeName) {
-        try {
-            DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).await();
-            var eventStore = setupResult.getEventStores().get(storeName);
-            if (eventStore != null) {
-                var stats = eventStore.getStats().await();
-                return stats.getUniqueAggregateCount();
-            }
-            return 0;
-        } catch (Exception e) {
-            logger.debug("Failed to get real aggregate count for store {}: {}", storeName, e.getMessage());
-            return 0;
-        }
+    private Future<Long> getRealAggregateCount(String setupId, String storeName) {
+        return setupService.getSetupResult(setupId)
+                .compose(setupResult -> {
+                    var eventStore = setupResult.getEventStores().get(storeName);
+                    if (eventStore != null) {
+                        return eventStore.getStats().map(stats -> stats.getUniqueAggregateCount());
+                    }
+                    return Future.succeededFuture(0L);
+                })
+                .recover(e -> {
+                    logger.debug("Failed to get real aggregate count for store {}: {}", storeName, e.getMessage());
+                    return Future.succeededFuture(0L);
+                });
     }
 
     /**
      * Get real correction count for a specific event store using
      * EventStore.getStats().
      */
-    private long getRealCorrectionCount(String setupId, String storeName) {
-        try {
-            DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).await();
-            var eventStore = setupResult.getEventStores().get(storeName);
-            if (eventStore != null) {
-                var stats = eventStore.getStats().await();
-                return stats.getTotalCorrections();
-            }
-            return 0;
-        } catch (Exception e) {
-            logger.debug("Failed to get real correction count for store {}: {}", storeName, e.getMessage());
-            return 0;
-        }
-    }
-
-    /**
-     * Gets queue summary for the overview dashboard.
-     */
-    private JsonObject getQueueSummary() {
-        try {
-            JsonArray queues = getRealQueues();
-            int total = queues.size();
-            int active = 0;
-            int idle = 0;
-            int error = 0;
-
-            for (Object obj : queues) {
-                if (obj instanceof JsonObject) {
-                    JsonObject queue = (JsonObject) obj;
-                    String status = queue.getString("status", "unknown");
-                    switch (status) {
-                        case "active":
-                            active++;
-                            break;
-                        case "idle":
-                            idle++;
-                            break;
-                        case "error":
-                            error++;
-                            break;
+    private Future<Long> getRealCorrectionCount(String setupId, String storeName) {
+        return setupService.getSetupResult(setupId)
+                .compose(setupResult -> {
+                    var eventStore = setupResult.getEventStores().get(storeName);
+                    if (eventStore != null) {
+                        return eventStore.getStats().map(stats -> stats.getTotalCorrections());
                     }
-                }
-            }
-
-            return new JsonObject()
-                    .put("total", total)
-                    .put("active", active)
-                    .put("idle", idle)
-                    .put("error", error);
-        } catch (Exception e) {
-            logger.warn("Failed to get real queue summary", e);
-            return new JsonObject()
-                    .put("total", 0)
-                    .put("active", 0)
-                    .put("idle", 0)
-                    .put("error", 0);
-        }
+                    return Future.succeededFuture(0L);
+                })
+                .recover(e -> {
+                    logger.debug("Failed to get real correction count for store {}: {}", storeName, e.getMessage());
+                    return Future.succeededFuture(0L);
+                });
     }
 
     /**
-     * Gets consumer group summary for the overview dashboard.
+     * Builds queue summary from pre-fetched queue data.
      */
-    private JsonObject getConsumerGroupSummary() {
-        try {
-            JsonArray consumerGroups = getRealConsumerGroups();
-            int total = consumerGroups.size();
-            int active = 0;
-            int totalMembers = 0;
+    private JsonObject buildQueueSummary(JsonArray queues) {
+        int total = queues.size();
+        int active = 0;
+        int idle = 0;
+        int error = 0;
 
-            for (Object obj : consumerGroups) {
-                if (obj instanceof JsonObject) {
-                    JsonObject group = (JsonObject) obj;
-                    String status = group.getString("status", "unknown");
-                    if ("active".equals(status)) {
+        for (Object obj : queues) {
+            if (obj instanceof JsonObject) {
+                JsonObject queue = (JsonObject) obj;
+                String status = queue.getString("status", "unknown");
+                switch (status) {
+                    case "active":
                         active++;
-                    }
-                    totalMembers += group.getInteger("members", 0);
+                        break;
+                    case "idle":
+                        idle++;
+                        break;
+                    case "error":
+                        error++;
+                        break;
                 }
             }
-
-            return new JsonObject()
-                    .put("total", total)
-                    .put("active", active)
-                    .put("members", totalMembers);
-        } catch (Exception e) {
-            logger.warn("Failed to get real consumer group summary", e);
-            return new JsonObject()
-                    .put("total", 0)
-                    .put("active", 0)
-                    .put("members", 0);
         }
+
+        return new JsonObject()
+                .put("total", total)
+                .put("active", active)
+                .put("idle", idle)
+                .put("error", error);
     }
 
     /**
-     * Gets event store summary for the overview dashboard.
+     * Builds consumer group summary from pre-fetched data.
      */
-    private JsonObject getEventStoreSummary() {
-        try {
-            JsonArray eventStores = getRealEventStores();
-            int total = eventStores.size();
-            int totalEvents = 0;
-            int totalCorrections = 0;
+    private JsonObject buildConsumerGroupSummary(JsonArray consumerGroups) {
+        int total = consumerGroups.size();
+        int active = 0;
+        int totalMembers = 0;
 
-            for (Object obj : eventStores) {
-                if (obj instanceof JsonObject) {
-                    JsonObject store = (JsonObject) obj;
-                    totalEvents += store.getInteger("events", 0);
-                    totalCorrections += store.getInteger("corrections", 0);
+        for (Object obj : consumerGroups) {
+            if (obj instanceof JsonObject) {
+                JsonObject group = (JsonObject) obj;
+                String status = group.getString("status", "unknown");
+                if ("active".equals(status)) {
+                    active++;
                 }
+                totalMembers += group.getInteger("members", 0);
             }
-
-            return new JsonObject()
-                    .put("total", total)
-                    .put("events", totalEvents)
-                    .put("corrections", totalCorrections);
-        } catch (Exception e) {
-            logger.warn("Failed to get real event store summary", e);
-            return new JsonObject()
-                    .put("total", 0)
-                    .put("events", 0)
-                    .put("corrections", 0);
         }
+
+        return new JsonObject()
+                .put("total", total)
+                .put("active", active)
+                .put("members", totalMembers);
+    }
+
+    /**
+     * Builds event store summary from pre-fetched data.
+     */
+    private JsonObject buildEventStoreSummary(JsonArray eventStores) {
+        int total = eventStores.size();
+        int totalEvents = 0;
+        int totalCorrections = 0;
+
+        for (Object obj : eventStores) {
+            if (obj instanceof JsonObject) {
+                JsonObject store = (JsonObject) obj;
+                totalEvents += store.getInteger("events", 0);
+                totalCorrections += store.getInteger("corrections", 0);
+            }
+        }
+
+        return new JsonObject()
+                .put("total", total)
+                .put("events", totalEvents)
+                .put("corrections", totalCorrections);
     }
 
     /**
@@ -579,82 +554,96 @@ public class ManagementApiHandler {
      * Queries recent events from all active event stores and returns them as
      * activity items.
      */
-    private JsonArray getRecentActivity() {
-        JsonArray activities = new JsonArray();
+    private Future<JsonArray> getRecentActivity() {
+        Instant oneHourAgo = Instant.now().minus(1, ChronoUnit.HOURS);
+        EventQuery recentQuery = EventQuery.builder()
+                .transactionTimeRange(TemporalRange.from(oneHourAgo))
+                .sortOrder(EventQuery.SortOrder.TRANSACTION_TIME_DESC)
+                .limit(50)
+                .build();
 
-        try {
-            // Get all active setup IDs
-            Set<String> activeSetupIds = setupService.getAllActiveSetupIds().await();
-
-            // Collect recent events from all event stores
-            List<JsonObject> allActivities = new ArrayList<>();
-
-            // Query for events from the last hour
-            Instant oneHourAgo = Instant.now().minus(1, ChronoUnit.HOURS);
-            EventQuery recentQuery = EventQuery.builder()
-                    .transactionTimeRange(TemporalRange.from(oneHourAgo))
-                    .sortOrder(EventQuery.SortOrder.TRANSACTION_TIME_DESC)
-                    .limit(50) // Limit per store
-                    .build();
-
-            for (String setupId : activeSetupIds) {
-                try {
-                    DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).await();
-
-                    if (setupResult.getStatus() == DatabaseSetupStatus.ACTIVE) {
-                        Map<String, EventStore<?>> eventStoreMap = setupResult.getEventStores();
-
-                        for (Map.Entry<String, EventStore<?>> entry : eventStoreMap.entrySet()) {
-                            String storeName = entry.getKey();
-                            EventStore<?> eventStore = entry.getValue();
-
-                            try {
-                                List<? extends BiTemporalEvent<?>> events = eventStore.query(recentQuery)
-                                    .await();
-
-                                for (BiTemporalEvent<?> event : events) {
-                                    JsonObject activity = new JsonObject()
-                                            .put("id", event.getEventId())
-                                            .put("type", "event")
-                                            .put("action", event.getEventType())
-                                            .put("source", storeName)
-                                            .put("setup", setupId)
-                                            .put("aggregateId", event.getAggregateId())
-                                            .put("timestamp", event.getTransactionTime().toString())
-                                            .put("validTime", event.getValidTime().toString());
-
-                                    // Add correlation ID if present
-                                    if (event.getCorrelationId() != null) {
-                                        activity.put("correlationId", event.getCorrelationId());
-                                    }
-
-                                    allActivities.add(activity);
-                                }
-                            } catch (Exception e) {
-                                logger.debug("Failed to query events from store {}: {}", storeName, e.getMessage());
-                            }
-                        }
+        return setupService.getAllActiveSetupIds()
+                .compose(activeSetupIds -> {
+                    List<Future<List<JsonObject>>> setupFutures = new ArrayList<>();
+                    for (String setupId : activeSetupIds) {
+                        setupFutures.add(getRecentActivityForSetup(setupId, recentQuery));
                     }
-                } catch (Exception e) {
+                    if (setupFutures.isEmpty()) {
+                        return Future.succeededFuture(new JsonArray());
+                    }
+                    return Future.all(setupFutures).map(cf -> {
+                        List<JsonObject> allActivities = new ArrayList<>();
+                        for (int i = 0; i < cf.size(); i++) {
+                            allActivities.addAll(cf.resultAt(i));
+                        }
+                        allActivities.sort(Comparator.comparing(
+                                (JsonObject a) -> Instant.parse(a.getString("timestamp"))).reversed());
+                        JsonArray activities = new JsonArray();
+                        int limit = Math.min(allActivities.size(), 20);
+                        for (int i = 0; i < limit; i++) {
+                            activities.add(allActivities.get(i));
+                        }
+                        return activities;
+                    });
+                })
+                .recover(e -> {
+                    logger.warn("Failed to get recent activity: {}", e.getMessage());
+                    return Future.succeededFuture(new JsonArray());
+                });
+    }
+
+    private Future<List<JsonObject>> getRecentActivityForSetup(String setupId, EventQuery recentQuery) {
+        return setupService.getSetupResult(setupId)
+                .compose(setupResult -> {
+                    if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
+                        return Future.succeededFuture(List.<JsonObject>of());
+                    }
+                    Map<String, EventStore<?>> eventStoreMap = setupResult.getEventStores();
+                    List<Future<List<JsonObject>>> storeFutures = new ArrayList<>();
+                    for (Map.Entry<String, EventStore<?>> entry : eventStoreMap.entrySet()) {
+                        String storeName = entry.getKey();
+                        EventStore<?> eventStore = entry.getValue();
+                        storeFutures.add(
+                                eventStore.query(recentQuery)
+                                        .map(events -> {
+                                            List<JsonObject> activities = new ArrayList<>();
+                                            for (BiTemporalEvent<?> event : events) {
+                                                JsonObject activity = new JsonObject()
+                                                        .put("id", event.getEventId())
+                                                        .put("type", "event")
+                                                        .put("action", event.getEventType())
+                                                        .put("source", storeName)
+                                                        .put("setup", setupId)
+                                                        .put("aggregateId", event.getAggregateId())
+                                                        .put("timestamp", event.getTransactionTime().toString())
+                                                        .put("validTime", event.getValidTime().toString());
+                                                if (event.getCorrelationId() != null) {
+                                                    activity.put("correlationId", event.getCorrelationId());
+                                                }
+                                                activities.add(activity);
+                                            }
+                                            return activities;
+                                        })
+                                        .recover(e -> {
+                                            logger.debug("Failed to query events from store {}: {}", storeName, e.getMessage());
+                                            return Future.succeededFuture(List.<JsonObject>of());
+                                        }));
+                    }
+                    if (storeFutures.isEmpty()) {
+                        return Future.succeededFuture(List.<JsonObject>of());
+                    }
+                    return Future.all(storeFutures).map(cf -> {
+                        List<JsonObject> results = new ArrayList<>();
+                        for (int i = 0; i < cf.size(); i++) {
+                            results.addAll(cf.resultAt(i));
+                        }
+                        return results;
+                    });
+                })
+                .recover(e -> {
                     logger.debug("Failed to get setup result for {}: {}", setupId, e.getMessage());
-                }
-            }
-
-            // Sort all activities by timestamp (most recent first) and limit to 20
-            allActivities.sort(Comparator.comparing(
-                    (JsonObject a) -> Instant.parse(a.getString("timestamp"))).reversed());
-
-            int limit = Math.min(allActivities.size(), 20);
-            for (int i = 0; i < limit; i++) {
-                activities.add(allActivities.get(i));
-            }
-
-        } catch (Exception e) {
-            logger.warn("Failed to get recent activity: {}", e.getMessage());
-            // Return empty array on error
-        }
-
-        return activities;
+                    return Future.succeededFuture(List.<JsonObject>of());
+                });
     }
 
     /**
@@ -739,79 +728,92 @@ public class ManagementApiHandler {
      * This method queries the actual subscription data from the database via
      * SubscriptionService.listSubscriptions() for each queue/topic.
      */
-    private JsonArray getRealConsumerGroups() {
-        JsonArray consumerGroups = new JsonArray();
+    private Future<JsonArray> getRealConsumerGroups() {
+        return setupService.getAllActiveSetupIds()
+                .compose(activeSetupIds -> {
+                    List<Future<JsonArray>> setupFutures = new ArrayList<>();
+                    for (String setupId : activeSetupIds) {
+                        setupFutures.add(getConsumerGroupsForSetup(setupId));
+                    }
+                    if (setupFutures.isEmpty()) {
+                        return Future.succeededFuture(new JsonArray());
+                    }
+                    return Future.all(setupFutures).map(cf -> {
+                        JsonArray consumerGroups = new JsonArray();
+                        for (int i = 0; i < cf.size(); i++) {
+                            JsonArray partial = cf.resultAt(i);
+                            partial.forEach(consumerGroups::add);
+                        }
+                        return consumerGroups;
+                    });
+                })
+                .recover(e -> {
+                    logger.warn("Failed to retrieve real consumer group data", e);
+                    return Future.failedFuture(new RuntimeException("Failed to retrieve consumer group data", e));
+                });
+    }
 
-        try {
-            // Get consumer groups from active setups
-            Set<String> activeSetupIds = setupService.getAllActiveSetupIds().await();
-
-            for (String setupId : activeSetupIds) {
-                try {
-                    DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).await();
-
-                    if (setupResult.getStatus() == DatabaseSetupStatus.ACTIVE) {
-                        // Get SubscriptionService for this setup
-                        SubscriptionService subscriptionService = setupService.getSubscriptionServiceForSetup(setupId);
-
-                        // Get all queue factories from this setup
-                        Map<String, QueueFactory> queueFactories = setupResult.getQueueFactories();
-
-                        for (Map.Entry<String, QueueFactory> entry : queueFactories.entrySet()) {
-                            String queueName = entry.getKey();
-                            QueueFactory factory = entry.getValue();
-
-                            // Query real subscriptions for this topic/queue
-                            if (subscriptionService != null) {
-                                try {
-                                    java.util.List<SubscriptionInfo> subscriptions = subscriptionService
-                                            .listSubscriptions(queueName)
-                                            .await();
-
-                                    for (SubscriptionInfo sub : subscriptions) {
-                                        JsonObject group = new JsonObject()
-                                                .put("name", sub.groupName())
-                                                .put("setup", setupId)
-                                                .put("queueName", queueName)
-                                                .put("implementationType", factory.getImplementationType())
-                                                .put("members", 0) // Member count requires ConsumerGroup registry
-                                                .put("status", mapSubscriptionState(sub.state()))
-                                                .put("partition", 0) // Partition info from consumer group state
-                                                .put("lag", 0) // Lag from consumer group metrics
-                                                .put("subscribedAt",
-                                                        sub.subscribedAt() != null ? sub.subscribedAt().toString()
-                                                                : null)
-                                                .put("lastActiveAt",
-                                                        sub.lastActiveAt() != null ? sub.lastActiveAt().toString()
-                                                                : null)
-                                                .put("lastHeartbeatAt",
-                                                        sub.lastHeartbeatAt() != null ? sub.lastHeartbeatAt().toString()
-                                                                : null)
-                                                .put("backfillStatus", sub.backfillStatus())
-                                                .put("createdAt", setupResult.getCreatedAt());
-
-                                        consumerGroups.add(group);
-                                    }
-                                } catch (Exception e) {
-                                    logger.debug("Failed to list subscriptions for topic {}: {}", queueName,
-                                            e.getMessage());
-                                }
-                            }
+    private Future<JsonArray> getConsumerGroupsForSetup(String setupId) {
+        return setupService.getSetupResult(setupId)
+                .compose(setupResult -> {
+                    if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
+                        return Future.succeededFuture(new JsonArray());
+                    }
+                    SubscriptionService subscriptionService = setupService.getSubscriptionServiceForSetup(setupId);
+                    Map<String, QueueFactory> queueFactories = setupResult.getQueueFactories();
+                    List<Future<JsonArray>> queueFutures = new ArrayList<>();
+                    for (Map.Entry<String, QueueFactory> entry : queueFactories.entrySet()) {
+                        String queueName = entry.getKey();
+                        QueueFactory factory = entry.getValue();
+                        if (subscriptionService != null) {
+                            queueFutures.add(
+                                    subscriptionService.listSubscriptions(queueName)
+                                            .map(subscriptions -> {
+                                                JsonArray groups = new JsonArray();
+                                                for (SubscriptionInfo sub : subscriptions) {
+                                                    JsonObject group = new JsonObject()
+                                                            .put("name", sub.groupName())
+                                                            .put("setup", setupId)
+                                                            .put("queueName", queueName)
+                                                            .put("implementationType", factory.getImplementationType())
+                                                            .put("members", 0)
+                                                            .put("status", mapSubscriptionState(sub.state()))
+                                                            .put("partition", 0)
+                                                            .put("lag", 0)
+                                                            .put("subscribedAt",
+                                                                    sub.subscribedAt() != null ? sub.subscribedAt().toString() : null)
+                                                            .put("lastActiveAt",
+                                                                    sub.lastActiveAt() != null ? sub.lastActiveAt().toString() : null)
+                                                            .put("lastHeartbeatAt",
+                                                                    sub.lastHeartbeatAt() != null ? sub.lastHeartbeatAt().toString() : null)
+                                                            .put("backfillStatus", sub.backfillStatus())
+                                                            .put("createdAt", setupResult.getCreatedAt());
+                                                    groups.add(group);
+                                                }
+                                                return groups;
+                                            })
+                                            .recover(e -> {
+                                                logger.debug("Failed to list subscriptions for topic {}: {}", queueName, e.getMessage());
+                                                return Future.succeededFuture(new JsonArray());
+                                            }));
                         }
                     }
-
-                } catch (Exception e) {
-                    // Setup doesn't exist or error occurred, continue with next
+                    if (queueFutures.isEmpty()) {
+                        return Future.succeededFuture(new JsonArray());
+                    }
+                    return Future.all(queueFutures).map(cf -> {
+                        JsonArray consumerGroups = new JsonArray();
+                        for (int i = 0; i < cf.size(); i++) {
+                            JsonArray partial = cf.resultAt(i);
+                            partial.forEach(consumerGroups::add);
+                        }
+                        return consumerGroups;
+                    });
+                })
+                .recover(e -> {
                     logger.debug("Setup {} not found or error occurred: {}", setupId, e.getMessage());
-                }
-            }
-
-            return consumerGroups;
-
-        } catch (Exception e) {
-            logger.warn("Failed to retrieve real consumer group data", e);
-            throw new RuntimeException("Failed to retrieve consumer group data", e);
-        }
+                    return Future.succeededFuture(new JsonArray());
+                });
     }
 
     /**
@@ -832,100 +834,124 @@ public class ManagementApiHandler {
     /**
      * Gets real event store data from active setups.
      */
-    private JsonArray getRealEventStores() {
-        JsonArray eventStores = new JsonArray();
-
-        try {
-            // Get event stores from active setups
-            Set<String> activeSetupIds = setupService.getAllActiveSetupIds().await();
-
-            for (String setupId : activeSetupIds) {
-                try {
-                    DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).await();
-
-                    if (setupResult.getStatus() == DatabaseSetupStatus.ACTIVE) {
-                        // Get all event stores from this setup
-                        Map<String, ?> eventStoreMap = setupResult.getEventStores();
-
-                        for (Map.Entry<String, ?> entry : eventStoreMap.entrySet()) {
-                            String storeName = entry.getKey();
-                            JsonObject store = new JsonObject()
-                                    .put("name", storeName)
-                                    .put("setup", setupId)
-                                    .put("events", getRealEventCount(setupId, storeName))
-                                    .put("aggregates", getRealAggregateCount(setupId, storeName))
-                                    .put("corrections", getRealCorrectionCount(setupId, storeName))
-                                    .put("biTemporal", true)
-                                    .put("retention", "365d")
-                                    .put("status", "active")
-                                    .put("createdAt", setupResult.getCreatedAt())
-                                    .put("lastEvent", Instant.now().toString());
-
-                            eventStores.add(store);
-                        }
+    private Future<JsonArray> getRealEventStores() {
+        return setupService.getAllActiveSetupIds()
+                .compose(activeSetupIds -> {
+                    List<Future<JsonArray>> setupFutures = new ArrayList<>();
+                    for (String setupId : activeSetupIds) {
+                        setupFutures.add(getEventStoresForSetup(setupId));
                     }
+                    if (setupFutures.isEmpty()) {
+                        return Future.succeededFuture(new JsonArray());
+                    }
+                    return Future.all(setupFutures).map(cf -> {
+                        JsonArray eventStores = new JsonArray();
+                        for (int i = 0; i < cf.size(); i++) {
+                            JsonArray partial = cf.resultAt(i);
+                            partial.forEach(eventStores::add);
+                        }
+                        return eventStores;
+                    });
+                })
+                .recover(e -> {
+                    logger.warn("Failed to retrieve real event store data", e);
+                    return Future.failedFuture(new RuntimeException("Failed to retrieve event store data", e));
+                });
+    }
 
-                } catch (Exception e) {
-                    // Setup doesn't exist or error occurred, continue with next
+    private Future<JsonArray> getEventStoresForSetup(String setupId) {
+        return setupService.getSetupResult(setupId)
+                .compose(setupResult -> {
+                    if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
+                        return Future.succeededFuture(new JsonArray());
+                    }
+                    Map<String, ?> eventStoreMap = setupResult.getEventStores();
+                    List<Future<JsonObject>> storeFutures = new ArrayList<>();
+                    for (Map.Entry<String, ?> entry : eventStoreMap.entrySet()) {
+                        String storeName = entry.getKey();
+                        storeFutures.add(
+                                Future.all(
+                                        getRealEventCount(setupId, storeName),
+                                        getRealAggregateCount(setupId, storeName),
+                                        getRealCorrectionCount(setupId, storeName)
+                                ).map(cf -> new JsonObject()
+                                        .put("name", storeName)
+                                        .put("setup", setupId)
+                                        .put("events", cf.<Long>resultAt(0))
+                                        .put("aggregates", cf.<Long>resultAt(1))
+                                        .put("corrections", cf.<Long>resultAt(2))
+                                        .put("biTemporal", true)
+                                        .put("retention", "365d")
+                                        .put("status", "active")
+                                        .put("createdAt", setupResult.getCreatedAt())
+                                        .put("lastEvent", Instant.now().toString())));
+                    }
+                    if (storeFutures.isEmpty()) {
+                        return Future.succeededFuture(new JsonArray());
+                    }
+                    return Future.all(storeFutures).map(cf -> {
+                        JsonArray eventStores = new JsonArray();
+                        for (int i = 0; i < cf.size(); i++) {
+                            eventStores.add(cf.<JsonObject>resultAt(i));
+                        }
+                        return eventStores;
+                    });
+                })
+                .recover(e -> {
                     logger.debug("Setup {} not found or error occurred: {}", setupId, e.getMessage());
-                }
-            }
-
-            return eventStores;
-
-        } catch (Exception e) {
-            logger.warn("Failed to retrieve real event store data", e);
-            throw new RuntimeException("Failed to retrieve event store data", e);
-        }
+                    return Future.succeededFuture(new JsonArray());
+                });
     }
 
     /**
      * Gets real message data for the message browser using QueueBrowser.
      */
-    private JsonArray getRealMessages(String setupId, String queueName, String limitStr, String offsetStr) {
-        JsonArray messages = new JsonArray();
-
-        try {
-            if (setupId != null && queueName != null) {
-                int limit = limitStr != null ? Integer.parseInt(limitStr) : 50;
-                int offset = offsetStr != null ? Integer.parseInt(offsetStr) : 0;
-
-                DatabaseSetupResult setupResult = setupService.getSetupResult(setupId).await();
-                if (setupResult.getStatus() == DatabaseSetupStatus.ACTIVE) {
-                    QueueFactory queueFactory = setupResult.getQueueFactories().get(queueName);
-                    if (queueFactory != null) {
-                        logger.info("Retrieving messages from setup: {}, queue: {}", setupId, queueName);
-
-                        // Use QueueBrowser to browse messages without consuming them
-                        try (var browser = queueFactory.createBrowser(queueName, Object.class)) {
-                            var messageList = browser.browse(limit, offset).await();
-                            for (var message : messageList) {
-                                JsonObject headersJson = new JsonObject();
-                                if (message.getHeaders() != null) {
-                                    message.getHeaders().forEach(headersJson::put);
-                                }
-                                JsonObject msgJson = new JsonObject()
-                                        .put("id", message.getId())
-                                        .put("payload",
-                                                message.getPayload() != null ? message.getPayload().toString() : null)
-                                        .put("createdAt",
-                                                message.getCreatedAt() != null ? message.getCreatedAt().toString()
-                                                        : null)
-                                        .put("headers", headersJson);
-                                messages.add(msgJson);
-                            }
-                        }
-                    }
-                }
-            }
-
-            return messages;
-
-        } catch (Exception e) {
-            // Log the error but return empty array - table may not exist for native queues
-            logger.debug("Failed to retrieve message data (table may not exist): {}", e.getMessage());
-            return messages;
+    private Future<JsonArray> getRealMessages(String setupId, String queueName, String limitStr, String offsetStr) {
+        if (setupId == null || queueName == null) {
+            return Future.succeededFuture(new JsonArray());
         }
+        int limit = limitStr != null ? Integer.parseInt(limitStr) : 50;
+        int offset = offsetStr != null ? Integer.parseInt(offsetStr) : 0;
+
+        return setupService.getSetupResult(setupId)
+                .compose(setupResult -> {
+                    if (setupResult.getStatus() != DatabaseSetupStatus.ACTIVE) {
+                        return Future.succeededFuture(new JsonArray());
+                    }
+                    QueueFactory queueFactory = setupResult.getQueueFactories().get(queueName);
+                    if (queueFactory == null) {
+                        return Future.succeededFuture(new JsonArray());
+                    }
+                    logger.info("Retrieving messages from setup: {}, queue: {}", setupId, queueName);
+                    var browser = queueFactory.createBrowser(queueName, Object.class);
+                    return browser.browse(limit, offset)
+                            .map(messageList -> {
+                                JsonArray messages = new JsonArray();
+                                for (var message : messageList) {
+                                    JsonObject headersJson = new JsonObject();
+                                    if (message.getHeaders() != null) {
+                                        message.getHeaders().forEach(headersJson::put);
+                                    }
+                                    JsonObject msgJson = new JsonObject()
+                                            .put("id", message.getId())
+                                            .put("payload",
+                                                    message.getPayload() != null ? message.getPayload().toString() : null)
+                                            .put("createdAt",
+                                                    message.getCreatedAt() != null ? message.getCreatedAt().toString() : null)
+                                            .put("headers", headersJson);
+                                    messages.add(msgJson);
+                                }
+                                return messages;
+                            })
+                            .eventually(() -> {
+                                try { browser.close(); } catch (Exception ignored) { }
+                                return Future.succeededFuture();
+                            });
+                })
+                .recover(e -> {
+                    logger.debug("Failed to retrieve message data (table may not exist): {}", e.getMessage());
+                    return Future.succeededFuture(new JsonArray());
+                });
     }
 
     /**
@@ -1575,31 +1601,31 @@ public class ManagementApiHandler {
      *
      * Counts the number of active subscriptions for the given queue/topic.
      */
-    private int getRealConsumerCount(DatabaseSetupResult setupResult, String queueName) {
+    private Future<Integer> getRealConsumerCount(DatabaseSetupResult setupResult, String queueName) {
         try {
             QueueFactory factory = setupResult.getQueueFactories().get(queueName);
             if (factory == null) {
-                return 0;
+                return Future.succeededFuture(0);
             }
 
-            // Get SubscriptionService for this setup
             SubscriptionService subscriptionService = setupService
                     .getSubscriptionServiceForSetup(setupResult.getSetupId());
             if (subscriptionService != null) {
-                java.util.List<SubscriptionInfo> subscriptions = subscriptionService.listSubscriptions(queueName)
-                        .await();
-
-                // Count active subscriptions
-                return (int) subscriptions.stream()
-                        .filter(sub -> sub.state() == dev.mars.peegeeq.api.subscription.SubscriptionState.ACTIVE)
-                        .count();
+                return subscriptionService.listSubscriptions(queueName)
+                        .map(subscriptions -> (int) subscriptions.stream()
+                                .filter(sub -> sub.state() == dev.mars.peegeeq.api.subscription.SubscriptionState.ACTIVE)
+                                .count())
+                        .recover(e -> {
+                            logger.debug("Error getting real consumer count for queue {}: {}", queueName, e.getMessage());
+                            return Future.succeededFuture(0);
+                        });
             }
 
-            return 0;
+            return Future.succeededFuture(0);
 
         } catch (Exception e) {
             logger.debug("Error getting real consumer count for queue {}: {}", queueName, e.getMessage());
-            return 0;
+            return Future.succeededFuture(0);
         }
     }
 
@@ -1626,34 +1652,38 @@ public class ManagementApiHandler {
                         return;
                     }
 
-                    // Get queue statistics
-                    long messageCount = getRealMessageCount(setupResult, queueName);
-                    int consumerCount = getRealConsumerCount(setupResult, queueName);
-                    double messageRate = getRealMessageRate(setupResult, queueName);
-                    double avgProcessingTime = getRealAvgProcessingTime(setupResult, queueName);
+                    getRealConsumerCount(setupResult, queueName)
+                            .onSuccess(consumerCount -> {
+                                long messageCount = getRealMessageCount(setupResult, queueName);
+                                double messageRate = getRealMessageRate(setupResult, queueName);
+                                double avgProcessingTime = getRealAvgProcessingTime(setupResult, queueName);
 
-                    // Create statistics object matching frontend expectations
-                    JsonObject statistics = new JsonObject()
-                            .put("totalMessages", messageCount)
-                            .put("activeConsumers", consumerCount)
-                            .put("messagesPerSecond", messageRate)
-                            .put("avgProcessingTimeMs", avgProcessingTime);
+                                JsonObject statistics = new JsonObject()
+                                        .put("totalMessages", messageCount)
+                                        .put("activeConsumers", consumerCount)
+                                        .put("messagesPerSecond", messageRate)
+                                        .put("avgProcessingTimeMs", avgProcessingTime);
 
-                    JsonObject queueDetails = new JsonObject()
-                            .put("name", queueName)
-                            .put("setup", setupId)
-                            .put("implementationType", queueFactory.getImplementationType())
-                            .put("status", queueFactory.isHealthy() ? "active" : "error")
-                            .put("statistics", statistics)
-                            .put("durability", "durable")
-                            .put("autoDelete", false)
-                            .put("createdAt", setupResult.getCreatedAt())
-                            .put("lastActivity", Instant.now().toString());
+                                JsonObject queueDetails = new JsonObject()
+                                        .put("name", queueName)
+                                        .put("setup", setupId)
+                                        .put("implementationType", queueFactory.getImplementationType())
+                                        .put("status", queueFactory.isHealthy() ? "active" : "error")
+                                        .put("statistics", statistics)
+                                        .put("durability", "durable")
+                                        .put("autoDelete", false)
+                                        .put("createdAt", setupResult.getCreatedAt())
+                                        .put("lastActivity", Instant.now().toString());
 
-                    ctx.response()
-                            .setStatusCode(200)
-                            .putHeader("content-type", "application/json")
-                            .end(queueDetails.encode());
+                                ctx.response()
+                                        .setStatusCode(200)
+                                        .putHeader("content-type", "application/json")
+                                        .end(queueDetails.encode());
+                            })
+                            .onFailure(e -> {
+                                logger.error("Error getting consumer count for queue: {}", queueName, e);
+                                sendError(ctx, 500, "Failed to get queue details: " + e.getMessage());
+                            });
                 })
                 .onFailure(throwable -> {
                     // Check if this is an expected setup not found error (no stack trace)
@@ -1695,50 +1725,53 @@ public class ManagementApiHandler {
                     }
 
                     // Get real subscription data from SubscriptionService
-                    JsonArray consumers = new JsonArray();
                     SubscriptionService subscriptionService = setupService.getSubscriptionServiceForSetup(setupId);
 
+                    Future<java.util.List<SubscriptionInfo>> subsFuture;
                     if (subscriptionService != null) {
-                        try {
-                            java.util.List<SubscriptionInfo> subscriptions = subscriptionService
-                                    .listSubscriptions(queueName)
-                                    .await();
-
-                            for (SubscriptionInfo sub : subscriptions) {
-                                JsonObject consumer = new JsonObject()
-                                        .put("groupName", sub.groupName())
-                                        .put("topic", sub.topic())
-                                        .put("status", mapSubscriptionState(sub.state()))
-                                        .put("subscribedAt",
-                                                sub.subscribedAt() != null ? sub.subscribedAt().toString() : null)
-                                        .put("lastActiveAt",
-                                                sub.lastActiveAt() != null ? sub.lastActiveAt().toString() : null)
-                                        .put("lastHeartbeatAt",
-                                                sub.lastHeartbeatAt() != null ? sub.lastHeartbeatAt().toString() : null)
-                                        .put("heartbeatIntervalSeconds", sub.heartbeatIntervalSeconds())
-                                        .put("heartbeatTimeoutSeconds", sub.heartbeatTimeoutSeconds())
-                                        .put("backfillStatus", sub.backfillStatus())
-                                        .put("backfillProcessedMessages", sub.backfillProcessedMessages())
-                                        .put("backfillTotalMessages", sub.backfillTotalMessages());
-                                consumers.add(consumer);
-                            }
-                        } catch (Exception e) {
-                            logger.debug("Failed to list subscriptions for queue {}: {}", queueName, e.getMessage());
-                        }
+                        subsFuture = subscriptionService.listSubscriptions(queueName)
+                                .recover(e -> {
+                                    logger.debug("Failed to list subscriptions for queue {}: {}", queueName, e.getMessage());
+                                    return Future.succeededFuture(java.util.List.of());
+                                });
+                    } else {
+                        subsFuture = Future.succeededFuture(java.util.List.of());
                     }
 
-                    JsonObject response = new JsonObject()
-                            .put("message", "Consumers retrieved successfully")
-                            .put("queueName", queueName)
-                            .put("setupId", setupId)
-                            .put("consumerCount", consumers.size())
-                            .put("consumers", consumers)
-                            .put("timestamp", System.currentTimeMillis());
+                    subsFuture.onSuccess(subscriptions -> {
+                        JsonArray consumers = new JsonArray();
+                        for (SubscriptionInfo sub : subscriptions) {
+                            JsonObject consumer = new JsonObject()
+                                    .put("groupName", sub.groupName())
+                                    .put("topic", sub.topic())
+                                    .put("status", mapSubscriptionState(sub.state()))
+                                    .put("subscribedAt",
+                                            sub.subscribedAt() != null ? sub.subscribedAt().toString() : null)
+                                    .put("lastActiveAt",
+                                            sub.lastActiveAt() != null ? sub.lastActiveAt().toString() : null)
+                                    .put("lastHeartbeatAt",
+                                            sub.lastHeartbeatAt() != null ? sub.lastHeartbeatAt().toString() : null)
+                                    .put("heartbeatIntervalSeconds", sub.heartbeatIntervalSeconds())
+                                    .put("heartbeatTimeoutSeconds", sub.heartbeatTimeoutSeconds())
+                                    .put("backfillStatus", sub.backfillStatus())
+                                    .put("backfillProcessedMessages", sub.backfillProcessedMessages())
+                                    .put("backfillTotalMessages", sub.backfillTotalMessages());
+                            consumers.add(consumer);
+                        }
 
-                    ctx.response()
-                            .setStatusCode(200)
-                            .putHeader("content-type", "application/json")
-                            .end(response.encode());
+                        JsonObject response = new JsonObject()
+                                .put("message", "Consumers retrieved successfully")
+                                .put("queueName", queueName)
+                                .put("setupId", setupId)
+                                .put("consumerCount", consumers.size())
+                                .put("consumers", consumers)
+                                .put("timestamp", System.currentTimeMillis());
+
+                        ctx.response()
+                                .setStatusCode(200)
+                                .putHeader("content-type", "application/json")
+                                .end(response.encode());
+                    });
                 })
                 .onFailure(throwable -> {
                     logger.error("Error getting consumers for setup: {}, queue: {}", setupId, queueName, throwable);
@@ -1825,48 +1858,50 @@ public class ManagementApiHandler {
                         return;
                     }
 
-                    try {
-                        // Use QueueBrowser to browse messages without consuming them
-                        JsonArray messages = new JsonArray();
-                        try (var browser = queueFactory.createBrowser(queueName, Object.class)) {
-                            var messageList = browser.browse(count, offset).await();
-                            for (var message : messageList) {
-                                JsonObject headersJson = new JsonObject();
-                                if (message.getHeaders() != null) {
-                                    message.getHeaders().forEach(headersJson::put);
+                    var browser = queueFactory.createBrowser(queueName, Object.class);
+                    browser.browse(count, offset)
+                            .map(messageList -> {
+                                JsonArray messages = new JsonArray();
+                                for (var message : messageList) {
+                                    JsonObject headersJson = new JsonObject();
+                                    if (message.getHeaders() != null) {
+                                        message.getHeaders().forEach(headersJson::put);
+                                    }
+                                    JsonObject msgJson = new JsonObject()
+                                            .put("id", message.getId())
+                                            .put("payload",
+                                                    message.getPayload() != null ? message.getPayload().toString() : null)
+                                            .put("createdAt",
+                                                    message.getCreatedAt() != null ? message.getCreatedAt().toString() : null)
+                                            .put("headers", headersJson);
+                                    messages.add(msgJson);
                                 }
-                                JsonObject msgJson = new JsonObject()
-                                        .put("id", message.getId())
-                                        .put("payload",
-                                                message.getPayload() != null ? message.getPayload().toString() : null)
-                                        .put("createdAt",
-                                                message.getCreatedAt() != null ? message.getCreatedAt().toString()
-                                                        : null)
-                                        .put("headers", headersJson);
-                                messages.add(msgJson);
-                            }
-                        }
+                                return messages;
+                            })
+                            .onSuccess(messages -> {
+                                try { browser.close(); } catch (Exception ignored) { }
 
-                        JsonObject response = new JsonObject()
-                                .put("message", "Messages retrieved successfully")
-                                .put("queueName", queueName)
-                                .put("setupId", setupId)
-                                .put("messageCount", messages.size())
-                                .put("ackMode", ackMode)
-                                .put("messages", messages)
-                                .put("timestamp", System.currentTimeMillis());
+                                JsonObject response = new JsonObject()
+                                        .put("message", "Messages retrieved successfully")
+                                        .put("queueName", queueName)
+                                        .put("setupId", setupId)
+                                        .put("messageCount", messages.size())
+                                        .put("ackMode", ackMode)
+                                        .put("messages", messages)
+                                        .put("timestamp", System.currentTimeMillis());
 
-                        ctx.response()
-                                .setStatusCode(200)
-                                .putHeader("content-type", "application/json")
-                                .end(response.encode());
+                                ctx.response()
+                                        .setStatusCode(200)
+                                        .putHeader("content-type", "application/json")
+                                        .end(response.encode());
 
-                        logger.info("Retrieved {} messages from queue {} in setup {}", messages.size(), queueName,
-                                setupId);
-                    } catch (Exception e) {
-                        logger.error("Error browsing messages for setup: {}, queue: {}", setupId, queueName, e);
-                        sendError(ctx, 500, "Failed to browse messages: " + e.getMessage());
-                    }
+                                logger.info("Retrieved {} messages from queue {} in setup {}", messages.size(), queueName, setupId);
+                            })
+                            .onFailure(e -> {
+                                try { browser.close(); } catch (Exception ignored) { }
+                                logger.error("Error browsing messages for setup: {}, queue: {}", setupId, queueName, e);
+                                sendError(ctx, 500, "Failed to browse messages: " + e.getMessage());
+                            });
                 })
                 .onFailure(throwable -> {
                     logger.error("Error getting messages for setup: {}, queue: {}", setupId, queueName, throwable);

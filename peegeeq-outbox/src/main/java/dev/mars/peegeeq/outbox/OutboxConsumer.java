@@ -269,8 +269,12 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             processAvailableMessages()
                     .onSuccess(result -> logger.debug("Successfully processed messages for topic {}", topic))
                     .onFailure(error -> {
-                        logger.error("Reactive message processing failed for topic {}: {}", topic, error.getMessage(),
-                                error);
+                        String msg = error.getMessage() != null ? error.getMessage() : error.getClass().getSimpleName();
+                        if (isShutdownRelatedError(msg)) {
+                            logger.debug("Reactive message processing skipped (shutdown) for topic {}: {}", topic, msg);
+                        } else {
+                            logger.error("Reactive message processing failed for topic {}: {}", topic, msg, error);
+                        }
                     });
         } catch (Exception e) {
             logger.error("Failed to start reactive message processing for topic {}: {}", topic, e.getMessage(), e);
@@ -372,12 +376,11 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                     .onFailure(error -> {
                         // : Handle shutdown-related errors gracefully following established
                         // pattern
-                        if (closed.get() && (error.getMessage().contains("Pool closed") ||
-                                error.getMessage().contains("event executor terminated") ||
-                                error.getMessage().contains("Connection closed"))) {
-                            logger.debug("Expected error during shutdown for topic {}: {}", topic, error.getMessage());
+                        String msg = error.getMessage() != null ? error.getMessage() : error.getClass().getSimpleName();
+                        if (isShutdownRelatedError(msg)) {
+                            logger.debug("Expected error during shutdown for topic {}: {}", topic, msg);
                         } else {
-                            logger.error("Error querying messages for topic {}: {}", topic, error.getMessage());
+                            logger.error("Error querying messages for topic {}: {}", topic, msg);
                         }
                     });
 
@@ -386,30 +389,27 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             // established pattern
             String errorMessage = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
 
-            if (closed.get()) {
-                // During shutdown, many errors are expected
-                if (errorMessage.contains("Pool closed") ||
-                        errorMessage.contains("event executor terminated") ||
-                        errorMessage.contains("Connection closed") ||
-                        errorMessage.contains("RejectedExecutionException")) {
-                    logger.debug("Expected error during shutdown for topic {}: {}", topic, errorMessage);
-                } else {
-                    logger.debug("Error during shutdown for topic {}: {}", topic, errorMessage);
-                }
-            } else {
-                // During normal operation, log as error but don't let it terminate the executor
-                if (errorMessage.contains("event executor terminated") ||
-                        errorMessage.contains("RejectedExecutionException")) {
-                    logger.warn("Event executor terminated for topic {} - this may indicate system shutdown: {}", topic,
-                            errorMessage);
+            if (isShutdownRelatedError(errorMessage)) {
+                logger.debug("Expected error during shutdown for topic {}: {}", topic, errorMessage);
+                if (!closed.get()) {
                     // Mark as closed to prevent further processing attempts
                     closed.set(true);
-                } else {
-                    logger.error("Failed to process messages reactively for topic {}: {}", topic, errorMessage, e);
                 }
+            } else if (closed.get()) {
+                logger.debug("Error during shutdown for topic {}: {}", topic, errorMessage);
+            } else {
+                logger.error("Failed to process messages reactively for topic {}: {}", topic, errorMessage, e);
             }
             return Future.failedFuture(e);
         }
+    }
+
+    private boolean isShutdownRelatedError(String message) {
+        return message.contains("Pool closed")
+                || message.contains("event executor terminated")
+                || message.contains("Connection closed")
+                || message.contains("RejectedExecutionException")
+                || message.contains("ConnectionProvider is not available");
     }
 
     /**
@@ -969,7 +969,12 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
         // clientId can be null - PgClientFactory/ConnectionProvider resolves null to
         // the default pool
         if (databaseService != null) {
-            return databaseService.getConnectionProvider().getReactivePool(clientId);
+            var connectionProvider = databaseService.getConnectionProvider();
+            if (connectionProvider == null) {
+                return Future.failedFuture(new IllegalStateException(
+                        "ConnectionProvider is not available — database service may be shutting down"));
+            }
+            return connectionProvider.getReactivePool(clientId);
         }
         if (clientFactory != null) {
             try {
