@@ -62,6 +62,7 @@ public class HealthCheckManager implements HealthService {
     private volatile ExecutorService healthCheckExecutor;
     private final Set<String> inFlightChecks;
     private final AtomicBoolean healthChecksInProgress = new AtomicBoolean(false);
+    private volatile Future<Void> inFlightCheckCycle = null;
     private final Map<String, HealthCheck> healthChecks;
     private final Map<String, HealthStatus> lastResults;
     private volatile boolean running = false;
@@ -226,6 +227,13 @@ public class HealthCheckManager implements HealthService {
             }
         }
         inFlightChecks.clear();
+
+        // Await any in-flight health check cycle so connections are returned before pool close
+        Future<Void> pending = inFlightCheckCycle;
+        if (pending != null) {
+            logger.info("Awaiting in-flight health check cycle before stop completes");
+            return pending.recover(e -> Future.succeededFuture());
+        }
         return Future.succeededFuture();
     }
 
@@ -335,8 +343,13 @@ public class HealthCheckManager implements HealthService {
 
         chain.eventually(() -> {
             healthChecksInProgress.set(false);
+            inFlightCheckCycle = null;
             return Future.succeededFuture();
         });
+
+        // Track in-flight cycle so stop() can await it before pools close
+        inFlightCheckCycle = chain
+                .recover(e -> Future.succeededFuture());
     }
 
     private Future<HealthStatus> runHealthCheckWithTimeout(String name, HealthCheck check) {

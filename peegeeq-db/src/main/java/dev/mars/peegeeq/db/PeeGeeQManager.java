@@ -108,6 +108,8 @@ public class PeeGeeQManager implements AutoCloseable {
     private long recoveryTimerId = 0;
     private DeadConsumerDetectionJob deadConsumerDetectionJob;
     private volatile boolean started = false;
+    private volatile boolean closing = false;
+    private volatile Future<Void> startFuture = null;
 
     // Cached subscription service — created once, reused per request
     private volatile dev.mars.peegeeq.api.subscription.SubscriptionService cachedSubscriptionService;
@@ -249,11 +251,15 @@ public class PeeGeeQManager implements AutoCloseable {
             logger.warn("PeeGeeQ Manager is already started");
             return Future.succeededFuture();
         }
+        if (closing) {
+            logger.warn("PeeGeeQ Manager is closing, cannot start");
+            return Future.failedFuture(new IllegalStateException("PeeGeeQ Manager is closing"));
+        }
 
         logger.info("Starting PeeGeeQ Manager with reactive lifecycle events...");
         logger.debug("DB-DEBUG: PeeGeeQ Manager reactive start initiated with configuration profile: {}", configuration.getProfile());
 
-        return Future.succeededFuture()
+        Future<Void> future = Future.succeededFuture()
             .compose(v -> publishLifecycleEvent("database.validating"))
             .compose(v -> validateDatabaseConnectivity())
             .compose(v -> validateRequiredTables())
@@ -271,13 +277,19 @@ public class PeeGeeQManager implements AutoCloseable {
                 logger.debug("DB-DEBUG: PeeGeeQ Manager reactive startup failed, error: {}", throwable.getMessage());
                 
                 // Stop background tasks and health checks on failure to prevent leaks
-                stopBackgroundTasks();
-                
-                return healthCheckManager.stop()
+                return stopBackgroundTasks()
+                    .compose(v -> healthCheckManager.stop())
                     .recover(e -> Future.succeededFuture()) // Ignore errors during stop
                     .compose(v -> publishLifecycleEvent("manager.failed"))
                     .compose(v -> Future.failedFuture(new RuntimeException("Failed to start PeeGeeQ Manager", throwable)));
+            })
+            .eventually(() -> {
+                startFuture = null;
+                return Future.succeededFuture();
             });
+
+        startFuture = future;
+        return future;
     }
 
     /**
@@ -291,14 +303,15 @@ public class PeeGeeQManager implements AutoCloseable {
         logger.info("Stopping PeeGeeQ Manager...");
         logger.debug("DB-DEBUG: PeeGeeQ Manager shutdown initiated");
 
-        // Stop background tasks first
+        // Stop background tasks first (awaits in-flight operations)
         logger.debug("DB-DEBUG: Stopping background tasks");
-        stopBackgroundTasks();
-        logger.debug("DB-DEBUG: Background tasks stopped successfully");
-
-        // Stop health checks asynchronously to avoid blocking event loop
-        logger.debug("DB-DEBUG: Stopping health check manager");
-        return healthCheckManager.stop()
+        return stopBackgroundTasks()
+            .compose(v -> {
+                logger.debug("DB-DEBUG: Background tasks stopped successfully");
+                // Stop health checks asynchronously to avoid blocking event loop
+                logger.debug("DB-DEBUG: Stopping health check manager");
+                return healthCheckManager.stop();
+            })
             .compose(v -> {
                 logger.debug("DB-DEBUG: Health check manager stopped successfully");
                 started = false;
@@ -367,12 +380,26 @@ public class PeeGeeQManager implements AutoCloseable {
 
     /**
      * Reactive close method - preferred for non-blocking shutdown.
+     * Awaits any in-flight start() operation before closing pools to prevent
+     * "Pool closed" errors from racing startup futures.
      */
     public Future<Void> closeReactive() {
+        closing = true;
         logger.info("PeeGeeQManager.closeReactive() called - starting shutdown sequence");
 
+        // 0. Await in-flight start() if any, so startup futures resolve before pools close
+        Future<Void> pendingStart = startFuture;
+        Future<Void> awaitStart;
+        if (pendingStart != null) {
+            logger.info("Awaiting in-flight start() before closing pools");
+            awaitStart = pendingStart.recover(e -> Future.succeededFuture());
+        } else {
+            awaitStart = Future.succeededFuture();
+        }
+
         // 1. Stop reactive components (background tasks, health checks)
-        return stop()
+        return awaitStart
+            .compose(v -> stop())
             .recover(e -> {
                 logger.warn("stop() failed during close, continuing cleanup: {}", e.getMessage());
                 return Future.succeededFuture();
@@ -840,8 +867,9 @@ public class PeeGeeQManager implements AutoCloseable {
 
     /**
      * Stops all background tasks by canceling Vert.x timers.
+     * Returns a Future that completes when any in-flight background operations finish.
      */
-    private void stopBackgroundTasks() {
+    private Future<Void> stopBackgroundTasks() {
         if (dlqTimerId != 0) {
             vertx.cancelTimer(dlqTimerId);
             dlqTimerId = 0;
@@ -858,11 +886,14 @@ public class PeeGeeQManager implements AutoCloseable {
             vertx.cancelTimer(depthCacheTimerId);
             depthCacheTimerId = 0;
         }
+        Future<Void> jobStop = Future.succeededFuture();
         if (deadConsumerDetectionJob != null) {
-            deadConsumerDetectionJob.stop();
+            jobStop = deadConsumerDetectionJob.stop()
+                .recover(e -> Future.succeededFuture());
             deadConsumerDetectionJob = null;
         }
         logger.debug("DB-DEBUG: All background tasks stopped");
+        return jobStop;
     }
 
 }

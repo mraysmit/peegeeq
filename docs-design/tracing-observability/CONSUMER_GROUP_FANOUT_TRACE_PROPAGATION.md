@@ -125,7 +125,7 @@ TRACE_A ─┬─ QueueHandler.sendMessage [SPAN_1]
    - **Post-query**: Create the child span after messages are returned, retroactively apply the trace to the fetch log context.
    - **Deferred**: Use a root span for fetch, then link it to the message trace during processing.
 
-2. **OutboxConsumer.processRowReactive()** — Create child span instead of reusing parent span:
+2. **OutboxConsumer.processRow()** — Create child span instead of reusing parent span:
 
    ```java
    // Before:
@@ -172,7 +172,7 @@ Keep the current behaviour where all groups share the same traceId from the mess
 
 1. `ConsumerGroupFetcher.fetchMessages()` creates a root span for the fetch operation itself (as now).
 2. When messages are returned, extract the traceparent from each message.
-3. `OutboxConsumer.processRowReactive()` creates a **child span** of the message's traceparent, with the group name in the span name.
+3. `OutboxConsumer.processRow()` creates a **child span** of the message's traceparent, with the group name in the span name.
 4. The child span's spanId becomes the new traceparent for all downstream operations within that group's processing.
 
 This gives:
@@ -185,8 +185,8 @@ This gives:
 
 | Change | File | Effort |
 |--------|------|--------|
-| Create child span in consumer processing | `OutboxConsumer.processRowReactive()` | Small |
-| Add group name to span name | `OutboxConsumer.processRowReactive()` | Small |
+| Create child span in consumer processing | `OutboxConsumer.processRow()` | Small |
+| Add group name to span name | `OutboxConsumer.processRow()` | Small |
 | Update CompletionTracker with child span | `CompletionTracker.markCompleted()` | Small |
 | Add span name support to `TraceCtx.childSpan()` | `TraceCtx.java` | Small — may already exist |
 | Update tests to verify parent-child linkage | `ConsumerTracingTest`, `DistributedTracingTest` | Medium |

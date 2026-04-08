@@ -444,6 +444,11 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             String traceparent = headers.get("traceparent");
             TraceCtx traceCtx = TraceContextUtil.parseOrCreate(traceparent);
 
+            // If consumer group is set, create a child span for fan-out trace propagation
+            if (consumerGroupName != null) {
+                traceCtx = traceCtx.childSpan("consumer-group:" + consumerGroupName + "/process");
+            }
+
             // Set MDC for trace context before processing — intentionally NOT using
             // try-with-resources because async processing needs MDC values to persist
             // across the handler call. Cleanup happens in the eventually() block via
@@ -451,6 +456,9 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             TraceContextUtil.mdcScope(traceCtx);
             TraceContextUtil.setMDC(TraceContextUtil.MDC_MESSAGE_ID, messageId);
             TraceContextUtil.setMDC(TraceContextUtil.MDC_TOPIC, topic);
+            if (consumerGroupName != null) {
+                TraceContextUtil.setMDC(TraceContextUtil.MDC_CONSUMER_GROUP, consumerGroupName);
+            }
             if (correlationId != null) {
                 TraceContextUtil.setMDC(TraceContextUtil.MDC_CORRELATION_ID, correlationId);
             }
