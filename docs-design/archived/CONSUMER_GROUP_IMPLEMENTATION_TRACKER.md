@@ -3,7 +3,7 @@
 **Purpose**: Honest, verified tracking of what is actually implemented vs what the design specifies.  
 **Author**: Mark Andrew Ray-Smith, Cityline Ltd  
 **Created**: 2026-03-01  
-**Last Verified**: 2026-04-08 (updated method names after Async/Reactive suffix cleanup)  
+**Last Verified**: 2026-04-09  
 **Design Reference**: [PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md](PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md)  
 **Tracing/Observability References**:  
 - [PEEGEEQ_TRACING_ARCHITECTURE_GUIDE.md](../tracing-observability/PEEGEEQ_TRACING_ARCHITECTURE_GUIDE.md) — All async code must use `AsyncTraceUtils` wrappers  
@@ -87,7 +87,7 @@ These components have been verified to work end-to-end with tests passing:
 - 7 integration tests passing
 
 ### Subscription Management
-- `SubscriptionManager` (503 lines) — subscribe, pause, resume, cancel, heartbeat, get, list
+- `SubscriptionManager` (~935 lines) — subscribe, pause, resume, cancel, heartbeat, get, list
 - Supports FROM_NOW, FROM_BEGINNING, FROM_MESSAGE_ID, FROM_TIMESTAMP start positions
 - Reactivates PAUSED/DEAD subscriptions on re-subscribe (but see resurrection gap below)
 - REST endpoints: list, get, pause, resume, heartbeat, cancel
@@ -209,7 +209,7 @@ Primary sources:
 - CTE captures pre-update status for resurrection logging at INFO level
 - CANCELLED and PAUSED subscriptions are NOT affected by heartbeat (only DEAD → ACTIVE)
 - 3 integration tests: `testHeartbeatResurrectsDeadSubscription`, `testHeartbeatDoesNotResurrectCancelledSubscription`, `testHeartbeatKeepsPausedSubscriptionPaused`
-- Note: resurrection does NOT re-increment `required_consumer_groups` or trigger re-backfill for messages cleaned up during DEAD period (future enhancement)
+- Resurrection now also triggers re-backfill of messages missed during the DEAD period (see Task H5)
 
 ### Flapping Protection — ✅ DONE
 - Design doc (Pitfall 2, lines ~2500-2510) specifies `consecutive_failures` column requiring 3+ consecutive heartbeat misses before marking DEAD
@@ -229,7 +229,7 @@ Primary sources:
 ## Backfill Support — Gap Analysis
 
 ### Backfill Service — ✅ DONE (isolated)
-- `BackfillService.java` (545 lines) — full batch-based backfill with:
+- `BackfillService.java` (~1290 lines) — full batch-based backfill with:
   - Checkpoint-based resumability (`backfill_checkpoint_id`, `backfill_processed_messages`)
   - Status lifecycle: NONE → IN_PROGRESS → COMPLETED/CANCELLED/FAILED
   - Per-message: increments `required_consumer_groups`, creates PENDING `outbox_consumer_groups` row
@@ -372,7 +372,7 @@ These are cases where components exist but are not connected to the application 
 | Resurrection triggers re-backfill of missed messages | ✅ | Task H5 — 6 tests in `ResurrectionReBackfillIntegrationTest` |
 | Fan-out trace propagation (child spans per group) | ❌ | Task L9 — design complete, no implementation |
 | Remaining Prometheus metrics registered | ✅ | Task L10 — `completions.total`, `blocked.messages`, `detection.run.duration.seconds`, `detection.runs.total` done; `processing_seconds` and `backfill_progress` dropped |
-| REST-triggered backfill | ✅ | 15 tests in `SubscriptionCreateAndBackfillIntegrationTest` |
+| REST-triggered backfill | ✅ | 17 tests in `SubscriptionCreateAndBackfillIntegrationTest` |
 
 ---
 
@@ -545,9 +545,9 @@ AND required_consumer_groups > 0;
 - When subscription is DEAD or CANCELLED, PENDING rows in `outbox_consumer_groups` for that group are removed
 - COMPLETED rows may be retained for audit
 
-**Status**: ✅ Completed (for DEAD subscriptions)
+**Status**: ✅ Completed (for DEAD and CANCELLED subscriptions)
 
-**Implementation**: Handled by `DeadConsumerGroupCleanup` step 2 — orphaned `outbox_consumer_groups` rows with `status != 'COMPLETED'` are removed for each dead group during the detection→cleanup pipeline. CANCELLED subscription cleanup is not yet addressed.
+**Implementation**: Handled by `DeadConsumerGroupCleanup` step 2 — orphaned `outbox_consumer_groups` rows with `status != 'COMPLETED'` are removed for each dead group during the detection→cleanup pipeline. CANCELLED subscription cleanup is also addressed by Task H6 — `cancel()` chains `DeadConsumerGroupCleanup.cleanupDeadGroup()` after `updateStatus(CANCELLED)`.
 
 ### LOW — Nice to Have
 
@@ -787,15 +787,15 @@ Primary sources:
 | File | Package | Lines | Status |
 |------|---------|-------|--------|
 | `TopicConfigService.java` | `db.subscription` | 264 | ✅ Complete |
-| `SubscriptionManager.java` | `db.subscription` | 503 | ✅ Complete (resurrection via heartbeat implemented) |
+| `SubscriptionManager.java` | `db.subscription` | ~935 | ✅ Complete (resurrection via heartbeat implemented) |
 | `ZeroSubscriptionValidator.java` | `db.subscription` | 140 | ✅ Complete |
 | `ConsumerGroupFetcher.java` | `db.consumer` | 127 | ✅ Complete |
 | `CompletionTracker.java` | `db.consumer` | 161 | ✅ Complete |
 | `CleanupService.java` | `db.cleanup` | 199 | ✅ Complete |
-| `DeadConsumerDetector.java` | `db.cleanup` | ~400 | ✅ Detection + diagnostics (structured results, blocked stats, subscription summary) |
-| `DeadConsumerGroupCleanup.java` | `db.cleanup` | ~250 | ✅ Complete — decrement, orphan removal, auto-complete |
-| `DeadConsumerDetectionJob.java` | `db.cleanup` | ~460 | ✅ Full operational logging + cleanup wired, started by `PeeGeeQManager` |
-| `BackfillService.java` | `db.subscription` | 545 | ✅ Complete — wired into lifecycle, REST endpoints available |
+| `DeadConsumerDetector.java` | `db.cleanup` | ~570 | ✅ Detection + diagnostics (structured results, blocked stats, subscription summary) |
+| `DeadConsumerGroupCleanup.java` | `db.cleanup` | ~430 | ✅ Complete — decrement, orphan removal, auto-complete |
+| `DeadConsumerDetectionJob.java` | `db.cleanup` | ~580 | ✅ Full operational logging + cleanup wired, started by `PeeGeeQManager` |
+| `BackfillService.java` | `db.subscription` | ~1290 | ✅ Complete — wired into lifecycle, REST endpoints available |
 | `SubscriptionHandler.java` | REST handler | ~650 | ✅ Complete — subscribe, backfill endpoints implemented |
 | `ManagementApiHandler.java` | REST handler | — | ✅ Read-only backfill status |
 | `ConsumerGroupMetrics.java` | `db.metrics` | ~95 | ✅ Complete — `MeterBinder` with 6 gauges, `refresh()` via `getSubscriptionSummary()` |
@@ -825,7 +825,7 @@ Primary sources:
 | `ForceRemoveIntegrationTest` | 5 | ✅ Yes | ✅ Passing — active, dead, non-existent, already-cancelled, idempotent |
 | `BackfillRateLimitingUnitTest` | 13 | ❌ No (CORE) | ✅ Passing — parameter validation, constructor variants, Vertx requirement |
 | `BackfillRateLimitingIntegrationTest` | 4 | ✅ Yes | ✅ Passing — delay slows throughput, zero delay, cancellation, legacy overloads |
-| `SubscriptionCreateAndBackfillIntegrationTest` | 15 | ✅ Yes | ✅ Passing — subscribe REST + backfill REST endpoints |
+| `SubscriptionCreateAndBackfillIntegrationTest` | 17 | ✅ Yes | ✅ Passing — subscribe REST + backfill REST endpoints |
 | `ConsumerGroupMetricsIntegrationTest` | 7 | ✅ Yes | ✅ Passing — gauge registration, active/dead/paused/topics counts, refresh replacement, detection run |
 | `DeadConsumerAlertingIntegrationTest` | 7 | ✅ Yes | ✅ Passing — dead list, health summary, blocked stats, unknown setup (×3), timing details |
 | Performance tests (P1-P4) | 4 | ✅ Yes | ✅ Passing |
@@ -877,4 +877,7 @@ This tracker is the sole source of truth for consumer group fan-out implementati
 | 2026-04-05 | **L4-L7 Complete**: (L4) Created `ConsumerGroupMetrics.java` — `MeterBinder` with 6 gauges (active/paused/dead/cancelled/total/topics), `refresh()` via `DeadConsumerDetector.getSubscriptionSummary()`, 7 integration tests GREEN, full module regression clean. (L5) Extended `SystemMonitoringHandler.collectMetricsFromServices()` — counts subscriptions by `SubscriptionState`, adds `subscriptionHealth` JSON object to `/ws/monitoring` payload. (L6) Created `CONSUMER_GROUP_FANOUT_TRACE_PROPAGATION.md` design document — recommends child spans per consumer group (Option A), documents current trace gap and implementation scope. (L7) Extended handler to collect in-progress backfills from `SubscriptionInfo.backfillStatus()`, adds `activeBackfills` array to payload with topic/groupName/processedMessages/totalMessages/percentComplete. | — |
 | 2026-04-05 | **L8 Complete (Dead Consumer Alerting Endpoint)**: Created `ConsumerAlertHandler.java` (~130 lines) with 3 REST endpoints: `GET .../consumer-alerts/dead` (dead subscription list with timing), `GET .../consumer-alerts/summary` (health summary), `GET .../consumer-alerts/blocked` (blocked message stats). Extended `SubscriptionService` with 3 default methods, `SubscriptionManager` implements via `DeadConsumerDetector`. Error code `PGQERR0063`. 7 integration tests GREEN, 103/103 core tests passing. | — |
 | 2026-04-05 | **Partitioned Consumer Groups Design**: Created partitioned design (now consolidated into [PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md §19](PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md#partitioned-consumer-groups-offsetwatermark-mode)) — comprehensive design for offset/watermark mode + partitioned consumption. Covers partition key (reuse `message_group`), 3 new tables, generation-based fencing, watermark sweep, 6 implementation phases, 5 open questions. | — |
-| 2026-04-05 | **Tracker refresh**: Updated stale entries — Dead Consumer Alerting `❌ NOT STARTED` → `✅ DONE`, Prometheus Metrics `❌ NOT STARTED` → `✅ DONE`, Fan-Out Trace Propagation `❌ NOT DESIGNED` → `✅ DONE (design)`, Monitoring upgraded from summary-only to full breakdown. Removed stale "Impact" / "Specific violations" text from Tracing section (all fixed by M3-M6). Resolved all 3 overlaps. Added `ConsumerAlertHandler.java` and `DeadConsumerAlertingIntegrationTest` to inventories. Added Partitioned Consumer Groups Design to status summary. | — || 2026-04-06 | **Document consolidation + future work audit**: Merged `PARTITIONED_CONSUMER_GROUPS_DESIGN.md` into [PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md §19](PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md#partitioned-consumer-groups-offsetwatermark-mode). Updated all tracker references to point to consolidated doc. Deleted standalone partitioned design doc. Audited 5 un-tracked future work items and confirmed all are genuinely not implemented: (H5) Resurrection re-backfill, (H6) CANCELLED orphan cleanup, (M7) Service manager integration test, (L9) Fan-out trace propagation implementation, (L10) 5 remaining Prometheus metrics. Added formal task definitions with acceptance criteria for each. Updated status summary and test coverage gaps tables. | — |
+| 2026-04-05 | **Tracker refresh**: Updated stale entries — Dead Consumer Alerting `❌ NOT STARTED` → `✅ DONE`, Prometheus Metrics `❌ NOT STARTED` → `✅ DONE`, Fan-Out Trace Propagation `❌ NOT DESIGNED` → `✅ DONE (design)`, Monitoring upgraded from summary-only to full breakdown. Removed stale "Impact" / "Specific violations" text from Tracing section (all fixed by M3-M6). Resolved all 3 overlaps. Added `ConsumerAlertHandler.java` and `DeadConsumerAlertingIntegrationTest` to inventories. Added Partitioned Consumer Groups Design to status summary. | — |
+| 2026-04-06 | **Document consolidation + future work audit**: Merged `PARTITIONED_CONSUMER_GROUPS_DESIGN.md` into [PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md §19](PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md#partitioned-consumer-groups-offsetwatermark-mode). Updated all tracker references to point to consolidated doc. Deleted standalone partitioned design doc. Audited 5 un-tracked future work items and confirmed all are genuinely not implemented: (H5) Resurrection re-backfill, (H6) CANCELLED orphan cleanup, (M7) Service manager integration test, (L9) Fan-out trace propagation implementation, (L10) 5 remaining Prometheus metrics. Added formal task definitions with acceptance criteria for each. Updated status summary and test coverage gaps tables. | — |
+| 2026-04-08 | **H5, H6, M7, L1, L2, L3, L8, L10 completed**: Resurrection re-backfill (H5), CANCELLED orphan cleanup (H6), service manager integration test (M7), adaptive rate limiting (L1), graceful shutdown (L2), admin force-remove (L3), dead consumer alerting endpoints (L8), remaining Prometheus metrics (L10) all implemented and tested. Async/Reactive method suffix cleanup applied. | — |
+| 2026-04-09 | **Tracker accuracy review**: Updated stale line counts (SubscriptionManager 503→~935, BackfillService 545→~1290, DeadConsumerDetector ~400→~570, DeadConsumerGroupCleanup ~250→~430, DeadConsumerDetectionJob ~460→~580). Fixed stale notes: resurrection section (re-backfill now implemented via H5), M2 status (CANCELLED cleanup now addressed via H6). Fixed test count: SubscriptionCreateAndBackfillIntegrationTest 15→17. Fixed change log formatting (missing newline between 2026-04-05 and 2026-04-06 entries). | — |
