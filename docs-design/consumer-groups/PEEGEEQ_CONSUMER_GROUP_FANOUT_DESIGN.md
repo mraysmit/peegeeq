@@ -39,8 +39,6 @@ This document describes both **implemented features** and **future enhancements*
 **❌ NOT IMPLEMENTED (Future Work):**
 - Offset/Watermark Mode (schema prepared, no implementation)
 - Partition Management (no code for partition-based cleanup)
-- Metrics/Monitoring (no observability services)
-- Adaptive Rate Limiting (not implemented)
 - Dead Letter Queue (not implemented)
 
 ### Detailed Feature Status
@@ -56,10 +54,10 @@ This document describes both **implemented features** and **future enhancements*
 | Cleanup | ✅ | Complete | SQL function | Fanout-aware |
 | Backfill | ✅ | Complete | `BackfillService` (545 lines) | Wired into lifecycle via `setBackfillService()`, REST endpoints: POST start, GET progress, DELETE cancel |
 | Dead Consumer Detection | ✅ | Complete | `DeadConsumerDetector` + `DeadConsumerGroupCleanup` + `DeadConsumerDetectionJob` | Detection, cleanup, scheduled job — 40 tests passing |
+| Metrics/Monitoring | ✅ | Complete | `ConsumerGroupMetrics` (MeterBinder, 6 gauges) | Subscription-level gauges: active/paused/dead/cancelled/total/topics — 7 tests passing |
+| Backfill Rate Limiting | ✅ | Complete | `BackfillService.batchDelayMs` | Vert.x timer-based inter-batch throttling — 17 tests passing |
 | **Offset/Watermark Mode** | ❌ | Partial | Missing | Future enhancement |
 | Partition Management | ❌ | Partial | Missing | Future enhancement |
-| Metrics/Monitoring | ❌ | None | Missing | Future enhancement |
-| Adaptive Rate Limiting | ❌ | None | Missing | Future enhancement |
 
 ---
 
@@ -193,7 +191,7 @@ This document specifies the **Hybrid Queue/Pub-Sub** design for implementing rel
 - ✅ **IMPLEMENTED**: At-least-once delivery guarantee to multiple independent consumer groups
 - ✅ **IMPLEMENTED**: Backward compatibility with existing queue-based consumers
 - ✅ **IMPLEMENTED**: Support for late-joining consumers with configurable catch-up behavior
-- ⚠️ **PARTIAL**: Automatic cleanup of dead/inactive consumer groups (SQL function exists, no scheduled job)
+- ✅ **IMPLEMENTED**: Automatic cleanup of dead/inactive consumer groups (detection + cleanup + scheduled job)
 - ✅ **IMPLEMENTED**: Efficient message retention and cleanup (Reference Counting mode)
 - ✅ **IMPLEMENTED**: Clear, explicit configuration per topic
 - ✅ **IMPLEMENTED**: Scalable to 30,000+ messages/second with reference counting

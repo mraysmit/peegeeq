@@ -56,9 +56,8 @@ TopicConfig config = TopicConfig.builder()
     .build();
 
 topicConfigService.createTopic(config)
-    .toCompletionStage()
-    .toCompletableFuture()
-    .get();
+    .onSuccess(v -> logger.info("Topic configured"))
+    .onFailure(err -> logger.error("Failed to configure topic", err));
 ```
 
 ### Step 2: Create Consumer Groups
@@ -94,21 +93,21 @@ ConsumerGroup<OrderEvent> inventoryService = queueFactory.createConsumerGroup(
 emailService.setMessageHandler(message -> {
     OrderEvent order = message.getPayload();
     sendOrderConfirmationEmail(order);
-    return CompletableFuture.completedFuture(null);
+    return Future.succeededFuture();
 });
 
 // Analytics service handler
 analyticsService.setMessageHandler(message -> {
     OrderEvent order = message.getPayload();
     trackOrderMetrics(order);
-    return CompletableFuture.completedFuture(null);
+    return Future.succeededFuture();
 });
 
 // Inventory service handler
 inventoryService.setMessageHandler(message -> {
     OrderEvent order = message.getPayload();
     updateInventory(order);
-    return CompletableFuture.completedFuture(null);
+    return Future.succeededFuture();
 });
 ```
 
@@ -127,9 +126,8 @@ inventoryService.start();
 // Publish a message - it will be delivered to ALL three consumer groups
 OrderEvent orderEvent = new OrderEvent(orderId, customerId, amount);
 producer.send("orders.events", orderEvent)
-    .toCompletionStage()
-    .toCompletableFuture()
-    .get();
+    .onSuccess(id -> logger.info("Message sent with id {}", id))
+    .onFailure(err -> logger.error("Failed to send message", err));
 ```
 
 ---
@@ -271,33 +269,28 @@ SubscriptionManager subscriptionManager = new SubscriptionManager(connectionMana
 
 // Subscribe a consumer group
 subscriptionManager.subscribe("orders.events", "email-service", SubscriptionOptions.defaults())
-    .toCompletionStage()
-    .toCompletableFuture()
-    .get();
+    .onSuccess(v -> logger.info("Subscribed"))
+    .onFailure(err -> logger.error("Subscribe failed", err));
 
 // Pause a subscription
 subscriptionManager.pause("orders.events", "email-service")
-    .toCompletionStage()
-    .toCompletableFuture()
-    .get();
+    .onSuccess(v -> logger.info("Paused"))
+    .onFailure(err -> logger.error("Pause failed", err));
 
 // Resume a subscription
 subscriptionManager.resume("orders.events", "email-service")
-    .toCompletionStage()
-    .toCompletableFuture()
-    .get();
+    .onSuccess(v -> logger.info("Resumed"))
+    .onFailure(err -> logger.error("Resume failed", err));
 
 // Cancel a subscription (terminal - cannot be resumed)
 subscriptionManager.cancel("orders.events", "email-service")
-    .toCompletionStage()
-    .toCompletableFuture()
-    .get();
+    .onSuccess(v -> logger.info("Cancelled"))
+    .onFailure(err -> logger.error("Cancel failed", err));
 
 // Update heartbeat (prevents DEAD status)
 subscriptionManager.updateHeartbeat("orders.events", "email-service")
-    .toCompletionStage()
-    .toCompletableFuture()
-    .get();
+    .onSuccess(v -> logger.info("Heartbeat updated"))
+    .onFailure(err -> logger.error("Heartbeat failed", err));
 ```
 
 ---
@@ -729,7 +722,7 @@ consumerGroup.setMessageHandler(message -> {
     // Check if already processed (application-level deduplication)
     if (orderRepository.isProcessed(order.getOrderId())) {
         logger.info("Order {} already processed, skipping", order.getOrderId());
-        return CompletableFuture.completedFuture(null);
+        return Future.succeededFuture();
     }
 
     // Process message
@@ -738,7 +731,7 @@ consumerGroup.setMessageHandler(message -> {
     // Mark as processed
     orderRepository.markProcessed(order.getOrderId());
 
-    return CompletableFuture.completedFuture(null);
+    return Future.succeededFuture();
 });
 ```
 
@@ -749,17 +742,15 @@ consumerGroup.setMessageHandler(message -> {
 ### Current Limitations
 
 1. **No partition-based cleanup** - Cleanup is based on reference counting only
-2. **No automatic backfill rate limiting** - Late-joining consumers may overwhelm the system
-3. **No built-in metrics** - Monitoring requires custom SQL queries
-4. **No dead letter queue** - Failed messages remain in tracking table
+2. **No dead letter queue for fan-out** - Failed messages remain in tracking table (DLQ infrastructure exists but is not integrated with fan-out)
+3. **No fan-out trace branching** - Child spans per consumer group not yet implemented
 
 ### Future Enhancements
 
 1. **Offset/Watermark Mode** - Alternative cleanup strategy using consumer group offsets
-2. **Adaptive Backfill** - Rate-limited catch-up for late-joining consumers
-3. **Metrics & Observability** - Built-in Prometheus/Micrometer metrics
-4. **Dead Letter Queue** - Automatic routing of permanently failed messages
-5. **Partition Management** - Automatic partition creation and cleanup
+2. **Dead Letter Queue Integration** - Automatic routing of permanently failed fan-out messages
+3. **Partition Management** - Automatic partition creation and cleanup
+4. **Fan-Out Trace Propagation** - Child spans per consumer group for distributed tracing
 
 ---
 
