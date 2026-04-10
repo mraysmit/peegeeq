@@ -23,15 +23,19 @@
 
 **Priority**: LOW  
 **Previous Task ID**: L9 (from Implementation Tracker)  
-**Design Document**: `CONSUMER_GROUP_FANOUT_TRACE_PROPAGATION.md` (archived with tracing docs)
+**Design Document**: [CONSUMER_GROUP_FANOUT_TRACE_PROPAGATION.md](../tracing-observability/CONSUMER_GROUP_FANOUT_TRACE_PROPAGATION.md)
 
 ### What
 
-When one message is delivered to N consumer groups, create a child span per group so fan-out is visible as a span tree in Jaeger/Zipkin. Currently, per-class tracing (`TraceCtx`/`mdcScope()`) is implemented across all consumer group operational code, but there is no cross-Vert.x-context propagation (`AsyncTraceUtils` wrappers) and no fan-out trace branching (parent span → child span per consumer group).
+When one message is delivered to N consumer groups, create a child span per group so fan-out is visible as a span tree in Jaeger/Zipkin. Currently, per-class tracing (`TraceCtx`/`mdcScope()`) is implemented across all consumer group operational code, but each class creates standalone `TraceCtx.createNew()` traces with no parent linkage. `AsyncTraceUtils` (which provides `traceAsyncAction()`, `publishWithTrace()`, `requestWithTrace()`, `tracedConsumer()`) exists and is tested but is **not used** in the consumer group fan-out code path. The result is that fan-out delivery produces independent traces per class rather than a connected span tree.
 
 ### Where
 
-`ConsumerGroupFetcher` (or the delivery loop that invokes handlers per group)
+There is no single "delivery loop that dispatches to N groups." Each consumer group independently fetches the same message via its own `OutboxConsumer` → `ConsumerGroupFetcher.fetchMessages()` → `OutboxConsumerGroup.distributeMessage()` chain. The child span creation therefore belongs at one of:
+
+- **`ConsumerGroupFetcher.fetchMessages()`** — replace `TraceCtx.createNew()` with a child span derived from the message's `traceparent` header (connects fetch to publish trace)
+- **`OutboxConsumerGroup.distributeMessage()`** — create a child span per-group when routing to a member (connects group delivery to fetch trace)
+- **`CompletionTracker.markCompleted()`/`markFailed()`** — replace `TraceCtx.createNew()` with a child span from the processing trace (connects completion to delivery trace)
 
 ### Prerequisite
 
@@ -55,7 +59,7 @@ All consumer group code already has per-class `TraceCtx.createNew()` + `TraceCon
 | `CompletionTracker` | Trace at `markCompleted()`/`markFailed()` entry, all internal log points |
 | `BackfillService` | Comprehensive trace through entire recursive batch chain |
 
-The missing piece is the **span hierarchy** connecting a message's publish trace to per-group delivery traces.
+The missing piece is the **span hierarchy** connecting a message's publish trace to per-group delivery traces. `AsyncTraceUtils` should be adopted in the fan-out path to replace the standalone `TraceCtx.createNew()` calls with proper parent→child span propagation.
 
 ---
 
