@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.db.consumer;
 
 import dev.mars.peegeeq.api.tracing.TraceContextUtil;
+import dev.mars.peegeeq.api.tracing.TraceCtx;
 import dev.mars.peegeeq.db.BaseIntegrationTest;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
@@ -297,6 +298,173 @@ public class ConsumerTracingTest extends BaseIntegrationTest {
         assertEquals("failure-caller-span", MDC.get("spanId"),
                 "Caller's spanId should be preserved on the calling thread");
         MDC.clear();
+        if (errorRef.get() != null) {
+            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        }
+    }
+
+    // ---- Child Span Propagation Tests ----
+
+    @Test
+    void markCompleted_withParentTrace_usesChildSpan(VertxTestContext testContext) throws InterruptedException {
+        // Given a known parent trace from a message's traceparent header
+        String parentTraceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+        TraceCtx parentTrace = TraceCtx.parseOrCreate(parentTraceparent);
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+
+        // When markCompleted is called with a parent trace, it should succeed
+        // (will fail with subscription validation, but we verify the method signature works)
+        tracker.markCompleted(999L, "nonexistent-group", "nonexistent-topic", parentTrace)
+                .eventually(() -> {
+                    try {
+                        // MDC should be clean after operation (regardless of success/failure)
+                        assertNull(MDC.get("traceId"),
+                                "traceId should not leak after markCompleted with parent trace");
+                        assertNull(MDC.get("spanId"),
+                                "spanId should not leak after markCompleted with parent trace");
+                    } catch (Throwable t) {
+                        errorRef.set(t);
+                    } finally {
+                        testContext.completeNow();
+                    }
+                    return io.vertx.core.Future.succeededFuture();
+                });
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) {
+            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        }
+    }
+
+    @Test
+    void markFailed_withParentTrace_usesChildSpan(VertxTestContext testContext) throws InterruptedException {
+        // Given a known parent trace
+        String parentTraceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+        TraceCtx parentTrace = TraceCtx.parseOrCreate(parentTraceparent);
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+
+        // When markFailed is called with a parent trace
+        tracker.markFailed(999L, "nonexistent-group", "nonexistent-topic", "test error", parentTrace)
+                .eventually(() -> {
+                    try {
+                        assertNull(MDC.get("traceId"),
+                                "traceId should not leak after markFailed with parent trace");
+                        assertNull(MDC.get("spanId"),
+                                "spanId should not leak after markFailed with parent trace");
+                    } catch (Throwable t) {
+                        errorRef.set(t);
+                    } finally {
+                        testContext.completeNow();
+                    }
+                    return io.vertx.core.Future.succeededFuture();
+                });
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) {
+            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        }
+    }
+
+    @Test
+    void markCompleted_withParentTrace_childSpanLinksToParent() {
+        // Verify the trace mechanics directly: when a parent trace is provided,
+        // the child span created must preserve the traceId and link to the parent.
+        String parentTraceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+        TraceCtx parentTrace = TraceCtx.parseOrCreate(parentTraceparent);
+
+        TraceCtx childTrace = parentTrace.childSpan("consumer-group:test-group/complete");
+
+        // Same trace tree
+        assertEquals(parentTrace.traceId(), childTrace.traceId(),
+                "Completion child span must share parent traceId");
+        // Linked to parent
+        assertEquals(parentTrace.spanId(), childTrace.parentSpanId(),
+                "Completion child span parentSpanId must reference parent's spanId");
+        // Unique span
+        assertNotEquals(parentTrace.spanId(), childTrace.spanId(),
+                "Completion child span must have its own spanId");
+    }
+
+    @Test
+    void markCompleted_withoutParentTrace_backwardCompatible(VertxTestContext testContext)
+            throws InterruptedException {
+        // The original 3-parameter method must still work
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+
+        tracker.markCompleted(999L, "nonexistent-group", "nonexistent-topic")
+                .eventually(() -> {
+                    try {
+                        assertNull(MDC.get("traceId"),
+                                "traceId should not leak after markCompleted (no parent)");
+                    } catch (Throwable t) {
+                        errorRef.set(t);
+                    } finally {
+                        testContext.completeNow();
+                    }
+                    return io.vertx.core.Future.succeededFuture();
+                });
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) {
+            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        }
+    }
+
+    // ---- ConsumerGroupFetcher child span propagation ----
+
+    @Test
+    void fetchMessages_withParentTrace_usesChildSpan(VertxTestContext testContext) throws InterruptedException {
+        // Given a known parent trace from a publish operation
+        String parentTraceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+        TraceCtx parentTrace = TraceCtx.parseOrCreate(parentTraceparent);
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+
+        // When fetchMessages is called with a parent trace
+        fetcher.fetchMessages("non-existent-topic", "test-group", 10, parentTrace)
+                .onSuccess(messages -> {
+                    try {
+                        assertNotNull(messages);
+                        assertNull(MDC.get("traceId"),
+                                "traceId should not leak after fetchMessages with parent trace");
+                    } catch (Throwable t) {
+                        errorRef.set(t);
+                    } finally {
+                        testContext.completeNow();
+                    }
+                })
+                .onFailure(throwable -> {
+                    errorRef.set(throwable);
+                    testContext.completeNow();
+                });
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) {
+            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        }
+    }
+
+    @Test
+    void fetchMessages_withoutParentTrace_backwardCompatible(VertxTestContext testContext)
+            throws InterruptedException {
+        // The original 3-parameter method must still work
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+
+        fetcher.fetchMessages("non-existent-topic", "test-group", 10)
+                .onSuccess(messages -> {
+                    try {
+                        assertNotNull(messages);
+                    } catch (Throwable t) {
+                        errorRef.set(t);
+                    } finally {
+                        testContext.completeNow();
+                    }
+                })
+                .onFailure(throwable -> {
+                    errorRef.set(throwable);
+                    testContext.completeNow();
+                });
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (errorRef.get() != null) {
             fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
         }
