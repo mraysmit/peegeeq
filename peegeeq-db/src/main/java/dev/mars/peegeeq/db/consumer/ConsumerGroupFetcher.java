@@ -73,7 +73,24 @@ public class ConsumerGroupFetcher {
      * @return Future containing list of fetched messages
      */
     public Future<List<OutboxMessage>> fetchMessages(String topic, String groupName, int batchSize) {
-        TraceCtx trace = TraceCtx.createNew();
+        return fetchMessages(topic, groupName, batchSize, null);
+    }
+
+    /**
+     * Fetches a batch of messages for the specified consumer group, optionally
+     * deriving a child span from a parent trace.
+     *
+     * @param topic The topic to fetch messages from
+     * @param groupName The consumer group name
+     * @param batchSize Maximum number of messages to fetch
+     * @param parentTrace Optional parent trace context; if non-null a child span is created
+     * @return Future containing list of fetched messages
+     */
+    public Future<List<OutboxMessage>> fetchMessages(String topic, String groupName, int batchSize,
+                                                     TraceCtx parentTrace) {
+        TraceCtx trace = parentTrace != null
+                ? parentTrace.childSpan("consumer-group:" + groupName + "/fetch")
+                : TraceCtx.createNew();
         try (var scope = TraceContextUtil.mdcScope(trace)) {
             logger.debug("Fetching messages for topic='{}', group='{}', batchSize={}", topic, groupName, batchSize);
         }

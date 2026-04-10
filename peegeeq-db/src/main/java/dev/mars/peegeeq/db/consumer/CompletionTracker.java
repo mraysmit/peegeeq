@@ -81,7 +81,23 @@ public class CompletionTracker {
      * @return Future that completes when the operation is done
      */
     public Future<Void> markCompleted(Long messageId, String groupName, String topic) {
-        TraceCtx trace = TraceCtx.createNew();
+        return markCompleted(messageId, groupName, topic, null);
+    }
+
+    /**
+     * Marks a message as completed for the specified consumer group, using a child span
+     * derived from the parent trace for fan-out trace propagation.
+     *
+     * @param messageId The message ID to mark as completed
+     * @param groupName The consumer group name
+     * @param topic The topic name (for logging and validation)
+     * @param parentTrace The parent trace context from the processing span, or null for a root trace
+     * @return Future that completes when the operation is done
+     */
+    public Future<Void> markCompleted(Long messageId, String groupName, String topic, TraceCtx parentTrace) {
+        TraceCtx trace = parentTrace != null
+                ? parentTrace.childSpan("consumer-group:" + groupName + "/complete")
+                : TraceCtx.createNew();
         try (var scope = TraceContextUtil.mdcScope(trace)) {
             logger.debug("Marking message {} as completed for group '{}' on topic '{}'",
                     messageId, groupName, topic);
@@ -207,7 +223,25 @@ public class CompletionTracker {
      * @return Future that completes when the operation is done
      */
     public Future<Void> markFailed(Long messageId, String groupName, String topic, String errorMessage) {
-        TraceCtx trace = TraceCtx.createNew();
+        return markFailed(messageId, groupName, topic, errorMessage, null);
+    }
+
+    /**
+     * Marks a message as failed for the specified consumer group, using a child span
+     * derived from the parent trace for fan-out trace propagation.
+     *
+     * @param messageId The message ID to mark as failed
+     * @param groupName The consumer group name
+     * @param topic The topic name (for logging)
+     * @param errorMessage The error message describing the failure
+     * @param parentTrace The parent trace context from the processing span, or null for a root trace
+     * @return Future that completes when the operation is done
+     */
+    public Future<Void> markFailed(Long messageId, String groupName, String topic, String errorMessage,
+                                   TraceCtx parentTrace) {
+        TraceCtx trace = parentTrace != null
+                ? parentTrace.childSpan("consumer-group:" + groupName + "/failed")
+                : TraceCtx.createNew();
         try (var scope = TraceContextUtil.mdcScope(trace)) {
             logger.warn("Marking message {} as failed for group '{}' on topic '{}': {}",
                     messageId, groupName, topic, errorMessage);
