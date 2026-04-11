@@ -205,6 +205,11 @@ public abstract class BaseIntegrationTest {
         // can mark subscriptions DEAD before the test's own detector call runs.
         System.setProperty("peegeeq.queue.dead-consumer-detection.enabled", "false");
 
+        // Disable background consumer group retry job to prevent the PeeGeeQManager's
+        // periodic job from resetting FAILED→PENDING rows during tests that assert on
+        // FAILED status. Tests for retry behaviour create their own RetryService directly.
+        System.setProperty("peegeeq.queue.consumer-group-retry.enabled", "false");
+
         logger.debug("Test configuration properties set");
     }
     
