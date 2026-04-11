@@ -270,6 +270,15 @@ public class PeeGeeQConfiguration {
                 errors.add("Dead consumer detection interval must be at least 10 seconds");
             }
         }
+
+        // Validate consumer group retry configuration
+        boolean consumerGroupRetryEnabled = getBoolean("peegeeq.queue.consumer-group-retry.enabled", true);
+        if (consumerGroupRetryEnabled) {
+            Duration retryInterval = getDuration("peegeeq.queue.consumer-group-retry.interval", Duration.ofSeconds(30));
+            if (retryInterval.toMillis() < 10000) { // At least 10 seconds
+                errors.add("Consumer group retry interval must be at least 10 seconds");
+            }
+        }
     }
     
     private void validateMetricsConfig(List<String> errors) {
@@ -397,7 +406,9 @@ public class PeeGeeQConfiguration {
             getDuration("peegeeq.queue.recovery.processing-timeout", Duration.ofMinutes(5)),
             getDuration("peegeeq.queue.recovery.check-interval", Duration.ofMinutes(10)),
             getBoolean("peegeeq.queue.dead-consumer-detection.enabled", true),
-            getDuration("peegeeq.queue.dead-consumer-detection.interval", Duration.ofMinutes(1))
+            getDuration("peegeeq.queue.dead-consumer-detection.interval", Duration.ofMinutes(1)),
+            getBoolean("peegeeq.queue.consumer-group-retry.enabled", true),
+            getDuration("peegeeq.queue.consumer-group-retry.interval", Duration.ofSeconds(30))
         );
     }
 
@@ -468,12 +479,15 @@ public class PeeGeeQConfiguration {
         private final Duration recoveryCheckInterval;
         private final boolean deadConsumerDetectionEnabled;
         private final Duration deadConsumerDetectionInterval;
+        private final boolean consumerGroupRetryEnabled;
+        private final Duration consumerGroupRetryInterval;
 
         public QueueConfig(int maxRetries, Duration visibilityTimeout, int batchSize,
                           Duration pollingInterval, boolean deadLetterEnabled, int defaultPriority,
                           int consumerThreads, boolean recoveryEnabled, Duration recoveryProcessingTimeout,
                           Duration recoveryCheckInterval, boolean deadConsumerDetectionEnabled,
-                          Duration deadConsumerDetectionInterval) {
+                          Duration deadConsumerDetectionInterval,
+                          boolean consumerGroupRetryEnabled, Duration consumerGroupRetryInterval) {
             this.maxRetries = maxRetries;
             this.visibilityTimeout = visibilityTimeout;
             this.batchSize = batchSize;
@@ -486,6 +500,8 @@ public class PeeGeeQConfiguration {
             this.recoveryCheckInterval = recoveryCheckInterval;
             this.deadConsumerDetectionEnabled = deadConsumerDetectionEnabled;
             this.deadConsumerDetectionInterval = deadConsumerDetectionInterval;
+            this.consumerGroupRetryEnabled = consumerGroupRetryEnabled;
+            this.consumerGroupRetryInterval = consumerGroupRetryInterval;
         }
         
         public int getMaxRetries() { return maxRetries; }
@@ -500,6 +516,8 @@ public class PeeGeeQConfiguration {
         public Duration getRecoveryCheckInterval() { return recoveryCheckInterval; }
         public boolean isDeadConsumerDetectionEnabled() { return deadConsumerDetectionEnabled; }
         public Duration getDeadConsumerDetectionInterval() { return deadConsumerDetectionInterval; }
+        public boolean isConsumerGroupRetryEnabled() { return consumerGroupRetryEnabled; }
+        public Duration getConsumerGroupRetryInterval() { return consumerGroupRetryInterval; }
     }
     
     public static class MetricsConfig {

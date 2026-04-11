@@ -9,92 +9,74 @@
 
 ## Summary
 
-3 areas of work remain. Everything else (core fan-out, subscription management, dead consumer detection/cleanup/resurrection, flapping protection, backfill with rate limiting, graceful shutdown, admin force-remove, tracing instrumentation, Prometheus metrics, alerting endpoints, monitoring endpoints) is fully implemented and tested.
+1 area of work remains. Everything else (core fan-out, subscription management, dead consumer detection/cleanup/resurrection, flapping protection, backfill with rate limiting, graceful shutdown, admin force-remove, tracing instrumentation, fan-out trace propagation, fanout retry/DLQ automation, Prometheus metrics, alerting endpoints, monitoring endpoints) is fully implemented and tested.
 
 | Area | Priority | Status |
 |------|----------|--------|
-| Fan-Out Trace Branching | LOW | Design complete, implementation not started |
-| Fanout Retry & DLQ Automation | MEDIUM | Infrastructure exists elsewhere, not wired to fanout |
+| Fan-Out Trace Branching | LOW | **COMPLETED** (2026-04-11) |
+| Fanout Retry & DLQ Automation | MEDIUM | **COMPLETED** (2026-04-11) |
 | Offset/Watermark Mode + Partitioned Consumption | LOW | Full design complete, no implementation |
 
 ---
 
-## Task 1: Fan-Out Trace Propagation Implementation
+## Task 1: Fan-Out Trace Propagation Implementation — COMPLETED
 
 **Priority**: LOW  
 **Previous Task ID**: L9 (from Implementation Tracker)  
-**Design Document**: [CONSUMER_GROUP_FANOUT_TRACE_PROPAGATION.md](../tracing-observability/CONSUMER_GROUP_FANOUT_TRACE_PROPAGATION.md)
+**Design Document**: [CONSUMER_GROUP_FANOUT_TRACE_PROPAGATION.md](../tracing-observability/CONSUMER_GROUP_FANOUT_TRACE_PROPAGATION.md)  
+**Completed**: 2026-04-11
 
-### What
+### Implementation Summary
 
-When one message is delivered to N consumer groups, create a child span per group so fan-out is visible as a span tree in Jaeger/Zipkin. Currently, per-class tracing (`TraceCtx`/`mdcScope()`) is implemented across all consumer group operational code, but each class creates standalone `TraceCtx.createNew()` traces with no parent linkage. `AsyncTraceUtils` (which provides `traceAsyncAction()`, `publishWithTrace()`, `requestWithTrace()`, `tracedConsumer()`) exists and is tested but is **not used** in the consumer group fan-out code path. The result is that fan-out delivery produces independent traces per class rather than a connected span tree.
+Child spans are now created per consumer group from each message's `traceparent` header, producing a proper span tree visible in Jaeger/Zipkin.
 
-### Where
+**Changes:**
+- `OutboxConsumer.processRow()` — extracts `traceparent` from message headers, creates child span via `traceCtx.childSpan("consumer-group:" + groupName + "/process")` when `consumerGroupName` is set
+- `ConsumerGroupFetcher.fetchMessages(topic, groupName, batchSize, parentTrace)` — new overload accepts parent trace, creates child span for fetch operations
+- `CompletionTracker.markCompleted(messageId, groupName, topic, parentTrace)` — new overload creates child span for completion tracking
+- `CompletionTracker.markFailed(messageId, groupName, topic, errorMessage, parentTrace)` — new overload creates child span for failure tracking
+- `ConsumerTracingTest` — 15 tests covering child span creation, parent linkage, MDC attributes, fan-out parallel spans, backward compatibility
+- `DistributedTracingTest` — 2 end-to-end tracing tests
+- `TraceCtxTest` — child span unit tests
 
-There is no single "delivery loop that dispatches to N groups." Each consumer group independently fetches the same message via its own `OutboxConsumer` → `ConsumerGroupFetcher.fetchMessages()` → `OutboxConsumerGroup.distributeMessage()` chain. The child span creation therefore belongs at one of:
+### Acceptance Criteria Verification
 
-- **`ConsumerGroupFetcher.fetchMessages()`** — replace `TraceCtx.createNew()` with a child span derived from the message's `traceparent` header (connects fetch to publish trace)
-- **`OutboxConsumerGroup.distributeMessage()`** — create a child span per-group when routing to a member (connects group delivery to fetch trace)
-- **`CompletionTracker.markCompleted()`/`markFailed()`** — replace `TraceCtx.createNew()` with a child span from the processing trace (connects completion to delivery trace)
-
-### Prerequisite
-
-`TraceCtx.childSpan()` infrastructure already exists and is tested.
-
-### Acceptance Criteria
-
-- Each consumer group delivery creates a child span from the message's root trace
-- Span attributes include `topic`, `group_name`, `message_id`
-- Fan-out is visible as parallel branches in a trace visualiser
-- Existing `ConsumerTracingTest` updated or extended to verify child span creation
-
-### Current Tracing State (for context)
-
-All consumer group code already has per-class `TraceCtx.createNew()` + `TraceContextUtil.mdcScope()` instrumentation:
-
-| Class | Tracing |
-|-------|---------|
-| `DeadConsumerDetectionJob` | Trace per detection run, propagated through entire compose chain |
-| `ConsumerGroupFetcher` | Trace at `fetchMessages()` entry and result |
-| `CompletionTracker` | Trace at `markCompleted()`/`markFailed()` entry, all internal log points |
-| `BackfillService` | Comprehensive trace through entire recursive batch chain |
-
-The missing piece is the **span hierarchy** connecting a message's publish trace to per-group delivery traces. `AsyncTraceUtils` should be adopted in the fan-out path to replace the standalone `TraceCtx.createNew()` calls with proper parent→child span propagation.
+- ✅ Each consumer group delivery creates a child span from the message's root trace
+- ✅ Span attributes include `topic`, `group_name`, `message_id` (via MDC)
+- ✅ Fan-out is visible as parallel branches in a trace visualiser (distinct spanIds per group, same traceId, same parentSpanId)
+- ✅ `ConsumerTracingTest` extended with 15 tests verifying child span creation and propagation
 
 ---
 
-## Task 2: Fanout Retry & DLQ Automation
+## Task 2: Fanout Retry & DLQ Automation — COMPLETED
 
 **Priority**: MEDIUM  
-**Source**: Verification Findings, Design Doc §12
+**Source**: Verification Findings, Design Doc §12  
+**Completed**: 2026-04-11
 
-### What
+### Implementation Summary
 
-Wire fanout-specific retry and dead-letter-queue automation into the consumer group path. Currently:
+Consumer group retry and dead-letter-queue automation is now fully wired into the PeeGeeQManager runtime lifecycle.
 
-- `CompletionTracker.markFailed(...)` exists and updates failed status plus `retry_count`
-- No production fanout workflow automatically retries failed consumer-group rows
-- No production fanout workflow moves failed fanout rows into the database dead letter queue
+**Pre-existing components (already on branch):**
+- `ConsumerGroupRetryService` — resets FAILED→PENDING rows where `retry_count < max_retries`, moves exhausted rows to dead_letter_queue table
+- `ConsumerGroupRetryJob` — Vert.x periodic timer wrapper around ConsumerGroupRetryService
+- `V016__Add_Consumer_Group_Dead_Letter_Status.sql` — migration adding DEAD_LETTER status to outbox_consumer_groups CHECK constraint
+- `ConsumerGroupRetryServiceIntegrationTest` — 14 comprehensive integration tests
 
-DLQ and retry infrastructure exists elsewhere in the repository (`DeadLetterQueueManager`, `FilterRetryManager`, `PgNativeQueueConsumer` retry logic) — the missing piece is consumer-group fanout integration with that infrastructure.
+**New changes (wiring into runtime):**
+- `PeeGeeQConfiguration.QueueConfig` — added `consumerGroupRetryEnabled` (default: true) and `consumerGroupRetryInterval` (default: PT30S, minimum: 10s) configuration properties
+- `PeeGeeQManager.startBackgroundTasks()` — creates and starts ConsumerGroupRetryJob when enabled, following the DeadConsumerDetectionJob pattern
+- `PeeGeeQManager.stopBackgroundTasks()` — stops ConsumerGroupRetryJob on shutdown
+- `ConsumerGroupRetryJobLifecycleTest` — 3 lifecycle integration tests verifying start/stop/disabled behavior
 
-### Where
+### Acceptance Criteria Verification
 
-Integration between `CompletionTracker` failure handling and existing retry/DLQ infrastructure.
-
-### Relevant Source Files
-
-- `peegeeq-db/src/main/java/dev/mars/peegeeq/db/consumer/CompletionTracker.java`
-- `peegeeq-db/src/main/java/dev/mars/peegeeq/db/deadletter/DeadLetterQueueManager.java`
-- `peegeeq-native/src/main/java/dev/mars/peegeeq/pgqueue/PgNativeQueueConsumer.java`
-- `peegeeq-outbox/src/main/java/dev/mars/peegeeq/outbox/resilience/FilterRetryManager.java`
-
-### Acceptance Criteria
-
-- After `markFailed()` with `retry_count < maxRetries`, the consumer-group row is automatically re-queued for processing
-- After `markFailed()` with `retry_count >= maxRetries`, the consumer-group row is moved to the dead letter queue
-- DLQ entries include the original message, consumer group name, failure reason, and retry history
-- Integration tests verify retry → eventual DLQ flow end-to-end
+- ✅ After `markFailed()` with `retry_count < maxRetries`, the consumer-group row is automatically re-queued for processing
+- ✅ After `markFailed()` with `retry_count >= maxRetries`, the consumer-group row is moved to the dead letter queue
+- ✅ DLQ entries include the original message, consumer group name, failure reason, and retry history
+- ✅ Integration tests verify retry → eventual DLQ flow end-to-end (14 tests)
+- ✅ Runtime lifecycle wired into PeeGeeQManager (3 lifecycle tests)
 
 ---
 

@@ -30,6 +30,8 @@ import dev.mars.peegeeq.db.cleanup.DeadConsumerDetector;
 import dev.mars.peegeeq.db.cleanup.DeadConsumerGroupCleanup;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.db.consumer.ConsumerGroupRetryJob;
+import dev.mars.peegeeq.db.consumer.ConsumerGroupRetryService;
 import dev.mars.peegeeq.db.deadletter.DeadLetterQueueManager;
 import dev.mars.peegeeq.db.health.HealthCheckManager;
 import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
@@ -107,6 +109,7 @@ public class PeeGeeQManager implements AutoCloseable {
     private long dlqTimerId = 0;
     private long recoveryTimerId = 0;
     private DeadConsumerDetectionJob deadConsumerDetectionJob;
+    private ConsumerGroupRetryJob consumerGroupRetryJob;
     private volatile boolean started = false;
     private volatile boolean closing = false;
     private volatile Future<Void> startFuture = null;
@@ -534,6 +537,9 @@ public class PeeGeeQManager implements AutoCloseable {
     /** Returns the dead consumer detection job, or {@code null} if not configured/started. */
     DeadConsumerDetectionJob getDeadConsumerDetectionJob() { return deadConsumerDetectionJob; }
 
+    /** Returns the consumer group retry job, or {@code null} if not configured/started. */
+    ConsumerGroupRetryJob getConsumerGroupRetryJob() { return consumerGroupRetryJob; }
+
     /**
      * Gets the queue factory registrar for registering new factory implementations.
      * This allows implementation modules to register themselves without circular dependencies.
@@ -860,6 +866,18 @@ public class PeeGeeQManager implements AutoCloseable {
                 logger.info("Dead consumer detection disabled by configuration");
             }
 
+            // Consumer group retry + DLQ automation
+            if (configuration.getQueueConfig().isConsumerGroupRetryEnabled()) {
+                long retryMs = configuration.getQueueConfig().getConsumerGroupRetryInterval().toMillis();
+                ConsumerGroupRetryService retryService = new ConsumerGroupRetryService(
+                        clientFactory.getConnectionManager(), deadLetterQueueManager, PeeGeeQDefaults.DEFAULT_POOL_ID);
+                consumerGroupRetryJob = new ConsumerGroupRetryJob(vertx, retryService, retryMs);
+                consumerGroupRetryJob.start();
+                logger.info("Started consumer group retry job: interval={}ms", retryMs);
+            } else {
+                logger.info("Consumer group retry job disabled by configuration");
+            }
+
             logger.debug("DB-DEBUG: Background cleanup tasks started successfully");
             return Future.succeededFuture();
         });
@@ -891,6 +909,10 @@ public class PeeGeeQManager implements AutoCloseable {
             jobStop = deadConsumerDetectionJob.stop()
                 .recover(e -> Future.succeededFuture());
             deadConsumerDetectionJob = null;
+        }
+        if (consumerGroupRetryJob != null) {
+            consumerGroupRetryJob.stop();
+            consumerGroupRetryJob = null;
         }
         logger.debug("DB-DEBUG: All background tasks stopped");
         return jobStop;
