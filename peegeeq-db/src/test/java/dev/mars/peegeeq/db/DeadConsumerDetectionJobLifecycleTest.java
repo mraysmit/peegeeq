@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.junit.jupiter.api.parallel.ResourceAccessMode;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,6 +37,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag(TestCategories.INTEGRATION)
 @ExtendWith({SharedPostgresTestExtension.class, VertxExtension.class})
 @ResourceLock(value = "system-properties")
+@ResourceLock(value = "dead-consumer-detection", mode = ResourceAccessMode.READ_WRITE)
 @Execution(ExecutionMode.SAME_THREAD)
 public class DeadConsumerDetectionJobLifecycleTest {
 

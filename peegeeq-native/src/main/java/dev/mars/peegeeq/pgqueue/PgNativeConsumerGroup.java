@@ -20,6 +20,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.database.MetricsProvider;
 import dev.mars.peegeeq.api.database.NoOpMetricsProvider;
+import dev.mars.peegeeq.api.tracing.TraceContextUtil;
+import dev.mars.peegeeq.api.tracing.TraceCtx;
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
@@ -201,6 +203,9 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
     
     @Override
     public Future<Void> start(SubscriptionOptions subscriptionOptions) {
+        if (closed.get()) {
+            throw new IllegalStateException("Consumer group '" + groupName + "' has been closed");
+        }
         if (subscriptionOptions == null) {
             throw new IllegalArgumentException("subscriptionOptions cannot be null");
         }
@@ -374,13 +379,30 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
     /**
      * Distributes a message to the appropriate consumer group member.
      * Applies group-level filtering and load balancing.
+     * Creates a child span from the message's trace context for fan-out visibility.
      */
     private Future<Void> distributeMessage(Message<T> message) {
+        // Create a child span from the message's traceparent for fan-out trace propagation.
+        // The underlying PgNativeQueueConsumer already sets MDC from headers; here we
+        // derive a per-group child span so that parallel group deliveries form a span tree.
+        Map<String, String> headers = message.getHeaders();
+        String traceparent = headers != null ? headers.get("traceparent") : null;
+        TraceCtx parentTrace = TraceCtx.parseOrCreate(traceparent);
+        TraceCtx groupTrace = parentTrace.childSpan("consumer-group:" + groupName + "/process");
+        TraceContextUtil.mdcScope(groupTrace);
+        TraceContextUtil.setMDC(TraceContextUtil.MDC_CONSUMER_GROUP, groupName);
+        TraceContextUtil.setMDC(TraceContextUtil.MDC_TOPIC, topic);
+        TraceContextUtil.setMDC(TraceContextUtil.MDC_MESSAGE_ID, message.getId());
+
         // Apply group-level filter first
         if (groupFilter != null && !groupFilter.test(message)) {
             totalMessagesFiltered.incrementAndGet();
             logger.debug("Message {} filtered out by group filter", message.getId());
-            return Future.succeededFuture();
+            return Future.<Void>succeededFuture()
+                    .eventually(() -> {
+                        TraceContextUtil.clearTraceMDC();
+                        return Future.succeededFuture();
+                    });
         }
         
         // Find eligible consumers (those whose filters accept the message)
@@ -392,7 +414,11 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
         if (eligibleConsumers.isEmpty()) {
             totalMessagesFiltered.incrementAndGet();
             logger.debug("Message {} has no eligible consumers in group '{}'", message.getId(), groupName);
-            return Future.succeededFuture();
+            return Future.<Void>succeededFuture()
+                    .eventually(() -> {
+                        TraceContextUtil.clearTraceMDC();
+                        return Future.succeededFuture();
+                    });
         }
         
         // Simple round-robin load balancing
@@ -403,7 +429,11 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
         
         return selectedConsumer.processMessage(message)
             .onSuccess(result -> totalMessagesProcessed.incrementAndGet())
-            .onFailure(error -> totalMessagesFailed.incrementAndGet());
+            .onFailure(error -> totalMessagesFailed.incrementAndGet())
+            .eventually(() -> {
+                TraceContextUtil.clearTraceMDC();
+                return Future.succeededFuture();
+            });
     }
     
     /**

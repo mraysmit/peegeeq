@@ -92,6 +92,8 @@ public class ConsumerGroupFetcher {
                 ? parentTrace.childSpan("consumer-group:" + groupName + "/fetch")
                 : TraceCtx.createNew();
         try (var scope = TraceContextUtil.mdcScope(trace)) {
+            TraceContextUtil.setMDC(TraceContextUtil.MDC_TOPIC, topic);
+            TraceContextUtil.setMDC(TraceContextUtil.MDC_CONSUMER_GROUP, groupName);
             logger.debug("Fetching messages for topic='{}', group='{}', batchSize={}", topic, groupName, batchSize);
         }
 

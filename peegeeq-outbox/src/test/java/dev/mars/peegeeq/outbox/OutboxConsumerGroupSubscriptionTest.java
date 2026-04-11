@@ -49,26 +49,25 @@ import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Unit tests for Outbox Consumer Group v1.1.0 features.
+ * Unit tests for Outbox Consumer Group subscription and handler features.
  * 
- * <p>Tests the new convenience methods added in v1.1.0 for the outbox pattern implementation:</p>
+ * <p>Tests the subscription and handler convenience methods for the outbox pattern implementation:</p>
  * <ul>
  *   <li>{@link ConsumerGroup#start(SubscriptionOptions)} - Type-safe subscription options</li>
  *   <li>{@link ConsumerGroup#setMessageHandler(MessageHandler)} - Convenience for single-consumer groups</li>
  * </ul>
  * 
- * <p>This test class mirrors {@code ConsumerGroupV110Test} but validates the outbox-specific
+ * <p>This test class mirrors {@code ConsumerGroupSubscriptionTest} but validates the outbox-specific
  * implementation behavior.</p>
  * 
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-11-17
- * @version 1.1.0
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
-@DisplayName("Outbox Consumer Group v1.1.0 Features")
-class OutboxConsumerGroupV110Test {
+@DisplayName("Outbox Consumer Group Subscription Features")
+class OutboxConsumerGroupSubscriptionTest {
 
     @Container
     static PostgreSQLContainer postgres = createPostgresContainer();
@@ -116,7 +115,7 @@ class OutboxConsumerGroupV110Test {
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws Exception {
+    void tearDown() throws Exception {
         if (producer != null) {
             producer.close();
         }
@@ -124,11 +123,10 @@ class OutboxConsumerGroupV110Test {
             factory.close();
         }
         if (manager != null) {
-            manager.closeReactive().onComplete(ar -> testContext.completeNow());
-        } else {
-            testContext.completeNow();
+            CountDownLatch closeLatch = new CountDownLatch(1);
+            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+            closeLatch.await(10, TimeUnit.SECONDS);
         }
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     // ========================================================================

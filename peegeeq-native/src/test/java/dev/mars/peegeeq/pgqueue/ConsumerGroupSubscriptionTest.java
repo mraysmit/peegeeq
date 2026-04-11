@@ -55,9 +55,9 @@ import io.vertx.core.Future;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Unit tests for Consumer Group v1.1.0 features.
+ * Unit tests for Consumer Group subscription and handler features.
  * 
- * <p>Tests the new convenience methods added in v1.1.0:</p>
+ * <p>Tests the subscription and handler convenience methods:</p>
  * <ul>
  *   <li>{@link ConsumerGroup#start(SubscriptionOptions)} - Type-safe subscription options</li>
  *   <li>{@link ConsumerGroup#setMessageHandler(MessageHandler)} - Convenience for single-consumer groups</li>
@@ -65,13 +65,12 @@ import static org.junit.jupiter.api.Assertions.*;
  * 
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-11-17
- * @version 1.1.0
  */
 @Tag(TestCategories.INTEGRATION)
 @ExtendWith(VertxExtension.class)
 @Testcontainers
-@DisplayName("Consumer Group v1.1.0 Features")
-class ConsumerGroupV110Test {
+@DisplayName("Consumer Group Subscription Features")
+class ConsumerGroupSubscriptionTest {
 
     @Container
     static PostgreSQLContainer postgres = createPostgresContainer();
@@ -298,11 +297,11 @@ class ConsumerGroupV110Test {
             group.addConsumer("consumer-1", msg -> Future.succeededFuture());
 
             SubscriptionOptions options = SubscriptionOptions.defaults();
-            group.start(options);
+            group.start(options).await();
             assertTrue(group.isActive(), "Group should be active after first start");
 
             // Act - second start should be idempotent (no exception)
-            group.start(options);
+            group.start(options).await();
             
             // Assert
             assertTrue(group.isActive(), "Group should remain active after second start");
@@ -372,7 +371,7 @@ class ConsumerGroupV110Test {
             group1.addConsumer("c1", msg -> Future.succeededFuture());
             group1.start(SubscriptionOptions.builder()
                 .startPosition(StartPosition.FROM_NOW)
-                .build());
+                .build()).await();
             assertTrue(group1.isActive());
             group1.close();
 
@@ -382,7 +381,7 @@ class ConsumerGroupV110Test {
             group2.addConsumer("c2", msg -> Future.succeededFuture());
             group2.start(SubscriptionOptions.builder()
                 .startPosition(StartPosition.FROM_BEGINNING)
-                .build());
+                .build()).await();
             assertTrue(group2.isActive());
             group2.close();
 
@@ -390,7 +389,7 @@ class ConsumerGroupV110Test {
             ConsumerGroup<String> group3 = factory.createConsumerGroup(
                 "group-defaults", "test-topic", String.class);
             group3.addConsumer("c3", msg -> Future.succeededFuture());
-            group3.start(SubscriptionOptions.defaults());
+            group3.start(SubscriptionOptions.defaults()).await();
             assertTrue(group3.isActive());
             group3.close();
         }
@@ -621,8 +620,10 @@ class ConsumerGroupV110Test {
             AtomicInteger count = new AtomicInteger(0);
             Checkpoint messagesReceived = testContext.checkpoint(3);
             ConsumerGroupMember<String> member = group.setMessageHandler(msg -> {
-                count.incrementAndGet();
-                messagesReceived.flag();
+                int c = count.incrementAndGet();
+                if (c <= 3) {
+                    messagesReceived.flag();
+                }
                 return Future.succeededFuture();
             });
 

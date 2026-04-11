@@ -54,7 +54,7 @@ peegeeq-migrations/src/test/java/dev/mars/peegeeq/migrations/SchemaContractTest.
 peegeeq-migrations/src/test/java/dev/mars/peegeeq/migrations/SchemaValidationTest.java
 peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/ConsumerConfigTest.java
 peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/ConsumerConfigValidationTest.java
-peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/ConsumerGroupV110Test.java
+peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/ConsumerGroupSubscriptionTest.java
 peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/ConsumerModePerformanceTest.java
 peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/EmptyReadStreamTest.java
 peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/HelloWorldTest.java
@@ -66,8 +66,8 @@ peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/examples/AutomaticTransacti
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/FilterErrorHandlingTest.java
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxBasicTest.java
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConfigurationIntegrationTest.java
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupV110EdgeCasesTest.java
-peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupV110Test.java
+peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupSubscriptionEdgeCasesTest.java
+peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxConsumerGroupSubscriptionTest.java
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxPerformanceTest.java
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxQueueTest.java
 peegeeq-outbox/src/test/java/dev/mars/peegeeq/outbox/OutboxRetryLogicTest.java

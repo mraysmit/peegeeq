@@ -159,7 +159,7 @@ This was inconsistent with `peegeeq-outbox` and `peegeeq-bitemporal` which use t
 |------|--------|
 | `NativeQueueIntegrationTest.java` | Replaced hardcoded string with `PostgreSQLTestConstants.POSTGRES_IMAGE` |
 | `ConsumerGroupTest.java` | Replaced hardcoded string with `PostgreSQLTestConstants.POSTGRES_IMAGE` |
-| `ConsumerGroupV110Test.java` | Replaced hardcoded string with `PostgreSQLTestConstants.POSTGRES_IMAGE` |
+| `ConsumerGroupSubscriptionTest.java` | Replaced hardcoded string with `PostgreSQLTestConstants.POSTGRES_IMAGE` |
 | `ConsumerModeBackwardCompatibilityTest.java` | Replaced hardcoded string with `PostgreSQLTestConstants.POSTGRES_IMAGE` |
 | `ConsumerModeFailureTest.java` | Replaced hardcoded string with `PostgreSQLTestConstants.POSTGRES_IMAGE` |
 | `ConsumerModeGracefulDegradationTest.java` | Replaced hardcoded string with `PostgreSQLTestConstants.POSTGRES_IMAGE` |

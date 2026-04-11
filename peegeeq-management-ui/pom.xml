@@ -139,6 +139,31 @@
                                 </goals>
                                 <phase>test</phase>
                                 <configuration>
+                                    <arguments>run test:run</arguments>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!-- E2E Tests Profile (requires running backend on port 8080) -->
+        <profile>
+            <id>e2e-tests</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>com.github.eirslett</groupId>
+                        <artifactId>frontend-maven-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>npm-test-e2e</id>
+                                <goals>
+                                    <goal>npm</goal>
+                                </goals>
+                                <phase>test</phase>
+                                <configuration>
                                     <arguments>run test:e2e</arguments>
                                 </configuration>
                             </execution>

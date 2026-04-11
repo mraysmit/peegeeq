@@ -98,7 +98,7 @@ class NativeQueueIntegrationTest {
     private MessageConsumer<String> consumer;
 
     @BeforeEach
-    void setUp() {
+    void setUp() throws Exception {
         // Initialize database schema using centralized schema initializer ()
         logger.info("Initializing database schema for native queue integration tests");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
@@ -391,7 +391,7 @@ class NativeQueueIntegrationTest {
     }
 
     @Test
-    void testNativeQueueVisibilityTimeout(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testNativeQueueVisibilityTimeout(Vertx vertx) throws Exception {
         String testMessage = "Visibility timeout test";
         AtomicInteger processingAttempts = new AtomicInteger(0);
         CountDownLatch firstAttempt = new CountDownLatch(1);
@@ -486,7 +486,7 @@ class NativeQueueIntegrationTest {
     }
 
     @Test
-    void testNativeQueueMessageLocking(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testNativeQueueMessageLocking(Vertx vertx) throws Exception {
         // This test verifies that messages are properly locked during processing
         String testMessage = "Locking test message";
         AtomicInteger processingCount = new AtomicInteger(0);
@@ -550,7 +550,7 @@ class NativeQueueIntegrationTest {
     }
 
     @Test
-    void testNativeQueueFailureAndRetry(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testNativeQueueFailureAndRetry(Vertx vertx) throws Exception {
         String testMessage = "Retry test message";
         AtomicInteger attemptCount = new AtomicInteger(0);
         CountDownLatch success = new CountDownLatch(1);
@@ -580,7 +580,7 @@ class NativeQueueIntegrationTest {
     }
 
     @Test
-    void testNativeQueueDeadLetterIntegration(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testNativeQueueDeadLetterIntegration(Vertx vertx) throws Exception {
         // Configure a message that will exceed retry limits
         String testMessage = "Dead letter test message";
         AtomicInteger attemptCount = new AtomicInteger(0);
@@ -643,7 +643,7 @@ class NativeQueueIntegrationTest {
     }
 
     @Test
-    void testNativeQueueHealthCheckIntegration(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testNativeQueueHealthCheckIntegration(Vertx vertx) throws Exception {
         // Verify system is healthy
         assertTrue(manager.isHealthy());
 

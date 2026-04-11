@@ -273,7 +273,7 @@ public class ConsumerModeMetricsTest {
 
         // Wait for consumer setup using Vert.x timer
         CountDownLatch setupDelayLatch = new CountDownLatch(1);
-        vertx.setTimer(1000, id -> setupDelayLatch.countDown());
+        vertx.setTimer(3000, id -> setupDelayLatch.countDown());
         setupDelayLatch.await(5, TimeUnit.SECONDS);
 
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
@@ -326,6 +326,7 @@ public class ConsumerModeMetricsTest {
             ConsumerConfig.builder()
                 .mode(mode)
                 .pollingInterval(Duration.ofMillis(100))
+                .consumerThreads(messageCount)
                 .build());
 
         consumer.subscribe(message -> {
@@ -342,7 +343,7 @@ public class ConsumerModeMetricsTest {
 
         // Wait for consumer setup using Vert.x timer
         CountDownLatch setupDelayLatch2 = new CountDownLatch(1);
-        vertx.setTimer(1000, id -> setupDelayLatch2.countDown());
+        vertx.setTimer(3000, id -> setupDelayLatch2.countDown());
         setupDelayLatch2.await(5, TimeUnit.SECONDS);
 
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);

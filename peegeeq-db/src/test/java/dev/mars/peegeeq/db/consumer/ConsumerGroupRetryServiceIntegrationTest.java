@@ -55,6 +55,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag(TestCategories.INTEGRATION)
 @Execution(ExecutionMode.SAME_THREAD)
 @ResourceLock(value = "consumer-group-retry-database", mode = ResourceAccessMode.READ_WRITE)
+@ResourceLock(value = "dead-letter-queue-database", mode = ResourceAccessMode.READ_WRITE)
 public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(ConsumerGroupRetryServiceIntegrationTest.class);

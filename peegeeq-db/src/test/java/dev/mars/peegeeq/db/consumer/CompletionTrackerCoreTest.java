@@ -17,6 +17,8 @@ import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.util.UUID;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -66,12 +68,13 @@ public class CompletionTrackerCoreTest extends BaseIntegrationTest {
 
     @Test
     void testMarkCompleted() throws Exception {
+        String topic = "test-mark-completed-" + UUID.randomUUID().toString().substring(0, 8);
         // First, insert a test message into the outbox table
-        Long messageId = insertTestMessage("test-topic", 2);
-        insertSubscription("test-topic", "group1");
+        Long messageId = insertTestMessage(topic, 2);
+        insertSubscription(topic, "group1");
 
         // Mark as completed for first group
-        tracker.markCompleted(messageId, "group1", "test-topic")
+        tracker.markCompleted(messageId, "group1", topic)
             .toCompletionStage().toCompletableFuture().get();
 
         // Verify the tracking row was created
@@ -86,14 +89,15 @@ public class CompletionTrackerCoreTest extends BaseIntegrationTest {
 
     @Test
     void testMarkCompletedIdempotent() throws Exception {
+        String topic = "test-idempotent-" + UUID.randomUUID().toString().substring(0, 8);
         // Insert a test message
-        Long messageId = insertTestMessage("test-topic", 2);
-        insertSubscription("test-topic", "group1");
+        Long messageId = insertTestMessage(topic, 2);
+        insertSubscription(topic, "group1");
 
         // Mark as completed twice
-        tracker.markCompleted(messageId, "group1", "test-topic")
+        tracker.markCompleted(messageId, "group1", topic)
             .toCompletionStage().toCompletableFuture().get();
-        tracker.markCompleted(messageId, "group1", "test-topic")
+        tracker.markCompleted(messageId, "group1", topic)
             .toCompletionStage().toCompletableFuture().get();
 
         // Should still have only one tracking row
@@ -108,12 +112,13 @@ public class CompletionTrackerCoreTest extends BaseIntegrationTest {
 
     @Test
     void testMarkCompletedUpdatesCounter() throws Exception {
+        String topic = "test-counter-" + UUID.randomUUID().toString().substring(0, 8);
         // Insert a test message with 2 required groups
-        Long messageId = insertTestMessage("test-topic", 2);
-        insertSubscription("test-topic", "group1");
+        Long messageId = insertTestMessage(topic, 2);
+        insertSubscription(topic, "group1");
 
         // Mark as completed for first group
-        tracker.markCompleted(messageId, "group1", "test-topic")
+        tracker.markCompleted(messageId, "group1", topic)
             .toCompletionStage().toCompletableFuture().get();
 
         // Verify completed_consumer_groups was incremented
@@ -128,15 +133,16 @@ public class CompletionTrackerCoreTest extends BaseIntegrationTest {
 
     @Test
     void testMarkCompletedAllGroupsCompletesMessage() throws Exception {
+        String topic = "test-all-groups-" + UUID.randomUUID().toString().substring(0, 8);
         // Insert a test message with 2 required groups
-        Long messageId = insertTestMessage("test-topic", 2);
-        insertSubscription("test-topic", "group1");
-        insertSubscription("test-topic", "group2");
+        Long messageId = insertTestMessage(topic, 2);
+        insertSubscription(topic, "group1");
+        insertSubscription(topic, "group2");
 
         // Mark as completed for both groups
-        tracker.markCompleted(messageId, "group1", "test-topic")
+        tracker.markCompleted(messageId, "group1", topic)
             .toCompletionStage().toCompletableFuture().get();
-        tracker.markCompleted(messageId, "group2", "test-topic")
+        tracker.markCompleted(messageId, "group2", topic)
             .toCompletionStage().toCompletableFuture().get();
 
         // Verify message status is COMPLETED

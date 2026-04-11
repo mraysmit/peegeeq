@@ -167,7 +167,8 @@ class ConsumerGroupTest {
 
         // Wait for processing - increase time for async operations
         vertx.setPeriodic(200, id -> {
-            if (consumer1Count.get() + consumer2Count.get() >= 2) {
+            ConsumerGroupStats stats = consumerGroup.getStats();
+            if (stats.getTotalMessagesProcessed() >= 3) {
                 vertx.cancelTimer(id);
 
                 // Verify messages were processed
@@ -176,7 +177,6 @@ class ConsumerGroupTest {
                     assertTrue(totalProcessed >= 2, "At least 2 messages should be processed, got: " + totalProcessed);
 
                     // Verify statistics
-                    ConsumerGroupStats stats = consumerGroup.getStats();
                     assertEquals("TestGroup", stats.getGroupName());
                     assertEquals("test-topic", stats.getTopic());
                     assertEquals(2, stats.getActiveConsumerCount());

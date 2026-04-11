@@ -105,15 +105,16 @@ class PeeGeeQMetricsTest {
 
     /**
      * Cleans up test data to ensure test isolation.
-     * This removes all data from test tables between test methods.
+     * Scoped to only this test class's data (topic='test-topic') to avoid
+     * interfering with concurrent test classes that also use these tables.
      */
     private void cleanupTestData() {
         try {
             reactivePool.withConnection(connection -> {
-                // Clean up all test data from tables
-                return connection.query("DELETE FROM dead_letter_queue").execute()
-                    .compose(result -> connection.query("DELETE FROM outbox").execute())
-                    .compose(result -> connection.query("DELETE FROM queue_messages").execute())
+                // Clean up only data inserted by this test class (all use topic 'test-topic')
+                return connection.query("DELETE FROM dead_letter_queue WHERE topic = 'test-topic'").execute()
+                    .compose(result -> connection.query("DELETE FROM outbox WHERE topic = 'test-topic'").execute())
+                    .compose(result -> connection.query("DELETE FROM queue_messages WHERE topic = 'test-topic'").execute())
                     .compose(result -> connection.query("DELETE FROM queue_metrics").execute());
             }).toCompletionStage().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
 
