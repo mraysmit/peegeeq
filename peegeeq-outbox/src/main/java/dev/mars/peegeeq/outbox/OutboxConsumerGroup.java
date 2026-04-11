@@ -619,7 +619,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
      *
      * <p>Failure semantics:</p>
      * <ul>
-     *   <li>Group filter permanent rejection → {@link RejectedMessageException} → dead letter queue</li>
+     *   <li>Group filter rejection → {@link RejectedMessageException} → reset to PENDING (group-level decision, other groups may still accept)</li>
      *   <li>No eligible consumer (transient) → {@link MessageFilteredException} → reset to PENDING</li>
      *   <li>Handler processing failure → propagated as-is for retry/DLQ handling by OutboxConsumer</li>
      * </ul>

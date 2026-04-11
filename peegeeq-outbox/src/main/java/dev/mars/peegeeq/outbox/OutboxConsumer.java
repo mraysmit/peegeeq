@@ -546,13 +546,13 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                     rootCause = error.getCause();
                 }
 
-                // Permanently rejected messages should go to dead letter queue
+                // Group-filter rejected messages should be reset to PENDING so other
+                // consumer groups can still process them. The rejection is group-level,
+                // not message-level — it must not affect the global outbox status.
                 if (rootCause instanceof RejectedMessageException) {
-                    logger.info("Message {} permanently rejected by consumer group: {}",
+                    logger.debug("Message {} rejected by consumer group filter, resetting to PENDING: {}",
                             messageId, rootCause.getMessage());
-                    metrics.recordMessageFailed(topic, "REJECTED");
-                    return handleMessageFailureWithRetry(messageId,
-                            "REJECTED: " + rootCause.getMessage());
+                    return resetFilteredMessageToPending(messageId);
                 }
 
                 // Filtered messages should be reset to PENDING, not treated as failures
