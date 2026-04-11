@@ -158,6 +158,7 @@ class PostgreSQLErrorHandlingTest {
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicInteger failureCount = new AtomicInteger(0);
         Checkpoint completionCheckpoint = testContext.checkpoint(2);
+        AtomicInteger checkpointCount = new AtomicInteger(0);
         AtomicReference<Exception> lastException = new AtomicReference<>();
 
         // Create two consumers that will compete for the same message
@@ -170,7 +171,9 @@ class PostgreSQLErrorHandlingTest {
             Promise<Void> promise = Promise.promise();
             vertx.setTimer(100, timerId -> {
                 processedCount.incrementAndGet();
-                completionCheckpoint.flag();
+                if (checkpointCount.incrementAndGet() <= 2) {
+                    completionCheckpoint.flag();
+                }
                 logger.info("Consumer 1 completed processing");
                 promise.complete();
             });
@@ -183,7 +186,9 @@ class PostgreSQLErrorHandlingTest {
             Promise<Void> promise = Promise.promise();
             vertx.setTimer(50, timerId -> {
                 processedCount.incrementAndGet();
-                completionCheckpoint.flag();
+                if (checkpointCount.incrementAndGet() <= 2) {
+                    completionCheckpoint.flag();
+                }
                 logger.info("Consumer 2 completed processing");
                 promise.complete();
             });
@@ -335,6 +340,7 @@ class PostgreSQLErrorHandlingTest {
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicInteger timeoutCount = new AtomicInteger(0);
         AtomicBoolean connectionRecovered = new AtomicBoolean(false);
+        AtomicBoolean checkpointFlagged = new AtomicBoolean(false);
         Checkpoint completionCheckpoint = testContext.checkpoint(1);
 
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class);
@@ -347,7 +353,9 @@ class PostgreSQLErrorHandlingTest {
                     simulateConnectionTimeoutScenario();
                     processedCount.incrementAndGet();
                     connectionRecovered.set(true);
-                    completionCheckpoint.flag();
+                    if (checkpointFlagged.compareAndSet(false, true)) {
+                        completionCheckpoint.flag();
+                    }
                     logger.info("Message processed successfully after potential timeout");
                     return null;
                 } catch (Exception e) {
@@ -358,7 +366,9 @@ class PostgreSQLErrorHandlingTest {
                         timeoutCount.incrementAndGet();
                         logger.warn("Connection timeout detected, system should recover: {}", errorMsg);
                         // Don't rethrow - let the system recover
-                        completionCheckpoint.flag();
+                        if (checkpointFlagged.compareAndSet(false, true)) {
+                            completionCheckpoint.flag();
+                        }
                         return null;
                     } else {
                         logger.error("Unexpected error during timeout test: {}", errorMsg);

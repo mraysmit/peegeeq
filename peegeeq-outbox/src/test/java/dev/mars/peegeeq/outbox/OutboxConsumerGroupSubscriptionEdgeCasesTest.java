@@ -51,7 +51,7 @@ import static java.util.concurrent.TimeUnit.SECONDS;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Edge case tests for Outbox Consumer Group v1.1.0 features.
+ * Edge case tests for Outbox Consumer Group subscription features.
  * 
  * <p>Comprehensive edge case testing for:</p>
  * <ul>
@@ -65,13 +65,12 @@ import static org.junit.jupiter.api.Assertions.*;
  * 
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-11-17
- * @version 1.1.0
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
-@DisplayName("Outbox Consumer Group v1.1.0 Edge Cases")
-class OutboxConsumerGroupV110EdgeCasesTest {
+@DisplayName("Outbox Consumer Group Subscription Edge Cases")
+class OutboxConsumerGroupSubscriptionEdgeCasesTest {
 
     @Container
     static PostgreSQLContainer postgres = createPostgresContainer();

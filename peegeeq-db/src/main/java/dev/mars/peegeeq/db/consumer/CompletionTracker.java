@@ -99,6 +99,9 @@ public class CompletionTracker {
                 ? parentTrace.childSpan("consumer-group:" + groupName + "/complete")
                 : TraceCtx.createNew();
         try (var scope = TraceContextUtil.mdcScope(trace)) {
+            TraceContextUtil.setMDC(TraceContextUtil.MDC_TOPIC, topic);
+            TraceContextUtil.setMDC(TraceContextUtil.MDC_CONSUMER_GROUP, groupName);
+            TraceContextUtil.setMDC(TraceContextUtil.MDC_MESSAGE_ID, String.valueOf(messageId));
             logger.debug("Marking message {} as completed for group '{}' on topic '{}'",
                     messageId, groupName, topic);
         }
@@ -243,6 +246,9 @@ public class CompletionTracker {
                 ? parentTrace.childSpan("consumer-group:" + groupName + "/failed")
                 : TraceCtx.createNew();
         try (var scope = TraceContextUtil.mdcScope(trace)) {
+            TraceContextUtil.setMDC(TraceContextUtil.MDC_TOPIC, topic);
+            TraceContextUtil.setMDC(TraceContextUtil.MDC_CONSUMER_GROUP, groupName);
+            TraceContextUtil.setMDC(TraceContextUtil.MDC_MESSAGE_ID, String.valueOf(messageId));
             logger.warn("Marking message {} as failed for group '{}' on topic '{}': {}",
                     messageId, groupName, topic, errorMessage);
         }

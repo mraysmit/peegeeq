@@ -469,4 +469,71 @@ public class ConsumerTracingTest extends BaseIntegrationTest {
             fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
         }
     }
+
+    // ---- Span Attribute (MDC) Tests ----
+
+    @Test
+    void childSpan_setsTopicAndGroupNameAndMessageId_inMDC() {
+        // Verify that when MDC attributes are set alongside a child span scope,
+        // topic, group_name and message_id are all visible in the MDC.
+        String parentTraceparent = "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01";
+        TraceCtx parentTrace = TraceCtx.parseOrCreate(parentTraceparent);
+        TraceCtx childTrace = parentTrace.childSpan("consumer-group:test-group/process");
+
+        try (var scope = TraceContextUtil.mdcScope(childTrace)) {
+            TraceContextUtil.setMDC(TraceContextUtil.MDC_TOPIC, "orders");
+            TraceContextUtil.setMDC(TraceContextUtil.MDC_CONSUMER_GROUP, "test-group");
+            TraceContextUtil.setMDC(TraceContextUtil.MDC_MESSAGE_ID, "42");
+
+            assertEquals(childTrace.traceId(), MDC.get("traceId"));
+            assertEquals(childTrace.spanId(), MDC.get("spanId"));
+            assertEquals("orders", MDC.get("topic"));
+            assertEquals("test-group", MDC.get("consumerGroup"));
+            assertEquals("42", MDC.get("messageId"));
+        }
+
+        // Verify MDC is clean after scope closes
+        assertNull(MDC.get("traceId"), "traceId must not leak after scope close");
+        assertNull(MDC.get("spanId"), "spanId must not leak after scope close");
+    }
+
+    @Test
+    void fanOut_parallelChildSpans_haveDistinctSpanIds_withAttributes() {
+        // Simulate fan-out: one message delivered to two groups, each with span attributes
+        String parentTraceparent = "00-abcdef0123456789abcdef0123456789-00f067aa0ba902b7-01";
+        TraceCtx parentTrace = TraceCtx.parseOrCreate(parentTraceparent);
+
+        TraceCtx groupA = parentTrace.childSpan("consumer-group:groupA/process");
+        TraceCtx groupB = parentTrace.childSpan("consumer-group:groupB/process");
+
+        // Same trace tree
+        assertEquals(parentTrace.traceId(), groupA.traceId());
+        assertEquals(parentTrace.traceId(), groupB.traceId());
+
+        // Different spans
+        assertNotEquals(groupA.spanId(), groupB.spanId());
+
+        // Both link back to the same parent
+        assertEquals(parentTrace.spanId(), groupA.parentSpanId());
+        assertEquals(parentTrace.spanId(), groupB.parentSpanId());
+
+        // Per-group MDC scoping is independent
+        try (var scopeA = TraceContextUtil.mdcScope(groupA)) {
+            TraceContextUtil.setMDC(TraceContextUtil.MDC_CONSUMER_GROUP, "groupA");
+            TraceContextUtil.setMDC(TraceContextUtil.MDC_TOPIC, "orders");
+            TraceContextUtil.setMDC(TraceContextUtil.MDC_MESSAGE_ID, "100");
+
+            assertEquals("groupA", MDC.get("consumerGroup"));
+            assertEquals(groupA.spanId(), MDC.get("spanId"));
+        }
+
+        try (var scopeB = TraceContextUtil.mdcScope(groupB)) {
+            TraceContextUtil.setMDC(TraceContextUtil.MDC_CONSUMER_GROUP, "groupB");
+            TraceContextUtil.setMDC(TraceContextUtil.MDC_TOPIC, "orders");
+            TraceContextUtil.setMDC(TraceContextUtil.MDC_MESSAGE_ID, "100");
+
+            assertEquals("groupB", MDC.get("consumerGroup"));
+            assertEquals(groupB.spanId(), MDC.get("spanId"));
+        }
+    }
 }

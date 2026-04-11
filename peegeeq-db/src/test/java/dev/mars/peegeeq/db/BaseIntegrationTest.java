@@ -80,17 +80,20 @@ public abstract class BaseIntegrationTest {
         
         logger.info("Setting up integration test with profile: {}", testProfile);
         
-        // DO NOT clear system properties here - causes race conditions in parallel execution
-        // Properties will be overwritten by setupDatabaseProperties() anyway
-        
-        // Set up database connection properties
-        setupDatabaseProperties();
-        
-        // Set up test-specific configuration
+        // Set up test-specific configuration (non-database system properties)
         setupTestConfiguration();
         
-        // Create and start manager
-        configuration = new PeeGeeQConfiguration(testProfile);
+        // Create configuration with explicit database settings from the shared container
+        // to avoid System.setProperty race conditions under parallel execution.
+        PostgreSQLContainer postgres = getPostgres();
+        configuration = new PeeGeeQConfiguration(
+                testProfile,
+                postgres.getHost(),
+                postgres.getFirstMappedPort(),
+                postgres.getDatabaseName(),
+                postgres.getUsername(),
+                postgres.getPassword(),
+                "public");
         manager = new PeeGeeQManager(configuration, new SimpleMeterRegistry());
         
         // Start manager with proper error handling
@@ -195,6 +198,12 @@ public abstract class BaseIntegrationTest {
         // Avoid enabling migrations here to prevent duplicate DDL when tests run in parallel
         System.setProperty("peegeeq.migration.enabled", "false");
         System.setProperty("peegeeq.migration.auto-migrate", "false");
+
+        // Disable background dead consumer detection to prevent the PeeGeeQManager's
+        // periodic job from interfering with tests that explicitly test dead consumer
+        // detection. Without this, a background job from a parallel test's PeeGeeQManager
+        // can mark subscriptions DEAD before the test's own detector call runs.
+        System.setProperty("peegeeq.queue.dead-consumer-detection.enabled", "false");
 
         logger.debug("Test configuration properties set");
     }

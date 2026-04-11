@@ -35,6 +35,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -171,17 +172,18 @@ class MultiConsumerModeTest {
                 consumers.add(consumer);
             }
 
-            // Wait for consumer setup, then send
-            vertx.setTimer(2000, id -> {
-                vertx.executeBlocking(() -> {
-                    MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-                    for (int i = 0; i < totalMessages; i++) {
-                        producer.send("Multi-same-mode message " + (i + 1)).await();
-                    }
-                    producer.close();
-                    return null;
-                }).onFailure(testContext::failNow);
-            });
+            // Wait for consumer setup
+            CountDownLatch setupLatch = new CountDownLatch(1);
+            vertx.setTimer(2000, id -> setupLatch.countDown());
+            setupLatch.await(5, TimeUnit.SECONDS);
+
+            // Send messages
+            MessageProducer<String> producer = factory.createProducer(topicName, String.class);
+            for (int i = 0; i < totalMessages; i++) {
+                producer.send("Multi-same-mode message " + (i + 1))
+                    .onFailure(testContext::failNow);
+            }
+            producer.close();
 
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "All messages should be processed by multiple consumers with same mode");
             assertEquals(totalMessages, totalProcessed.get(), "Should process exactly " + totalMessages + " messages");
@@ -251,25 +253,25 @@ class MultiConsumerModeTest {
                 return Future.succeededFuture();
             });
 
-            // Wait for consumer setup, then send
-            vertx.setTimer(2000, id -> {
-                vertx.executeBlocking(() -> {
-                    MessageProducer<String> listenProducer = factory.createProducer(topicName + "-listen", String.class);
-                    MessageProducer<String> pollingProducer = factory.createProducer(topicName + "-polling", String.class);
-                    MessageProducer<String> hybridProducer = factory.createProducer(topicName + "-hybrid", String.class);
+            // Wait for consumer setup
+            CountDownLatch setupLatch = new CountDownLatch(1);
+            vertx.setTimer(2000, id -> setupLatch.countDown());
+            setupLatch.await(5, TimeUnit.SECONDS);
 
-                    for (int i = 0; i < 2; i++) {
-                        listenProducer.send("Listen message " + (i + 1)).await();
-                        pollingProducer.send("Polling message " + (i + 1)).await();
-                        hybridProducer.send("Hybrid message " + (i + 1)).await();
-                    }
+            // Send messages
+            MessageProducer<String> listenProducer = factory.createProducer(topicName + "-listen", String.class);
+            MessageProducer<String> pollingProducer = factory.createProducer(topicName + "-polling", String.class);
+            MessageProducer<String> hybridProducer = factory.createProducer(topicName + "-hybrid", String.class);
 
-                    listenProducer.close();
-                    pollingProducer.close();
-                    hybridProducer.close();
-                    return null;
-                }).onFailure(testContext::failNow);
-            });
+            for (int i = 0; i < 2; i++) {
+                listenProducer.send("Listen message " + (i + 1)).onFailure(testContext::failNow);
+                pollingProducer.send("Polling message " + (i + 1)).onFailure(testContext::failNow);
+                hybridProducer.send("Hybrid message " + (i + 1)).onFailure(testContext::failNow);
+            }
+
+            listenProducer.close();
+            pollingProducer.close();
+            hybridProducer.close();
 
             assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "All messages should be processed by consumers with different modes");
 
@@ -331,17 +333,18 @@ class MultiConsumerModeTest {
                 return Future.succeededFuture();
             });
 
-            // Wait for consumer setup, then send
-            vertx.setTimer(2000, id -> {
-                vertx.executeBlocking(() -> {
-                    MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-                    for (int i = 0; i < messagesPerMode; i++) {
-                        producer.send("Isolation test message " + (i + 1)).await();
-                    }
-                    producer.close();
-                    return null;
-                }).onFailure(testContext::failNow);
-            });
+            // Wait for consumer setup
+            CountDownLatch setupLatch = new CountDownLatch(1);
+            vertx.setTimer(2000, id -> setupLatch.countDown());
+            setupLatch.await(5, TimeUnit.SECONDS);
+
+            // Send messages
+            MessageProducer<String> producer = factory.createProducer(topicName, String.class);
+            for (int i = 0; i < messagesPerMode; i++) {
+                producer.send("Isolation test message " + (i + 1))
+                    .onFailure(testContext::failNow);
+            }
+            producer.close();
 
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Messages should be processed by competing consumers");
 
@@ -402,20 +405,20 @@ class MultiConsumerModeTest {
                 consumers.add(consumer);
             }
 
-            // Wait for consumer setup, then send concurrently
-            vertx.setTimer(3000, id -> {
-                for (int i = 0; i < consumerCount; i++) {
-                    final int consumerIndex = i;
-                    vertx.executeBlocking(() -> {
-                        MessageProducer<String> producer = factory.createProducer(topicName + "-" + consumerIndex, String.class);
-                        for (int j = 0; j < messagesPerConsumer; j++) {
-                            producer.send("Thread-safety message " + consumerIndex + "-" + (j + 1)).await();
-                        }
-                        producer.close();
-                        return null;
-                    }).onFailure(testContext::failNow);
+            // Wait for consumer setup
+            CountDownLatch setupLatch = new CountDownLatch(1);
+            vertx.setTimer(3000, id -> setupLatch.countDown());
+            setupLatch.await(5, TimeUnit.SECONDS);
+
+            // Send messages to each consumer's topic
+            for (int i = 0; i < consumerCount; i++) {
+                MessageProducer<String> producer = factory.createProducer(topicName + "-" + i, String.class);
+                for (int j = 0; j < messagesPerConsumer; j++) {
+                    producer.send("Thread-safety message " + i + "-" + (j + 1))
+                        .onFailure(testContext::failNow);
                 }
-            });
+                producer.close();
+            }
 
             assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "All messages should be processed safely across different consumer modes");
             assertEquals(totalMessages, totalProcessed.get(), "Should process exactly " + totalMessages + " messages");
@@ -475,25 +478,27 @@ class MultiConsumerModeTest {
                 return Future.succeededFuture();
             });
 
-            // Wait for consumer setup, then send
-            vertx.setTimer(2000, id -> {
-                vertx.executeBlocking(() -> {
-                    MessageProducer<String> fastProducer = factory.createProducer(topicName + "-fast", String.class);
-                    MessageProducer<String> slowProducer = factory.createProducer(topicName + "-slow", String.class);
+            // Wait for consumer setup
+            CountDownLatch setupLatch = new CountDownLatch(1);
+            vertx.setTimer(2000, id -> setupLatch.countDown());
+            setupLatch.await(5, TimeUnit.SECONDS);
 
-                    for (int i = 0; i < fastMessages; i++) {
-                        fastProducer.send("Fast message " + (i + 1)).await();
-                    }
+            // Send messages
+            MessageProducer<String> fastProducer = factory.createProducer(topicName + "-fast", String.class);
+            MessageProducer<String> slowProducer = factory.createProducer(topicName + "-slow", String.class);
 
-                    for (int i = 0; i < slowMessages; i++) {
-                        slowProducer.send("Slow message " + (i + 1)).await();
-                    }
+            for (int i = 0; i < fastMessages; i++) {
+                fastProducer.send("Fast message " + (i + 1))
+                    .onFailure(testContext::failNow);
+            }
 
-                    fastProducer.close();
-                    slowProducer.close();
-                    return null;
-                }).onFailure(testContext::failNow);
-            });
+            for (int i = 0; i < slowMessages; i++) {
+                slowProducer.send("Slow message " + (i + 1))
+                    .onFailure(testContext::failNow);
+            }
+
+            fastProducer.close();
+            slowProducer.close();
 
             assertTrue(testContext.awaitCompletion(25, TimeUnit.SECONDS));
             assertEquals(fastMessages, fastProcessed.get(), "Fast consumer should process all fast messages");

@@ -188,7 +188,7 @@ All files below were modified during the CompletableFuture → Vert.x Future mig
 | # | File | Status | Notes |
 |---|------|--------|-------|
 | 1 | `pgqueue/ConsumerGroupTest.java` | PENDING | |
-| 2 | `pgqueue/ConsumerGroupV110Test.java` | PENDING | |
+| 2 | `pgqueue/ConsumerGroupSubscriptionTest.java` | PENDING | |
 | 3 | `pgqueue/ConsumerModeBackwardCompatibilityTest.java` | PENDING | |
 | 4 | `pgqueue/ConsumerModeFailureTest.java` | PENDING | |
 | 5 | `pgqueue/ConsumerModeGracefulDegradationTest.java` | PENDING | |
@@ -278,8 +278,8 @@ All files below were modified during the CompletableFuture → Vert.x Future mig
 | 36 | `outbox/OutboxConsumerGroupFilteredMessageStatusTest.java` | PENDING |
 | 37 | `outbox/OutboxConsumerGroupIntegrationTest.java` | PENDING |
 | 38 | `outbox/OutboxConsumerGroupTest.java` | PENDING |
-| 39 | `outbox/OutboxConsumerGroupV110EdgeCasesTest.java` | PENDING |
-| 40 | `outbox/OutboxConsumerGroupV110Test.java` | PENDING |
+| 39 | `outbox/OutboxConsumerGroupSubscriptionEdgeCasesTest.java` | PENDING |
+| 40 | `outbox/OutboxConsumerGroupSubscriptionTest.java` | PENDING |
 | 41 | `outbox/OutboxConsumerIntegrationTest.java` | PENDING |
 | 42 | `outbox/OutboxConsumerNullHandlerTest.java` | PENDING |
 | 43 | `outbox/OutboxConsumerSurgicalCoverageTest.java` | PENDING |

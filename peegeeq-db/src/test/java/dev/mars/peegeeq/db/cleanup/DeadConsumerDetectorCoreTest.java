@@ -15,6 +15,8 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.junit.jupiter.api.parallel.ResourceAccessMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -28,6 +30,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.CORE)
 @Execution(ExecutionMode.SAME_THREAD)
+@ResourceLock(value = "dead-consumer-detection", mode = ResourceAccessMode.READ_WRITE)
 public class DeadConsumerDetectorCoreTest extends BaseIntegrationTest {
 
     private PgConnectionManager connectionManager;

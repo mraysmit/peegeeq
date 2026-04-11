@@ -17,6 +17,8 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.junit.jupiter.api.parallel.ResourceAccessMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -47,6 +49,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.INTEGRATION)
 @Execution(ExecutionMode.SAME_THREAD)
+@ResourceLock(value = "dead-consumer-detection", mode = ResourceAccessMode.READ_WRITE)
 public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(DeadConsumerDetectorIntegrationTest.class);
