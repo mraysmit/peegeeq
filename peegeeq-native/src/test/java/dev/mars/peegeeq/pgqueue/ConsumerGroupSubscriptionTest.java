@@ -311,7 +311,7 @@ class ConsumerGroupSubscriptionTest {
         }
 
         @Test
-        @DisplayName("should throw IllegalStateException after close")
+        @DisplayName("should return failed future after close")
         void testStartWithOptions_AfterClose() throws Exception {
             // Arrange
             ConsumerGroup<String> group = factory.createConsumerGroup(
@@ -322,9 +322,10 @@ class ConsumerGroupSubscriptionTest {
 
             SubscriptionOptions options = SubscriptionOptions.defaults();
 
-            // Act & Assert
-            assertThrows(IllegalStateException.class, () -> group.start(options),
-                "Should throw IllegalStateException when starting a closed group");
+            // Act & Assert — async method returns a failed future, not a thrown exception
+            Future<Void> result = group.start(options);
+            assertTrue(result.failed(), "Should fail when starting a closed group");
+            assertInstanceOf(IllegalStateException.class, result.cause());
         }
 
         @Test

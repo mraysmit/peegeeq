@@ -27,6 +27,8 @@ import dev.mars.peegeeq.api.messaging.ConsumerGroupStats;
 import dev.mars.peegeeq.api.messaging.ConsumerMemberStats;
 import dev.mars.peegeeq.api.messaging.RejectedMessageException;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.tracing.TraceContextUtil;
+import dev.mars.peegeeq.api.tracing.TraceCtx;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import io.vertx.core.Future;
@@ -448,42 +450,53 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
                                 groupName, topic, err.getMessage());
                         return Future.succeededFuture();
                     })
-                    .map(v -> {
-                        stopInternal();
-                        return null;
-                    });
+                    .compose(v -> stopInternal());
         }
 
-        stopInternal();
-        return Future.succeededFuture();
+        return stopInternal();
     }
 
     /**
      * Internal stop logic — assumes state is already STOPPING.
-     * Transitions state to NEW on completion.
+     * Transitions state to NEW on completion (or failure).
+     *
+     * @return a future that completes when the underlying consumer pool is closed
+     *         (or succeeds immediately if no async close is needed)
      */
-    private void stopInternal() {
+    private Future<Void> stopInternal() {
         try {
             logger.info("Stopping outbox consumer group '{}' for topic '{}'", groupName, topic);
 
             // Stop all members
             members.values().forEach(OutboxConsumerGroupMember::stop);
 
-            // Stop the underlying consumer (non-blocking)
+            // Stop the underlying consumer — compose closeAsync future
+            Future<Void> consumerClose;
             if (underlyingConsumer != null) {
                 underlyingConsumer.unsubscribe();
                 if (underlyingConsumer instanceof OutboxConsumer<?> oc) {
-                    oc.closeAsync();
+                    consumerClose = oc.closeAsync()
+                            .onFailure(err -> logger.warn("Error closing outbox consumer for group '{}': {}",
+                                    groupName, err.getMessage()));
                 } else {
                     underlyingConsumer.close();
+                    consumerClose = Future.succeededFuture();
                 }
                 underlyingConsumer = null;
+            } else {
+                consumerClose = Future.succeededFuture();
             }
 
             startedWithSubscription = false;
-            logger.info("Outbox consumer group '{}' stopped", groupName);
-        } finally {
+
+            return consumerClose.eventually(() -> {
+                state.set(State.NEW);
+                logger.info("Outbox consumer group '{}' stopped", groupName);
+                return Future.succeededFuture();
+            });
+        } catch (Exception e) {
             state.set(State.NEW);
+            return Future.failedFuture(e);
         }
     }
     
@@ -587,7 +600,9 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
             if (underlyingConsumer != null) {
                 underlyingConsumer.unsubscribe();
                 if (underlyingConsumer instanceof OutboxConsumer<?> oc) {
-                    oc.closeAsync();
+                    oc.closeAsync()
+                            .onFailure(err -> logger.warn("Error closing outbox consumer during close for group '{}': {}",
+                                    groupName, err.getMessage()));
                 } else {
                     underlyingConsumer.close();
                 }
@@ -625,12 +640,27 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
      * </ul>
      */
     private Future<Void> distributeMessage(Message<T> message) {
+        // Create a child span from the message's traceparent for fan-out trace propagation.
+        // Parallel consumer group deliveries form a span tree visible in Jaeger/Zipkin.
+        Map<String, String> headers = message.getHeaders();
+        String traceparent = headers != null ? headers.get("traceparent") : null;
+        TraceCtx parentTrace = TraceCtx.parseOrCreate(traceparent);
+        TraceCtx groupTrace = parentTrace.childSpan("consumer-group:" + groupName + "/process");
+        TraceContextUtil.mdcScope(groupTrace);
+        TraceContextUtil.setMDC(TraceContextUtil.MDC_CONSUMER_GROUP, groupName);
+        TraceContextUtil.setMDC(TraceContextUtil.MDC_TOPIC, topic);
+        TraceContextUtil.setMDC(TraceContextUtil.MDC_MESSAGE_ID, message.getId());
+
         // Apply group-level filter first — permanent rejection
         if (groupFilter != null && !groupFilter.test(message)) {
             totalMessagesFiltered.incrementAndGet();
             logger.debug("Message {} permanently rejected by outbox group filter", message.getId());
-            return Future.failedFuture(
-                    new RejectedMessageException(message.getId(), groupName, "rejected by group filter"));
+            return Future.<Void>failedFuture(
+                    new RejectedMessageException(message.getId(), groupName, "rejected by group filter"))
+                    .eventually(() -> {
+                        TraceContextUtil.clearTraceMDC();
+                        return Future.succeededFuture();
+                    });
         }
         
         // Find eligible consumers (those whose filters accept the message)
@@ -644,8 +674,12 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
             logger.debug("Message {} has no eligible consumers in outbox group '{}', resetting to PENDING",
                 message.getId(), groupName);
 
-            return Future.failedFuture(
-                    new MessageFilteredException(message.getId(), groupName, "no eligible consumer in group"));
+            return Future.<Void>failedFuture(
+                    new MessageFilteredException(message.getId(), groupName, "no eligible consumer in group"))
+                    .eventually(() -> {
+                        TraceContextUtil.clearTraceMDC();
+                        return Future.succeededFuture();
+                    });
         }
         
         // Deterministic hash-based routing on message ID
@@ -656,15 +690,23 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
         if (!members.containsValue(selectedConsumer) || !selectedConsumer.isActive()) {
             logger.debug("Selected consumer '{}' was removed or deactivated before dispatch, resetting message {} to PENDING",
                 selectedConsumer.getConsumerId(), message.getId());
-            return Future.failedFuture(
+            return Future.<Void>failedFuture(
                     new MessageFilteredException(message.getId(), groupName,
-                        "selected consumer removed before dispatch"));
+                        "selected consumer removed before dispatch"))
+                    .eventually(() -> {
+                        TraceContextUtil.clearTraceMDC();
+                        return Future.succeededFuture();
+                    });
         }
         
         logger.debug("Distributing message {} to consumer '{}' in outbox group '{}'", 
             message.getId(), selectedConsumer.getConsumerId(), groupName);
         
-        return selectedConsumer.processMessage(message);
+        return selectedConsumer.processMessage(message)
+                .eventually(() -> {
+                    TraceContextUtil.clearTraceMDC();
+                    return Future.succeededFuture();
+                });
     }
     
     /**

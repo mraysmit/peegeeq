@@ -9,12 +9,13 @@
 
 ## Summary
 
-1 area of work remains. Everything else (core fan-out, subscription management, dead consumer detection/cleanup/resurrection, flapping protection, backfill with rate limiting, graceful shutdown, admin force-remove, tracing instrumentation, fan-out trace propagation, fanout retry/DLQ automation, Prometheus metrics, alerting endpoints, monitoring endpoints) is fully implemented and tested.
+2 areas of work remain. Everything else (core fan-out, subscription management, dead consumer detection/cleanup/resurrection, flapping protection, backfill with rate limiting, graceful shutdown, admin force-remove, tracing instrumentation, fan-out trace propagation, fanout retry/DLQ automation, Prometheus metrics, alerting endpoints, monitoring endpoints) is fully implemented and tested.
 
 | Area | Priority | Status |
 |------|----------|--------|
 | Fan-Out Trace Branching | LOW | **COMPLETED** (2026-04-11) |
 | Fanout Retry & DLQ Automation | MEDIUM | **COMPLETED** (2026-04-11) |
+| Consumer Group Lifecycle Alignment | HIGH | 10 sub-tasks, not started |
 | Offset/Watermark Mode + Partitioned Consumption | LOW | Full design complete, no implementation |
 
 ---
@@ -503,11 +504,133 @@ Run:   1 hour concurrent
 
 ---
 
+## Task 5: Consumer Group Lifecycle Alignment
+
+**Priority**: HIGH (pre-requisite for Phase 6 integration)  
+**Source**: Cross-review of `PgNativeConsumerGroup` and `OutboxConsumerGroup` (2026-04-12)  
+**Goal**: Align both implementations to the best pattern from each before Phase 6 wires partitioned consumption into both.
+
+### Rationale
+
+The two `ConsumerGroup` implementations share the same API contract but diverge in lifecycle management quality. Fixing these before Phase 6 avoids compounding the issues when partitioned engine integration adds more async complexity.
+
+### 5.1 — Adopt state machine in PgNativeConsumerGroup
+
+**Adopt from**: `OutboxConsumerGroup` `AtomicReference<State>` with `{NEW, STARTING, ACTIVE, STOPPING, CLOSED}`  
+**Replace**: Dual `AtomicBoolean` (`active`, `closed`) in `PgNativeConsumerGroup`  
+**Why**: The dual-boolean scheme has no STARTING or STOPPING state, which causes:  
+- `start()` sets `active=true` before async work begins (callers observe "active" during setup)  
+- `close()` can race with `stop()` because both check/set different flags independently  
+- No way to distinguish "never started" from "stopped and restartable"
+
+**Files**: `PgNativeConsumerGroup.java`  
+**Scope**: Replace `AtomicBoolean active`, `AtomicBoolean closed` with `AtomicReference<State>`. Update all CAS transitions in `start()`, `stop()`, `stopGracefully()`, `close()`, `isActive()`, `addConsumer()`.
+
+### 5.2 — Fix TOCTOU race in PgNativeConsumerGroup.addConsumer
+
+**Adopt from**: `OutboxConsumerGroup.addConsumer` uses `putIfAbsent` (line 265)  
+**Fix**: `PgNativeConsumerGroup.addConsumer` uses `containsKey` + `put` (lines 156-163), which has a time-of-check/time-of-use race under concurrent `addConsumer` calls  
+**Files**: `PgNativeConsumerGroup.java`  
+**Change**: Replace `containsKey` check + `put` with `putIfAbsent`, throw if existing returned.
+
+### 5.3 — Compose partitioned engine stop future in stopInternal
+
+**Fix in**: `PgNativeConsumerGroup.stopInternal()` (lines 338-344)  
+**Problem**: `partitionedEngine.stop()` returns `Future<Void>` performing async `leaveGroup`, but the future is discarded and the engine reference nulled immediately. Both `stop()` and `stopGracefully()` report completion before the leave-group RPC finishes.  
+**Change**: `stopInternal` must return `Future<Void>`. Compose `partitionedEngine.stop()` into the returned future. `stop()` becomes `Future<Void>` (or composes internally). `stopGracefully()` composes subscription cancel → `stopInternal()` sequentially and returns the composed future.
+
+### 5.4 — Compose partitioned engine start future in start(SubscriptionOptions)
+
+**Fix in**: `PgNativeConsumerGroup.start(SubscriptionOptions)` (lines 286-294) and `start()` (line 192)  
+**Problem**: `start()` is `void` and performs async mode detection + async engine startup via fire-and-forget `.onSuccess()`/`.onFailure()`. The `start(SubscriptionOptions)` future completes after subscription creation but before the consumer engine is ready.  
+**Change**:  
+- `startPartitioned()` must return `Future<Void>` that completes when `partitionedEngine.start(handler)` completes.  
+- `start(SubscriptionOptions)` must compose mode detection → `startPartitioned()`/`startReferenceCountingInternal()` into its returned future.  
+- `start()` (void) should set state to STARTING, then compose the same async chain, setting ACTIVE on success and resetting to NEW on failure (matching OutboxConsumerGroup's try/catch pattern).
+
+### 5.5 — Stop members on partitioned engine start failure
+
+**Fix in**: `PgNativeConsumerGroup.startPartitioned()` (lines 236-244)  
+**Problem**: Members are started at line 236 before `partitionedEngine.start(handler)` at line 238. If engine start fails, the `.onFailure` handler sets `active=false` but never stops the members. Members remain in started state with no engine feeding them.  
+**Change**: Move `members.values().forEach(start)` into the `.onSuccess` handler of `partitionedEngine.start()`, or add `members.values().forEach(stop)` to the `.onFailure` handler.
+
+### 5.6 — Compose closeAsync future in OutboxConsumerGroup stop/close paths
+
+**Fix in**: `OutboxConsumerGroup.stopInternal()` (lines 471-479) and `close()` (lines 588-592)  
+**Problem**: `oc.closeAsync()` returns `Future<Void>` (closes reactive pool), but the future is discarded. `stopGracefully()` returns `Future.succeededFuture()` before the pool close finishes.  
+**Change**: `stopInternal()` must return `Future<Void>` composing `closeAsync()`. `stopGracefully()` must compose subscription cancel → `stopInternal()` and return the result.
+
+### 5.7 — Replace ScheduledExecutorService with Vert.x timers in OutboxConsumerGroup
+
+**Status**: SKIPPED — intentional design decision documented below.
+
+**Original proposal**: Replace `sharedFilterScheduler` (`ScheduledExecutorService`) with `Vertx.setTimer()`/`Vertx.setPeriodic()` and remove the blocking `awaitTermination(5, SECONDS)` from `close()`.
+
+**Investigation findings**: `FilterRetryManager` (in `peegeeq-api/.../resilience/`) contains an explicit design note (lines 22-48) documenting why `ScheduledExecutorService` is intentionally used over `vertx.setTimer()`:
+
+1. **Framework agnostic** — `FilterRetryManager` is a core API class that must work outside Vert.x contexts.
+2. **API boundary isolation** — The retry mechanism is self-contained; coupling it to Vert.x internals adds unnecessary dependency.
+3. **Testability** — Pure JDK scheduling is testable without Vert.x context or event-loop setup.
+4. **Not a Verticle** — `OutboxConsumerGroup` and `FilterRetryManager` are not Verticles; they have no event-loop affinity that Vert.x timers would respect.
+
+The `sharedFilterScheduler` is created in `OutboxConsumerGroup`, exposed via `getSharedFilterScheduler()`, and consumed by `OutboxConsumerGroupMember` → `FilterRetryManager`. The per-5.7 note says: "If the outbox module intentionally avoids Vert.x threading for isolation, document that decision and skip this task." This is exactly that case.
+
+**Remaining risk**: `close()` calls `awaitTermination(5, SECONDS)` which blocks the calling thread. If `close()` is ever called from a Vert.x event-loop thread, this would block. Currently `close()` is called from application shutdown paths (not event-loop), so this is acceptable. If this changes in the future, `close()` should be reworked to use `executeBlocking()` or an async shutdown handshake.
+
+### 5.8 — Add fan-out trace propagation to OutboxConsumerGroup.distributeMessage
+
+**Adopt from**: `PgNativeConsumerGroup.distributeMessage()` (lines 469-522) creates a child span per consumer group from the message's `traceparent` header  
+**Missing in**: `OutboxConsumerGroup.distributeMessage()` (lines 620-668) has no trace context propagation  
+**Change**: Add the same `TraceCtx.parseOrCreate(traceparent)` → `childSpan("consumer-group:" + groupName + "/process")` → `TraceContextUtil.mdcScope()` pattern, with `TraceContextUtil.clearTraceMDC()` in `.eventually()`.  
+**Files**: `OutboxConsumerGroup.java`, plus test coverage in outbox module.
+
+### 5.9 — Wire connectionManager/serviceId in PgNativeQueueFactory.createConsumerGroup
+
+**Fix in**: `PgNativeQueueFactory.createConsumerGroup()` (lines 228-230)  
+**Problem**: Factory uses the 8-arg constructor, passing `connectionManager=null`. Partitioned mode is unreachable through this factory path.  
+**Change**: Pass the factory's `PgConnectionManager` and `serviceId` to the 10-arg constructor. Requires the factory to hold or resolve these references.  
+**Note**: This is Phase 6 critical — without it, no consumer group created through the factory can auto-detect OFFSET_WATERMARK mode.
+
+### 5.10 — Adopt try/finally state reset in PgNativeConsumerGroup stop paths
+
+**Adopt from**: `OutboxConsumerGroup.stopInternal()` uses `try { ... } finally { state.set(State.NEW); }` (lines 463-484)  
+**Fix in**: `PgNativeConsumerGroup.stopInternal()` has no protection against exceptions leaving the group in an inconsistent state  
+**Change**: After adopting the state machine (5.1), wrap `stopInternal` body in try/finally that resets state to NEW.
+
+### Execution Order
+
+Tasks have dependencies:
+
+```
+5.1 (state machine)  ──→ 5.4 (compose start future)  ──→ 5.5 (members after engine)
+       │                                                         
+       └──→ 5.10 (try/finally stop)  ──→ 5.3 (compose stop future)
+       
+5.2 (putIfAbsent)     — independent
+5.6 (outbox closeAsync)— independent  
+5.7 (vert.x timers)   — independent, needs design decision
+5.8 (outbox tracing)   — independent
+5.9 (factory wiring)   — independent, Phase 6 prerequisite
+```
+
+Recommended order: 5.1 → 5.2 → 5.10 → 5.3 → 5.4 → 5.5 → 5.6 → 5.8 → 5.9 → 5.7
+
+### Verification Criteria
+
+For each sub-task:
+- Grep proof that old patterns are absent in touched files
+- Compile success for affected modules
+- All existing tests pass (core + integration)
+- No new test gaps: each behavioral change has test coverage
+
+---
+
 ## Dropped Items (intentional, recorded for completeness)
 
 These were evaluated and intentionally not implemented:
 
 | Item | Reason |
 |------|--------|
+| 5.7 — Replace `ScheduledExecutorService` with Vert.x timers | `FilterRetryManager` intentionally uses JDK scheduling for framework-agnostic design, API boundary isolation, and testability. See 5.7 section above for full rationale. |
 | `peegeeq_consumer_group_processing_seconds` Prometheus metric | Invasive hot-path change (timer around message handler), no concrete need |
 | `peegeeq_backfill_progress_ratio` Prometheus metric | Invasive wiring change, no concrete need |
