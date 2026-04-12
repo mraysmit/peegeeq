@@ -287,6 +287,7 @@ public class SharedPostgresTestExtension implements BeforeAllCallback {
                         backfill_completed_at TIMESTAMP WITH TIME ZONE,
                         consecutive_misses INTEGER NOT NULL DEFAULT 0,
                         dead_after_misses INTEGER NOT NULL DEFAULT 3,
+                        rebalance_generation INT NOT NULL DEFAULT 0,
                         UNIQUE (topic, group_name)
                     )
                     """);
