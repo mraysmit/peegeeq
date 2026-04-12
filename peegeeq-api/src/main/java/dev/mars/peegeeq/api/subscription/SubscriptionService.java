@@ -211,5 +211,85 @@ public interface SubscriptionService {
     default Future<JsonObject> getBlockedMessageStats() {
         return Future.failedFuture(new UnsupportedOperationException("Blocked message stats not supported"));
     }
+
+    // ========================================================================
+    // Partitioned Consumption (OFFSET_WATERMARK mode)
+    // ========================================================================
+
+    /**
+     * Joins a consumer instance to a partitioned group, triggering a rebalance
+     * that assigns partitions using consistent hashing.
+     *
+     * <p>Only valid for topics with completion_tracking_mode = OFFSET_WATERMARK.</p>
+     *
+     * @param topic The topic name
+     * @param groupName The consumer group name
+     * @param instanceId The consumer instance identifier
+     * @return Future containing the list of partitions assigned to this instance
+     * @throws UnsupportedOperationException if partitioned consumption is not supported
+     */
+    default Future<List<PartitionAssignmentInfo>> joinPartitionedGroup(String topic, String groupName, String instanceId) {
+        return Future.failedFuture(new UnsupportedOperationException("Partitioned consumption not supported"));
+    }
+
+    /**
+     * Removes a consumer instance from a partitioned group, triggering a rebalance
+     * that redistributes its partitions to remaining instances.
+     *
+     * @param topic The topic name
+     * @param groupName The consumer group name
+     * @param instanceId The consumer instance identifier
+     * @return Future completing when rebalance is done
+     * @throws UnsupportedOperationException if partitioned consumption is not supported
+     */
+    default Future<Void> leavePartitionedGroup(String topic, String groupName, String instanceId) {
+        return Future.failedFuture(new UnsupportedOperationException("Partitioned consumption not supported"));
+    }
+
+    /**
+     * Fetches a batch of messages for a specific partition, starting after the
+     * committed offset. Uses FOR UPDATE SKIP LOCKED for concurrent safety.
+     *
+     * @param topic The topic name
+     * @param groupName The consumer group name
+     * @param partitionKey The partition key (message_group or '__default__')
+     * @param batchSize Maximum number of messages to return
+     * @param generation The current rebalance generation for fencing
+     * @return Future containing the fetched messages as JSON objects in id order
+     * @throws UnsupportedOperationException if partitioned consumption is not supported
+     */
+    default Future<List<JsonObject>> fetchPartitioned(String topic, String groupName,
+                                                       String partitionKey, int batchSize, int generation) {
+        return Future.failedFuture(new UnsupportedOperationException("Partitioned consumption not supported"));
+    }
+
+    /**
+     * Commits an offset for a partition using compare-and-swap with generation fencing.
+     *
+     * @param topic The topic name
+     * @param groupName The consumer group name
+     * @param partitionKey The partition key
+     * @param offset The offset to commit (must be greater than current committed_offset)
+     * @param generation The generation for fencing
+     * @return Future containing true if commit succeeded, false if rejected (stale generation)
+     * @throws UnsupportedOperationException if partitioned consumption is not supported
+     */
+    default Future<Boolean> commitOffset(String topic, String groupName,
+                                          String partitionKey, long offset, int generation) {
+        return Future.failedFuture(new UnsupportedOperationException("Partitioned consumption not supported"));
+    }
+
+    /**
+     * Returns the current partition assignments for a consumer instance.
+     *
+     * @param topic The topic name
+     * @param groupName The consumer group name
+     * @param instanceId The consumer instance identifier
+     * @return Future containing the list of partitions assigned to this instance
+     * @throws UnsupportedOperationException if partitioned consumption is not supported
+     */
+    default Future<List<PartitionAssignmentInfo>> getPartitionAssignments(String topic, String groupName, String instanceId) {
+        return Future.failedFuture(new UnsupportedOperationException("Partitioned consumption not supported"));
+    }
 }
 

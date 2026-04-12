@@ -22,6 +22,7 @@ import dev.mars.peegeeq.api.error.PeeGeeQErrorCodes;
 import dev.mars.peegeeq.api.messaging.BackfillScope;
 import dev.mars.peegeeq.api.messaging.StartPosition;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
+import dev.mars.peegeeq.api.subscription.PartitionAssignmentInfo;
 import dev.mars.peegeeq.api.subscription.SubscriptionInfo;
 import dev.mars.peegeeq.api.subscription.SubscriptionService;
 import dev.mars.peegeeq.api.subscription.SubscriptionState;
@@ -592,6 +593,250 @@ public class SubscriptionHandler {
                     logger.error("Failed to cancel backfill: {}/{}", topic, groupName, error);
                     sendError(ctx, 500, PeeGeeQErrorCodes.BACKFILL_CANCEL_FAILED,
                              "Failed to cancel backfill: " + error.getMessage());
+                }
+            });
+    }
+
+    // ========================================================================
+    // Partitioned Consumption Endpoints (OFFSET_WATERMARK mode)
+    // ========================================================================
+
+    /**
+     * Joins a consumer instance to a partitioned group.
+     * POST /api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/join
+     * Body: { "instanceId": "..." }
+     */
+    public void joinPartitionedGroup(RoutingContext ctx) {
+        String setupId = ctx.pathParam("setupId");
+        String topic = ctx.pathParam("topic");
+        String groupName = ctx.pathParam("groupName");
+
+        SubscriptionService service = setupService.getSubscriptionServiceForSetup(setupId);
+        if (service == null) {
+            sendSetupNotFoundError(ctx, setupId);
+            return;
+        }
+
+        JsonObject body = ctx.body().asJsonObject();
+        if (body == null || !body.containsKey("instanceId")) {
+            sendError(ctx, 400, PeeGeeQErrorCodes.MISSING_REQUIRED_FIELD, "instanceId is required");
+            return;
+        }
+        String instanceId = body.getString("instanceId");
+
+        service.joinPartitionedGroup(topic, groupName, instanceId)
+            .onSuccess(assignments -> {
+                JsonArray result = new JsonArray();
+                for (PartitionAssignmentInfo a : assignments) {
+                    result.add(new JsonObject()
+                            .put("topic", a.topic())
+                            .put("groupName", a.groupName())
+                            .put("partitionKey", a.partitionKey())
+                            .put("instanceId", a.instanceId())
+                            .put("generation", a.generation()));
+                }
+                ctx.response()
+                    .putHeader("Content-Type", "application/json")
+                    .end(result.encode());
+            })
+            .onFailure(error -> {
+                if (error instanceof IllegalArgumentException) {
+                    sendError(ctx, 400, PeeGeeQErrorCodes.INVALID_REQUEST, error.getMessage());
+                } else {
+                    logger.error("Failed to join partitioned group: {}/{}", topic, groupName, error);
+                    sendError(ctx, 500, PeeGeeQErrorCodes.PARTITION_JOIN_FAILED, error.getMessage());
+                }
+            });
+    }
+
+    /**
+     * Removes a consumer instance from a partitioned group.
+     * DELETE /api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/leave
+     * Query param: instanceId
+     */
+    public void leavePartitionedGroup(RoutingContext ctx) {
+        String setupId = ctx.pathParam("setupId");
+        String topic = ctx.pathParam("topic");
+        String groupName = ctx.pathParam("groupName");
+
+        SubscriptionService service = setupService.getSubscriptionServiceForSetup(setupId);
+        if (service == null) {
+            sendSetupNotFoundError(ctx, setupId);
+            return;
+        }
+
+        String instanceId = ctx.queryParam("instanceId").stream().findFirst().orElse(null);
+        if (instanceId == null || instanceId.isBlank()) {
+            sendError(ctx, 400, PeeGeeQErrorCodes.MISSING_REQUIRED_FIELD, "instanceId query parameter is required");
+            return;
+        }
+
+        service.leavePartitionedGroup(topic, groupName, instanceId)
+            .onSuccess(v -> {
+                JsonObject result = new JsonObject()
+                    .put("success", true)
+                    .put("topic", topic)
+                    .put("groupName", groupName)
+                    .put("instanceId", instanceId)
+                    .put("action", "left");
+                ctx.response()
+                    .putHeader("Content-Type", "application/json")
+                    .end(result.encode());
+            })
+            .onFailure(error -> {
+                if (error instanceof IllegalArgumentException) {
+                    sendError(ctx, 400, PeeGeeQErrorCodes.INVALID_REQUEST, error.getMessage());
+                } else {
+                    logger.error("Failed to leave partitioned group: {}/{}", topic, groupName, error);
+                    sendError(ctx, 500, PeeGeeQErrorCodes.PARTITION_LEAVE_FAILED, error.getMessage());
+                }
+            });
+    }
+
+    /**
+     * Gets current partition assignments for a consumer instance.
+     * GET /api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions
+     * Query param: instanceId
+     */
+    public void getPartitionAssignments(RoutingContext ctx) {
+        String setupId = ctx.pathParam("setupId");
+        String topic = ctx.pathParam("topic");
+        String groupName = ctx.pathParam("groupName");
+
+        SubscriptionService service = setupService.getSubscriptionServiceForSetup(setupId);
+        if (service == null) {
+            sendSetupNotFoundError(ctx, setupId);
+            return;
+        }
+
+        String instanceId = ctx.queryParam("instanceId").stream().findFirst().orElse(null);
+        if (instanceId == null || instanceId.isBlank()) {
+            sendError(ctx, 400, PeeGeeQErrorCodes.MISSING_REQUIRED_FIELD, "instanceId query parameter is required");
+            return;
+        }
+
+        service.getPartitionAssignments(topic, groupName, instanceId)
+            .onSuccess(assignments -> {
+                JsonArray result = new JsonArray();
+                for (PartitionAssignmentInfo a : assignments) {
+                    result.add(new JsonObject()
+                            .put("topic", a.topic())
+                            .put("groupName", a.groupName())
+                            .put("partitionKey", a.partitionKey())
+                            .put("instanceId", a.instanceId())
+                            .put("generation", a.generation()));
+                }
+                ctx.response()
+                    .putHeader("Content-Type", "application/json")
+                    .end(result.encode());
+            })
+            .onFailure(error -> {
+                if (error instanceof IllegalArgumentException) {
+                    sendError(ctx, 400, PeeGeeQErrorCodes.INVALID_REQUEST, error.getMessage());
+                } else {
+                    logger.error("Failed to get partition assignments: {}/{}", topic, groupName, error);
+                    sendError(ctx, 500, PeeGeeQErrorCodes.PARTITION_ASSIGNMENT_FAILED, error.getMessage());
+                }
+            });
+    }
+
+    /**
+     * Fetches messages for a specific partition.
+     * POST /api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/fetch
+     * Body: { "partitionKey": "...", "batchSize": 10, "generation": 1 }
+     */
+    public void fetchPartitioned(RoutingContext ctx) {
+        String setupId = ctx.pathParam("setupId");
+        String topic = ctx.pathParam("topic");
+        String groupName = ctx.pathParam("groupName");
+
+        SubscriptionService service = setupService.getSubscriptionServiceForSetup(setupId);
+        if (service == null) {
+            sendSetupNotFoundError(ctx, setupId);
+            return;
+        }
+
+        JsonObject body = ctx.body().asJsonObject();
+        if (body == null) {
+            sendError(ctx, 400, PeeGeeQErrorCodes.INVALID_REQUEST, "Request body is required");
+            return;
+        }
+        String partitionKey = body.getString("partitionKey");
+        Integer batchSize = body.getInteger("batchSize", 10);
+        Integer generation = body.getInteger("generation");
+
+        if (partitionKey == null || generation == null) {
+            sendError(ctx, 400, PeeGeeQErrorCodes.MISSING_REQUIRED_FIELD,
+                    "partitionKey and generation are required");
+            return;
+        }
+
+        service.fetchPartitioned(topic, groupName, partitionKey, batchSize, generation)
+            .onSuccess(messages -> {
+                JsonArray result = new JsonArray(messages);
+                ctx.response()
+                    .putHeader("Content-Type", "application/json")
+                    .end(result.encode());
+            })
+            .onFailure(error -> {
+                if (error instanceof IllegalArgumentException) {
+                    sendError(ctx, 400, PeeGeeQErrorCodes.INVALID_REQUEST, error.getMessage());
+                } else {
+                    logger.error("Failed to fetch partitioned messages: {}/{}", topic, groupName, error);
+                    sendError(ctx, 500, PeeGeeQErrorCodes.PARTITION_FETCH_FAILED, error.getMessage());
+                }
+            });
+    }
+
+    /**
+     * Commits an offset for a partition.
+     * POST /api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/commit
+     * Body: { "partitionKey": "...", "offset": 100, "generation": 1 }
+     */
+    public void commitPartitionedOffset(RoutingContext ctx) {
+        String setupId = ctx.pathParam("setupId");
+        String topic = ctx.pathParam("topic");
+        String groupName = ctx.pathParam("groupName");
+
+        SubscriptionService service = setupService.getSubscriptionServiceForSetup(setupId);
+        if (service == null) {
+            sendSetupNotFoundError(ctx, setupId);
+            return;
+        }
+
+        JsonObject body = ctx.body().asJsonObject();
+        if (body == null) {
+            sendError(ctx, 400, PeeGeeQErrorCodes.INVALID_REQUEST, "Request body is required");
+            return;
+        }
+        String partitionKey = body.getString("partitionKey");
+        Long offset = body.getLong("offset");
+        Integer generation = body.getInteger("generation");
+
+        if (partitionKey == null || offset == null || generation == null) {
+            sendError(ctx, 400, PeeGeeQErrorCodes.MISSING_REQUIRED_FIELD,
+                    "partitionKey, offset, and generation are required");
+            return;
+        }
+
+        service.commitOffset(topic, groupName, partitionKey, offset, generation)
+            .onSuccess(committed -> {
+                JsonObject result = new JsonObject()
+                    .put("committed", committed)
+                    .put("topic", topic)
+                    .put("groupName", groupName)
+                    .put("partitionKey", partitionKey)
+                    .put("offset", offset);
+                ctx.response()
+                    .putHeader("Content-Type", "application/json")
+                    .end(result.encode());
+            })
+            .onFailure(error -> {
+                if (error instanceof IllegalArgumentException) {
+                    sendError(ctx, 400, PeeGeeQErrorCodes.INVALID_REQUEST, error.getMessage());
+                } else {
+                    logger.error("Failed to commit offset: {}/{}", topic, groupName, error);
+                    sendError(ctx, 500, PeeGeeQErrorCodes.PARTITION_COMMIT_FAILED, error.getMessage());
                 }
             });
     }

@@ -488,6 +488,18 @@ public class PeeGeeQRestServer extends AbstractVerticle {
         router.delete("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/backfill")
                 .handler(subscriptionHandler::cancelBackfill);
 
+        // Partitioned Consumption routes (OFFSET_WATERMARK mode)
+        router.post("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/join")
+                .handler(subscriptionHandler::joinPartitionedGroup);
+        router.delete("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/leave")
+                .handler(subscriptionHandler::leavePartitionedGroup);
+        router.get("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions")
+                .handler(subscriptionHandler::getPartitionAssignments);
+        router.post("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/fetch")
+                .handler(subscriptionHandler::fetchPartitioned);
+        router.post("/api/v1/setups/:setupId/subscriptions/:topic/:groupName/partitions/commit")
+                .handler(subscriptionHandler::commitPartitionedOffset);
+
         // Consumer Alerting routes - dead consumer detection and blocked message stats
         router.get("/api/v1/setups/:setupId/consumer-alerts/dead")
                 .handler(consumerAlertHandler::listDeadSubscriptions);

@@ -582,6 +582,20 @@ public class PeeGeeQManager implements AutoCloseable {
                             PeeGeeQDefaults.DEFAULT_POOL_ID
                         )
                     );
+                    manager.setPartitionedConsumptionServices(
+                        new dev.mars.peegeeq.db.consumer.PartitionAssignmentService(
+                            clientFactory.getConnectionManager(),
+                            PeeGeeQDefaults.DEFAULT_POOL_ID
+                        ),
+                        new dev.mars.peegeeq.db.consumer.PartitionedFetcher(
+                            clientFactory.getConnectionManager(),
+                            PeeGeeQDefaults.DEFAULT_POOL_ID
+                        ),
+                        new dev.mars.peegeeq.db.consumer.PartitionedOffsetManager(
+                            clientFactory.getConnectionManager(),
+                            PeeGeeQDefaults.DEFAULT_POOL_ID
+                        )
+                    );
                     cachedSubscriptionService = manager;
                     service = manager;
                 }
