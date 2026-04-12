@@ -24,6 +24,7 @@ import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.database.MetricsProvider;
 import dev.mars.peegeeq.api.database.NoOpMetricsProvider;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import io.cloudevents.jackson.JsonFormat;
@@ -72,6 +73,10 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
     private final List<AutoCloseable> managedResources = new CopyOnWriteArrayList<>();
     private volatile boolean closed = false;
 
+    // Partitioned consumption support (optional)
+    private final PgConnectionManager connectionManager;
+    private final String connectionServiceId;
+
     // Constructor using DatabaseService interface
     public PgNativeQueueFactory(DatabaseService databaseService) {
         this(databaseService, new ObjectMapper());
@@ -87,9 +92,17 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
 
     public PgNativeQueueFactory(DatabaseService databaseService, ObjectMapper objectMapper,
             PeeGeeQConfiguration configuration) {
+        this(databaseService, objectMapper, configuration, null, null);
+    }
+
+    public PgNativeQueueFactory(DatabaseService databaseService, ObjectMapper objectMapper,
+            PeeGeeQConfiguration configuration,
+            PgConnectionManager connectionManager, String connectionServiceId) {
         this.databaseService = databaseService;
         this.configuration = configuration;
         this.objectMapper = objectMapper != null ? objectMapper : createDefaultObjectMapper();
+        this.connectionManager = connectionManager;
+        this.connectionServiceId = connectionServiceId;
 
         // Use interfaces directly - no reflection needed
         this.poolAdapter = new VertxPoolAdapter(
@@ -228,7 +241,7 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
 
         MetricsProvider metrics = getMetrics();
         return registerResource(new PgNativeConsumerGroup<>(groupName, topic, payloadType, poolAdapter, objectMapper,
-            metrics, configuration, databaseService));
+            metrics, configuration, databaseService, connectionManager, connectionServiceId));
     }
 
     @Override
