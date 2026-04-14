@@ -27,6 +27,7 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import io.vertx.core.Future;
@@ -35,18 +36,12 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 
 import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.LockSupport;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
@@ -61,18 +56,13 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 @Testcontainers
 public class OutboxConsumerCrashRecoveryTest {
 
-    private static final Logger logger = LoggerFactory.getLogger(OutboxConsumerCrashRecoveryTest.class);
+    private static final String[] SYSTEM_PROPERTIES = {
+        "peegeeq.database.host", "peegeeq.database.port", "peegeeq.database.name",
+        "peegeeq.database.username", "peegeeq.database.password", "peegeeq.database.ssl.enabled"
+    };
 
     @Container
-    private static final PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
-        container.withDatabaseName("testdb");
-        container.withUsername("testuser");
-        container.withPassword("testpass");
-        return container;
-    }
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private OutboxFactory outboxFactory;
@@ -81,6 +71,7 @@ public class OutboxConsumerCrashRecoveryTest {
     private String testTopic;
     private io.vertx.sqlclient.Pool testReactivePool;
     private PgConnectionManager connectionManager;
+    private Vertx testVertx;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -96,6 +87,7 @@ public class OutboxConsumerCrashRecoveryTest {
         System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
         System.setProperty("peegeeq.database.username", postgres.getUsername());
         System.setProperty("peegeeq.database.password", postgres.getPassword());
+        System.setProperty("peegeeq.database.ssl.enabled", "false");
 
         // Create and start manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
@@ -108,8 +100,9 @@ public class OutboxConsumerCrashRecoveryTest {
         producer = outboxFactory.createProducer(testTopic, String.class);
         consumer = outboxFactory.createConsumer(testTopic, String.class);
 
-        // Create test-specific DataSource for verification
-        connectionManager = new PgConnectionManager(Vertx.vertx());
+        // Create test-specific reactive pool for verification
+        testVertx = Vertx.vertx();
+        connectionManager = new PgConnectionManager(testVertx);
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
                 .host(postgres.getHost())
                 .port(postgres.getFirstMappedPort())
@@ -137,20 +130,19 @@ public class OutboxConsumerCrashRecoveryTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
         if (connectionManager != null) {
             connectionManager.close();
         }
+        if (testVertx != null) {
+            testVertx.close().await();
+        }
         
         // Clear system properties
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
+        for (String prop : SYSTEM_PROPERTIES) {
+            System.clearProperty(prop);
+        }
     }
 
     /**
@@ -162,63 +154,28 @@ public class OutboxConsumerCrashRecoveryTest {
      */
     @Test
     void testConsumerCrashLeavesMessagesInProcessingState() throws Exception {
-        logger.info("=== Testing Consumer Crash Recovery - PROCESSING State Issue ===");
-
         String testMessage = "Message that will be left in PROCESSING state";
 
-        // Send message first
-        logger.info("🔧 DEBUG: About to send message...");
-        CountDownLatch sendLatch = new CountDownLatch(1);
-        producer.send(testMessage).onComplete(ar -> sendLatch.countDown());
-        assertTrue(sendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
-        logger.info("📤 Message sent: {}", testMessage);
+        producer.send(testMessage).await();
 
         // Wait for message to be persisted
-        logger.info("🔧 DEBUG: Waiting for message to be persisted...");
-        LockSupport.parkNanos(1_000_000_000L);
+        testVertx.timer(1000).await();
 
-        // Verify message exists in PENDING state
-        logger.info("🔧 DEBUG: About to verify message exists in PENDING state...");
-        try {
-            verifyMessageExists(testMessage, "PENDING");
-            logger.info("Message confirmed in PENDING state");
-        } catch (Exception e) {
-            logger.error("🚨 ERROR: Failed to verify message in PENDING state", e);
-            throw e;
-        }
+        verifyMessageExists(testMessage, "PENDING");
 
-        // Now directly create the problematic state by updating the database
-        // This simulates what happens when a consumer crashes after polling
-        logger.info("🔧 About to create stuck PROCESSING message...");
+        // Simulate consumer crash: update message to PROCESSING without any consumer processing it
         createStuckProcessingMessage(testMessage);
-        logger.info("🔧 Finished creating stuck PROCESSING message");
 
-        // The stuck message recovery mechanism should automatically recover the message
-        // Since the default recovery timeout is 5 minutes and we set processed_at to 10 minutes ago,
-        // the recovery mechanism should detect and recover this message quickly
+        // Wait for the recovery mechanism to potentially run
+        testVertx.timer(2000).await();
 
-        // Wait a moment for the recovery mechanism to potentially run
-        LockSupport.parkNanos(2_000_000_000L);
-
-        // Check the current state - it might be recovered already or still processing
         String currentStatus = getCurrentMessageStatus(testMessage);
-        logger.info("📊 Current message status after potential recovery: {}", currentStatus);
 
         // The message should either be:
         // 1. Still in PROCESSING state (if recovery hasn't run yet), or
         // 2. Back in PENDING state (if recovery has already run)
-        // Both are valid outcomes that demonstrate the system is working correctly
         assertTrue(currentStatus.equals("PROCESSING") || currentStatus.equals("PENDING"),
             "Message should be either PROCESSING (before recovery) or PENDING (after recovery), but was: " + currentStatus);
-
-        if (currentStatus.equals("PROCESSING")) {
-            logger.info("VERIFIED: Message is temporarily stuck in PROCESSING state (recovery will handle this)");
-        } else {
-            logger.info("VERIFIED: Message was automatically recovered from PROCESSING to PENDING state");
-        }
-
-        logger.info("💡 This test demonstrates that the stuck message recovery mechanism");
-        logger.info("   automatically handles messages that get stuck due to consumer crashes");
     }
 
     /**
@@ -226,23 +183,13 @@ public class OutboxConsumerCrashRecoveryTest {
      * without any consumer actually processing it. This simulates the crash scenario.
      */
     private void createStuckProcessingMessage(String messagePayload) throws Exception {
-        logger.info("🔧 DEBUG: Starting createStuckProcessingMessage for payload: {}", messagePayload);
-        logger.info("🔧 DEBUG: Topic: {}", testTopic);
-
         String updateSql = """
             UPDATE outbox
             SET status = 'PROCESSING', processed_at = $1
             WHERE payload::text LIKE $2 AND topic = $3 AND status = 'PENDING'
             """;
 
-        logger.info("🔧 DEBUG: Executing update SQL with parameters: timestamp={}, payload_like={}, topic={}",
-            java.time.Instant.now(), "%" + messagePayload + "%", testTopic);
-
-        CountDownLatch stuckLatch = new CountDownLatch(1);
-        AtomicReference<Integer> updatedRef = new AtomicReference<>();
-        testReactivePool.withConnection(connection -> {
-            logger.info("🔧 DEBUG: Got database connection");
-
+        Integer updated = testReactivePool.withConnection(connection -> {
             return connection.preparedQuery(updateSql)
                 .execute(io.vertx.sqlclient.Tuple.of(
                     java.time.OffsetDateTime.now(),
@@ -250,12 +197,9 @@ public class OutboxConsumerCrashRecoveryTest {
                     testTopic
                 ))
                 .map(rowSet -> rowSet.rowCount());
-        }).onSuccess(v -> { updatedRef.set(v); stuckLatch.countDown(); })
-          .onFailure(t -> { logger.error("DB update failed", t); stuckLatch.countDown(); });
-        assertTrue(stuckLatch.await(5, TimeUnit.SECONDS), "DB update should complete");
-        Integer updated = updatedRef.get();
+        }).await();
 
-        logger.info("💥 CREATED STUCK MESSAGE: Updated {} messages to PROCESSING state", updated);
+
         assertTrue(updated > 0, "Should have updated at least one message to PROCESSING state");
     }
 
@@ -265,66 +209,24 @@ public class OutboxConsumerCrashRecoveryTest {
      * Gets the current status of a message in the database.
      */
     private String getCurrentMessageStatus(String expectedPayload) throws Exception {
-        CountDownLatch statusLatch = new CountDownLatch(1);
-        AtomicReference<String> statusRef = new AtomicReference<>();
-        testReactivePool.withConnection(connection -> {
+        return testReactivePool.withConnection(connection -> {
             String sql = "SELECT status FROM outbox WHERE payload::text LIKE $1 AND topic = $2";
             return connection.preparedQuery(sql)
                 .execute(io.vertx.sqlclient.Tuple.of("%" + expectedPayload + "%", testTopic))
                 .map(rowSet -> {
                     if (rowSet.size() > 0) {
-                        io.vertx.sqlclient.Row row = rowSet.iterator().next();
-                        return row.getString("status");
+                        return rowSet.iterator().next().getString("status");
                     } else {
                         throw new AssertionError("No message found with payload: " + expectedPayload);
                     }
                 });
-        }).onSuccess(v -> { statusRef.set(v); statusLatch.countDown(); })
-          .onFailure(t -> { logger.error("Status query failed", t); statusLatch.countDown(); });
-        assertTrue(statusLatch.await(5, TimeUnit.SECONDS), "Status query should complete");
-        return statusRef.get();
-    }
-
-    /**
-     * Verifies that a message is stuck in PROCESSING state in the database.
-     */
-    @SuppressWarnings("unused") // Kept for potential future use
-    private void verifyMessageInProcessingState(String expectedPayload) throws Exception {
-        CountDownLatch processingLatch = new CountDownLatch(1);
-        testReactivePool.withConnection(connection -> {
-            String sql = "SELECT id, status, processed_at, retry_count FROM outbox WHERE payload::text LIKE $1 AND topic = $2";
-            return connection.preparedQuery(sql)
-                .execute(io.vertx.sqlclient.Tuple.of("%" + expectedPayload + "%", testTopic))
-                .map(rowSet -> {
-                    assertTrue(rowSet.size() > 0, "Message should exist in database");
-
-                    io.vertx.sqlclient.Row row = rowSet.iterator().next();
-                    String status = row.getString("status");
-                    String processedAt = row.getString("processed_at");
-                    int retryCount = row.getInteger("retry_count");
-
-                    logger.info("📊 Message state: status={}, processed_at={}, retry_count={}",
-                        status, processedAt, retryCount);
-
-                    // This is the critical issue: message is stuck in PROCESSING state
-                    assertEquals("PROCESSING", status,
-                        "Message should be stuck in PROCESSING state after consumer crash");
-                    assertNotNull(processedAt,
-                        "processed_at should be set when message was marked as PROCESSING");
-                    assertEquals(0, retryCount,
-                        "retry_count should still be 0 since processing never completed");
-
-                    return null;
-                });
-        }).onComplete(ar -> processingLatch.countDown());
-        assertTrue(processingLatch.await(5, TimeUnit.SECONDS), "Processing state verification should complete");
+        }).await();
     }
 
     /**
      * Helper method to verify that a message exists in the database with the expected status.
      */
     private void verifyMessageExists(String expectedPayload, String expectedStatus) throws Exception {
-        CountDownLatch existsLatch = new CountDownLatch(1);
         testReactivePool.withConnection(connection -> {
             String sql = "SELECT id, status, processed_at, retry_count FROM outbox WHERE payload::text LIKE $1 AND topic = $2";
             return connection.preparedQuery(sql)
@@ -334,19 +236,14 @@ public class OutboxConsumerCrashRecoveryTest {
 
                     io.vertx.sqlclient.Row row = rowSet.iterator().next();
                     String status = row.getString("status");
-                    String processedAt = row.getString("processed_at");
-                    int retryCount = row.getInteger("retry_count");
 
-                    logger.info("📊 DEBUG: Message state: status={}, processed_at={}, retry_count={}",
-                        status, processedAt, retryCount);
 
                     assertEquals(expectedStatus, status,
                         "Message should have status: " + expectedStatus);
 
                     return null;
                 });
-        }).onComplete(ar -> existsLatch.countDown());
-        assertTrue(existsLatch.await(5, TimeUnit.SECONDS), "Message existence verification should complete");
+        }).await();
     }
 }
 

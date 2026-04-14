@@ -33,10 +33,8 @@ import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
-import java.lang.reflect.Method;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -197,7 +195,6 @@ class OutboxConsumerGroupReviewFixesTest {
             CyclicBarrier barrier = new CyclicBarrier(threadCount);
             AtomicInteger accepted = new AtomicInteger();
             AtomicInteger rejected = new AtomicInteger();
-            CountDownLatch done = new CountDownLatch(threadCount);
 
             ExecutorService executor = Executors.newFixedThreadPool(threadCount);
             try {
@@ -215,12 +212,11 @@ class OutboxConsumerGroupReviewFixesTest {
                             }
                         } catch (Exception e) {
                             // barrier timeout
-                        } finally {
-                            done.countDown();
                         }
                     });
                 }
-                assertTrue(done.await(10, TimeUnit.SECONDS));
+                executor.shutdown();
+                assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
                 assertEquals(1, accepted.get(),
                     "Exactly one thread should get through the concurrency gate");
                 assertEquals(threadCount - 1, rejected.get(),
@@ -254,7 +250,7 @@ class OutboxConsumerGroupReviewFixesTest {
 
         @Test
         @DisplayName("distributeMessage returns MessageFilteredException when selected member is removed")
-        void removedMemberCausesMessageFilteredException() throws Exception {
+        void removedMemberCausesMessageFilteredException() {
             group = createGroup("race-group", "test-topic");
 
             // Add two consumers whose hash routing will pick c1 for "target-msg"
@@ -297,7 +293,7 @@ class OutboxConsumerGroupReviewFixesTest {
 
         @Test
         @DisplayName("distributeMessage returns MessageFilteredException when selected member is deactivated")
-        void deactivatedMemberCausesFilteredException() throws Exception {
+        void deactivatedMemberCausesFilteredException() {
             group = createGroup("deactivate-group", "test-topic");
 
             // Use a single consumer so hash always selects it
@@ -348,21 +344,12 @@ class OutboxConsumerGroupReviewFixesTest {
             int messageCount = 50;
             AtomicInteger delivered = new AtomicInteger();
             AtomicInteger filtered = new AtomicInteger();
-            CountDownLatch done = new CountDownLatch(messageCount + 1);
 
             ExecutorService executor = Executors.newFixedThreadPool(4);
+            ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
             try {
-                // Thread that removes c1 after a brief moment
-                executor.submit(() -> {
-                    try {
-                        Thread.sleep(5); // small delay
-                        group.removeConsumer("c1");
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    } finally {
-                        done.countDown();
-                    }
-                });
+                // Schedule removeConsumer after a brief delay
+                scheduler.schedule(() -> group.removeConsumer("c1"), 5, TimeUnit.MILLISECONDS);
 
                 // Threads that distribute messages
                 for (int i = 0; i < messageCount; i++) {
@@ -378,18 +365,18 @@ class OutboxConsumerGroupReviewFixesTest {
                             }
                         } catch (Exception e) {
                             // reflection exception
-                        } finally {
-                            done.countDown();
                         }
                     });
                 }
 
-                assertTrue(done.await(10, TimeUnit.SECONDS));
+                executor.shutdown();
+                assertTrue(executor.awaitTermination(10, TimeUnit.SECONDS));
                 // Key invariant: total delivered + filtered == messageCount
                 assertEquals(messageCount, delivered.get() + filtered.get(),
                     "Every message should either be delivered or filtered");
             } finally {
                 executor.shutdownNow();
+                scheduler.shutdownNow();
             }
         }
     }
@@ -414,6 +401,23 @@ class OutboxConsumerGroupReviewFixesTest {
 
             assertEquals(OutboxConsumerGroup.State.CLOSED, group.getState());
             assertTrue(group.getConsumerIds().isEmpty());
+        }
+
+        @Test
+        @DisplayName("group closeAsync() returns completion future and clears members")
+        void groupCloseAsyncReturnsCompletionFuture() {
+            group = createGroup("close-async-group", "test-topic");
+            group.addConsumer("c1", msg -> Future.succeededFuture());
+            group.addConsumer("c2", msg -> Future.succeededFuture());
+            group.start();
+
+            Future<Void> result = group.closeAsync();
+
+            assertTrue(result.succeeded(), "closeAsync() should return a completed future in the CORE path");
+            assertEquals(OutboxConsumerGroup.State.CLOSED, group.getState());
+            assertTrue(group.getConsumerIds().isEmpty(), "closeAsync() should clear members");
+
+            group = null;
         }
 
         @Test
@@ -565,7 +569,7 @@ class OutboxConsumerGroupReviewFixesTest {
 
         @Test
         @DisplayName("group avgProcessingTime is weighted by per-member processed count, not simple average")
-        void weightedAverageNotSimpleAverage() throws Exception {
+        void weightedAverageNotSimpleAverage() {
             group = createGroup("stats-group", "test-topic");
 
             // c1 processes 1 fast message, c2 processes 10 slow messages
@@ -613,7 +617,7 @@ class OutboxConsumerGroupReviewFixesTest {
 
         @Test
         @DisplayName("group lastActiveAt is the most recent across all members")
-        void lastActiveAtIsMostRecent() throws Exception {
+        void lastActiveAtIsMostRecent() {
             group = createGroup("lastactive-group", "test-topic");
             group.addConsumer("c1", msg -> Future.succeededFuture());
             group.addConsumer("c2", msg -> Future.succeededFuture());
@@ -631,7 +635,7 @@ class OutboxConsumerGroupReviewFixesTest {
 
         @Test
         @DisplayName("filtered messages increment totalMessagesFiltered in group stats")
-        void filteredMessagesIncrementGroupTotal() throws Exception {
+        void filteredMessagesIncrementGroupTotal() {
             group = createGroup("filtered-stats-group", "test-topic");
             group.setGroupFilter(msg -> false); // reject all
             group.addConsumer("c1", msg -> Future.succeededFuture());
@@ -646,7 +650,7 @@ class OutboxConsumerGroupReviewFixesTest {
 
         @Test
         @DisplayName("handler failures increment totalFailed in group stats")
-        void handlerFailuresIncrementFailed() throws Exception {
+        void handlerFailuresIncrementFailed() {
             group = createGroup("failed-stats-group", "test-topic");
             group.addConsumer("c1", msg ->
                 Future.failedFuture(new RuntimeException("boom")));
@@ -709,12 +713,8 @@ class OutboxConsumerGroupReviewFixesTest {
             consumerId, "test-group", "test-topic", handler, null, null);
     }
 
-    @SuppressWarnings("unchecked")
-    private Future<Void> invokeDistributeMessage(OutboxConsumerGroup<String> group, Message<String> message)
-            throws Exception {
-        Method method = OutboxConsumerGroup.class.getDeclaredMethod("distributeMessage", Message.class);
-        method.setAccessible(true);
-        return (Future<Void>) method.invoke(group, message);
+    private Future<Void> invokeDistributeMessage(OutboxConsumerGroup<String> group, Message<String> message) {
+        return group.distributeMessage(message);
     }
 
     private static class StubDatabaseService implements DatabaseService {

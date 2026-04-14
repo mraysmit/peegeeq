@@ -6,7 +6,7 @@ import dev.mars.peegeeq.outbox.config.FilterErrorHandlingConfig;
 import dev.mars.peegeeq.outbox.resilience.AsyncFilterRetryManager;
 import dev.mars.peegeeq.outbox.resilience.FilterCircuitBreaker;
 import dev.mars.peegeeq.test.categories.TestCategories;
-import io.vertx.core.Future;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.DisplayName;
@@ -15,10 +15,7 @@ import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -35,11 +32,19 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag(TestCategories.CORE)
 public class AsyncRetryMechanismTest {
     private static final Logger logger = LoggerFactory.getLogger(AsyncRetryMechanismTest.class);
-    
+
+    private AsyncFilterRetryManager retryManager;
+
+    @AfterEach
+    void tearDown() {
+        if (retryManager != null) {
+            retryManager.shutdown();
+        }
+    }
+
     @Test
     @DisplayName("ASYNC RETRY: Transient error recovery with exponential backoff")
     void testTransientErrorRecoveryWithBackoff() throws Exception {
-        logger.info("🔄 ASYNC RETRY TEST: Transient error recovery with exponential backoff");
         
         AtomicInteger attemptCount = new AtomicInteger(0);
         
@@ -70,7 +75,7 @@ public class AsyncRetryMechanismTest {
             .circuitBreakerEnabled(false) // Disable for pure retry testing
             .build();
         
-        AsyncFilterRetryManager retryManager = new AsyncFilterRetryManager("test-filter", config);
+        retryManager = new AsyncFilterRetryManager("test-filter", config);
         FilterCircuitBreaker circuitBreaker = new FilterCircuitBreaker("test-filter", config);
         
         // Test message
@@ -78,28 +83,9 @@ public class AsyncRetryMechanismTest {
         Message<TestMessage> message = new SimpleMessage<>("async-retry-1", "test-topic", payload);
         
         // Execute async retry
-        long startTime = System.currentTimeMillis();
-        Future<AsyncFilterRetryManager.FilterResult> resultFuture = 
-            retryManager.executeFilterWithRetry(message, transientFailingFilter, circuitBreaker);
-        
-        // Wait for result
-        CountDownLatch latch = new CountDownLatch(1);
-        AtomicReference<AsyncFilterRetryManager.FilterResult> resultRef = new AtomicReference<>();
-        resultFuture.onSuccess(r -> { resultRef.set(r); latch.countDown(); })
-                    .onFailure(e -> latch.countDown());
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Should complete within timeout");
-        AsyncFilterRetryManager.FilterResult result = resultRef.get();
+        AsyncFilterRetryManager.FilterResult result = 
+            retryManager.executeFilterWithRetry(message, transientFailingFilter, circuitBreaker).await();
         assertNotNull(result, "Result should not be null");
-        long endTime = System.currentTimeMillis();
-        
-        // Verify results
-        logger.info("🔄 ASYNC RETRY RESULTS:");
-        logger.info("   Filter attempts: {}", attemptCount.get());
-        logger.info("   Result status: {}", result.getStatus());
-        logger.info("   Result accepted: {}", result.isAccepted());
-        logger.info("   Total attempts: {}", result.getAttempts());
-        logger.info("   Total time: {} ms", endTime - startTime);
-        logger.info("   Result total time: {}", result.getTotalTime());
         
         // Assertions
         assertEquals(3, attemptCount.get(), "Should have made 3 attempts");
@@ -111,21 +97,14 @@ public class AsyncRetryMechanismTest {
         
         // Verify retry metrics
         AsyncFilterRetryManager.RetryMetrics metrics = retryManager.getMetrics();
-        logger.info("   Retry metrics: {}", metrics);
-        
         assertEquals(3, metrics.getTotalAttempts(), "Metrics should show 3 total attempts");
         assertEquals(1, metrics.getSuccessfulRetries(), "Metrics should show 1 successful retry");
         assertTrue(metrics.getSuccessRate() > 0, "Success rate should be positive");
-        
-        retryManager.shutdown();
-        logger.info("ASYNC RETRY TRANSIENT ERROR TEST PASSED");
     }
     
     @Test
     @DisplayName("ASYNC RETRY: Permanent error immediate rejection")
     void testPermanentErrorImmediateRejection() throws Exception {
-        logger.info("🔄 ASYNC RETRY TEST: Permanent error immediate rejection");
-        
         AtomicInteger attemptCount = new AtomicInteger(0);
         
         // Filter that always fails with permanent error
@@ -144,7 +123,7 @@ public class AsyncRetryMechanismTest {
             .circuitBreakerEnabled(false)
             .build();
         
-        AsyncFilterRetryManager retryManager = new AsyncFilterRetryManager("test-filter", config);
+        retryManager = new AsyncFilterRetryManager("test-filter", config);
         FilterCircuitBreaker circuitBreaker = new FilterCircuitBreaker("test-filter", config);
         
         // Test message
@@ -152,28 +131,9 @@ public class AsyncRetryMechanismTest {
         Message<TestMessage> message = new SimpleMessage<>("async-permanent-1", "test-topic", payload);
         
         // Execute async retry
-        long startTime = System.currentTimeMillis();
-        Future<AsyncFilterRetryManager.FilterResult> resultFuture = 
-            retryManager.executeFilterWithRetry(message, permanentFailingFilter, circuitBreaker);
-        
-        // Wait for result
-        CountDownLatch latch = new CountDownLatch(1);
-        AtomicReference<AsyncFilterRetryManager.FilterResult> resultRef = new AtomicReference<>();
-        resultFuture.onSuccess(r -> { resultRef.set(r); latch.countDown(); })
-                    .onFailure(e -> latch.countDown());
-        assertTrue(latch.await(5, TimeUnit.SECONDS), "Should complete within timeout");
-        AsyncFilterRetryManager.FilterResult result = resultRef.get();
+        AsyncFilterRetryManager.FilterResult result = 
+            retryManager.executeFilterWithRetry(message, permanentFailingFilter, circuitBreaker).await();
         assertNotNull(result, "Result should not be null");
-        long endTime = System.currentTimeMillis();
-        
-        // Verify results
-        logger.info("🔄 ASYNC PERMANENT ERROR RESULTS:");
-        logger.info("   Filter attempts: {}", attemptCount.get());
-        logger.info("   Result status: {}", result.getStatus());
-        logger.info("   Result accepted: {}", result.isAccepted());
-        logger.info("   Total attempts: {}", result.getAttempts());
-        logger.info("   Total time: {} ms", endTime - startTime);
-        logger.info("   Rejection reason: {}", result.getReason());
         
         // Assertions
         assertEquals(1, attemptCount.get(), "Should have made only 1 attempt (no retries)");
@@ -181,19 +141,14 @@ public class AsyncRetryMechanismTest {
             "Should be rejected immediately");
         assertFalse(result.isAccepted(), "Message should be rejected");
         assertEquals(1, result.getAttempts(), "Result should show 1 attempt");
-        assertTrue(endTime - startTime < 1000, "Should be fast (no retry delays)");
+        assertTrue(result.getTotalTime().toMillis() < 1000, "Should be fast (no retry delays)");
         assertTrue(result.getReason().contains("Invalid message format"), 
             "Reason should contain the error message");
-        
-        retryManager.shutdown();
-        logger.info("ASYNC RETRY PERMANENT ERROR TEST PASSED");
     }
     
     @Test
     @DisplayName("ASYNC RETRY: Dead letter queue integration")
     void testDeadLetterQueueIntegration() throws Exception {
-        logger.info("🔄 ASYNC RETRY TEST: Dead letter queue integration");
-        
         AtomicInteger attemptCount = new AtomicInteger(0);
         
         // Filter that always fails with transient error (will exhaust retries)
@@ -218,7 +173,7 @@ public class AsyncRetryMechanismTest {
             .circuitBreakerEnabled(false)
             .build();
         
-        AsyncFilterRetryManager retryManager = new AsyncFilterRetryManager("test-filter", config);
+        retryManager = new AsyncFilterRetryManager("test-filter", config);
         FilterCircuitBreaker circuitBreaker = new FilterCircuitBreaker("test-filter", config);
         
         // Test message
@@ -226,26 +181,9 @@ public class AsyncRetryMechanismTest {
         Message<TestMessage> message = new SimpleMessage<>("async-dlq-1", "test-topic", payload);
         
         // Execute async retry
-        Future<AsyncFilterRetryManager.FilterResult> resultFuture = 
-            retryManager.executeFilterWithRetry(message, alwaysFailingFilter, circuitBreaker);
-        
-        // Wait for result
-        CountDownLatch latch = new CountDownLatch(1);
-        AtomicReference<AsyncFilterRetryManager.FilterResult> resultRef = new AtomicReference<>();
-        resultFuture.onSuccess(r -> { resultRef.set(r); latch.countDown(); })
-                    .onFailure(e -> latch.countDown());
-        assertTrue(latch.await(10, TimeUnit.SECONDS), "Should complete within timeout");
-        AsyncFilterRetryManager.FilterResult result = resultRef.get();
+        AsyncFilterRetryManager.FilterResult result = 
+            retryManager.executeFilterWithRetry(message, alwaysFailingFilter, circuitBreaker).await();
         assertNotNull(result, "Result should not be null");
-        
-        // Verify results
-        logger.info("🔄 ASYNC DEAD LETTER QUEUE RESULTS:");
-        logger.info("   Filter attempts: {}", attemptCount.get());
-        logger.info("   Result status: {}", result.getStatus());
-        logger.info("   Result accepted: {}", result.isAccepted());
-        logger.info("   Total attempts: {}", result.getAttempts());
-        logger.info("   Total time: {}", result.getTotalTime());
-        logger.info("   Rejection reason: {}", result.getReason());
         
         // Assertions
         assertEquals(3, attemptCount.get(), "Should have made 3 attempts (initial + 2 retries)");
@@ -259,21 +197,14 @@ public class AsyncRetryMechanismTest {
         
         // Verify retry metrics
         AsyncFilterRetryManager.RetryMetrics metrics = retryManager.getMetrics();
-        logger.info("   Retry metrics: {}", metrics);
-        
         assertEquals(3, metrics.getTotalAttempts(), "Metrics should show 3 total attempts");
         assertEquals(0, metrics.getSuccessfulRetries(), "Metrics should show 0 successful retries");
         assertEquals(1, metrics.getFailedRetries(), "Metrics should show 1 failed retry sequence");
-        
-        retryManager.shutdown();
-        logger.info("ASYNC RETRY DEAD LETTER QUEUE TEST PASSED");
     }
     
     @Test
     @DisplayName("ASYNC RETRY: Circuit breaker integration")
     void testCircuitBreakerIntegration() throws Exception {
-        logger.info("🔄 ASYNC RETRY TEST: Circuit breaker integration");
-        
         AtomicInteger attemptCount = new AtomicInteger(0);
         
         // Filter that always fails to trigger circuit breaker
@@ -293,59 +224,33 @@ public class AsyncRetryMechanismTest {
             .defaultStrategy(FilterErrorHandlingConfig.FilterErrorStrategy.REJECT_IMMEDIATELY)
             .build();
         
-        AsyncFilterRetryManager retryManager = new AsyncFilterRetryManager("test-filter", config);
+        retryManager = new AsyncFilterRetryManager("test-filter", config);
         FilterCircuitBreaker circuitBreaker = new FilterCircuitBreaker("test-filter", config);
         
         // First message - should fail and contribute to circuit breaker
         TestMessage payload1 = new TestMessage("async-cb-1", "Circuit breaker test 1");
         Message<TestMessage> message1 = new SimpleMessage<>("async-cb-1", "test-topic", payload1);
         
-        Future<AsyncFilterRetryManager.FilterResult> result1Future = 
-            retryManager.executeFilterWithRetry(message1, alwaysFailingFilter, circuitBreaker);
-        CountDownLatch latch1 = new CountDownLatch(1);
-        AtomicReference<AsyncFilterRetryManager.FilterResult> result1Ref = new AtomicReference<>();
-        result1Future.onSuccess(r -> { result1Ref.set(r); latch1.countDown(); })
-                     .onFailure(e -> latch1.countDown());
-        assertTrue(latch1.await(5, TimeUnit.SECONDS));
-        AsyncFilterRetryManager.FilterResult result1 = result1Ref.get();
+        AsyncFilterRetryManager.FilterResult result1 = 
+            retryManager.executeFilterWithRetry(message1, alwaysFailingFilter, circuitBreaker).await();
         
         // Second message - should fail and open circuit breaker
         TestMessage payload2 = new TestMessage("async-cb-2", "Circuit breaker test 2");
         Message<TestMessage> message2 = new SimpleMessage<>("async-cb-2", "test-topic", payload2);
         
-        Future<AsyncFilterRetryManager.FilterResult> result2Future = 
-            retryManager.executeFilterWithRetry(message2, alwaysFailingFilter, circuitBreaker);
-        CountDownLatch latch2 = new CountDownLatch(1);
-        AtomicReference<AsyncFilterRetryManager.FilterResult> result2Ref = new AtomicReference<>();
-        result2Future.onSuccess(r -> { result2Ref.set(r); latch2.countDown(); })
-                     .onFailure(e -> latch2.countDown());
-        assertTrue(latch2.await(5, TimeUnit.SECONDS));
-        AsyncFilterRetryManager.FilterResult result2 = result2Ref.get();
+        AsyncFilterRetryManager.FilterResult result2 = 
+            retryManager.executeFilterWithRetry(message2, alwaysFailingFilter, circuitBreaker).await();
         
         // Third message - should be rejected by open circuit breaker
         TestMessage payload3 = new TestMessage("async-cb-3", "Circuit breaker test 3");
         Message<TestMessage> message3 = new SimpleMessage<>("async-cb-3", "test-topic", payload3);
         
         int attemptsBeforeCircuitBreaker = attemptCount.get();
-        Future<AsyncFilterRetryManager.FilterResult> result3Future = 
-            retryManager.executeFilterWithRetry(message3, alwaysFailingFilter, circuitBreaker);
-        CountDownLatch latch3 = new CountDownLatch(1);
-        AtomicReference<AsyncFilterRetryManager.FilterResult> result3Ref = new AtomicReference<>();
-        result3Future.onSuccess(r -> { result3Ref.set(r); latch3.countDown(); })
-                     .onFailure(e -> latch3.countDown());
-        assertTrue(latch3.await(5, TimeUnit.SECONDS));
-        AsyncFilterRetryManager.FilterResult result3 = result3Ref.get();
+        AsyncFilterRetryManager.FilterResult result3 = 
+            retryManager.executeFilterWithRetry(message3, alwaysFailingFilter, circuitBreaker).await();
         int attemptsAfterCircuitBreaker = attemptCount.get();
         
-        // Verify results
-        logger.info("🔄 ASYNC CIRCUIT BREAKER RESULTS:");
-        logger.info("   Total filter attempts: {}", attemptCount.get());
-        logger.info("   Result 1: {}", result1);
-        logger.info("   Result 2: {}", result2);
-        logger.info("   Result 3: {}", result3);
-        
         FilterCircuitBreaker.CircuitBreakerMetrics finalMetrics = circuitBreaker.getMetrics();
-        logger.info("   Final circuit breaker metrics: {}", finalMetrics);
         
         // Assertions
         assertEquals(AsyncFilterRetryManager.FilterResult.Status.REJECTED, result1.getStatus());
@@ -360,9 +265,6 @@ public class AsyncRetryMechanismTest {
         
         assertEquals(FilterCircuitBreaker.State.OPEN, finalMetrics.getState(), 
             "Circuit breaker should be open");
-        
-        retryManager.shutdown();
-        logger.info("ASYNC RETRY CIRCUIT BREAKER TEST PASSED");
     }
     
     // Test message class

@@ -53,18 +53,14 @@ public class OutboxProducerIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxProducerIntegrationTest.class);
 
-    @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
+    private static final String[] SYSTEM_PROPERTIES = {
+        "peegeeq.database.host", "peegeeq.database.port", "peegeeq.database.name",
+        "peegeeq.database.username", "peegeeq.database.password", "peegeeq.database.ssl.enabled",
+        "peegeeq.polling-interval", "peegeeq.database.schema"
+    };
 
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName(PostgreSQLTestConstants.DEFAULT_DATABASE_NAME);
-        container.withUsername(PostgreSQLTestConstants.DEFAULT_USERNAME);
-        container.withPassword(PostgreSQLTestConstants.DEFAULT_PASSWORD);
-        container.withSharedMemorySize(PostgreSQLTestConstants.DEFAULT_SHARED_MEMORY_SIZE);
-        container.withReuse(false);
-        return container;
-    }
+    @Container
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PgClientFactory clientFactory;
     private ObjectMapper objectMapper;
@@ -85,6 +81,7 @@ public class OutboxProducerIntegrationTest {
         System.setProperty("peegeeq.database.password", postgres.getPassword());
         System.setProperty("peegeeq.database.ssl.enabled", "false");
         System.setProperty("peegeeq.database.schema", "public");
+        System.setProperty("peegeeq.polling-interval", "PT0.5S");
 
         // Initialize PeeGeeQ manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
@@ -105,11 +102,16 @@ public class OutboxProducerIntegrationTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
         if (manager != null) {
-            manager.closeReactive().onComplete(ar -> testContext.completeNow());
+            manager.closeReactive()
+                    .onSuccess(v -> testContext.completeNow())
+                    .onFailure(testContext::failNow);
         } else {
             testContext.completeNow();
         }
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        for (String prop : SYSTEM_PROPERTIES) {
+            System.clearProperty(prop);
+        }
         logger.info("OutboxProducer integration test teardown completed");
     }
 
@@ -278,21 +280,6 @@ public class OutboxProducerIntegrationTest {
     }
 
     @Test
-    void testConstructorLogsTopicName() {
-        // This test verifies constructor completes successfully
-        // (Actual logging verification would require log capture)
-        OutboxProducer<String> producer = new OutboxProducer<>(
-            clientFactory,
-            objectMapper,
-            "logged-topic",
-            String.class,
-            null
-        );
-
-        assertNotNull(producer);
-    }
-
-    @Test
     void testSend_ValidatesProducerNotClosed() {
         OutboxProducer<String> producer = new OutboxProducer<>(
             clientFactory,
@@ -381,39 +368,6 @@ public class OutboxProducerIntegrationTest {
 
         assertNotNull(producer);
         producer.close();
-    }
-
-    @Test
-    void testConstructorAcceptsVariousPayloadTypes() {
-        // String payload
-        OutboxProducer<String> stringProducer = new OutboxProducer<>(
-            clientFactory, objectMapper, "string-topic", String.class, null
-        );
-        assertNotNull(stringProducer);
-
-        // Integer payload
-        OutboxProducer<Integer> intProducer = new OutboxProducer<>(
-            clientFactory, objectMapper, "int-topic", Integer.class, null
-        );
-        assertNotNull(intProducer);
-
-        // Long payload
-        OutboxProducer<Long> longProducer = new OutboxProducer<>(
-            clientFactory, objectMapper, "long-topic", Long.class, null
-        );
-        assertNotNull(longProducer);
-
-        // Custom object payload
-        OutboxProducer<TestPayload> objectProducer = new OutboxProducer<>(
-            clientFactory, objectMapper, "object-topic", TestPayload.class, null
-        );
-        assertNotNull(objectProducer);
-
-        // Cleanup
-        stringProducer.close();
-        intProducer.close();
-        longProducer.close();
-        objectProducer.close();
     }
 
     @Test

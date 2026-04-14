@@ -24,6 +24,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
@@ -72,16 +73,14 @@ import static org.junit.jupiter.api.Assertions.*;
 @DisplayName("Outbox Consumer Group Subscription Edge Cases")
 class OutboxConsumerGroupSubscriptionEdgeCasesTest {
 
-    @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
+    private static final String[] SYSTEM_PROPERTIES = {
+        "peegeeq.database.host", "peegeeq.database.port", "peegeeq.database.name",
+        "peegeeq.database.username", "peegeeq.database.password", "peegeeq.database.ssl.enabled",
+        "peegeeq.polling-interval"
+    };
 
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
-        container.withDatabaseName("testdb");
-        container.withUsername("testuser");
-        container.withPassword("testpass");
-        return container;
-    }
+    @Container
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private QueueFactory factory;
@@ -94,6 +93,8 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
         System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
         System.setProperty("peegeeq.database.username", postgres.getUsername());
         System.setProperty("peegeeq.database.password", postgres.getPassword());
+        System.setProperty("peegeeq.database.ssl.enabled", "false");
+        System.setProperty("peegeeq.polling-interval", "PT0.5S");
 
         // Creates tables in public schema - use QUEUE_ALL for PeeGeeQManager health checks
         // Also include CONSUMER_GROUP_FANOUT for subscription management tables (outbox_topic_subscriptions)
@@ -121,11 +122,15 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
         }
         if (manager != null) {
             manager.closeReactive()
-                .onComplete(ar -> testContext.completeNow());
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
         } else {
             testContext.completeNow();
         }
         assertTrue(testContext.awaitCompletion(30, SECONDS));
+        for (String prop : SYSTEM_PROPERTIES) {
+            System.clearProperty(prop);
+        }
     }
 
     // ========================================================================
@@ -168,8 +173,8 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
                 return vertx.timer(3000).map(timerId -> {
                     testContext.verify(() -> {
                         assertTrue(group.isActive());
-                        // Should receive messages based on ID filtering
-                        assertTrue(receivedMessages.size() >= 0,
+                        // Messages with ID >= 3 should be received
+                        assertFalse(receivedMessages.isEmpty(),
                             "Should process messages from ID 3 onwards");
                     });
                     group.close();
@@ -188,10 +193,8 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
                 "test-group", "test-topic", String.class);
 
             AtomicInteger count = new AtomicInteger(0);
-            Checkpoint messageReceived = testContext.checkpoint();
             group.setMessageHandler(msg -> {
                 count.incrementAndGet();
-                messageReceived.flag();
                 return Future.succeededFuture();
             });
 
@@ -201,20 +204,18 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
                 .build();
 
             group.start(options);
-            vertx.timer(2000)
-                .compose(timerId -> {
-                    testContext.verify(() -> {
-                        assertTrue(group.isActive());
-                        assertEquals(0, count.get(), "Should not receive any messages");
-                    });
-                    // Now send a new message
-                    return producer.send("New-Message");
-                })
+            // Send a message — verify the consumer remains active and can process it
+            producer.send("New-Message")
+                .compose(v -> vertx.timer(2000))
+                .onSuccess(timerId -> testContext.verify(() -> {
+                    assertTrue(group.isActive());
+                    assertEquals(1, count.get(), "Consumer should process the newly sent message");
+                    group.close();
+                    testContext.completeNow();
+                }))
                 .onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(10, SECONDS));
-
-            group.close();
         }
 
         @Test
@@ -227,10 +228,13 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
                 sendChain = sendChain.compose(v -> producer.send("Message-" + idx));
             }
 
+            ConsumerGroup<String>[] groupHolder = new ConsumerGroup[1];
+
             sendChain.compose(v -> vertx.timer(500))
                 .onSuccess(timerId -> {
                     ConsumerGroup<String> group = factory.createConsumerGroup(
                         "test-group", "test-topic", String.class);
+                    groupHolder[0] = group;
 
                     List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
                     Checkpoint received = testContext.checkpoint(2);
@@ -249,6 +253,9 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
                 .onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(10, SECONDS));
+            if (groupHolder[0] != null) {
+                groupHolder[0].close();
+            }
         }
 
         @Test
@@ -378,10 +385,13 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
                 sendChain = sendChain.compose(v -> producer.send("Message-" + idx));
             }
 
+            ConsumerGroup<String>[] groupHolder = new ConsumerGroup[1];
+
             sendChain.compose(v -> vertx.timer(500))
                 .onSuccess(timerId -> {
                     ConsumerGroup<String> group = factory.createConsumerGroup(
                         "test-group", "test-topic", String.class);
+                    groupHolder[0] = group;
 
                     List<String> receivedMessages = Collections.synchronizedList(new ArrayList<>());
                     Checkpoint received = testContext.checkpoint(2);
@@ -403,6 +413,9 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
                 .onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(10, SECONDS));
+            if (groupHolder[0] != null) {
+                groupHolder[0].close();
+            }
         }
 
         @Test
@@ -429,8 +442,7 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
             group.start(options);
             vertx.timer(2000)
                 .onSuccess(timerId -> testContext.verify(() -> {
-                    assertTrue(group.isActive());
-                    assertTrue(count.get() >= 0);
+                    assertTrue(group.isActive(), "Consumer should start successfully with future timestamp");
                     group.close();
                     testContext.completeNow();
                 }))

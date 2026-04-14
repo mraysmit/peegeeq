@@ -1,6 +1,20 @@
 package dev.mars.peegeeq.outbox;
 
-import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+/*
+ * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
@@ -8,7 +22,9 @@ import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
@@ -17,23 +33,19 @@ import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.util.UUID;
-
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Integration test to verify that the outbox module correctly uses the max-retries configuration.
@@ -41,273 +53,148 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
-public class OutboxConfigurationIntegrationTest {
-    
-    private static final Logger logger = LoggerFactory.getLogger(OutboxConfigurationIntegrationTest.class);
-    
-    @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
+class OutboxConfigurationIntegrationTest {
 
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
-        container.withDatabaseName("peegeeq_test");
-        container.withUsername("peegeeq_user");
-        container.withPassword("peegeeq_password");
-        return container;
-    }
+    @Container
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
+
+    private static final String[] SYSTEM_PROPERTIES = {
+        "peegeeq.database.host", "peegeeq.database.port", "peegeeq.database.name",
+        "peegeeq.database.username", "peegeeq.database.password", "peegeeq.database.ssl.enabled",
+        "peegeeq.queue.max-retries", "peegeeq.queue.polling-interval"
+    };
 
     private PeeGeeQManager manager;
+    private OutboxFactory outboxFactory;
     private MessageProducer<String> producer;
     private MessageConsumer<String> consumer;
 
     @BeforeEach
     void setUp() throws Exception {
-        // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
-        // Clear any existing system properties
         System.clearProperty("peegeeq.queue.max-retries");
-        
-        // Set database connection properties
+
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
         System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
         System.setProperty("peegeeq.database.username", postgres.getUsername());
         System.setProperty("peegeeq.database.password", postgres.getPassword());
+        System.setProperty("peegeeq.database.ssl.enabled", "false");
         System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
     }
 
     @AfterEach
-    void tearDown(VertxTestContext tearDownContext) throws Exception {
+    void tearDown() throws Exception {
         if (consumer != null) {
             consumer.close();
         }
         if (producer != null) {
             producer.close();
         }
-        if (manager != null) {
-            manager.closeReactive().onComplete(ar -> tearDownContext.completeNow());
-            assertTrue(tearDownContext.awaitCompletion(10, TimeUnit.SECONDS));
-        } else {
-            tearDownContext.completeNow();
+        if (outboxFactory != null) {
+            outboxFactory.close();
         }
-        
-        // Clean up system properties
-        System.clearProperty("peegeeq.queue.max-retries");
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-        System.clearProperty("peegeeq.queue.polling-interval");
+        if (manager != null) {
+            manager.closeReactive().await();
+        }
+        for (String prop : SYSTEM_PROPERTIES) {
+            System.clearProperty(prop);
+        }
     }
-    
+
+
     @Test
     void testOutboxRespectsMaxRetriesConfiguration(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("=== Testing Outbox Respects Max Retries Configuration ===");
-        
-        // Set up database connection properties (like working tests)
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-
-        // Set max retries to 2 (so we expect 3 total attempts: initial + 2 retries)
         System.setProperty("peegeeq.queue.max-retries", "2");
 
-        // Initialize manager and components (using working profile)
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("basic-test"), new SimpleMeterRegistry());
         manager.start();
 
-        // Create factory and components (following the pattern of working tests)
         DatabaseService databaseService = new PgDatabaseService(manager);
-        OutboxFactory outboxFactory = new OutboxFactory(databaseService, manager.getConfiguration());
+        outboxFactory = new OutboxFactory(databaseService, manager.getConfiguration());
 
-        // Use unique topic name like other tests
         String testTopic = "test-config-integration-" + UUID.randomUUID().toString().substring(0, 8);
-
         producer = outboxFactory.createProducer(testTopic, String.class);
         consumer = outboxFactory.createConsumer(testTopic, String.class);
-        
-        // Test message and attempt tracking
-        String testMessage = "Message for config integration test";
+
         AtomicInteger attemptCount = new AtomicInteger(0);
-        Checkpoint retryCheckpoint = testContext.checkpoint(3); // Expect 3 attempts (initial + 2 retries)
+        Checkpoint retryCheckpoint = testContext.checkpoint(3);
 
-        // Send message
-        producer.send(testMessage).onFailure(testContext::failNow);
+        producer.send("Message for config integration test").await();
 
-        // Set up consumer that always fails
         consumer.subscribe(message -> {
-            int attempt = attemptCount.incrementAndGet();
-            logger.error("🔥 INTENTIONAL FAILURE: Config integration attempt {} for message: {} (Thread: {})",
-                attempt, message.getPayload(), Thread.currentThread().getName());
+            attemptCount.incrementAndGet();
             retryCheckpoint.flag();
-
-            // Return a failed Future instead of throwing an exception
             return Future.failedFuture(
-                new RuntimeException("INTENTIONAL FAILURE: Testing config integration, attempt " + attempt));
+                new RuntimeException("INTENTIONAL FAILURE: attempt " + attemptCount.get()));
         });
 
-        // Wait for all expected attempts
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS),
             "Should have attempted processing exactly 3 times (initial + 2 retries)");
-        assertEquals(3, attemptCount.get(), "Should respect max retries configuration of 2");
-        
-        // Wait a bit more to ensure no additional attempts
-        CountDownLatch waitLatch1 = new CountDownLatch(1);
-        vertx.timer(2000).onComplete(ar -> waitLatch1.countDown());
-        waitLatch1.await(5, TimeUnit.SECONDS);
+
+        // Wait to confirm no additional attempts beyond max retries
+        vertx.timer(2000).await();
         assertEquals(3, attemptCount.get(), "Should not exceed configured max retries");
-        
-        logger.info("Outbox configuration integration test completed successfully");
-        logger.info("   Expected attempts: 3 (initial + 2 retries)");
-        logger.info("   Actual attempts: {}", attemptCount.get());
     }
-    
+
     @Test
     void testOutboxUsesDefaultWhenNoConfigurationSet(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("=== Testing Outbox Uses Default Configuration ===");
-        
-        // Set up database connection properties (like working tests)
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-
-        // Don't set max retries - should use default from properties file (3 for basic-test/default profile)
-
-        // Initialize manager and components (using working profile)
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("basic-test"), new SimpleMeterRegistry());
         manager.start();
 
-        // Create factory and components (following the pattern of working tests)
         DatabaseService databaseService = new PgDatabaseService(manager);
-        OutboxFactory outboxFactory = new OutboxFactory(databaseService, manager.getConfiguration());
+        outboxFactory = new OutboxFactory(databaseService, manager.getConfiguration());
 
-        // Use unique topic name like other tests
         String testTopic = "test-default-config-" + UUID.randomUUID().toString().substring(0, 8);
-
         producer = outboxFactory.createProducer(testTopic, String.class);
         consumer = outboxFactory.createConsumer(testTopic, String.class);
-        
-        // Test message and attempt tracking
-        String testMessage = "Message for default config test";
+
         AtomicInteger attemptCount = new AtomicInteger(0);
-        Checkpoint retryCheckpoint = testContext.checkpoint(4); // Expect 4 attempts (initial + 3 retries from default profile)
+        Checkpoint retryCheckpoint = testContext.checkpoint(4);
 
-        // Set up consumer that always fails BEFORE sending the message
         consumer.subscribe(message -> {
-            int attempt = attemptCount.incrementAndGet();
-            logger.error("🔥 INTENTIONAL FAILURE: Default config attempt {} for message: {} (Thread: {})",
-                attempt, message.getPayload(), Thread.currentThread().getName());
+            attemptCount.incrementAndGet();
             retryCheckpoint.flag();
-
-            // Return a failed Future instead of throwing an exception
             return Future.failedFuture(
-                new RuntimeException("INTENTIONAL FAILURE: Testing default config, attempt " + attempt));
+                new RuntimeException("INTENTIONAL FAILURE: attempt " + attemptCount.get()));
         });
 
-        // Send message
-        logger.info("📤 Sending message: {}", testMessage);
-        try {
-            producer.send(testMessage).onFailure(testContext::failNow);
-            logger.info("Message sent successfully");
-        } catch (Exception e) {
-            logger.error("❌ Failed to send message", e);
-            throw e;
-        }
+        producer.send("Message for default config test").await();
 
-        // Wait for all expected attempts
         assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS),
             "Should have attempted processing exactly 4 times (initial + 3 retries from default profile)");
-        assertEquals(4, attemptCount.get(), "Should use default max retries from default profile (3)");
 
-        // Wait a bit more to ensure no additional attempts
-        CountDownLatch waitLatch2 = new CountDownLatch(1);
-        vertx.timer(2000).onComplete(ar -> waitLatch2.countDown());
-        waitLatch2.await(5, TimeUnit.SECONDS);
+        // Wait to confirm no additional attempts beyond max retries
+        vertx.timer(2000).await();
         assertEquals(4, attemptCount.get(), "Should not exceed default max retries");
-
-        logger.info("Outbox default configuration test completed successfully");
-        logger.info("   Expected attempts: 4 (initial + 3 retries from default profile)");
-        logger.info("   Actual attempts: {}", attemptCount.get());
     }
 
     @Test
     void testBasicOutboxMessageProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
-        System.out.println("=== Testing Basic Outbox Message Processing ===");
-
-        // Set up database connection properties (like OutboxBasicTest does)
-        System.out.println("🔧 Setting up database connection properties");
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.out.println("Database connection properties set");
-
-        // Initialize manager and components
-        System.out.println("🔧 Creating PeeGeeQManager with basic-test configuration");
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("basic-test"), new SimpleMeterRegistry());
-        System.out.println("🚀 Starting PeeGeeQManager");
         manager.start();
-        System.out.println("PeeGeeQManager started successfully");
 
-        // Create factory and components (following the pattern of working tests)
-        System.out.println("🔧 Creating database service and outbox factory");
         DatabaseService databaseService = new PgDatabaseService(manager);
-        OutboxFactory outboxFactory = new OutboxFactory(databaseService, manager.getConfiguration());
-        System.out.println("Outbox factory created successfully");
+        outboxFactory = new OutboxFactory(databaseService, manager.getConfiguration());
 
-        // Use unique topic name like other tests
         String testTopic = "test-basic-processing-" + UUID.randomUUID().toString().substring(0, 8);
-
-        System.out.println("📤 Creating producer for topic: " + testTopic);
         producer = outboxFactory.createProducer(testTopic, String.class);
-        System.out.println("Producer created successfully");
-
-        System.out.println("📥 Creating consumer for topic: " + testTopic);
         consumer = outboxFactory.createConsumer(testTopic, String.class);
-        System.out.println("Consumer created successfully");
 
-        // Test message and simple processing
-        String testMessage = "Basic processing test message";
         Checkpoint messageProcessed = testContext.checkpoint();
         AtomicInteger processedCount = new AtomicInteger(0);
 
-        System.out.println("🔧 Setting up consumer subscription");
-        // Set up consumer that succeeds
         consumer.subscribe(message -> {
-            int count = processedCount.incrementAndGet();
-            System.out.println("Successfully processed message " + count + " (attempt " + count + "): " + message.getPayload());
-            messageProcessed.flag();
+            if (processedCount.incrementAndGet() == 1) {
+                messageProcessed.flag();
+            }
             return Future.succeededFuture();
         });
-        System.out.println("Consumer subscribed successfully");
 
-        // Send message
-        System.out.println("\uD83D\uDCE4 Sending basic test message: " + testMessage);
-        try {
-            producer.send(testMessage).onFailure(testContext::failNow);
-            System.out.println("Message sent successfully");
-        } catch (Exception e) {
-            System.out.println("❌ Failed to send message: " + e.getMessage());
-            e.printStackTrace();
-            throw e;
-        }
+        producer.send("Basic processing test message").await();
 
-        // Wait for processing
-        System.out.println("⏳ Waiting for message processing (10 seconds timeout)...");
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should have processed the message within timeout");
-        System.out.println("⏰ Wait completed. Processed count: " + processedCount.get());
         assertEquals(1, processedCount.get(), "Should process exactly one message");
-
-        logger.info("Basic outbox message processing test completed successfully");
-        logger.info("   Messages processed: {}", processedCount.get());
     }
 }
-
-

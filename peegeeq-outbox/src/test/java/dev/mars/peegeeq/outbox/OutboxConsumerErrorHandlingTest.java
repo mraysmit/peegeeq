@@ -23,6 +23,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
@@ -43,7 +44,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.util.UUID;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.*;
@@ -63,16 +63,14 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 @ExtendWith(VertxExtension.class)
 public class OutboxConsumerErrorHandlingTest {
 
-    @Container
-    private static final PostgreSQLContainer postgres = createPostgresContainer();
+    private static final String[] SYSTEM_PROPERTIES = {
+        "peegeeq.database.host", "peegeeq.database.port", "peegeeq.database.name",
+        "peegeeq.database.username", "peegeeq.database.password", "peegeeq.database.ssl.enabled",
+        "peegeeq.queue.polling-interval"
+    };
 
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
-        container.withDatabaseName("testdb");
-        container.withUsername("testuser");
-        container.withPassword("testpass");
-        return container;
-    }
+    @Container
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private OutboxFactory outboxFactory;
@@ -91,6 +89,8 @@ public class OutboxConsumerErrorHandlingTest {
         System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
         System.setProperty("peegeeq.database.username", postgres.getUsername());
         System.setProperty("peegeeq.database.password", postgres.getPassword());
+        System.setProperty("peegeeq.database.ssl.enabled", "false");
+        System.setProperty("peegeeq.queue.polling-interval", "PT0.5S");
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("error-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
@@ -114,16 +114,12 @@ public class OutboxConsumerErrorHandlingTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
 
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
+        for (String prop : SYSTEM_PROPERTIES) {
+            System.clearProperty(prop);
+        }
     }
 
     @Test
@@ -142,7 +138,7 @@ public class OutboxConsumerErrorHandlingTest {
             return Future.succeededFuture();
         });
 
-        producer.send("test-message");
+        producer.send("test-message").await();
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), 
             "Should process message with retries");
@@ -161,7 +157,7 @@ public class OutboxConsumerErrorHandlingTest {
             return Future.failedFuture(new RuntimeException("Always fails"));
         });
 
-        producer.send("failing-message");
+        producer.send("failing-message").await();
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process at least once");
         assertTrue(attemptCount.get() > 0);
@@ -183,7 +179,7 @@ public class OutboxConsumerErrorHandlingTest {
             return promise.future();
         });
 
-        producer.send("test-message");
+        producer.send("test-message").await();
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), 
             "Processing should start and complete");
@@ -192,7 +188,7 @@ public class OutboxConsumerErrorHandlingTest {
         consumer.unsubscribe();
 
         // Send another message - should not be processed
-        producer.send("ignored-message");
+        producer.send("ignored-message").await();
     }
 
     @Test
@@ -201,13 +197,12 @@ public class OutboxConsumerErrorHandlingTest {
         
         consumer.subscribe(message -> {
             processingStarted.flag();
-            // Simulate processing via non-blocking delay
             Promise<Void> promise = Promise.promise();
             vertx.setTimer(100, id -> promise.complete());
             return promise.future();
         });
 
-        producer.send("test-message");
+        producer.send("test-message").await();
 
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), 
             "Processing should start");
@@ -272,12 +267,13 @@ public class OutboxConsumerErrorHandlingTest {
     void testMessageWithNullPayload(Vertx vertx, VertxTestContext testContext) throws Exception {
         // producer.send(null) returns a failed Future — no message is stored,
         // so the consumer never receives anything. Verify the send fails.
-        producer.send(null).onComplete(ar -> testContext.verify(() -> {
-            assertTrue(ar.failed(), "Sending null payload should return a failed Future");
-            assertTrue(ar.cause() instanceof IllegalArgumentException,
-                "Cause should be IllegalArgumentException");
-            testContext.completeNow();
-        }));
+        producer.send(null)
+            .onSuccess(v -> testContext.failNow("Sending null payload should have failed"))
+            .onFailure(err -> testContext.verify(() -> {
+                assertInstanceOf(IllegalArgumentException.class, err,
+                    "Cause should be IllegalArgumentException");
+                testContext.completeNow();
+            }));
 
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
     }
@@ -305,7 +301,7 @@ public class OutboxConsumerErrorHandlingTest {
             return Future.failedFuture(new RuntimeException("Interrupted"));
         });
 
-        producer.send("interrupt-test");
+        producer.send("interrupt-test").await();
 
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Consumer should handle interrupted exception");
     }
@@ -329,7 +325,7 @@ public class OutboxConsumerErrorHandlingTest {
 
         // Send multiple messages
         for (int i = 0; i < messageCount; i++) {
-            producer.send("concurrent-message-" + i);
+            producer.send("concurrent-message-" + i).await();
         }
 
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), 

@@ -27,11 +27,12 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.categories.TestCategories;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
+import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -43,6 +44,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
+
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -50,14 +52,17 @@ import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
 /**
- * Test suite for edge cases and error conditions in outbox exception handling.
+ * Test suite for Future-based exception handling in outbox consumers.
+ * 
+ * Tests verify that exceptions returned in failed Futures are properly
+ * processed through retry and dead letter queue mechanisms.
  */
 @Tag(TestCategories.INTEGRATION)
-@ExtendWith(VertxExtension.class)
 @Testcontainers
-public class OutboxEdgeCasesTest {
+@ExtendWith(VertxExtension.class)
+public class OutboxFutureExceptionTest {
 
-    private static final Logger logger = LoggerFactory.getLogger(OutboxEdgeCasesTest.class);
+    private static final Logger logger = LoggerFactory.getLogger(OutboxFutureExceptionTest.class);
 
     @Container
     private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
@@ -71,6 +76,7 @@ public class OutboxEdgeCasesTest {
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
+        // Configure system properties for test container
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
         System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
@@ -79,24 +85,31 @@ public class OutboxEdgeCasesTest {
         System.setProperty("peegeeq.queue.max-retries", "2");
         System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
 
+        // Initialize PeeGeeQ
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
         manager.start();
 
+        // Create outbox factory and producer/consumer
         PgDatabaseService databaseService = new PgDatabaseService(manager);
         PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
         OutboxFactoryRegistrar.registerWith(provider);
         
         QueueFactory factory = provider.createFactory("outbox", databaseService);
-        producer = factory.createProducer("test-edge-cases", String.class);
-        consumer = factory.createConsumer("test-edge-cases", String.class);
+        producer = factory.createProducer("test-future-exceptions", String.class);
+        consumer = factory.createConsumer("test-future-exceptions", String.class);
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext tearDownContext) throws Exception {
         if (consumer != null) consumer.close();
         if (producer != null) producer.close();
         if (manager != null) {
-            manager.closeReactive().await();
+            manager.closeReactive()
+                    .onSuccess(v -> tearDownContext.completeNow())
+                    .onFailure(tearDownContext::failNow);
+            assertTrue(tearDownContext.awaitCompletion(10, TimeUnit.SECONDS));
+        } else {
+            tearDownContext.completeNow();
         }
         System.clearProperty("peegeeq.database.host");
         System.clearProperty("peegeeq.database.port");
@@ -108,114 +121,123 @@ public class OutboxEdgeCasesTest {
     }
 
     @Test
-    void testNullFutureReturn(VertxTestContext testContext) throws Exception {
-        logger.info("=== Testing Null Future Return ===");
+    void testFailedFutureHandling(VertxTestContext testContext) throws Exception {
+        logger.info("=== Testing Failed Future Handling ===");
+        
+        String testMessage = "Message that returns failed future";
+        AtomicInteger attemptCount = new AtomicInteger(0);
+        Checkpoint retryCheckpoint = testContext.checkpoint(3);
+
+        producer.send(testMessage).onFailure(testContext::failNow);
+
+        // Set up consumer that returns failed Future
+        consumer.subscribe(message -> {
+            int attempt = attemptCount.incrementAndGet();
+            logger.info("INTENTIONAL FAILURE: Processing attempt {} for failed future", attempt);
+            retryCheckpoint.flag();
+            
+            // Return failed Future - should be handled correctly
+            return Future.failedFuture(
+                new RuntimeException("INTENTIONAL FAILURE: Failed future from handler, attempt " + attempt)
+            );
+        });
+
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times for failed future");
+        assertEquals(3, attemptCount.get(), "Should have made exactly 3 processing attempts");
+        
+        logger.info("Failed future handling test completed successfully");
+    }
+
+    @Test
+    void testAsyncFailureHandling(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("=== Testing Async Failure Handling ===");
+        
+        String testMessage = "Message that fails asynchronously";
+        AtomicInteger attemptCount = new AtomicInteger(0);
+        Checkpoint retryCheckpoint = testContext.checkpoint(3);
+
+        producer.send(testMessage).onFailure(testContext::failNow);
+
+        // Set up consumer that fails asynchronously
+        consumer.subscribe(message -> {
+            int attempt = attemptCount.incrementAndGet();
+            logger.info("INTENTIONAL FAILURE: Processing attempt {} for async failure", attempt);
+            retryCheckpoint.flag();
+            
+            // Return future that fails asynchronously after a delay
+            io.vertx.core.Promise<Void> delayed = io.vertx.core.Promise.promise();
+            vertx.setTimer(50, id -> {
+                delayed.fail(
+                    new RuntimeException("INTENTIONAL FAILURE: Async failure, attempt " + attempt));
+            });
+            return delayed.future();
+        });
+
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times for async failure");
+        assertEquals(3, attemptCount.get(), "Should have made exactly 3 processing attempts");
+        
+        logger.info("Async failure handling test completed successfully");
+    }
+
+    @Test
+    void testTimeoutExceptionHandling(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("=== Testing Timeout Exception Handling ===");
+        
+        String testMessage = "Message that times out";
+        AtomicInteger attemptCount = new AtomicInteger(0);
+        Checkpoint retryCheckpoint = testContext.checkpoint(3);
+
+        producer.send(testMessage).onFailure(testContext::failNow);
+
+        // Set up consumer that times out
+        consumer.subscribe(message -> {
+            int attempt = attemptCount.incrementAndGet();
+            logger.info("INTENTIONAL FAILURE: Processing attempt {} for timeout", attempt);
+            retryCheckpoint.flag();
+            
+            // Return future that times out
+            io.vertx.core.Promise<Void> promise = io.vertx.core.Promise.promise();
+            
+            // Schedule timeout failure using Vert.x timer
+            vertx.setTimer(100, timerId -> {
+                promise.fail(
+                    new RuntimeException("INTENTIONAL FAILURE: Timeout exception, attempt " + attempt)
+                );
+            });
+            
+            return promise.future();
+        });
+
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times for timeout");
+        assertEquals(3, attemptCount.get(), "Should have made exactly 3 processing attempts");
+        
+        logger.info("Timeout exception handling test completed successfully");
+    }
+
+    @Test
+    void testNullFutureHandling(VertxTestContext testContext) throws Exception {
+        logger.info("=== Testing Null Future Handling ===");
         
         String testMessage = "Message that returns null future";
         AtomicInteger attemptCount = new AtomicInteger(0);
         Checkpoint errorCheckpoint = testContext.checkpoint();
 
-        producer.send(testMessage).await();
+        producer.send(testMessage).onFailure(testContext::failNow);
 
-        // Set up consumer that returns null Future
+        // Set up consumer that returns null (should cause NPE)
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
-            logger.info("INTENTIONAL FAILURE: Processing attempt {} returning null Future", attempt);
+            logger.info("INTENTIONAL FAILURE: Processing attempt {} returning null", attempt);
             errorCheckpoint.flag();
             
-            // Return null - should cause NPE and be handled as direct exception
+            // Return null - should cause NPE and be handled
             return null;
         });
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should have attempted processing and failed with null return");
         assertTrue(attemptCount.get() >= 1, "Should have made at least 1 processing attempt");
         
-        logger.info("Null Future return test completed successfully");
-    }
-
-    @Test
-    void testExceptionDuringMessageAccess(VertxTestContext testContext) throws Exception {
-        logger.info("=== Testing Exception During Message Access ===");
-        
-        String testMessage = "Message for access exception test";
-        AtomicInteger attemptCount = new AtomicInteger(0);
-        Checkpoint retryCheckpoint = testContext.checkpoint(3);
-
-        producer.send(testMessage).await();
-
-        // Set up consumer that throws exception when accessing message propertiesfg
-        consumer.subscribe(message -> {
-            int attempt = attemptCount.incrementAndGet();
-            logger.info("INTENTIONAL FAILURE: Processing attempt {} with message access exception", attempt);
-            retryCheckpoint.flag();
-            
-            // Try to access message properties in a way that might cause exception
-            String payload = message.getPayload();
-            if (payload != null) {
-                // Simulate exception during message processing
-                throw new IllegalStateException("INTENTIONAL FAILURE: Exception during message access, attempt " + attempt);
-            }
-            
-            return Future.succeededFuture();
-        });
-
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times");
-        assertEquals(3, attemptCount.get(), "Should have made exactly 3 processing attempts");
-        
-        logger.info("Exception during message access test completed successfully");
-    }
-
-    @Test
-    void testInterruptedExceptionHandling(VertxTestContext testContext) throws Exception {
-        logger.info("=== Testing InterruptedException Handling ===");
-        
-        String testMessage = "Message that gets interrupted";
-        AtomicInteger attemptCount = new AtomicInteger(0);
-        Checkpoint retryCheckpoint = testContext.checkpoint(3);
-
-        producer.send(testMessage).await();
-
-        consumer.subscribe(message -> {
-            int attempt = attemptCount.incrementAndGet();
-            logger.info("INTENTIONAL FAILURE: Processing attempt {} with interruption", attempt);
-            retryCheckpoint.flag();
-            
-            // Simulate interrupted exception
-            Thread.currentThread().interrupt();
-            throw new RuntimeException("INTENTIONAL FAILURE: Thread interrupted, attempt " + attempt, 
-                new InterruptedException("Simulated interruption"));
-        });
-
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should have attempted processing 3 times");
-        assertEquals(3, attemptCount.get(), "Should have made exactly 3 processing attempts");
-        
-        logger.info("InterruptedException handling test completed successfully");
-    }
-
-    @Test
-    void testOutOfMemoryErrorHandling(VertxTestContext testContext) throws Exception {
-        logger.info("=== Testing OutOfMemoryError Simulation ===");
-        
-        String testMessage = "Message that simulates OOM";
-        AtomicInteger attemptCount = new AtomicInteger(0);
-        Checkpoint errorCheckpoint = testContext.checkpoint();
-
-        producer.send(testMessage).await();
-
-        // Set up consumer that simulates OOM
-        consumer.subscribe(message -> {
-            int attempt = attemptCount.incrementAndGet();
-            logger.info("INTENTIONAL FAILURE: Processing attempt {} simulating OOM", attempt);
-            errorCheckpoint.flag();
-            
-            // Simulate OOM by throwing it directly (safer than actually causing OOM)
-            throw new OutOfMemoryError("INTENTIONAL FAILURE: Simulated OOM, attempt " + attempt);
-        });
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should have attempted processing and handled OOM simulation");
-        assertTrue(attemptCount.get() >= 1, "Should have made at least 1 processing attempt");
-        
-        logger.info("OutOfMemoryError simulation test completed successfully");
+        logger.info("Null Future handling test completed successfully");
     }
 }
 

@@ -1,7 +1,5 @@
 package dev.mars.peegeeq.outbox;
 
-import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
-
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
  *
@@ -23,12 +21,15 @@ import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
-import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -41,15 +42,12 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-
-import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.ConcurrentHashMap;
 
-import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Tests for consumer group functionality in the outbox pattern.
@@ -57,18 +55,15 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
-public class OutboxConsumerGroupTest {
+class OutboxConsumerGroupTest {
 
     @Container
-    private static final PostgreSQLContainer postgres = createPostgresContainer();
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
-        container.withDatabaseName("testdb");
-        container.withUsername("testuser");
-        container.withPassword("testpass");
-        return container;
-    }
+    private static final String[] SYSTEM_PROPERTIES = {
+        "peegeeq.database.host", "peegeeq.database.port", "peegeeq.database.name",
+        "peegeeq.database.username", "peegeeq.database.password", "peegeeq.database.ssl.enabled"
+    };
 
     private PeeGeeQManager manager;
     private OutboxFactory outboxFactory;
@@ -79,26 +74,22 @@ public class OutboxConsumerGroupTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
-        // Use unique topic and group name for each test to avoid interference
         testTopic = "group-test-topic-" + UUID.randomUUID().toString().substring(0, 8);
         testGroupName = "test-group-" + UUID.randomUUID().toString().substring(0, 8);
-        
-        // Set up database connection
+
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
         System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
         System.setProperty("peegeeq.database.username", postgres.getUsername());
         System.setProperty("peegeeq.database.password", postgres.getPassword());
+        System.setProperty("peegeeq.database.ssl.enabled", "false");
 
-        // Create and start manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("group-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start();
 
-        // Create factory and components using PgDatabaseService
         PgDatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, config);
         producer = outboxFactory.createProducer(testTopic, String.class);
@@ -106,7 +97,7 @@ public class OutboxConsumerGroupTest {
     }
 
     @AfterEach
-    void tearDown(VertxTestContext tearDownContext) throws Exception {
+    void tearDown() throws Exception {
         if (consumerGroup != null) {
             consumerGroup.close();
         }
@@ -117,73 +108,47 @@ public class OutboxConsumerGroupTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.closeReactive().onComplete(ar -> tearDownContext.completeNow());
-            assertTrue(tearDownContext.awaitCompletion(10, TimeUnit.SECONDS));
-        } else {
-            tearDownContext.completeNow();
+            manager.closeReactive().await();
         }
-        
-        // Clear system properties
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
+        for (String prop : SYSTEM_PROPERTIES) {
+            System.clearProperty(prop);
+        }
     }
 
     @Test
     void testBasicConsumerGroup(VertxTestContext testContext) throws Exception {
         int messageCount = 6;
         Checkpoint messageCheckpoint = testContext.checkpoint(messageCount);
-        AtomicInteger processedCount = new AtomicInteger(0);
         Set<String> consumerIds = ConcurrentHashMap.newKeySet();
 
-        // Add multiple consumers to the group
         consumerGroup.addConsumer("consumer-1", message -> {
             consumerIds.add("consumer-1");
-            int count = processedCount.incrementAndGet();
-            System.out.println("Consumer-1 processed message " + count + ": " + message.getPayload());
             messageCheckpoint.flag();
             return Future.succeededFuture();
         });
 
         consumerGroup.addConsumer("consumer-2", message -> {
             consumerIds.add("consumer-2");
-            int count = processedCount.incrementAndGet();
-            System.out.println("Consumer-2 processed message " + count + ": " + message.getPayload());
             messageCheckpoint.flag();
             return Future.succeededFuture();
         });
 
         consumerGroup.addConsumer("consumer-3", message -> {
             consumerIds.add("consumer-3");
-            int count = processedCount.incrementAndGet();
-            System.out.println("Consumer-3 processed message " + count + ": " + message.getPayload());
             messageCheckpoint.flag();
             return Future.succeededFuture();
         });
 
-        // Start the consumer group
         consumerGroup.start();
 
-        // Send messages
         for (int i = 0; i < messageCount; i++) {
-            producer.send("Group test message " + i).onFailure(testContext::failNow);
-            System.out.println("Sent message " + i);
+            producer.send("Group test message " + i).await();
         }
 
-        // Wait for all messages to be processed
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
             "All messages should be processed by consumer group within timeout");
-        assertEquals(messageCount, processedCount.get(), 
-            "Should process all messages");
 
-        System.out.println("Consumer group test completed:");
-        System.out.println("  - Messages processed: " + processedCount.get());
-        System.out.println("  - Active consumers: " + consumerIds);
-
-        // Verify that multiple consumers were used (load balancing)
-        assertTrue(consumerIds.size() > 1, 
+        assertTrue(consumerIds.size() > 1,
             "Should use multiple consumers for load balancing, used: " + consumerIds);
     }
 
@@ -194,48 +159,37 @@ public class OutboxConsumerGroupTest {
         AtomicInteger usProcessedCount = new AtomicInteger(0);
         AtomicInteger euProcessedCount = new AtomicInteger(0);
 
-        // Add region-specific consumers with filters
-        consumerGroup.addConsumer("us-consumer", 
+        consumerGroup.addConsumer("us-consumer",
             message -> {
-                int count = usProcessedCount.incrementAndGet();
-                System.out.println("US Consumer processed message " + count + ": " + message.getPayload());
+                usProcessedCount.incrementAndGet();
                 messageCheckpoint.flag();
                 return Future.succeededFuture();
             },
             message -> "US".equals(message.getHeaders().get("region"))
         );
 
-        consumerGroup.addConsumer("eu-consumer", 
+        consumerGroup.addConsumer("eu-consumer",
             message -> {
-                int count = euProcessedCount.incrementAndGet();
-                System.out.println("EU Consumer processed message " + count + ": " + message.getPayload());
+                euProcessedCount.incrementAndGet();
                 messageCheckpoint.flag();
                 return Future.succeededFuture();
             },
             message -> "EU".equals(message.getHeaders().get("region"))
         );
 
-        // Start the consumer group
         consumerGroup.start();
 
-        // Send messages to different regions
         Map<String, String> usHeaders = Map.of("region", "US");
         Map<String, String> euHeaders = Map.of("region", "EU");
 
         for (int i = 0; i < 3; i++) {
-            producer.send("US message " + i, usHeaders).onFailure(testContext::failNow);
-            producer.send("EU message " + i, euHeaders).onFailure(testContext::failNow);
+            producer.send("US message " + i, usHeaders).await();
+            producer.send("EU message " + i, euHeaders).await();
         }
 
-        // Wait for all messages to be processed
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
             "All filtered messages should be processed within timeout");
 
-        System.out.println("Filtered consumer group test completed:");
-        System.out.println("  - US messages processed: " + usProcessedCount.get());
-        System.out.println("  - EU messages processed: " + euProcessedCount.get());
-
-        // Verify correct filtering
         assertEquals(3, usProcessedCount.get(), "Should process 3 US messages");
         assertEquals(3, euProcessedCount.get(), "Should process 3 EU messages");
     }
@@ -245,62 +199,46 @@ public class OutboxConsumerGroupTest {
         int messageCount = 12;
         Checkpoint messageCheckpoint = testContext.checkpoint(messageCount);
         Map<String, AtomicInteger> consumerCounts = new ConcurrentHashMap<>();
-        
-        // Initialize counters
+
         consumerCounts.put("consumer-1", new AtomicInteger(0));
         consumerCounts.put("consumer-2", new AtomicInteger(0));
         consumerCounts.put("consumer-3", new AtomicInteger(0));
 
-        // Add consumers that track their message counts
         consumerGroup.addConsumer("consumer-1", message -> {
-            int count = consumerCounts.get("consumer-1").incrementAndGet();
-            System.out.println("Consumer-1 processed message " + count + ": " + message.getPayload());
+            consumerCounts.get("consumer-1").incrementAndGet();
             messageCheckpoint.flag();
             return Future.succeededFuture();
         });
 
         consumerGroup.addConsumer("consumer-2", message -> {
-            int count = consumerCounts.get("consumer-2").incrementAndGet();
-            System.out.println("Consumer-2 processed message " + count + ": " + message.getPayload());
+            consumerCounts.get("consumer-2").incrementAndGet();
             messageCheckpoint.flag();
             return Future.succeededFuture();
         });
 
         consumerGroup.addConsumer("consumer-3", message -> {
-            int count = consumerCounts.get("consumer-3").incrementAndGet();
-            System.out.println("Consumer-3 processed message " + count + ": " + message.getPayload());
+            consumerCounts.get("consumer-3").incrementAndGet();
             messageCheckpoint.flag();
             return Future.succeededFuture();
         });
 
-        // Start the consumer group
         consumerGroup.start();
 
-        // Send messages
         for (int i = 0; i < messageCount; i++) {
-            producer.send("Load balance test message " + i).onFailure(testContext::failNow);
+            producer.send("Load balance test message " + i).await();
         }
 
-        // Wait for all messages to be processed
-        assertTrue(testContext.awaitCompletion(45, TimeUnit.SECONDS), 
+        assertTrue(testContext.awaitCompletion(45, TimeUnit.SECONDS),
             "All messages should be processed within timeout");
 
-        System.out.println("Load balancing test completed:");
-        consumerCounts.forEach((consumerId, count) -> {
-            System.out.println("  - " + consumerId + " processed: " + count.get() + " messages");
-        });
+        consumerCounts.forEach((consumerId, count) ->
+            assertTrue(count.get() > 0,
+                "Consumer " + consumerId + " should process at least one message"));
 
-        // Verify load balancing - each consumer should process at least one message
-        consumerCounts.forEach((consumerId, count) -> {
-            assertTrue(count.get() > 0, 
-                "Consumer " + consumerId + " should process at least one message");
-        });
-
-        // Verify total message count
         int totalProcessed = consumerCounts.values().stream()
             .mapToInt(AtomicInteger::get)
             .sum();
-        assertEquals(messageCount, totalProcessed, 
+        assertEquals(messageCount, totalProcessed,
             "Total processed messages should equal sent messages");
     }
 
@@ -308,67 +246,54 @@ public class OutboxConsumerGroupTest {
     void testConsumerGroupDynamicScaling(VertxTestContext testContext) throws Exception {
         int initialMessageCount = 3;
         int additionalMessageCount = 6;
-        CountDownLatch initialPhaseDone = new CountDownLatch(1);
+        Promise<Void> initialPhaseDone = Promise.promise();
         AtomicInteger initialReceived = new AtomicInteger(0);
         Checkpoint totalCheckpoint = testContext.checkpoint(initialMessageCount + additionalMessageCount);
         AtomicInteger processedCount = new AtomicInteger(0);
 
-        // Start with one consumer
         consumerGroup.addConsumer("initial-consumer", message -> {
-            int count = processedCount.incrementAndGet();
-            System.out.println("Initial consumer processed message " + count + ": " + message.getPayload());
+            processedCount.incrementAndGet();
             totalCheckpoint.flag();
             if (initialReceived.incrementAndGet() >= initialMessageCount) {
-                initialPhaseDone.countDown();
+                initialPhaseDone.tryComplete();
             }
             return Future.succeededFuture();
         });
 
         consumerGroup.start();
 
-        // Send initial messages
         for (int i = 0; i < initialMessageCount; i++) {
-            producer.send("Initial message " + i).onFailure(testContext::failNow);
+            producer.send("Initial message " + i).await();
         }
 
-        // Wait for initial processing
-        assertTrue(initialPhaseDone.await(15, TimeUnit.SECONDS), "Initial phase should complete");
+        initialPhaseDone.future().await();
 
-        // Add more consumers dynamically
         Set<String> activeConsumers = ConcurrentHashMap.newKeySet();
 
         consumerGroup.addConsumer("additional-consumer-1", message -> {
             activeConsumers.add("additional-consumer-1");
-            int count = processedCount.incrementAndGet();
-            System.out.println("Additional consumer 1 processed message " + count + ": " + message.getPayload());
+            processedCount.incrementAndGet();
             totalCheckpoint.flag();
             return Future.succeededFuture();
         });
 
         consumerGroup.addConsumer("additional-consumer-2", message -> {
             activeConsumers.add("additional-consumer-2");
-            int count = processedCount.incrementAndGet();
-            System.out.println("Additional consumer 2 processed message " + count + ": " + message.getPayload());
+            processedCount.incrementAndGet();
             totalCheckpoint.flag();
             return Future.succeededFuture();
         });
 
-        // Send additional messages
         for (int i = 0; i < additionalMessageCount; i++) {
-            producer.send("Additional message " + i).onFailure(testContext::failNow);
+            producer.send("Additional message " + i).await();
         }
 
-        // Wait for all processing
         assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS),
             "All messages should be processed");
 
-        System.out.println("Dynamic scaling test completed:");
-        System.out.println("  - Total messages processed: " + processedCount.get());
-        System.out.println("  - Active additional consumers: " + activeConsumers);
-
         assertEquals(initialMessageCount + additionalMessageCount, processedCount.get(),
             "Should process all messages");
-        assertTrue(activeConsumers.size() > 0,
+        assertFalse(activeConsumers.isEmpty(),
             "Should have active additional consumers");
     }
 }

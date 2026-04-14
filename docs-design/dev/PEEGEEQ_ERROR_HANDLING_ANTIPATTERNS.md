@@ -1,0 +1,692 @@
+# PeeGeeQ Error Handling Antipatterns
+
+Audit date: 2026-04-13  
+Branch: `feature/fanout-trace-propagation`
+
+This document catalogues error-swallowing patterns found across the PeeGeeQ codebase
+that prevent runtime failures from surfacing in tests. Organised by severity.
+
+---
+
+## CRITICAL: Placeholder Tests That Always Pass
+
+27 test methods across the codebase end with `assertTrue(true, "...")` followed by
+`testContext.completeNow()`. These tests perform real operations but assert nothing
+about the outcome. Any runtime error — exception, failed future, data corruption —
+is invisible. The test passes unconditionally.
+
+### Pattern
+
+```java
+// WRONG: tautological assertion — test always passes
+consumer.close();
+blockGate.countDown();
+consumer.close();
+
+assertTrue(true, "Close should be idempotent and handle concurrent processing");
+testContext.completeNow();
+```
+
+### Affected Files
+
+| File | Line(s) | Assertion text |
+|---|---|---|
+| `peegeeq-outbox/.../OutboxConsumerFailureHandlingTest.java` | 208 | `"Consumer should handle closure during processing without errors"` |
+| `peegeeq-outbox/.../OutboxConsumerFailureHandlingTest.java` | 297 | `"Close should be idempotent and handle concurrent processing"` |
+| `peegeeq-outbox/.../examples/IntegrationPatternsExampleTest.java` | 483 | `"Content-Based Router pattern concept validated"` |
+| `peegeeq-outbox/.../examples/IntegrationPatternsExampleTest.java` | 499 | `"Aggregator pattern concept validated"` |
+| `peegeeq-outbox/.../examples/IntegrationPatternsExampleTest.java` | 515 | `"Scatter-Gather pattern concept validated"` |
+| `peegeeq-outbox/.../examples/IntegrationPatternsExampleTest.java` | 531 | `"Saga pattern concept validated"` |
+| `peegeeq-outbox/.../examples/IntegrationPatternsExampleTest.java` | 547 | `"CQRS pattern concept validated"` |
+| `peegeeq-native/.../examples/NativeVsOutboxComparisonExampleTest.java` | 171 | `"Architectural differences demonstration completed"` |
+| `peegeeq-native/.../examples/NativeVsOutboxComparisonExampleTest.java` | 182 | `"Performance characteristics demonstration completed"` |
+| `peegeeq-native/.../examples/NativeVsOutboxComparisonExampleTest.java` | 193 | `"Reliability features demonstration completed"` |
+| `peegeeq-native/.../examples/NativeVsOutboxComparisonExampleTest.java` | 204 | `"Scalability patterns demonstration completed"` |
+| `peegeeq-native/.../examples/NativeVsOutboxComparisonExampleTest.java` | 215 | `"Failure scenarios demonstration completed"` |
+| `peegeeq-native/.../examples/NativeVsOutboxComparisonExampleTest.java` | 226 | `"Technical guidance demonstration completed"` |
+| `peegeeq-native/.../examples/PeeGeeQExampleTest.java` | 558 | `"System monitoring demonstration completed"` |
+| `peegeeq-db/.../examples/NativeVsOutboxComparisonExampleTest.java` | 56 | `"Architectural differences demonstration should complete successfully"` |
+| `peegeeq-db/.../examples/NativeVsOutboxComparisonExampleTest.java` | 73 | `"Performance characteristics demonstration should complete successfully"` |
+| `peegeeq-db/.../examples/NativeVsOutboxComparisonExampleTest.java` | 90 | `"Reliability features demonstration should complete successfully"` |
+| `peegeeq-db/.../examples/NativeVsOutboxComparisonExampleTest.java` | 109 | `"Technical guidance demonstration should complete successfully"` |
+| `peegeeq-api/.../MessageTest.java` | 63 | `"Placeholder test"` |
+| `peegeeq-rest/.../MessageTypeDetectionAndValidationTest.java` | 326 | `"Batch API usage documented"` |
+| `peegeeq-rest/.../MessageSendingIntegrationTest.java` | 148 | `"REST API usage documented"` |
+| `peegeeq-rest/.../MessageResponseValidationTest.java` | 236 | `"Phase 3 consumption API usage documented"` |
+| `peegeeq-rest/.../MessageResponseValidationTest.java` | 272 | `"Phase 3 consumption workflow documented"` |
+| `peegeeq-rest/.../MessageConsumptionWorkflowTest.java` | 258 | `"Phase 3 API documentation complete"` |
+| `peegeeq-rest/.../ConsumerGroupHandlerTest.java` | 343 | `"Consumer Group API documentation complete"` |
+| `peegeeq-rest/.../EndToEndValidationTest.java` | 275 | `"Documentation and validation complete"` |
+| `peegeeq-bitemporal/.../VertxPerformanceOptimizationValidationTest.java` | 277 | `"Performance monitoring integration validated"` |
+
+### Variant: Tautological Comparisons That Always Pass
+
+A related pattern uses comparisons that are always true instead of `assertTrue(true)`:
+
+```java
+// WRONG: list size is always >= 0
+assertTrue(receivedMessages.size() >= 0, "Should process messages");
+
+// WRONG: AtomicInteger(0).get() is always >= 0
+assertTrue(count.get() >= 0);
+```
+
+Found in: `OutboxConsumerGroupSubscriptionEdgeCasesTest` (2 occurrences:
+`testStartFromMessageId_Valid` — `size() >= 0`, `testTimestamp_Future` — `count.get() >= 0`).
+
+### Required Fix
+
+Each test must either:
+1. Assert a meaningful postcondition (state change, received message content, metric value), or
+2. Be deleted if it tests nothing.
+
+---
+
+## SERIOUS: `.onComplete(ar -> latch.countDown())` Swallows Send Failures
+
+50+ test locations use this pattern for producer sends:
+
+```java
+// WRONG: counts down on BOTH success AND failure
+producer.send(msg).onComplete(ar -> sendLatch.countDown());
+assertTrue(sendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
+```
+
+`onComplete` fires regardless of outcome. If the send fails (pool closed, connection
+refused, serialisation error), the latch still counts down and the test proceeds with
+its preconditions unmet. Downstream assertions then fail with confusing timeout errors
+instead of the real cause — or worse, pass vacuously because no messages arrived and
+the test doesn't check for that.
+
+### Correct Pattern
+
+```java
+producer.send(msg)
+    .onSuccess(v -> sendLatch.countDown())
+    .onFailure(testContext::failNow);
+```
+
+Or with Checkpoint:
+```java
+producer.send(msg)
+    .onSuccess(v -> checkpoint.flag())
+    .onFailure(testContext::failNow);
+```
+
+### Affected Files (non-exhaustive)
+
+| File | Approx. occurrences |
+|---|---|
+| `peegeeq-outbox/.../OutboxBasicTest.java` | 5 |
+| `peegeeq-outbox/.../OutboxConsumerCoreTest.java` | 8 |
+| `peegeeq-outbox/.../OutboxConsumerEdgeCasesCoverageTest.java` | 8 |
+| `peegeeq-outbox/.../OutboxConsumerFailureHandlingTest.java` | 4 |
+| `peegeeq-outbox/.../OutboxConsumerCrashRecoveryTest.java` | 3 |
+| `peegeeq-outbox/.../FanOutTracePropagationTest.java` | 4 |
+| `peegeeq-outbox/.../ReactiveOutboxProducerTest.java` | 3 |
+| `peegeeq-outbox/.../DistributedTracingTest.java` | 2 |
+| `peegeeq-outbox/.../PerformanceBenchmarkTest.java` | 2 |
+| `peegeeq-outbox/.../JsonbConversionValidationTest.java` | 3 |
+| `peegeeq-outbox/.../examples/MessagePriorityExampleTest.java` | 2 |
+| `peegeeq-native/.../NativeQueueIntegrationTest.java` | 10+ |
+| `peegeeq-native/.../PollingOnlyEdgeCaseTest.java` | 8 |
+| `peegeeq-native/.../ListenNotifyOnlyEdgeCaseTest.java` | 3 |
+| `peegeeq-native/.../MemoryAndResourceLeakTest.java` | 3 |
+| `peegeeq-native/.../PgNativeQueueShutdownTest.java` | 2 |
+| `peegeeq-native/.../RetryableErrorIT.java` | 1 |
+
+### Same Pattern in Teardown
+
+Multiple `@AfterEach` methods use the same swallowing pattern for `manager.closeReactive()`:
+
+```java
+// WRONG: close failure is invisible
+manager.closeReactive().onComplete(ar -> closeLatch.countDown());
+closeLatch.await(10, TimeUnit.SECONDS);
+```
+
+Files: `OutboxConsumerEdgeCasesCoverageTest`, `OutboxConsumerCrashRecoveryTest`,
+`OutboxConsumerCoreTest`, `OutboxBasicTest`, `FanOutTracePropagationTest`,
+`OutboxConsumerSurgicalCoverageTest`, `OutboxBlockingSafetyTest`.
+
+While teardown errors are less critical than test-body errors, a failed close can leak
+database connections and cause subsequent tests to fail with misleading "too many clients"
+errors.
+
+---
+
+## MODERATE: Empty Catch Blocks in Test Teardown
+
+27 instances of `catch (Exception ignored) {}` — most in `@AfterEach` cleanup:
+
+```java
+try { factory.close(); } catch (Exception ignore) {}
+try { connectionManager.close(); } catch (Exception ignored) {}
+try { vertx.close(); } catch (Exception ignored) {}
+```
+
+### Assessment
+
+These are concentrated in test teardown (`@AfterEach`, `@AfterAll`). In teardown code,
+swallowing close errors is generally acceptable — best-effort cleanup. However, some
+are in test bodies:
+
+| File | Line | Context |
+|---|---|---|
+| `PartitionedNativeConsumerIntegrationTest.java` | 122 | Test body — not teardown |
+| `ResilienceSmokeTest.java` | 118, 200 | Test body — not teardown |
+
+These should log or fail the test instead of silently continuing.
+
+---
+
+## LOW: Production `.recover(→ Future.succeededFuture())` Patterns
+
+16 instances in production code. All examined instances fall into two categories:
+
+### 1. Shutdown/Cleanup Chains (Acceptable)
+
+In `PeeGeeQManager.closeReactive()`, `DeadConsumerDetectionJob.stop()`,
+`PeeGeeQDatabaseSetupService.close()`, `OutboxConsumerGroup.stopGracefully()`,
+`PgNativeConsumerGroup.startPartitioned()` (abort path), `PgNativeQueueConsumer.close()`.
+
+During shutdown, continuing cleanup despite errors is correct behaviour. These log
+the error before recovering.
+
+### 2. Background Timer Callbacks (Defensible, Could Be Better)
+
+In `PeeGeeQManager.startMetricsCollection()` and `startBackgroundTasks()`:
+
+```java
+metrics.persistMetrics(meterRegistry)
+    .onFailure(e -> logger.warn("Failed to persist metrics", e));
+
+metrics.refreshDepthCache()
+    .onFailure(e -> logger.warn("Failed to refresh depth cache", e));
+
+deadLetterQueueManager.purgeOldDeadLetterMessages(...)
+    .onFailure(e -> logger.warn("Failed to cleanup old dead letter messages", e));
+
+stuckMessageRecoveryManager.recoverStuckMessages()
+    .onFailure(e -> logger.warn("Failed to recover stuck messages", e));
+```
+
+These are fire-and-forget periodic tasks. A single failure is acceptable — the next
+timer tick will retry. However, unlike `DeadConsumerDetectionJob` which tracks
+`consecutiveFailures` and escalates to `logger.error` after a threshold, these four
+timers have no escalation. Persistent failures log at `warn` level indefinitely and
+are never surfaced.
+
+### Recommendation
+
+Add consecutive failure tracking (matching `DeadConsumerDetectionJob`'s pattern) to:
+- `metrics.persistMetrics` timer
+- `metrics.refreshDepthCache` timer
+- `deadLetterQueueManager.purgeOldDeadLetterMessages` timer
+- `stuckMessageRecoveryManager.recoverStuckMessages` timer
+
+---
+
+## LOW: Production `.onFailure(log)` Terminal Handlers
+
+These are in `PgConnectionProvider.java` (lines 98, 106, 114):
+
+```java
+.onFailure(error -> logger.error("Failed to get reactive connection for client: {}: {}",
+    clientId, error.getMessage()));
+```
+
+These are **not** error swallowing — the `.onFailure` is a terminal side-effect on
+a future that is also returned to the caller. The error propagates through the future
+chain; the log is supplementary. No action needed.
+
+---
+
+## MEDIUM: Integration Test Hygiene Antipatterns
+
+First catalogued in `ConsumerModeResourceManagementTest` (peegeeq-native). These
+patterns recur across integration tests and cause flaky cross-test interference,
+resource leaks, and misleading results.
+
+### 1. System Property Pollution (High)
+
+`@BeforeEach` sets `System.setProperty(...)` calls but `@AfterEach` never clears
+them. Stale connection details (host, port, credentials) leak to subsequent tests in
+the same JVM fork, causing silent misbinding or confusing "connection refused" errors
+when a different Testcontainer starts on a different port.
+
+Found in: `ConsumerModeResourceManagementTest`, `JsonbConversionValidationTest`,
+`OutboxConsumerCoreTest`, `OutboxConsumerEdgeCasesCoverageTest`,
+`OutboxConsumerFailureHandlingTest`, `OutboxConsumerCrashRecoveryTest`,
+`OutboxConsumerNullHandlerTest` (also missing `ssl.enabled`),
+`OutboxConsumerGroupSubscriptionEdgeCasesTest` (missing `ssl.enabled` and `polling-interval`).
+
+**Fix:** Track all property keys in a constant array and clear them in `@AfterEach`:
+
+```java
+private static final String[] SYSTEM_PROPERTIES = {
+    "peegeeq.database.host", "peegeeq.database.port", ...
+};
+
+@AfterEach
+void tearDown() {
+    for (String prop : SYSTEM_PROPERTIES) {
+        System.clearProperty(prop);
+    }
+}
+```
+
+### 2. Custom Container Factory Instead of Standard Helper (Medium)
+
+Hand-rolled `createPostgresContainer()` with manual `.withDatabaseName`/`.withUsername`/
+`.withPassword` instead of `PostgreSQLTestConstants.createStandardContainer()`. Misses
+shared memory size, reuse policy, and any future defaults added to the standard factory.
+
+Found in: `ConsumerModeResourceManagementTest`, `JsonbConversionValidationTest`,
+`OutboxConsumerCoreTest`, `OutboxConsumerEdgeCasesCoverageTest`,
+`OutboxConsumerFailureHandlingTest`, `OutboxConsumerCrashRecoveryTest`,
+`OutboxConsumerErrorHandlingTest`, `OutboxConsumerNullHandlerTest`,
+`OutboxConsumerGroupSubscriptionEdgeCasesTest`.
+
+**Fix:** Replace with `PostgreSQLTestConstants.createStandardContainer()`.
+
+### 3. Excessive Narration Logging (Medium)
+
+~20 `logger.info` calls per test class narrating steps ("Testing connection pool
+usage…", "Connection pool usage verified…", "test completed successfully"). Test names,
+`@DisplayName`, and assertion messages already communicate intent. The logging clutters
+output and adds no diagnostic value.
+
+Found in: `ConsumerModeResourceManagementTest`, `JsonbConversionValidationTest`,
+`OutboxConsumerCoreTest` (20× `System.err.println`),
+`OutboxConsumerCrashRecoveryTest` (25+ emoji-heavy `logger.info`).
+
+**Fix:** Remove all narration logging. Keep only `logger.debug` for genuinely useful
+diagnostics if needed.
+
+### 4. Trivial Assertions That Test Language Mechanics (Medium)
+
+```java
+assertEquals(5, consumers.size(), "All consumers should be set up successfully");
+```
+
+This asserts that `ArrayList.add()` works five times. It does not verify Vert.x instance
+sharing, connection pool reuse, or any meaningful resource behaviour.
+
+**Fix:** Delete the test, or replace with an assertion that actually verifies the
+claimed behaviour (e.g., inspecting a shared Vert.x instance reference).
+
+### 5. Producer Leak in Timer Callbacks (Medium)
+
+Producers created inside `vertx.setTimer(...)` callbacks and closed only in `.onSuccess`:
+
+```java
+// WRONG: producers leak if any send fails
+producer.send("msg1")
+    .compose(v -> producer2.send("msg2"))
+    .onSuccess(v -> { producer.close(); producer2.close(); })
+    .onFailure(testContext::failNow);
+```
+
+**Fix:** Use `.eventually()` to close regardless of outcome:
+
+```java
+producer.send("msg1")
+    .compose(v -> producer2.send("msg2"))
+    .eventually(() -> {
+        producer.close();
+        producer2.close();
+        return Future.succeededFuture();
+    })
+    .onFailure(testContext::failNow);
+```
+
+### 6. Resource Allocation Outside try/finally (Low)
+
+Producers and consumers created before the `try` block. If `awaitCompletion` or an
+assertion fails, the `finally` block is never reached and resources leak.
+
+Found in: `ConsumerModeResourceManagementTest`, `JsonbConversionValidationTest`.
+
+**Fix:** Move resource creation inside `try`, or restructure so `finally` always runs:
+
+```java
+MessageConsumer<String> consumer = factory.createConsumer(...);
+MessageProducer<String> producer = factory.createProducer(...);
+try {
+    // test body
+} finally {
+    consumer.close();
+    producer.close();
+}
+```
+
+### 7. Missing `hashCode()` When `equals()` Is Overridden (Medium)
+
+Test data classes override `equals()` but not `hashCode()`, violating the
+`Object.equals`/`hashCode` contract. Works by accident when only used with
+`assertEquals`, but breaks silently if the object is ever placed in a `HashSet` or
+used as a `HashMap` key. Also sets a bad example for copy-paste reuse.
+
+Found in: `ConsumerModeTypeSafetyTest.TestPerson`.
+
+**Fix:** Add a matching `hashCode()` implementation, or use `java.util.Objects.hash()`:
+
+```java
+@Override
+public int hashCode() {
+    return java.util.Objects.hash(name, age, email);
+}
+```
+
+### 8. Unused Method Parameters (Low)
+
+Test methods declare parameters (e.g., `Vertx vertx`) that are never referenced in
+the method body. VertxExtension injects these eagerly, so there is no functional harm,
+but unused parameters mislead readers into thinking the parameter is needed and add
+noise.
+
+Found in: `ConsumerModeTypeSafetyTest.testNullValueHandlingAcrossConsumerModes(Vertx vertx, ...)`,
+`OutboxConsumerCoreTest` (unused `Vertx vertx` in multiple tests),
+`OutboxConsumerErrorHandlingTest` (unused `Vertx vertx` in multiple tests).
+
+**Fix:** Remove the unused parameter from the method signature.
+
+### 9. Dead Code Branches in Shared Helpers (Low)
+
+Helper methods contain branches that no caller ever exercises. For example, a
+`if (expectedMessage == null)` path in a helper that is only ever called with non-null
+values. The null case is tested via a completely separate code path in a different test
+method.
+
+Dead branches increase maintenance cost (must be kept compilable), give false
+confidence that a scenario is tested, and obscure what the helper actually does.
+
+Found in: `ConsumerModeTypeSafetyTest.testTypeSafetyForMode()` — null branch never
+reached because no caller passes null.
+
+**Fix:** Remove the dead branch. If null handling needs testing, test it explicitly
+where it is actually exercised.
+
+### 10. Hand-Rolled Schema DDL / Raw JDBC in Tests (High)
+
+Inline `CREATE TABLE` statements duplicating the production schema, executed via
+raw JDBC (`java.sql.Connection`, `DriverManager`, `PreparedStatement`, `ResultSet`).
+This violates the project's "no raw JDBC in tests" rule, creates schema drift risk
+(inline DDL silently diverges from the real schema), and ignores the shared
+`PeeGeeQTestSchemaInitializer` that other tests use.
+
+The same problem applies to JDBC-based verification queries in test assertions —
+use the reactive `PgPool.preparedQuery(...)` instead.
+
+Found in: `JsonbConversionValidationTest.initializeSchema()` and JDBC verification
+blocks in `testSimpleStringPayloadStoredAsJsonb` / `testHeadersStoredAsJsonb`;
+`OutboxConsumerFailureHandlingTest` (3 JDBC blocks: lines 151, 361, 433).
+
+**Fix (schema init):** Replace inline DDL with the shared initializer:
+
+```java
+PeeGeeQTestSchemaInitializer.initializeSchema(postgres,
+        SchemaComponent.NATIVE_QUEUE,
+        SchemaComponent.OUTBOX,
+        SchemaComponent.DEAD_LETTER_QUEUE);
+```
+
+**Fix (verification queries):** Use the reactive pool from `DatabaseService.getPool()`:
+
+```java
+pool.preparedQuery("SELECT jsonb_typeof(payload) FROM queue_messages WHERE topic = $1")
+    .execute(Tuple.of(topic))
+    .compose(rows -> { ... });
+```
+
+### 11. Unnecessary Test Ordering (Low)
+
+`@TestMethodOrder(MethodOrderer.OrderAnnotation.class)` with `@Order(1)`, `@Order(2)`
+etc. when each test uses its own topic name and is fully independent. The ordering
+implies test interdependence that does not exist, discourages parallel execution, and
+misleads readers into thinking execution order matters.
+
+Found in: `JsonbConversionValidationTest`.
+
+**Fix:** Remove `@TestMethodOrder` and all `@Order` annotations. If tests truly share
+state, refactor them to be independent instead.
+
+### 12. Dead Code After `testContext.failNow()` (Low)
+
+```java
+consumer.subscribe(message -> {
+    try {
+        // assertions...
+        testContext.completeNow();
+        return Future.succeededFuture();
+    } catch (Exception e) {
+        testContext.failNow(e);
+        throw new RuntimeException(e); // dead code — failNow already signals failure
+    }
+});
+```
+
+`testContext.failNow(e)` immediately fails the test. The subsequent `throw` is never
+observed by the test framework and may trigger secondary error handling in the
+subscribe machinery, masking the original assertion failure.
+
+Found in: `JsonbConversionValidationTest.testConsumerCanReadJsonbObjects`.
+
+**Fix:** Remove the `throw`. Let `failNow` handle the failure signal:
+
+```java
+} catch (Exception e) {
+    testContext.failNow(e);
+    return Future.failedFuture(e);
+}
+```
+
+### 13. Weak Assertion Idioms (Low)
+
+```java
+// WRONG: loses type information on failure — message is just "expected true"
+assertTrue(member instanceof ConsumerGroupMember);
+assertTrue(thrown == null, "Expected no exception");
+```
+
+JUnit 5 provides dedicated assertions that produce better failure messages and are
+more readable:
+
+```java
+// CORRECT: failure message includes actual type vs expected type
+assertInstanceOf(ConsumerGroupMember.class, member);
+assertNull(thrown, "Expected no exception");
+```
+
+Found in: `OutboxConsumerGroupSubscriptionTest`, `OutboxBlockingSafetyTest`.
+
+**Fix:** Replace `assertTrue(x instanceof Y)` with `assertInstanceOf(Y.class, x)`.
+Replace `assertTrue(x == null, ...)` with `assertNull(x, ...)`.
+
+### 13b. Near-Tautological Assertion — Tests Handler Invocation Not Outcome (Medium)
+
+Test asserts that a handler was called but does not verify the consequence of the
+handler's return value. When the handler returns `null` (triggering a specific error
+path in `processMessageWithCompletion`), the test should verify that the message
+ends up retried or in a failure state — not just that the handler ran.
+
+```java
+// WRONG: asserts invocation but not the null-return consequence
+consumer.subscribe(message -> {
+    invoked.set(true);
+    handlerCalled.tryComplete();
+    return null; // triggers IllegalStateException path
+});
+producer.send("Test null return").await();
+handlerCalled.future().await();
+assertTrue(invoked.get(), "Handler should have been invoked");
+```
+
+The production code wraps a null return as
+`Future.failedFuture(new IllegalStateException("Message handler returned null Future"))`
+and routes through retry/failure handling. The test should verify that outcome.
+
+Found in: `OutboxConsumerNullHandlerTest.testNullHandlerReturn`.
+
+**Fix:** After the handler fires, verify the message status (retried or failed) via
+a reactive pool query, or use a `VertxTestContext` checkpoint on the retry path.
+
+### 13c. Stale Javadoc Referencing Banned Types (Low)
+
+Javadoc references `CompletableFuture` — a banned type in this project — and cites
+stale line numbers:
+
+```java
+// WRONG: references banned type and stale line numbers
+/**
+ * Targets the branch at line 426-430 where handler returns null CompletableFuture.
+ */
+```
+
+Found in: `OutboxConsumerNullHandlerTest` (class-level Javadoc).
+
+**Fix:** Update to reference `Future<Void>` and remove stale line numbers:
+
+```java
+/**
+ * Tests the null handler return path in OutboxConsumer.processMessageWithCompletion.
+ */
+```
+
+---
+
+## Summary of Required Actions
+
+| Priority | Action | Scope |
+|---|---|---|
+| CRITICAL | Replace `assertTrue(true, ...)` with real assertions or delete test | 27 tests |
+| SERIOUS | Replace `.onComplete(ar -> latch.countDown())` with `.onSuccess`/`.onFailure` | 50+ sends |
+| HIGH | Clear system properties in `@AfterEach` | Integration tests using `System.setProperty` |
+| MEDIUM | Use `PostgreSQLTestConstants.createStandardContainer()` | Tests with hand-rolled container setup |
+| MEDIUM | Remove narration logging from tests | Tests with excessive `logger.info` |
+| MEDIUM | Delete or replace trivial assertions that test language mechanics | Tests asserting collection size after add |
+| MEDIUM | Close producers in `.eventually()` not `.onSuccess()` | Timer callbacks creating producers |
+| MEDIUM | Add `hashCode()` where `equals()` is overridden | Test data classes with `equals()` only |
+| MODERATE | Add logging to catch blocks in test bodies (not teardown) | 2-3 locations |
+| LOW | Move resource allocation inside try/finally | Tests with resources before try block |
+| LOW | Remove unused method parameters (`Vertx vertx`, etc.) | Test methods with injected but unused params |
+| LOW | Remove dead code branches in shared test helpers | Helpers with never-exercised paths |
+| HIGH | Replace hand-rolled schema DDL / raw JDBC with shared initializer + reactive pool | Tests with inline CREATE TABLE or JDBC verification |
+| LOW | Remove unnecessary `@TestMethodOrder` / `@Order` on independent tests | Tests with ordering annotations but no shared state |
+| LOW | Remove dead code after `testContext.failNow()` | Subscribe handlers with redundant `throw` after failNow |
+| LOW | Replace `assertTrue(x instanceof Y)` with `assertInstanceOf` / `assertNull` | Tests using weak assertion idioms |
+| MEDIUM | Replace commented-out `//@Test` with `@Disabled("reason")` or fix and re-enable | 1 test in OutboxConsumerFailureHandlingTest |
+| HIGH | Replace `LockSupport.parkNanos()` with `Vertx.setTimer()` or condition-based waits | 18 occurrences across 10 files |
+| SERIOUS | Add `.await()` or `.onFailure(testContext::failNow)` to fire-and-forget `producer.send()` | 7 occurrences in OutboxConsumerErrorHandlingTest |
+| MEDIUM | Replace near-tautological handler-invocation assertions with outcome verification | OutboxConsumerNullHandlerTest |
+| LOW | Fix stale Javadoc referencing banned `CompletableFuture` type | OutboxConsumerNullHandlerTest |
+
+---
+
+## MEDIUM: Commented-Out `@Test` — Hidden Test Disabling
+
+Tests disabled by commenting out the `@Test` annotation instead of using `@Disabled`
+with a reason:
+
+```java
+// WRONG: invisible to test runners and reports
+//@Test
+void testRetryLogicWithFailingMessages(Vertx vertx, VertxTestContext testContext) {
+```
+
+This is worse than `@Disabled` because:
+1. The test is invisible to test runners, reports, and IDE test views.
+2. There is no structured reason string that tools can surface.
+3. `grep` for disabled tests will miss it.
+4. It silently rots — no one notices it exists.
+
+Found in: `OutboxConsumerFailureHandlingTest` (line 128, `testRetryLogicWithFailingMessages`).
+
+**Fix:** Either re-enable the test and fix the timing sensitivity, or use `@Disabled`
+with a reason so it appears in test reports:
+
+```java
+@Test
+@Disabled("Timing sensitive — requires investigation (see #NNN)")
+void testRetryLogicWithFailingMessages(...) { ... }
+```
+
+---
+
+## HIGH: `LockSupport.parkNanos()` — Blocking Thread Delay in Tests
+
+Tests using `LockSupport.parkNanos()` to introduce fixed delays. This is semantically
+equivalent to `Thread.sleep()` — it blocks the current thread for a fixed duration.
+Both are forbidden in a reactive codebase.
+
+```java
+// WRONG: blocks the thread for 1 second
+LockSupport.parkNanos(1_000_000_000L);
+```
+
+Problems:
+1. Blocks the thread, defeating the purpose of a reactive/non-blocking architecture.
+2. Fixed delays are inherently flaky — too short on slow CI, wastefully long otherwise.
+3. On Vert.x event-loop threads, blocks the entire event loop.
+
+### Affected Files
+
+| File | Occurrences | Delay |
+|---|---|---|
+| `OutboxConsumerCrashRecoveryTest` | 2 | 1s, 2s |
+| `CircuitBreakerRecoveryTest` | 3 | 250ms each |
+| `FilterErrorHandlingIntegrationTest` | 2 | 50ms, 600ms |
+| `MessageReliabilityTest` | 1 | 50ms |
+| `OutboxMetricsTest` | 4 | 100–200ms |
+| `OutboxPerformanceTest` | 1 | 10ms |
+| `FilterRetryManagerTest` | 1 | 20ms |
+| `SystemPropertiesConfigurationExampleTest` | 1 | 50ms |
+| `JdbcIntegrationHybridExampleTest` | 2 | 1ms each |
+| `AutomaticTransactionManagementExampleTest` | 1 | 1ms |
+
+**Fix:** Use `Vertx.setTimer()` for non-blocking delays, or redesign the test to
+react to an observable condition (future completion, checkpoint flag, row appearing
+in the database) instead of sleeping:
+
+```java
+// CORRECT: non-blocking timer
+vertx.setTimer(1000, id -> {
+    verifyMessageExists(testMessage, "PENDING")
+        .onSuccess(v -> checkpoint.flag())
+        .onFailure(testContext::failNow);
+});
+```
+
+---
+
+## SERIOUS: Fire-and-Forget `producer.send()` Without Await or Failure Handler
+
+Calls to `producer.send(...)` whose returned `Future` is completely ignored — not
+awaited, not chained, and no `.onFailure()` handler attached:
+
+```java
+// WRONG: send failure is silently lost
+producer.send("test-message");
+```
+
+If the send fails (serialisation error, pool closed, connection refused), the test
+proceeds as if the precondition was met. Downstream consumer assertions then fail
+with a timeout or pass vacuously because no message was delivered.
+
+Found in: `OutboxConsumerErrorHandlingTest` (lines 142, 161, 183, 207, 256, 305, 329
+— 7 occurrences across `testRetryMechanism`, `testMessageFailureHandling`,
+`testMessageWithNullPayload`, `testInterruptedExceptionHandling`,
+`testConcurrentMessageProcessing`).
+
+**Fix:** Await the send or attach a failure handler:
+
+```java
+// Option 1: await (preferred when send must complete before assertions)
+producer.send("test-message").await();
+
+// Option 2: chain with failure handler
+producer.send("test-message")
+    .onFailure(testContext::failNow);
+```
+| LOW | Add consecutive failure tracking to background timer callbacks | 4 timers |

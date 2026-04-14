@@ -20,11 +20,10 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.time.Duration;
+import dev.mars.peegeeq.test.categories.TestCategories;
 
-import java.util.concurrent.CountDownLatch;
+import java.time.Duration;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.vertx.core.Future;
 
@@ -32,6 +31,7 @@ import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.Perfo
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent.*;
 import static org.junit.jupiter.api.Assertions.*;
 
+@Tag(TestCategories.INTEGRATION)
 @ExtendWith(VertxExtension.class)
 @Testcontainers
 class PgNativeQueueConsumerCleanupIT {
@@ -46,6 +46,7 @@ class PgNativeQueueConsumerCleanupIT {
     private VertxPoolAdapter adapter;
     private Pool pool;
     private ObjectMapper mapper;
+    private PgNativeQueueConsumer<String> consumer;
 
     @BeforeAll
     static void beforeAll() {
@@ -81,13 +82,17 @@ class PgNativeQueueConsumerCleanupIT {
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown(VertxTestContext tearDownContext) throws Exception {
+        if (consumer != null) {
+            consumer.close();
+        }
         if (manager != null) {
-            try {
-                CountDownLatch closeLatch = new CountDownLatch(1);
-                manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-                closeLatch.await(10, TimeUnit.SECONDS);
-            } catch (Exception ignore) {}
+            manager.closeReactive()
+                .onSuccess(v -> tearDownContext.completeNow())
+                .onFailure(tearDownContext::failNow);
+            assertTrue(tearDownContext.awaitCompletion(10, TimeUnit.SECONDS));
+        } else {
+            tearDownContext.completeNow();
         }
     }
 
@@ -100,15 +105,12 @@ class PgNativeQueueConsumerCleanupIT {
             .batchSize(1)
             .build();
 
-        PgNativeQueueConsumer<String> consumer = new PgNativeQueueConsumer<>(
+        consumer = new PgNativeQueueConsumer<>(
             adapter, mapper, TOPIC, String.class, null, null, consumerConfig
         );
 
-        AtomicBoolean processed = new AtomicBoolean(false);
-
         consumer.subscribe(msg -> {
             testContext.verify(() -> assertEquals("locked-msg", msg.getPayload()));
-            processed.set(true);
             testContext.completeNow();
             return Future.succeededFuture();
         });
@@ -121,23 +123,17 @@ class PgNativeQueueConsumerCleanupIT {
         """;
         JsonObject payload = new JsonObject().put("value", "locked-msg");
         JsonObject headers = new JsonObject();
-        CountDownLatch insertLatch = new CountDownLatch(1);
         pool.preparedQuery(insertLocked)
             .execute(Tuple.of(TOPIC, payload, headers, "c-lock"))
-            .onComplete(ar -> insertLatch.countDown());
-        assertTrue(insertLatch.await(5, TimeUnit.SECONDS), "Insert should complete");
+            .await();
 
         // Notify to expedite wakeup (though polling will also run)
-        CountDownLatch notifyLatch = new CountDownLatch(1);
-        pool.query("SELECT pg_notify('" + ("queue_" + TOPIC) + "', 'test')").execute()
-            .onComplete(ar -> notifyLatch.countDown());
-        assertTrue(notifyLatch.await(5, TimeUnit.SECONDS), "Notify should complete");
+        pool.preparedQuery("SELECT pg_notify($1, $2)")
+            .execute(Tuple.of("queue_" + TOPIC, "test"))
+            .await();
 
         // Wait up to 20s for the 10s cleanup periodic to run and processing to occur
         assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS));
-        assertTrue(processed.get());
-
-        consumer.close();
     }
 }
 

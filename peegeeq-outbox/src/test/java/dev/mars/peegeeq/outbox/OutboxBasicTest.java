@@ -1,7 +1,5 @@
 package dev.mars.peegeeq.outbox;
 
-import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
-
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
  *
@@ -18,40 +16,39 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
  * limitations under the License.
  */
 
-import dev.mars.peegeeq.api.messaging.Message;
-import dev.mars.peegeeq.api.messaging.MessageProducer;
-import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.database.DatabaseService;
+import dev.mars.peegeeq.api.messaging.Message;
+import dev.mars.peegeeq.api.messaging.MessageConsumer;
+import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
-import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
+import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
-import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Basic integration tests for outbox producer and consumer functionality.
@@ -60,18 +57,16 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 @Tag(TestCategories.INTEGRATION)
 @ExtendWith(VertxExtension.class)
 @Testcontainers
-public class OutboxBasicTest {
+class OutboxBasicTest {
 
     @Container
-    private static final PostgreSQLContainer postgres = createPostgresContainer();
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
-        container.withDatabaseName("testdb");
-        container.withUsername("testuser");
-        container.withPassword("testpass");
-        return container;
-    }
+    private static final String[] SYSTEM_PROPERTIES = {
+        "peegeeq.database.host", "peegeeq.database.port", "peegeeq.database.name",
+        "peegeeq.database.username", "peegeeq.database.password", "peegeeq.database.ssl.enabled",
+        "peegeeq.polling-interval"
+    };
 
     private PeeGeeQManager manager;
     private OutboxFactory outboxFactory;
@@ -81,25 +76,22 @@ public class OutboxBasicTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
-        // Use unique topic for each test to avoid interference
         testTopic = "test-topic-" + UUID.randomUUID().toString().substring(0, 8);
 
-        // Set up database connection
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
         System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
         System.setProperty("peegeeq.database.username", postgres.getUsername());
         System.setProperty("peegeeq.database.password", postgres.getPassword());
+        System.setProperty("peegeeq.database.ssl.enabled", "false");
+        System.setProperty("peegeeq.polling-interval", "PT0.5S");
 
-        // Create and start manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("basic-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start();
 
-        // Create factory and components
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, config);
         producer = outboxFactory.createProducer(testTopic, String.class);
@@ -118,24 +110,17 @@ public class OutboxBasicTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
-        
-        // Clear system properties
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
+        for (String prop : SYSTEM_PROPERTIES) {
+            System.clearProperty(prop);
+        }
     }
 
     @Test
     void testBasicMessageProducerAndConsumer(VertxTestContext testContext) throws Exception {
         String testMessage = "Hello, Basic Outbox Test!";
-        
-        // Set up consumer first
+
         Checkpoint messageReceived = testContext.checkpoint();
         AtomicInteger receivedCount = new AtomicInteger(0);
         List<String> receivedMessages = new ArrayList<>();
@@ -147,12 +132,7 @@ public class OutboxBasicTest {
             return Future.succeededFuture();
         });
 
-        // Send a message
-        CountDownLatch sendLatch = new CountDownLatch(1);
-        producer.send(testMessage).onComplete(ar -> sendLatch.countDown());
-        assertTrue(sendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
-
-        // Wait for message to be received
+        producer.send(testMessage).await();
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received within timeout");
         assertEquals(1, receivedCount.get(), "Should receive exactly one message");
         assertEquals(testMessage, receivedMessages.get(0), "Should receive the correct message");
@@ -177,15 +157,11 @@ public class OutboxBasicTest {
             return Future.succeededFuture();
         });
 
-        // Send message with headers
-        CountDownLatch sendLatch = new CountDownLatch(1);
-        producer.send(testMessage, headers).onComplete(ar -> sendLatch.countDown());
-        assertTrue(sendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
+        producer.send(testMessage, headers).await();
 
-        // Wait for message and verify
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received within timeout");
         assertEquals(1, receivedMessages.size(), "Should receive exactly one message");
-        
+
         Message<String> receivedMessage = receivedMessages.get(0);
         assertEquals(testMessage, receivedMessage.getPayload(), "Should receive correct payload");
         assertEquals("text/plain", receivedMessage.getHeaders().get("content-type"), "Should preserve content-type header");
@@ -199,7 +175,6 @@ public class OutboxBasicTest {
         Checkpoint messagesReceived = testContext.checkpoint(messageCount);
         List<String> receivedMessages = new ArrayList<>();
 
-        // Set up consumer first
         consumer.subscribe(message -> {
             synchronized (receivedMessages) {
                 receivedMessages.add(message.getPayload());
@@ -208,17 +183,11 @@ public class OutboxBasicTest {
             return Future.succeededFuture();
         });
 
-        // Send multiple messages
-        CountDownLatch sendLatch = new CountDownLatch(messageCount);
         for (int i = 0; i < messageCount; i++) {
             String message = "Basic Test Message " + i;
-            producer.send(message).onComplete(ar -> sendLatch.countDown());
+            producer.send(message).await();
         }
 
-        // Wait for all sends to complete
-        assertTrue(sendLatch.await(10, TimeUnit.SECONDS), "All sends should complete");
-
-        // Wait for all messages to be received
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "All messages should be received within timeout");
         assertEquals(messageCount, receivedMessages.size(), "Should receive all sent messages");
     }
@@ -238,24 +207,17 @@ public class OutboxBasicTest {
             return Future.succeededFuture();
         });
 
-        // Send message with correlation ID
-        CountDownLatch sendLatch = new CountDownLatch(1);
-        producer.send(testMessage, Map.of(), correlationId).onComplete(ar -> sendLatch.countDown());
-        assertTrue(sendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
+        producer.send(testMessage, Map.of(), correlationId).await();
 
-        // Wait for message and verify correlation ID
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received within timeout");
         assertEquals(1, receivedMessages.size(), "Should receive exactly one message");
-        
+
         Message<String> receivedMessage = receivedMessages.get(0);
         assertEquals(testMessage, receivedMessage.getPayload(), "Should receive correct payload");
 
-        // Check correlation ID if the message is a SimpleMessage
-        if (receivedMessage instanceof dev.mars.peegeeq.api.messaging.SimpleMessage) {
-            dev.mars.peegeeq.api.messaging.SimpleMessage<String> simpleMessage =
-                (dev.mars.peegeeq.api.messaging.SimpleMessage<String>) receivedMessage;
-            assertEquals(correlationId, simpleMessage.getCorrelationId(), "Should preserve correlation ID");
-        }
+        // OutboxConsumer stores correlationId in message headers, not the OutboxMessage field
+        assertEquals(correlationId, receivedMessage.getHeaders().get("correlationId"),
+            "Should preserve correlation ID in headers");
     }
 
     @Test
@@ -273,12 +235,8 @@ public class OutboxBasicTest {
             return Future.succeededFuture();
         });
 
-        // Send message with message group
-        CountDownLatch sendLatch = new CountDownLatch(1);
-        producer.send(testMessage, Map.of(), null, messageGroup).onComplete(ar -> sendLatch.countDown());
-        assertTrue(sendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
+        producer.send(testMessage, Map.of(), null, messageGroup).await();
 
-        // Wait for message
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Message should be received within timeout");
         assertEquals(1, receivedMessages.size(), "Should receive exactly one message");
         assertEquals(testMessage, receivedMessages.get(0), "Should receive correct message");

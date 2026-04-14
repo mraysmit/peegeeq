@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.outbox;
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 
 /*
@@ -81,17 +82,7 @@ public class OutboxRetryConcurrencyTest {
     private static final Logger logger = LoggerFactory.getLogger(OutboxRetryConcurrencyTest.class);
 
     @Container
-    private static final PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
-        container.withDatabaseName("peegeeq_concurrency_test");
-        container.withUsername("concurrency_test");
-        container.withPassword("concurrency_test");
-        container.withSharedMemorySize(256 * 1024 * 1024L);
-        container.withReuse(false);
-        return container;
-    }
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private List<MessageProducer<String>> producers;
@@ -200,9 +191,7 @@ public class OutboxRetryConcurrencyTest {
         
         if (manager != null) {
             try {
-                CountDownLatch closeLatch = new CountDownLatch(1);
-                manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-                closeLatch.await(10, TimeUnit.SECONDS);
+                manager.closeReactive().await();
             } catch (Exception e) {
                 logger.warn("Error closing manager: {}", e.getMessage());
             }
@@ -215,6 +204,17 @@ public class OutboxRetryConcurrencyTest {
                 logger.warn("Error closing connection manager: {}", e.getMessage());
             }
         }
+
+        System.clearProperty("peegeeq.database.host");
+        System.clearProperty("peegeeq.database.port");
+        System.clearProperty("peegeeq.database.name");
+        System.clearProperty("peegeeq.database.username");
+        System.clearProperty("peegeeq.database.password");
+        System.clearProperty("peegeeq.queue.max-retries");
+        System.clearProperty("peegeeq.queue.polling-interval");
+        System.clearProperty("peegeeq.database.pool.max-size");
+        System.clearProperty("peegeeq.database.pool.connection-timeout-ms");
+        System.clearProperty("peegeeq.consumer.threads");
 
         logger.info("OutboxRetryConcurrencyTest cleanup completed");
     }
@@ -358,22 +358,14 @@ public class OutboxRetryConcurrencyTest {
      * Verifies that a message was processed exactly once.
      */
     private void verifyMessageProcessedOnce(String expectedPayload) throws Exception {
-        CountDownLatch latch = new CountDownLatch(1);
-        AtomicReference<Integer> countRef = new AtomicReference<>();
-        testReactivePool.withConnection(connection -> {
+        Integer count = testReactivePool.withConnection(connection -> {
             return connection.preparedQuery("SELECT COUNT(*) FROM outbox WHERE payload::text LIKE $1 AND status = 'COMPLETED'")
                 .execute(io.vertx.sqlclient.Tuple.of("%" + expectedPayload + "%"))
                 .map(rowSet -> {
                     io.vertx.sqlclient.Row row = rowSet.iterator().next();
                     return row.getInteger(0);
                 });
-        }).onSuccess(count -> {
-            countRef.set(count);
-            latch.countDown();
-        }).onFailure(e -> latch.countDown());
-
-        assertTrue(latch.await(5, TimeUnit.SECONDS), "Database query should complete");
-        Integer count = countRef.get();
+        }).await();
         assertNotNull(count, "Should have received count from database");
         assertEquals(1, count, "Message should be processed exactly once");
         logger.info("Verified message processed once: {} completed entries found", count);
@@ -557,9 +549,7 @@ public class OutboxRetryConcurrencyTest {
 
         // Verify all messages eventually moved to dead letter queue
         // Use a timer to allow DLQ processing time
-        CountDownLatch dlqLatch = new CountDownLatch(1);
-        vertx.setTimer(2000, timerId -> dlqLatch.countDown());
-        dlqLatch.await(5, TimeUnit.SECONDS);
+        vertx.timer(2000).await();
         verifyAllMessagesInDeadLetterQueue(testMessages);
 
         logger.info("High-load concurrent retry processing test completed successfully");
@@ -575,22 +565,14 @@ public class OutboxRetryConcurrencyTest {
         int foundCount = 0;
 
         for (String message : expectedMessages) {
-            CountDownLatch latch = new CountDownLatch(1);
-            AtomicReference<Integer> countRef = new AtomicReference<>();
-            testReactivePool.withConnection(connection -> {
+            Integer count = testReactivePool.withConnection(connection -> {
                 return connection.preparedQuery("SELECT COUNT(*) FROM dead_letter_queue WHERE payload::text LIKE $1")
                     .execute(io.vertx.sqlclient.Tuple.of("%" + message + "%"))
                     .map(rowSet -> {
                         io.vertx.sqlclient.Row row = rowSet.iterator().next();
                         return row.getInteger(0);
                     });
-            }).onSuccess(count -> {
-                countRef.set(count);
-                latch.countDown();
-            }).onFailure(e -> latch.countDown());
-
-            assertTrue(latch.await(5, TimeUnit.SECONDS), "Database query should complete");
-            Integer count = countRef.get();
+            }).await();
             if (count != null && count > 0) {
                 foundCount++;
             }
@@ -606,7 +588,6 @@ public class OutboxRetryConcurrencyTest {
      * Verifies retry count consistency after concurrent updates.
      */
     private void verifyRetryCountConsistency(String expectedPayload, int expectedRetryCount) throws Exception {
-        CountDownLatch latch = new CountDownLatch(1);
         testReactivePool.withConnection(connection -> {
             return connection.preparedQuery("SELECT retry_count, status FROM outbox WHERE payload::text LIKE $1 ORDER BY created_at DESC LIMIT 1")
                 .execute(io.vertx.sqlclient.Tuple.of("%" + expectedPayload + "%"))
@@ -623,9 +604,7 @@ public class OutboxRetryConcurrencyTest {
                         "Retry count should be consistent despite concurrent updates");
                     return null;
                 });
-        }).onComplete(ar -> latch.countDown());
-
-        assertTrue(latch.await(5, TimeUnit.SECONDS), "Database query should complete");
+        }).await();
     }
 }
 

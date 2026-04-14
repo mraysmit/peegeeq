@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.outbox;
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 
 /*
@@ -78,17 +79,7 @@ public class OutboxRetryResilienceTest {
     private static final Logger logger = LoggerFactory.getLogger(OutboxRetryResilienceTest.class);
 
     @Container
-    private static final PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
-        container.withDatabaseName("peegeeq_resilience_test");
-        container.withUsername("resilience_test");
-        container.withPassword("resilience_test");
-        container.withSharedMemorySize(256 * 1024 * 1024L);
-        container.withReuse(false);
-        return container;
-    }
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private MessageProducer<String> producer;
@@ -185,11 +176,23 @@ public class OutboxRetryResilienceTest {
         }
 
         if (manager != null) {
-            manager.closeReactive().onComplete(ar -> testContext.completeNow());
+            manager.closeReactive()
+                    .onSuccess(v -> testContext.completeNow())
+                    .onFailure(testContext::failNow);
         } else {
             testContext.completeNow();
         }
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        System.clearProperty("peegeeq.database.host");
+        System.clearProperty("peegeeq.database.port");
+        System.clearProperty("peegeeq.database.name");
+        System.clearProperty("peegeeq.database.username");
+        System.clearProperty("peegeeq.database.password");
+        System.clearProperty("peegeeq.queue.max-retries");
+        System.clearProperty("peegeeq.queue.polling-interval");
+        System.clearProperty("peegeeq.database.pool.min-size");
+        System.clearProperty("peegeeq.database.pool.max-size");
+        System.clearProperty("peegeeq.database.pool.connection-timeout-ms");
         logger.info("OutboxRetryResilienceTest cleanup completed");
     }
 
@@ -232,9 +235,7 @@ public class OutboxRetryResilienceTest {
 
         // Verify message eventually moves to dead letter queue
         // GC-settle: allow time for DLQ processing
-        java.util.concurrent.CountDownLatch dlqWaitLatch = new java.util.concurrent.CountDownLatch(1);
-        vertx.timer(2000).onComplete(ar -> dlqWaitLatch.countDown());
-        dlqWaitLatch.await(5, TimeUnit.SECONDS);
+        vertx.timer(2000).await();
         verifyMessageInDeadLetterQueue(testMessage);
 
         logger.info("Connection timeout resilience test completed successfully");
@@ -285,31 +286,17 @@ public class OutboxRetryResilienceTest {
      * Verifies that a message has been moved to the dead letter queue.
      */
     private void verifyMessageInDeadLetterQueue(String expectedPayload) throws Exception {
-        java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
-        java.util.concurrent.atomic.AtomicReference<Integer> resultRef = new java.util.concurrent.atomic.AtomicReference<>();
-        java.util.concurrent.atomic.AtomicReference<Throwable> errorRef = new java.util.concurrent.atomic.AtomicReference<>();
-
-        testReactivePool.withConnection(connection -> {
+        Integer count = testReactivePool.withConnection(connection -> {
             return connection.preparedQuery("SELECT COUNT(*) FROM dead_letter_queue WHERE payload::text LIKE $1")
                 .execute(io.vertx.sqlclient.Tuple.of("%" + expectedPayload + "%"))
                 .map(rowSet -> {
                     io.vertx.sqlclient.Row row = rowSet.iterator().next();
                     return row.getInteger(0);
                 });
-        }).onSuccess(count -> {
-            resultRef.set(count);
-            latch.countDown();
-        }).onFailure(err -> {
-            errorRef.set(err);
-            latch.countDown();
-        });
+        }).await();
 
-        assertTrue(latch.await(5, TimeUnit.SECONDS), "DLQ query should complete");
-        if (errorRef.get() != null) {
-            fail("DLQ query failed: " + errorRef.get().getMessage());
-        }
-        assertTrue(resultRef.get() > 0, "Message should be found in dead letter queue");
-        logger.info("Verified message in dead letter queue: {} entries found", resultRef.get());
+        assertTrue(count > 0, "Message should be found in dead letter queue");
+        logger.info("Verified message in dead letter queue: {} entries found", count);
     }
 
     @Test
@@ -445,9 +432,6 @@ public class OutboxRetryResilienceTest {
      * Verifies that retry state remains consistent after transaction rollbacks.
      */
     private void verifyRetryStateConsistency(String expectedPayload) throws Exception {
-        java.util.concurrent.CountDownLatch latch = new java.util.concurrent.CountDownLatch(1);
-        java.util.concurrent.atomic.AtomicReference<Throwable> errorRef = new java.util.concurrent.atomic.AtomicReference<>();
-
         testReactivePool.withConnection(connection -> {
             return connection.preparedQuery("SELECT retry_count, status FROM outbox WHERE payload::text LIKE $1 ORDER BY created_at DESC LIMIT 1")
                 .execute(io.vertx.sqlclient.Tuple.of("%" + expectedPayload + "%"))
@@ -470,16 +454,7 @@ public class OutboxRetryResilienceTest {
                     }
                     return null;
                 });
-        }).onSuccess(v -> latch.countDown())
-          .onFailure(err -> {
-              errorRef.set(err);
-              latch.countDown();
-          });
-
-        assertTrue(latch.await(5, TimeUnit.SECONDS), "Retry state query should complete");
-        if (errorRef.get() != null) {
-            fail("Retry state query failed: " + errorRef.get().getMessage());
-        }
+        }).await();
     }
 
     /**
@@ -508,9 +483,7 @@ public class OutboxRetryResilienceTest {
         }
 
         // GC-settle: wait for connections to be acquired
-        java.util.concurrent.CountDownLatch settleLatch = new java.util.concurrent.CountDownLatch(1);
-        io.vertx.core.Vertx.vertx().setTimer(500, id -> settleLatch.countDown());
-        settleLatch.await(5, TimeUnit.SECONDS);
+        io.vertx.core.Vertx.vertx().timer(500).await();
         logger.info("Connection pool exhaustion simulation initiated");
     }
 }

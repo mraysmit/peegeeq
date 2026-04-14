@@ -24,6 +24,7 @@ import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
@@ -43,7 +44,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.Set;
 import java.util.UUID;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -62,15 +62,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 public class OutboxParallelProcessingTest {
 
     @Container
-    private static final PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
-        container.withDatabaseName("testdb");
-        container.withUsername("testuser");
-        container.withPassword("testpass");
-        return container;
-    }
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private OutboxFactory outboxFactory;
@@ -148,7 +140,9 @@ public class OutboxParallelProcessingTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.closeReactive().onComplete(ar -> tearDownContext.completeNow());
+            manager.closeReactive()
+                    .onSuccess(v -> tearDownContext.completeNow())
+                    .onFailure(tearDownContext::failNow);
             assertTrue(tearDownContext.awaitCompletion(10, TimeUnit.SECONDS));
         } else {
             tearDownContext.completeNow();
@@ -197,9 +191,7 @@ public class OutboxParallelProcessingTest {
             producer.send("Parallel message " + i).onFailure(testContext::failNow);
             System.out.println("Sent message " + i);
             // Small delay to ensure messages are persisted but create backlog
-            CountDownLatch smallDelay = new CountDownLatch(1);
-            vertx.timer(10).onComplete(ar -> smallDelay.countDown());
-            smallDelay.await(5, TimeUnit.SECONDS);
+            vertx.timer(10).await();
         }
         System.out.println("All messages sent, waiting for parallel processing...");
 
@@ -291,7 +283,6 @@ public class OutboxParallelProcessingTest {
 
         // Create multiple producers sending concurrently
         ExecutorService executor = Executors.newFixedThreadPool(producerCount);
-        CountDownLatch producerLatch = new CountDownLatch(producerCount);
         
         for (int p = 0; p < producerCount; p++) {
             final int producerId = p;
@@ -300,23 +291,19 @@ public class OutboxParallelProcessingTest {
                     MessageProducer<String> concurrentProducer = outboxFactory.createProducer(testTopic, String.class);
                     for (int m = 0; m < messagesPerProducer; m++) {
                         String message = "Producer-" + producerId + "-Message-" + m;
-                        CountDownLatch sendLatch = new CountDownLatch(1);
-                        concurrentProducer.send(message).onComplete(ar -> sendLatch.countDown());
-                        sendLatch.await(5, TimeUnit.SECONDS);
+                        concurrentProducer.send(message).await();
                         System.out.println("Producer " + producerId + " sent message " + m);
                     }
                     concurrentProducer.close();
                 } catch (Exception e) {
                     throw new RuntimeException("Producer " + producerId + " failed", e);
-                } finally {
-                    producerLatch.countDown();
                 }
             });
         }
 
         // Wait for all producers to complete
-        assertTrue(producerLatch.await(30, TimeUnit.SECONDS), "All producers should complete");
         executor.shutdown();
+        assertTrue(executor.awaitTermination(30, TimeUnit.SECONDS), "All producers should complete");
         System.out.println("All concurrent producers completed");
 
         // Wait for all messages to be processed

@@ -22,6 +22,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -35,16 +36,12 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.util.ArrayList;
 import java.util.List;
-
-import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -58,41 +55,25 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 public class MultiTenantSchemaIsolationTest {
 
-    private static final Logger logger = LoggerFactory.getLogger(MultiTenantSchemaIsolationTest.class);
-
     @Container
-    private static final PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
-        container.withDatabaseName("multitenant_test");
-        container.withUsername("test_user");
-        container.withPassword("test_pass");
-        return container;
-    }
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager managerTenantA;
     private PeeGeeQManager managerTenantB;
     private OutboxFactory factoryTenantA;
     private OutboxFactory factoryTenantB;
+    private final List<AutoCloseable> resources = new CopyOnWriteArrayList<>();
 
     @BeforeEach
     void setUp() {
-        logger.info("========== SETUP STARTING ==========");
-        
         // Initialize two separate tenant schemas
         String schemaTenantA = "tenant_a";
         String schemaTenantB = "tenant_b";
 
-        logger.info("About to initialize schema for Tenant A: {}", schemaTenantA);
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, schemaTenantA,
                 SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
-        logger.info("Finished initializing schema for Tenant A");
-
-        logger.info("About to initialize schema for Tenant B: {}", schemaTenantB);
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, schemaTenantB,
                 SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
-        logger.info("Finished initializing schema for Tenant B");
 
         // Create configuration for Tenant A using programmatic constructor
         PeeGeeQConfiguration configTenantA = new PeeGeeQConfiguration(
@@ -123,25 +104,26 @@ public class MultiTenantSchemaIsolationTest {
         // Create factories for both tenants
         factoryTenantA = new OutboxFactory(new PgDatabaseService(managerTenantA), configTenantA);
         factoryTenantB = new OutboxFactory(new PgDatabaseService(managerTenantB), configTenantB);
-
-        logger.info("========== SETUP COMPLETE ==========");
     }
 
     @AfterEach
     void tearDown(VertxTestContext tearDownContext) throws Exception {
+        for (AutoCloseable resource : resources) {
+            resource.close();
+        }
+        resources.clear();
         if (factoryTenantA != null) factoryTenantA.close();
         if (factoryTenantB != null) factoryTenantB.close();
-        CountDownLatch closeLatch = new CountDownLatch(1);
-        io.vertx.core.Future<Void> closeChain = io.vertx.core.Future.succeededFuture();
+        Future<Void> closeChain = Future.succeededFuture();
         if (managerTenantA != null) {
             closeChain = closeChain.compose(v -> managerTenantA.closeReactive());
         }
         if (managerTenantB != null) {
             closeChain = closeChain.compose(v -> managerTenantB.closeReactive());
         }
-        closeChain.onComplete(ar -> {
-            tearDownContext.completeNow();
-        });
+        closeChain
+                .onSuccess(v -> tearDownContext.completeNow())
+                .onFailure(tearDownContext::failNow);
         assertTrue(tearDownContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
@@ -149,11 +131,13 @@ public class MultiTenantSchemaIsolationTest {
     void testMessageIsolationBetweenTenants(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Tenant A sends a message
         MessageProducer<String> producerA = factoryTenantA.createProducer("test-topic", String.class);
+        resources.add(producerA);
         producerA.send("tenant-a-message").onFailure(testContext::failNow);
 
         // Tenant B creates a consumer - should NOT receive tenant A's message
         MessageConsumer<String> consumerB = factoryTenantB.createConsumer("test-topic", String.class);
-        List<String> receivedMessagesB = new ArrayList<>();
+        resources.add(consumerB);
+        List<String> receivedMessagesB = new CopyOnWriteArrayList<>();
 
         consumerB.subscribe(message -> {
             receivedMessagesB.add(message.getPayload());
@@ -161,19 +145,20 @@ public class MultiTenantSchemaIsolationTest {
         });
 
         // Wait a bit to ensure no messages are received
-        CountDownLatch waitLatch = new CountDownLatch(1);
-        vertx.timer(3000).onComplete(ar -> waitLatch.countDown());
-        waitLatch.await(5, TimeUnit.SECONDS);
+        vertx.timer(3000).await();
         assertTrue(receivedMessagesB.isEmpty(), "Tenant B should have no messages");
 
         // Tenant A creates a consumer - should receive its own message
         MessageConsumer<String> consumerA = factoryTenantA.createConsumer("test-topic", String.class);
+        resources.add(consumerA);
         Checkpoint messageReceivedA = testContext.checkpoint();
-        List<String> receivedMessagesA = new ArrayList<>();
+        List<String> receivedMessagesA = new CopyOnWriteArrayList<>();
 
         consumerA.subscribe(message -> {
             receivedMessagesA.add(message.getPayload());
-            messageReceivedA.flag();
+            if (receivedMessagesA.size() == 1) {
+                messageReceivedA.flag();
+            }
             return Future.succeededFuture();
         });
 
@@ -181,35 +166,29 @@ public class MultiTenantSchemaIsolationTest {
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Tenant A should receive its own message");
         assertEquals(1, receivedMessagesA.size(), "Tenant A should have exactly 1 message");
         assertEquals("tenant-a-message", receivedMessagesA.get(0), "Tenant A should receive correct message");
-
-        consumerA.close();
-        consumerB.close();
-        producerA.close();
     }
 
     @Test
     void testStatsIsolationBetweenTenants() throws Exception {
         // Tenant A sends 5 messages — await each Future to ensure persistence
         MessageProducer<String> producerA = factoryTenantA.createProducer("stats-topic", String.class);
+        resources.add(producerA);
         Future<Void> chainA = Future.succeededFuture();
         for (int i = 0; i < 5; i++) {
             final int idx = i;
             chainA = chainA.compose(v -> producerA.send("tenant-a-message-" + idx));
         }
-        CountDownLatch latchA = new CountDownLatch(1);
-        chainA.onComplete(ar -> latchA.countDown());
-        assertTrue(latchA.await(10, TimeUnit.SECONDS), "Tenant A sends should complete");
+        chainA.await();
 
         // Tenant B sends 3 messages — await each Future to ensure persistence
         MessageProducer<String> producerB = factoryTenantB.createProducer("stats-topic", String.class);
+        resources.add(producerB);
         Future<Void> chainB = Future.succeededFuture();
         for (int i = 0; i < 3; i++) {
             final int idx = i;
             chainB = chainB.compose(v -> producerB.send("tenant-b-message-" + idx));
         }
-        CountDownLatch latchB = new CountDownLatch(1);
-        chainB.onComplete(ar -> latchB.countDown());
-        assertTrue(latchB.await(10, TimeUnit.SECONDS), "Tenant B sends should complete");
+        chainB.await();
 
         // Verify stats are isolated
         var statsA = factoryTenantA.getStats("stats-topic");
@@ -217,9 +196,6 @@ public class MultiTenantSchemaIsolationTest {
 
         assertEquals(5, statsA.getPendingMessages(), "Tenant A should have 5 pending messages");
         assertEquals(3, statsB.getPendingMessages(), "Tenant B should have 3 pending messages");
-
-        producerA.close();
-        producerB.close();
     }
 
     @Test
@@ -228,7 +204,9 @@ public class MultiTenantSchemaIsolationTest {
         String sharedTopicName = "shared-topic-name";
 
         MessageProducer<String> producerA = factoryTenantA.createProducer(sharedTopicName, String.class);
+        resources.add(producerA);
         MessageProducer<String> producerB = factoryTenantB.createProducer(sharedTopicName, String.class);
+        resources.add(producerB);
 
         producerA.send("message-from-tenant-a").onFailure(testContext::failNow);
         producerB.send("message-from-tenant-b").onFailure(testContext::failNow);
@@ -239,21 +217,27 @@ public class MultiTenantSchemaIsolationTest {
 
         // Tenant A consumer should only receive tenant A's message
         MessageConsumer<String> consumerA = factoryTenantA.createConsumer(sharedTopicName, String.class);
-        List<String> receivedA = new ArrayList<>();
+        resources.add(consumerA);
+        List<String> receivedA = new CopyOnWriteArrayList<>();
 
         consumerA.subscribe(message -> {
             receivedA.add(message.getPayload());
-            tenantAReceived.flag();
+            if (receivedA.size() == 1) {
+                tenantAReceived.flag();
+            }
             return Future.succeededFuture();
         });
 
         // Tenant B consumer should only receive tenant B's message
         MessageConsumer<String> consumerB = factoryTenantB.createConsumer(sharedTopicName, String.class);
-        List<String> receivedB = new ArrayList<>();
+        resources.add(consumerB);
+        List<String> receivedB = new CopyOnWriteArrayList<>();
 
         consumerB.subscribe(message -> {
             receivedB.add(message.getPayload());
-            tenantBReceived.flag();
+            if (receivedB.size() == 1) {
+                tenantBReceived.flag();
+            }
             return Future.succeededFuture();
         });
 
@@ -262,11 +246,6 @@ public class MultiTenantSchemaIsolationTest {
         assertEquals("message-from-tenant-a", receivedA.get(0), "Tenant A should receive its own message");
         assertEquals(1, receivedB.size(), "Tenant B should receive exactly 1 message");
         assertEquals("message-from-tenant-b", receivedB.get(0), "Tenant B should receive its own message");
-
-        consumerA.close();
-        consumerB.close();
-        producerA.close();
-        producerB.close();
     }
 }
 

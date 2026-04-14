@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.outbox;
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 
 import dev.mars.peegeeq.api.database.DatabaseService;
@@ -31,7 +32,6 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -45,15 +45,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 class OutboxConsumerCoverageTest {
 
     @Container
-    private static final PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
-        container.withDatabaseName("testdb");
-        container.withUsername("testuser");
-        container.withPassword("testpass");
-        return container;
-    }
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private OutboxFactory outboxFactory;
@@ -104,11 +96,19 @@ class OutboxConsumerCoverageTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.closeReactive().onComplete(ar -> tearDownContext.completeNow());
+            manager.closeReactive()
+                    .onSuccess(v -> tearDownContext.completeNow())
+                    .onFailure(tearDownContext::failNow);
             assertTrue(tearDownContext.awaitCompletion(10, TimeUnit.SECONDS));
         } else {
             tearDownContext.completeNow();
         }
+        System.clearProperty("peegeeq.database.host");
+        System.clearProperty("peegeeq.database.port");
+        System.clearProperty("peegeeq.database.name");
+        System.clearProperty("peegeeq.database.username");
+        System.clearProperty("peegeeq.database.password");
+        System.clearProperty("peegeeq.queue.polling-interval");
     }
 
     @Test
@@ -144,22 +144,18 @@ class OutboxConsumerCoverageTest {
     @Test
     void testMessageDeletedDuringProcessing(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
         consumer = outboxFactory.createConsumer(testTopic, String.class);
-        CountDownLatch startSignal = new CountDownLatch(1);
-        CountDownLatch continueGate = new CountDownLatch(1);
+        io.vertx.core.Promise<Void> startSignal = io.vertx.core.Promise.promise();
+        io.vertx.core.Promise<Void> continueGate = io.vertx.core.Promise.promise();
 
         consumer.subscribe(message -> {
-            startSignal.countDown();
-            try {
-                continueGate.await(5, TimeUnit.SECONDS);
-            } catch (Exception e) {
-                Thread.currentThread().interrupt();
-            }
+            startSignal.tryComplete();
+            continueGate.future().await();
             return Future.succeededFuture();
         });
 
         producer.send("test-delete").onFailure(testContext::failNow);
 
-        assertTrue(startSignal.await(5, TimeUnit.SECONDS));
+        startSignal.future().await();
 
         // Query DB for ID
         long id;
@@ -178,7 +174,7 @@ class OutboxConsumerCoverageTest {
             stmt.executeUpdate();
         }
 
-        continueGate.countDown(); // Resume processing
+        continueGate.tryComplete(); // Resume processing
 
         testContext.completeNow();
     }
@@ -244,8 +240,8 @@ class OutboxConsumerCoverageTest {
             }
         }
 
-        CountDownLatch firstHandled = new CountDownLatch(1);
-        CountDownLatch bothHandled = new CountDownLatch(1);
+        io.vertx.core.Promise<Void> firstHandled = io.vertx.core.Promise.promise();
+        io.vertx.core.Promise<Void> bothHandled = io.vertx.core.Promise.promise();
         AtomicInteger handledCount = new AtomicInteger(0);
 
         OutboxConsumerConfig singleThreadConfig = OutboxConsumerConfig.builder()
@@ -262,15 +258,16 @@ class OutboxConsumerCoverageTest {
                 try (ResultSet ignored = lockStmt.executeQuery()) {
                     consumer.subscribe(message -> {
                         int count = handledCount.incrementAndGet();
-                        firstHandled.countDown();
+                        firstHandled.tryComplete();
                         if (count >= 2) {
-                            bothHandled.countDown();
+                            bothHandled.tryComplete();
                         }
                         return Future.succeededFuture();
                     });
 
-                    assertTrue(firstHandled.await(5, TimeUnit.SECONDS));
-                    assertFalse(bothHandled.await(800, TimeUnit.MILLISECONDS),
+                    firstHandled.future().await();
+                    vertx.timer(800).await();
+                    assertFalse(bothHandled.future().isComplete(),
                             "Second message must wait while first completion update is blocked");
                 }
             }
@@ -278,7 +275,7 @@ class OutboxConsumerCoverageTest {
             lockConn.commit();
         }
 
-        assertTrue(bothHandled.await(5, TimeUnit.SECONDS));
+        bothHandled.future().await();
         assertEquals(2, handledCount.get(), "Both messages should be processed eventually");
         testContext.completeNow();
     }
