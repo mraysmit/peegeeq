@@ -111,7 +111,9 @@ public class OutboxCompletableFutureExceptionTest {
         if (consumer != null) consumer.close();
         if (producer != null) producer.close();
         if (manager != null) {
-            manager.closeReactive().onComplete(ar -> tearDownContext.completeNow());
+            manager.closeReactive()
+                    .onSuccess(v -> tearDownContext.completeNow())
+                    .onFailure(tearDownContext::failNow);
             assertTrue(tearDownContext.awaitCompletion(10, TimeUnit.SECONDS));
         } else {
             tearDownContext.completeNow();

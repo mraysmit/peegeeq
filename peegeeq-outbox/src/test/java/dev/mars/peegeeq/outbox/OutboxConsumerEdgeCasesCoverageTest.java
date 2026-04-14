@@ -9,6 +9,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -25,7 +26,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.util.UUID;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -44,16 +44,14 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 @ExtendWith(VertxExtension.class)
 class OutboxConsumerEdgeCasesCoverageTest {
 
-    @Container
-    private static final PostgreSQLContainer postgres = createPostgresContainer();
+    private static final String[] SYSTEM_PROPERTIES = {
+        "peegeeq.database.host", "peegeeq.database.port", "peegeeq.database.name",
+        "peegeeq.database.username", "peegeeq.database.password", "peegeeq.database.ssl.enabled",
+        "peegeeq.queue.max-retries", "peegeeq.queue.polling-interval"
+    };
 
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
-        container.withDatabaseName("testdb");
-        container.withUsername("testuser");
-        container.withPassword("testpass");
-        return container;
-    }
+    @Container
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private OutboxFactory outboxFactory;
@@ -75,6 +73,7 @@ class OutboxConsumerEdgeCasesCoverageTest {
         System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
         System.setProperty("peegeeq.database.username", postgres.getUsername());
         System.setProperty("peegeeq.database.password", postgres.getPassword());
+        System.setProperty("peegeeq.database.ssl.enabled", "false");
         System.setProperty("peegeeq.queue.max-retries", "2");
         System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
 
@@ -102,9 +101,10 @@ class OutboxConsumerEdgeCasesCoverageTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
+        }
+        for (String prop : SYSTEM_PROPERTIES) {
+            System.clearProperty(prop);
         }
     }
 
@@ -114,6 +114,7 @@ class OutboxConsumerEdgeCasesCoverageTest {
      */
     @Test
     void testShutdownRaceConditionDuringPolling(Vertx vertx, VertxTestContext testContext) throws Exception {
+        Checkpoint shutdownCheckpoint = testContext.checkpoint();
         AtomicInteger messagesProcessed = new AtomicInteger(0);
 
         consumer.subscribe(message -> {
@@ -122,11 +123,7 @@ class OutboxConsumerEdgeCasesCoverageTest {
         });
 
         // Send a message
-        CountDownLatch sendLatch = new CountDownLatch(1);
-        producer.send("test-data").onComplete(ar -> sendLatch.countDown());
-        assertTrue(sendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
-
-        Checkpoint shutdownCheckpoint = testContext.checkpoint();
+        producer.send("test-data").await();
         vertx.setTimer(50, id -> {
             consumer.close(); // This should trigger closed.get() checks
             vertx.setTimer(200, id2 -> {
@@ -150,16 +147,16 @@ class OutboxConsumerEdgeCasesCoverageTest {
 
         consumer.subscribe(message -> {
             int attempt = attemptCount.incrementAndGet();
-            firstAttemptCheckpoint.flag();
+            if (attempt == 1) {
+                firstAttemptCheckpoint.flag();
+            }
             
             // Always fail to trigger retry and eventual DLQ
             throw new RuntimeException("INTENTIONAL FAILURE for DLQ test");
         });
 
         // Send message
-        CountDownLatch dlqSendLatch = new CountDownLatch(1);
-        producer.send("test-data").onComplete(ar -> dlqSendLatch.countDown());
-        assertTrue(dlqSendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
+        producer.send("test-data").await();
 
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should process message at least once");
 
@@ -186,11 +183,9 @@ class OutboxConsumerEdgeCasesCoverageTest {
         });
 
         // Send multiple messages
-        CountDownLatch execSendLatch = new CountDownLatch(3);
-        producer.send("message1").onComplete(ar -> execSendLatch.countDown());
-        producer.send("message2").onComplete(ar -> execSendLatch.countDown());
-        producer.send("message3").onComplete(ar -> execSendLatch.countDown());
-        assertTrue(execSendLatch.await(5, TimeUnit.SECONDS), "All sends should complete");
+        producer.send("message1").await();
+        producer.send("message2").await();
+        producer.send("message3").await();
 
         // Wait for first message
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should process first message");
@@ -215,9 +210,7 @@ class OutboxConsumerEdgeCasesCoverageTest {
             throw new RuntimeException("INTENTIONAL FAILURE for retry test");
         });
 
-        CountDownLatch retrySendLatch = new CountDownLatch(1);
-        producer.send("test").onComplete(ar -> retrySendLatch.countDown());
-        assertTrue(retrySendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
+        producer.send("test").await();
 
         // Wait for retries
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should process message multiple times");
@@ -239,9 +232,7 @@ class OutboxConsumerEdgeCasesCoverageTest {
             throw new RuntimeException("INTENTIONAL FAILURE to trigger retries and DLQ");
         });
 
-        CountDownLatch dlqPoolSendLatch = new CountDownLatch(1);
-        producer.send("test-data").onComplete(ar -> dlqPoolSendLatch.countDown());
-        assertTrue(dlqPoolSendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
+        producer.send("test-data").await();
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should complete all retry attempts");
 
         // Close consumer to trigger pool closure during DLQ
@@ -267,11 +258,9 @@ class OutboxConsumerEdgeCasesCoverageTest {
         });
 
         // Send multiple messages
-        CountDownLatch checkpointSendLatch = new CountDownLatch(5);
         for (int i = 0; i < 5; i++) {
-            producer.send("message-" + i).onComplete(ar -> checkpointSendLatch.countDown());
+            producer.send("message-" + i).await();
         }
-        assertTrue(checkpointSendLatch.await(5, TimeUnit.SECONDS), "All sends should complete");
 
         // Wait for processing to start
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should start processing");
@@ -314,9 +303,7 @@ class OutboxConsumerEdgeCasesCoverageTest {
             return promise.future();
         });
 
-        CountDownLatch scenarioSendLatch = new CountDownLatch(1);
-        producer.send("test-message").onComplete(ar -> scenarioSendLatch.countDown());
-        assertTrue(scenarioSendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
+        producer.send("test-message").await();
         
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should start processing");
         activeConsumer.close(); // Close while processing

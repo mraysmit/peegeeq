@@ -23,6 +23,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -58,15 +59,7 @@ public class OutboxResourceLeakDetectionTest {
     private static final Logger logger = LoggerFactory.getLogger(OutboxResourceLeakDetectionTest.class);
 
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
-        container.withDatabaseName("peegeeq_test");
-        container.withUsername("peegeeq");
-        container.withPassword("peegeeq");
-        return container;
-    }
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private QueueFactory queueFactory;
@@ -117,6 +110,13 @@ public class OutboxResourceLeakDetectionTest {
         System.err.println("=== OutboxResourceLeakDetectionTest.tearDown() STARTED ===");
         System.err.flush();
 
+        // Clean up system properties set in setUp
+        System.clearProperty("peegeeq.database.host");
+        System.clearProperty("peegeeq.database.port");
+        System.clearProperty("peegeeq.database.name");
+        System.clearProperty("peegeeq.database.username");
+        System.clearProperty("peegeeq.database.password");
+
         if (queueFactory != null) {
             try {
                 queueFactory.close();
@@ -127,14 +127,12 @@ public class OutboxResourceLeakDetectionTest {
 
         if (manager != null) {
             manager.closeReactive()
-                .onComplete(ar -> {
-                    if (ar.failed()) {
-                        logger.error("Error closing manager", ar.cause());
-                    }
+                .onSuccess(v -> {
                     System.err.println("=== OutboxResourceLeakDetectionTest.tearDown() COMPLETED ===");
                     System.err.flush();
                     testContext.completeNow();
-                });
+                })
+                .onFailure(testContext::failNow);
         } else {
             System.err.println("=== OutboxResourceLeakDetectionTest.tearDown() COMPLETED ===");
             System.err.flush();

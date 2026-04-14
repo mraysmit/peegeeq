@@ -28,6 +28,7 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -43,7 +44,6 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.util.*;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -102,6 +102,12 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        System.clearProperty("peegeeq.database.host");
+        System.clearProperty("peegeeq.database.port");
+        System.clearProperty("peegeeq.database.name");
+        System.clearProperty("peegeeq.database.username");
+        System.clearProperty("peegeeq.database.password");
+
         if (consumerGroup != null) {
             consumerGroup.stop();
             consumerGroup.close();
@@ -113,9 +119,7 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
     }
 
@@ -139,22 +143,21 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
         consumerGroup.start();
 
         // Send a message that passes the filter
-        producer.send("Accept-this-message").onFailure(testContext::failNow);
+        producer.send("Accept-this-message")
+            .compose(v -> awaitCondition(vertx, () -> processedCount.get() >= 1, 10_000,
+                    "Accepted message should have been processed"))
+            // Allow time for markMessageCompleted to execute
+            .compose(v -> vertx.timer(1000))
+            .compose(timerId -> queryMessageStatusCountsAsync(vertx, testTopic))
+            .onSuccess(statusCounts -> testContext.verify(() -> {
+                int completedCount = statusCounts.getOrDefault("COMPLETED", 0);
+                assertTrue(completedCount >= 1,
+                        "Accepted message should be marked COMPLETED, but statuses were: " + statusCounts);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        // Wait for processing
-        waitForCondition(() -> processedCount.get() >= 1, 10_000,
-                "Accepted message should have been processed");
-
-        // Allow time for markMessageCompleted to execute
-        Thread.sleep(1000);
-
-        // Verify: accepted message should be COMPLETED in database
-        Map<String, Integer> statusCounts = queryMessageStatusCounts(testTopic);
-        int completedCount = statusCounts.getOrDefault("COMPLETED", 0);
-        assertTrue(completedCount >= 1,
-                "Accepted message should be marked COMPLETED, but statuses were: " + statusCounts);
-
-        testContext.completeNow();
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     // ========================================================================
@@ -177,37 +180,37 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
         consumerGroup.start();
 
         // Send a message that will be REJECTED by the group filter
-        producer.send("Reject-this-message").onFailure(testContext::failNow);
+        producer.send("Reject-this-message")
+            .compose(v -> awaitCondition(vertx,
+                    () -> consumerGroup.getStats().getTotalMessagesFiltered() >= 1,
+                    10_000, "Message should have been filtered by group filter"))
+            // Allow time for any status update to execute
+            .compose(v -> vertx.timer(1000))
+            .compose(timerId -> queryMessageStatusCountsAsync(vertx, testTopic))
+            .onSuccess(statusCounts -> testContext.verify(() -> {
+                // Critical assertion: the filtered message must NOT be COMPLETED
+                assertEquals(0, processedCount.get(),
+                        "Filtered message should not have reached the handler");
 
-        // Wait for the polling cycle to pick up and filter the message
-        waitForCondition(
-                () -> consumerGroup.getStats().getTotalMessagesFiltered() >= 1,
-                10_000,
-                "Message should have been filtered by group filter");
+                int completedCount = statusCounts.getOrDefault("COMPLETED", 0);
 
-        // Allow time for any status update to execute
-        Thread.sleep(1000);
+                // THIS IS THE CORE ASSERTION — currently fails due to H2 bug
+                assertEquals(0, completedCount,
+                        "Group-filtered message must NOT be marked COMPLETED. " +
+                        "It should remain PENDING (or a distinct FILTERED status) for reprocessing. " +
+                        "Actual statuses: " + statusCounts);
 
-        // Critical assertion: the filtered message must NOT be COMPLETED
-        assertEquals(0, processedCount.get(),
-                "Filtered message should not have reached the handler");
+                // Filtered messages should still be available for reprocessing
+                int pendingOrFilteredCount = statusCounts.getOrDefault("PENDING", 0)
+                        + statusCounts.getOrDefault("FILTERED", 0);
+                assertTrue(pendingOrFilteredCount >= 1,
+                        "Filtered message should be in PENDING or FILTERED state, but statuses were: " + statusCounts);
 
-        Map<String, Integer> statusCounts = queryMessageStatusCounts(testTopic);
-        int completedCount = statusCounts.getOrDefault("COMPLETED", 0);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        // THIS IS THE CORE ASSERTION — currently fails due to H2 bug
-        assertEquals(0, completedCount,
-                "Group-filtered message must NOT be marked COMPLETED. " +
-                "It should remain PENDING (or a distinct FILTERED status) for reprocessing. " +
-                "Actual statuses: " + statusCounts);
-
-        // Filtered messages should still be available for reprocessing
-        int pendingOrFilteredCount = statusCounts.getOrDefault("PENDING", 0)
-                + statusCounts.getOrDefault("FILTERED", 0);
-        assertTrue(pendingOrFilteredCount >= 1,
-                "Filtered message should be in PENDING or FILTERED state, but statuses were: " + statusCounts);
-
-        testContext.completeNow();
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     @Test
@@ -224,29 +227,29 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
         consumerGroup.start();
 
         // Send a message that no consumer will accept ("B" doesn't match "A" filter)
-        producer.send("B").onFailure(testContext::failNow);
+        producer.send("B")
+            .compose(v -> awaitCondition(vertx,
+                    () -> consumerGroup.getStats().getTotalMessagesFiltered() >= 1,
+                    10_000, "Message should have been filtered (no eligible consumer)"))
+            // Allow time for any status update to execute
+            .compose(v -> vertx.timer(1000))
+            .compose(timerId -> queryMessageStatusCountsAsync(vertx, testTopic))
+            .onSuccess(statusCounts -> testContext.verify(() -> {
+                assertEquals(0, processedCount.get(),
+                        "No-eligible-consumer message should not reach any handler");
 
-        // Wait for the polling cycle to process and filter
-        waitForCondition(
-                () -> consumerGroup.getStats().getTotalMessagesFiltered() >= 1,
-                10_000,
-                "Message should have been filtered (no eligible consumer)");
+                int completedCount = statusCounts.getOrDefault("COMPLETED", 0);
 
-        // Allow time for any status update to execute
-        Thread.sleep(1000);
+                // THIS IS THE CORE ASSERTION — currently fails due to H2 bug
+                assertEquals(0, completedCount,
+                        "Message with no eligible consumer must NOT be marked COMPLETED. " +
+                        "Actual statuses: " + statusCounts);
 
-        assertEquals(0, processedCount.get(),
-                "No-eligible-consumer message should not reach any handler");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        Map<String, Integer> statusCounts = queryMessageStatusCounts(testTopic);
-        int completedCount = statusCounts.getOrDefault("COMPLETED", 0);
-
-        // THIS IS THE CORE ASSERTION — currently fails due to H2 bug
-        assertEquals(0, completedCount,
-                "Message with no eligible consumer must NOT be marked COMPLETED. " +
-                "Actual statuses: " + statusCounts);
-
-        testContext.completeNow();
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     @Test
@@ -275,20 +278,22 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
         consumerGroup2.start();
 
         // Send a TypeB message — group 1 should filter it, group 2 should process it
-        producer.send("TypeB-important-event").onFailure(testContext::failNow);
+        producer.send("TypeB-important-event")
+            .compose(v -> awaitCondition(vertx, () -> group2Processed.get() >= 1, 10_000,
+                    "Group 2 should have processed the TypeB message"))
+            .onSuccess(v -> testContext.verify(() -> {
+                assertEquals(0, group1Processed.get(),
+                        "Group 1 should not have processed TypeB message");
+                assertTrue(group2Processed.get() >= 1,
+                        "Group 2 should have processed the TypeB message that group 1 filtered");
 
-        // Wait for group 2 to process
-        waitForCondition(() -> group2Processed.get() >= 1, 10_000,
-                "Group 2 should have processed the TypeB message");
+                consumerGroup2.stop();
+                consumerGroup2.close();
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
 
-        assertEquals(0, group1Processed.get(),
-                "Group 1 should not have processed TypeB message");
-        assertTrue(group2Processed.get() >= 1,
-                "Group 2 should have processed the TypeB message that group 1 filtered");
-
-        consumerGroup2.stop();
-        consumerGroup2.close();
-        testContext.completeNow();
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     // ========================================================================
@@ -315,17 +320,29 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
         return counts;
     }
 
+    private Future<Map<String, Integer>> queryMessageStatusCountsAsync(Vertx vertx, String topic) {
+        return vertx.executeBlocking(() -> queryMessageStatusCounts(topic));
+    }
+
     /**
-     * Waits for a condition to become true, polling every 100ms.
+     * Asynchronously awaits a condition using Vert.x timers instead of Thread.sleep polling.
      */
-    private void waitForCondition(java.util.function.BooleanSupplier condition,
-                                  long timeoutMillis, String failureMessage) throws InterruptedException {
+    private Future<Void> awaitCondition(Vertx vertx, java.util.function.BooleanSupplier condition,
+                                         long timeoutMillis, String failureMessage) {
+        Promise<Void> promise = Promise.promise();
         long deadline = System.currentTimeMillis() + timeoutMillis;
-        while (!condition.getAsBoolean()) {
-            if (System.currentTimeMillis() > deadline) {
-                fail(failureMessage + " (timed out after " + timeoutMillis + "ms)");
-            }
-            Thread.sleep(100);
+        checkCondition(vertx, condition, deadline, failureMessage, promise);
+        return promise.future();
+    }
+
+    private void checkCondition(Vertx vertx, java.util.function.BooleanSupplier condition,
+                                long deadline, String failureMessage, Promise<Void> promise) {
+        if (condition.getAsBoolean()) {
+            promise.complete();
+        } else if (System.currentTimeMillis() > deadline) {
+            promise.fail(new AssertionError(failureMessage + " (timed out)"));
+        } else {
+            vertx.timer(100).onSuccess(id -> checkCondition(vertx, condition, deadline, failureMessage, promise));
         }
     }
 }

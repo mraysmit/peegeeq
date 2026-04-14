@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.outbox;
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 
 /*
@@ -43,7 +44,6 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.io.IOException;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -64,15 +64,7 @@ public class OutboxDirectExceptionHandlingTest {
     private static final Logger logger = LoggerFactory.getLogger(OutboxDirectExceptionHandlingTest.class);
 
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
-        container.withDatabaseName("peegeeq_test");
-        container.withUsername("test");
-        container.withPassword("test");
-        return container;
-    }
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private MessageProducer<String> producer;
@@ -111,10 +103,15 @@ public class OutboxDirectExceptionHandlingTest {
         if (consumer != null) consumer.close();
         if (producer != null) producer.close();
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
+        System.clearProperty("peegeeq.database.host");
+        System.clearProperty("peegeeq.database.port");
+        System.clearProperty("peegeeq.database.name");
+        System.clearProperty("peegeeq.database.username");
+        System.clearProperty("peegeeq.database.password");
+        System.clearProperty("peegeeq.queue.max-retries");
+        System.clearProperty("peegeeq.queue.polling-interval");
     }
 
     @Test

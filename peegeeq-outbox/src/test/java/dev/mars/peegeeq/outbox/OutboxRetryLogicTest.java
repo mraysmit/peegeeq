@@ -40,6 +40,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -62,15 +63,7 @@ public class OutboxRetryLogicTest {
     private static final Logger logger = LoggerFactory.getLogger(OutboxRetryLogicTest.class);
 
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
-        container.withDatabaseName("peegeeq_test");
-        container.withUsername("test");
-        container.withPassword("test");
-        return container;
-    }
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private QueueFactory factory;
@@ -100,8 +93,18 @@ public class OutboxRetryLogicTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
+        System.clearProperty("peegeeq.database.host");
+        System.clearProperty("peegeeq.database.port");
+        System.clearProperty("peegeeq.database.name");
+        System.clearProperty("peegeeq.database.username");
+        System.clearProperty("peegeeq.database.password");
+        System.clearProperty("peegeeq.queue.max-retries");
+        System.clearProperty("peegeeq.queue.polling-interval");
+
         if (manager != null) {
-            manager.closeReactive().onComplete(ar -> testContext.completeNow());
+            manager.closeReactive()
+                    .onSuccess(v -> testContext.completeNow())
+                    .onFailure(testContext::failNow);
         } else {
             testContext.completeNow();
         }

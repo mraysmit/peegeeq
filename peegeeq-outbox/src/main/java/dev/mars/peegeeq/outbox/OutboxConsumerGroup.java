@@ -470,22 +470,8 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
             // Stop all members
             members.values().forEach(OutboxConsumerGroupMember::stop);
 
-            // Stop the underlying consumer — compose closeAsync future
-            Future<Void> consumerClose;
-            if (underlyingConsumer != null) {
-                underlyingConsumer.unsubscribe();
-                if (underlyingConsumer instanceof OutboxConsumer<?> oc) {
-                    consumerClose = oc.closeAsync()
-                            .onFailure(err -> logger.warn("Error closing outbox consumer for group '{}': {}",
-                                    groupName, err.getMessage()));
-                } else {
-                    underlyingConsumer.close();
-                    consumerClose = Future.succeededFuture();
-                }
-                underlyingConsumer = null;
-            } else {
-                consumerClose = Future.succeededFuture();
-            }
+            Future<Void> consumerClose = closeUnderlyingConsumerAsync(
+                    "Error closing outbox consumer for group '{}' during stop: {}", groupName);
 
             startedWithSubscription = false;
 
@@ -498,6 +484,26 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
             state.set(State.NEW);
             return Future.failedFuture(e);
         }
+    }
+
+    private Future<Void> closeUnderlyingConsumerAsync(String logMessage, String logGroupName) {
+        if (underlyingConsumer == null) {
+            return Future.succeededFuture();
+        }
+
+        underlyingConsumer.unsubscribe();
+
+        Future<Void> consumerClose;
+        if (underlyingConsumer instanceof OutboxConsumer<?> oc) {
+            consumerClose = oc.closeAsync()
+                    .onFailure(err -> logger.warn(logMessage, logGroupName, err.getMessage()));
+        } else {
+            underlyingConsumer.close();
+            consumerClose = Future.succeededFuture();
+        }
+
+        underlyingConsumer = null;
+        return consumerClose;
     }
     
     @Override
@@ -586,29 +592,33 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     
     @Override
     public void close() {
+        try {
+            closeAsync().await();
+        } catch (Exception e) {
+            logger.warn("Error while waiting for outbox consumer group '{}' to close: {}",
+                    groupName, e.getMessage());
+        }
+    }
+
+    Future<Void> closeAsync() {
         State prev = state.getAndSet(State.CLOSED);
         if (prev == State.CLOSED) {
-            return; // already closed
+            return Future.succeededFuture();
         }
 
         logger.info("Closing outbox consumer group '{}' for topic '{}'", groupName, topic);
 
+        Future<Void> consumerClose = Future.succeededFuture();
+
         // If we were active, stop first
-        if (prev == State.ACTIVE) {
+        if (prev == State.ACTIVE || prev == State.STARTING || prev == State.STOPPING) {
             // Stop the underlying consumer directly (no state transition since we're going to CLOSED)
             members.values().forEach(OutboxConsumerGroupMember::stop);
-            if (underlyingConsumer != null) {
-                underlyingConsumer.unsubscribe();
-                if (underlyingConsumer instanceof OutboxConsumer<?> oc) {
-                    oc.closeAsync()
-                            .onFailure(err -> logger.warn("Error closing outbox consumer during close for group '{}': {}",
-                                    groupName, err.getMessage()));
-                } else {
-                    underlyingConsumer.close();
-                }
-                underlyingConsumer = null;
-            }
+            consumerClose = closeUnderlyingConsumerAsync(
+                    "Error closing outbox consumer during close for group '{}': {}", groupName);
         }
+
+        startedWithSubscription = false;
 
         // Close all members
         members.values().forEach(OutboxConsumerGroupMember::close);
@@ -625,7 +635,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
             Thread.currentThread().interrupt();
         }
 
-        logger.info("Outbox consumer group '{}' closed", groupName);
+        return consumerClose.onSuccess(v -> logger.info("Outbox consumer group '{}' closed", groupName));
     }
     
     /**
@@ -639,7 +649,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
      *   <li>Handler processing failure → propagated as-is for retry/DLQ handling by OutboxConsumer</li>
      * </ul>
      */
-    private Future<Void> distributeMessage(Message<T> message) {
+    Future<Void> distributeMessage(Message<T> message) {
         // Create a child span from the message's traceparent for fan-out trace propagation.
         // Parallel consumer group deliveries form a span tree visible in Jaeger/Zipkin.
         Map<String, String> headers = message.getHeaders();
@@ -651,16 +661,35 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
         TraceContextUtil.setMDC(TraceContextUtil.MDC_TOPIC, topic);
         TraceContextUtil.setMDC(TraceContextUtil.MDC_MESSAGE_ID, message.getId());
 
-        // Apply group-level filter first — permanent rejection
-        if (groupFilter != null && !groupFilter.test(message)) {
-            totalMessagesFiltered.incrementAndGet();
-            logger.debug("Message {} permanently rejected by outbox group filter", message.getId());
-            return Future.<Void>failedFuture(
-                    new RejectedMessageException(message.getId(), groupName, "rejected by group filter"))
-                    .eventually(() -> {
-                        TraceContextUtil.clearTraceMDC();
-                        return Future.succeededFuture();
-                    });
+        // Apply group-level filter first — permanent rejection.
+        // Wrap in try-catch: a throwing filter must not leak MDC context.
+        if (groupFilter != null) {
+            boolean accepted;
+            try {
+                accepted = groupFilter.test(message);
+            } catch (Exception e) {
+                totalMessagesFiltered.incrementAndGet();
+                logger.warn("Group filter threw exception for message {} in group '{}', treating as rejection: {}",
+                        message.getId(), groupName, e.getMessage());
+                logger.debug("Group filter exception detail", e);
+                return Future.<Void>failedFuture(
+                        new RejectedMessageException(message.getId(), groupName,
+                                "group filter threw: " + e.getMessage()))
+                        .eventually(() -> {
+                            TraceContextUtil.clearTraceMDC();
+                            return Future.succeededFuture();
+                        });
+            }
+            if (!accepted) {
+                totalMessagesFiltered.incrementAndGet();
+                logger.debug("Message {} permanently rejected by outbox group filter", message.getId());
+                return Future.<Void>failedFuture(
+                        new RejectedMessageException(message.getId(), groupName, "rejected by group filter"))
+                        .eventually(() -> {
+                            TraceContextUtil.clearTraceMDC();
+                            return Future.succeededFuture();
+                        });
+            }
         }
         
         // Find eligible consumers (those whose filters accept the message)

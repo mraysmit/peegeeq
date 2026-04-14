@@ -25,6 +25,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
@@ -68,15 +69,7 @@ public class OutboxExceptionHandlingDemonstrationTest {
     private static final Logger logger = LoggerFactory.getLogger(OutboxExceptionHandlingDemonstrationTest.class);
 
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
-        container.withDatabaseName("peegeeq_test");
-        container.withUsername("test");
-        container.withPassword("test");
-        return container;
-    }
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private MessageProducer<String> producer;
@@ -115,8 +108,26 @@ public class OutboxExceptionHandlingDemonstrationTest {
         if (consumer != null) consumer.close();
         if (producer != null) producer.close();
         if (manager != null) {
-            manager.closeReactive().onComplete(ar -> testContext.completeNow());
+            manager.closeReactive()
+                    .onSuccess(v -> {
+                        System.clearProperty("peegeeq.database.host");
+                        System.clearProperty("peegeeq.database.port");
+                        System.clearProperty("peegeeq.database.name");
+                        System.clearProperty("peegeeq.database.username");
+                        System.clearProperty("peegeeq.database.password");
+                        System.clearProperty("peegeeq.queue.max-retries");
+                        System.clearProperty("peegeeq.queue.polling-interval");
+                        testContext.completeNow();
+                    })
+                    .onFailure(testContext::failNow);
         } else {
+            System.clearProperty("peegeeq.database.host");
+            System.clearProperty("peegeeq.database.port");
+            System.clearProperty("peegeeq.database.name");
+            System.clearProperty("peegeeq.database.username");
+            System.clearProperty("peegeeq.database.password");
+            System.clearProperty("peegeeq.queue.max-retries");
+            System.clearProperty("peegeeq.queue.polling-interval");
             testContext.completeNow();
         }
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
@@ -183,7 +194,7 @@ public class OutboxExceptionHandlingDemonstrationTest {
         
         // Phase 1: Direct Exception (now fixed)
         AtomicInteger directAttemptCount = new AtomicInteger(0);
-        java.util.concurrent.CountDownLatch directLatch = new java.util.concurrent.CountDownLatch(3);
+        io.vertx.core.Promise<Void> directDone = io.vertx.core.Promise.promise();
 
         producer.send("Direct exception test").onFailure(testContext::failNow);
 
@@ -191,23 +202,23 @@ public class OutboxExceptionHandlingDemonstrationTest {
             int attempt = directAttemptCount.incrementAndGet();
             logger.info("INTENTIONAL FAILURE: Direct exception attempt {} for: {}",
                 attempt, message.getPayload());
-            directLatch.countDown();
+            if (attempt >= 3) {
+                directDone.tryComplete();
+            }
             throw new RuntimeException("INTENTIONAL FAILURE: Direct exception, attempt " + attempt);
         });
 
-        assertTrue(directLatch.await(15, TimeUnit.SECONDS), "Direct exceptions should trigger retry logic");
+        directDone.future().await();
         assertEquals(3, directAttemptCount.get(), "Should have 3 attempts for direct exception");
         logger.info("Pattern 1 (Direct Exception): {} attempts - WORKING", directAttemptCount.get());
 
         // Reset consumer for next pattern
         consumer.unsubscribe();
-        java.util.concurrent.CountDownLatch timerLatch = new java.util.concurrent.CountDownLatch(1);
-        vertx.timer(500).onComplete(ar -> timerLatch.countDown());
-        timerLatch.await(5, TimeUnit.SECONDS);
+        vertx.timer(500).await();
         
         // Phase 2: Failed Future Exception (always worked)
         AtomicInteger futureAttemptCount = new AtomicInteger(0);
-        java.util.concurrent.CountDownLatch futureLatch = new java.util.concurrent.CountDownLatch(3);
+        io.vertx.core.Promise<Void> futureDone = io.vertx.core.Promise.promise();
 
         producer.send("Failed future exception test").onFailure(testContext::failNow);
 
@@ -215,12 +226,14 @@ public class OutboxExceptionHandlingDemonstrationTest {
             int attempt = futureAttemptCount.incrementAndGet();
             logger.info("INTENTIONAL FAILURE: Failed future attempt {} for: {}",
                 attempt, message.getPayload());
-            futureLatch.countDown();
+            if (attempt >= 3) {
+                futureDone.tryComplete();
+            }
             return Future.failedFuture(
                 new RuntimeException("INTENTIONAL FAILURE: Failed future, attempt " + attempt));
         });
 
-        assertTrue(futureLatch.await(15, TimeUnit.SECONDS), "Failed futures should trigger retry logic");
+        futureDone.future().await();
         assertEquals(3, futureAttemptCount.get(), "Should have 3 attempts for failed future");
         logger.info("Pattern 2 (Failed Future): {} attempts - WORKING", futureAttemptCount.get());
 
@@ -233,7 +246,7 @@ public class OutboxExceptionHandlingDemonstrationTest {
         testContext.completeNow();
     }
 
-    // Helper methods removed — test phases are now inline using CountDownLatches
+    // Helper methods removed — test phases are now inline using Promises
     // to avoid VertxTestContext checkpoint accumulation across phases.
 }
 

@@ -8,6 +8,7 @@ import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
@@ -51,15 +52,7 @@ class OutboxIdempotencyKeyTest {
     private static final Logger logger = LoggerFactory.getLogger(OutboxIdempotencyKeyTest.class);
 
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15-alpine");
-        container.withDatabaseName("testdb");
-        container.withUsername("test");
-        container.withPassword("test");
-        return container;
-    }
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private OutboxFactory outboxFactory;
@@ -103,14 +96,16 @@ class OutboxIdempotencyKeyTest {
             ? manager.closeReactive()
             : Future.succeededFuture();
 
-        closeFuture.onComplete(ar -> {
-            System.clearProperty("peegeeq.database.host");
-            System.clearProperty("peegeeq.database.port");
-            System.clearProperty("peegeeq.database.name");
-            System.clearProperty("peegeeq.database.username");
-            System.clearProperty("peegeeq.database.password");
-            testContext.completeNow();
-        });
+        closeFuture
+                .onSuccess(v -> {
+                    System.clearProperty("peegeeq.database.host");
+                    System.clearProperty("peegeeq.database.port");
+                    System.clearProperty("peegeeq.database.name");
+                    System.clearProperty("peegeeq.database.username");
+                    System.clearProperty("peegeeq.database.password");
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 

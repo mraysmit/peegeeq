@@ -26,15 +26,16 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.*;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
+
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -49,22 +50,19 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
+@ExtendWith(VertxExtension.class)
 class OutboxFactoryIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxFactoryIntegrationTest.class);
 
-    @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
+    private static final String[] SYSTEM_PROPERTIES = {
+        "peegeeq.database.host", "peegeeq.database.port", "peegeeq.database.name",
+        "peegeeq.database.username", "peegeeq.database.password", "peegeeq.database.ssl.enabled",
+        "peegeeq.polling-interval", "peegeeq.database.schema"
+    };
 
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName(PostgreSQLTestConstants.DEFAULT_DATABASE_NAME);
-        container.withUsername(PostgreSQLTestConstants.DEFAULT_USERNAME);
-        container.withPassword(PostgreSQLTestConstants.DEFAULT_PASSWORD);
-        container.withSharedMemorySize(PostgreSQLTestConstants.DEFAULT_SHARED_MEMORY_SIZE);
-        container.withReuse(false);
-        return container;
-    }
+    @Container
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private DatabaseService databaseService;
     private ObjectMapper objectMapper;
@@ -85,6 +83,7 @@ class OutboxFactoryIntegrationTest {
         System.setProperty("peegeeq.database.password", postgres.getPassword());
         System.setProperty("peegeeq.database.ssl.enabled", "false");
         System.setProperty("peegeeq.database.schema", "public");
+        System.setProperty("peegeeq.polling-interval", "PT0.5S");
 
         // Initialize PeeGeeQ manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
@@ -102,12 +101,13 @@ class OutboxFactoryIntegrationTest {
     void tearDown() throws Exception {
         if (manager != null) {
             try {
-                CountDownLatch closeLatch = new CountDownLatch(1);
-                manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-                closeLatch.await(10, TimeUnit.SECONDS);
+                manager.closeReactive().await();
             } catch (Exception e) {
                 logger.warn("Error stopping manager: {}", e.getMessage());
             }
+        }
+        for (String prop : SYSTEM_PROPERTIES) {
+            System.clearProperty(prop);
         }
         logger.info("OutboxFactory integration test teardown completed");
     }

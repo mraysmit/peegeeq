@@ -6,11 +6,11 @@ import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
-import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -23,10 +23,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
-import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -47,10 +45,7 @@ import static org.junit.jupiter.api.Assertions.*;
 class FanOutTracePropagationTest {
 
     @Container
-    static PostgreSQLContainer postgres = new PostgreSQLContainer("postgres:15-alpine")
-            .withDatabaseName("testdb")
-            .withUsername("test")
-            .withPassword("test");
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private OutboxFactory outboxFactory;
@@ -87,9 +82,7 @@ class FanOutTracePropagationTest {
         if (producer != null) producer.close();
         if (outboxFactory != null) outboxFactory.close();
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
         System.clearProperty("peegeeq.database.host");
         System.clearProperty("peegeeq.database.port");
@@ -101,14 +94,13 @@ class FanOutTracePropagationTest {
 
     @Test
     void consumerGroupProcessing_createsChildSpan_sameTraceIdDifferentSpanId(
-            Vertx vertx, VertxTestContext testContext) throws Exception {
+            VertxTestContext testContext) throws Exception {
         // Arrange: known publish trace context
         String publishTraceId = "abcdef0123456789abcdef0123456789";
         String publishSpanId = "1234567890abcdef";
         String traceparent = String.format("00-%s-%s-01", publishTraceId, publishSpanId);
 
-        Map<String, String> headers = new HashMap<>();
-        headers.put("traceparent", traceparent);
+        Map<String, String> headers = Map.of("traceparent", traceparent);
 
         // Set consumer group name
         ((OutboxConsumer<String>) consumer).setConsumerGroupName("payments-processor");
@@ -125,9 +117,7 @@ class FanOutTracePropagationTest {
             return Future.succeededFuture();
         });
 
-        CountDownLatch sendLatch = new CountDownLatch(1);
-        producer.send("child-span-test", headers, null).onComplete(ar -> sendLatch.countDown());
-        assertTrue(sendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
+        producer.send("child-span-test", headers, null).await();
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Consumer should receive message");
 
@@ -141,13 +131,12 @@ class FanOutTracePropagationTest {
 
     @Test
     void consumerGroupProcessing_setsConsumerGroupInMDC(
-            Vertx vertx, VertxTestContext testContext) throws Exception {
+            VertxTestContext testContext) throws Exception {
         String publishTraceId = "fedcba9876543210fedcba9876543210";
         String publishSpanId = "abcdef1234567890";
         String traceparent = String.format("00-%s-%s-01", publishTraceId, publishSpanId);
 
-        Map<String, String> headers = new HashMap<>();
-        headers.put("traceparent", traceparent);
+        Map<String, String> headers = Map.of("traceparent", traceparent);
 
         ((OutboxConsumer<String>) consumer).setConsumerGroupName("order-fulfillment");
 
@@ -160,9 +149,7 @@ class FanOutTracePropagationTest {
             return Future.succeededFuture();
         });
 
-        CountDownLatch sendLatch = new CountDownLatch(1);
-        producer.send("group-mdc-test", headers, null).onComplete(ar -> sendLatch.countDown());
-        assertTrue(sendLatch.await(5, TimeUnit.SECONDS));
+        producer.send("group-mdc-test", headers, null).await();
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
 
@@ -172,15 +159,14 @@ class FanOutTracePropagationTest {
 
     @Test
     void consumerWithoutGroupName_usesParseOrCreate_noChildSpan(
-            Vertx vertx, VertxTestContext testContext) throws Exception {
+            VertxTestContext testContext) throws Exception {
         // Consumer WITHOUT a group name — no child span should be created
         // (backward compat: same behaviour as before)
         String publishTraceId = "11111111111111111111111111111111";
         String publishSpanId = "2222222222222222";
         String traceparent = String.format("00-%s-%s-01", publishTraceId, publishSpanId);
 
-        Map<String, String> headers = new HashMap<>();
-        headers.put("traceparent", traceparent);
+        Map<String, String> headers = Map.of("traceparent", traceparent);
 
         // Don't set consumer group name — leave it null
 
@@ -195,9 +181,7 @@ class FanOutTracePropagationTest {
             return Future.succeededFuture();
         });
 
-        CountDownLatch sendLatch = new CountDownLatch(1);
-        producer.send("no-group-test", headers, null).onComplete(ar -> sendLatch.countDown());
-        assertTrue(sendLatch.await(5, TimeUnit.SECONDS));
+        producer.send("no-group-test", headers, null).await();
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
 
@@ -211,7 +195,7 @@ class FanOutTracePropagationTest {
 
     @Test
     void consumerGroupProcessing_withoutTraceparent_generatesNewTrace(
-            Vertx vertx, VertxTestContext testContext) throws Exception {
+            VertxTestContext testContext) throws Exception {
         // Message with no traceparent header — should generate new trace AND child span
         ((OutboxConsumer<String>) consumer).setConsumerGroupName("analytics-group");
 
@@ -228,9 +212,7 @@ class FanOutTracePropagationTest {
             return Future.succeededFuture();
         });
 
-        CountDownLatch sendLatch = new CountDownLatch(1);
-        producer.send("no-traceparent-test").onComplete(ar -> sendLatch.countDown());
-        assertTrue(sendLatch.await(5, TimeUnit.SECONDS));
+        producer.send("no-traceparent-test").await();
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
 

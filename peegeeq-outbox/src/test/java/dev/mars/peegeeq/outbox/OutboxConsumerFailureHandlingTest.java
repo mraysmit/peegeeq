@@ -23,7 +23,11 @@ import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.db.config.PgConnectionConfig;
+import dev.mars.peegeeq.db.config.PgPoolConfig;
+import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
@@ -36,19 +40,21 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
+import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import io.vertx.sqlclient.Pool;
+import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.extension.ExtendWith;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
+import org.junit.jupiter.api.Disabled;
+
+import java.lang.reflect.Field;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -66,22 +72,23 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 @ExtendWith(VertxExtension.class)
 public class OutboxConsumerFailureHandlingTest {
 
-    @Container
-    private static final PostgreSQLContainer postgres = createPostgresContainer();
+    private static final String[] SYSTEM_PROPERTIES = {
+        "peegeeq.database.host", "peegeeq.database.port", "peegeeq.database.name",
+        "peegeeq.database.username", "peegeeq.database.password", "peegeeq.database.ssl.enabled",
+        "peegeeq.queue.max-retries", "peegeeq.queue.retry-delay-ms", "peegeeq.queue.polling-interval"
+    };
 
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
-        container.withDatabaseName("testdb");
-        container.withUsername("testuser");
-        container.withPassword("testpass");
-        return container;
-    }
+    @Container
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private OutboxFactory outboxFactory;
     private MessageProducer<String> producer;
     private MessageConsumer<String> consumer;
     private String testTopic;
+    private Vertx testVertx;
+    private PgConnectionManager connectionManager;
+    private Pool reactivePool;
 
     @BeforeEach
     void setUp() throws Exception {
@@ -94,6 +101,8 @@ public class OutboxConsumerFailureHandlingTest {
         System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
         System.setProperty("peegeeq.database.username", postgres.getUsername());
         System.setProperty("peegeeq.database.password", postgres.getPassword());
+        System.setProperty("peegeeq.database.ssl.enabled", "false");
+        System.setProperty("peegeeq.queue.polling-interval", "PT0.5S");
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("failure-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
@@ -103,6 +112,18 @@ public class OutboxConsumerFailureHandlingTest {
         outboxFactory = new OutboxFactory(databaseService, config);
         producer = outboxFactory.createProducer(testTopic, String.class);
         consumer = outboxFactory.createConsumer(testTopic, String.class);
+
+        testVertx = Vertx.vertx();
+        connectionManager = new PgConnectionManager(testVertx);
+        PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
+                .host(postgres.getHost())
+                .port(postgres.getFirstMappedPort())
+                .database(postgres.getDatabaseName())
+                .username(postgres.getUsername())
+                .password(postgres.getPassword())
+                .build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).build();
+        reactivePool = connectionManager.getOrCreateReactivePool("test-verification", connectionConfig, poolConfig);
     }
 
     @AfterEach
@@ -113,10 +134,20 @@ public class OutboxConsumerFailureHandlingTest {
         if (producer != null) {
             producer.close();
         }
+        if (outboxFactory != null) {
+            outboxFactory.close();
+        }
+        if (connectionManager != null) {
+            connectionManager.close();
+        }
+        if (testVertx != null) {
+            testVertx.close().await();
+        }
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
+        }
+        for (String prop : SYSTEM_PROPERTIES) {
+            System.clearProperty(prop);
         }
     }
 
@@ -126,7 +157,8 @@ public class OutboxConsumerFailureHandlingTest {
      * 
      * NOTE: Temporarily disabled - timing sensitive, requires investigation
      */
-    //@Test
+    @Test
+    @Disabled("Timing sensitive — requires investigation")
     void testRetryLogicWithFailingMessages(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
         Checkpoint latch = testContext.checkpoint(4); // Initial + 3 retries
         AtomicInteger attemptCount = new AtomicInteger(0);
@@ -139,30 +171,26 @@ public class OutboxConsumerFailureHandlingTest {
         });
 
         // Send message that will fail
-        CountDownLatch sendLatch = new CountDownLatch(1);
-        producer.send("test-message").onComplete(ar -> sendLatch.countDown());
-        assertTrue(sendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
+        producer.send("test-message").await();
         
         // Wait for all retry attempts
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Should attempt 4 times");
         assertEquals(4, attemptCount.get(), "Should have 4 processing attempts");
         
         // Allow final state transition
-        CountDownLatch stateWaitLatch = new CountDownLatch(1);
-        vertx.setTimer(2000, timerId -> stateWaitLatch.countDown());
-        assertTrue(stateWaitLatch.await(5, TimeUnit.SECONDS), "Timer should complete");
+        vertx.timer(2000).await();
         
         // Verify retry count after exhaustion
-        try (Connection conn = DriverManager.getConnection(
-                postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {
-            PreparedStatement stmt = conn.prepareStatement(
-                "SELECT retry_count FROM outbox WHERE topic = ? ORDER BY id DESC LIMIT 1");
-            stmt.setString(1, testTopic);
-            ResultSet rs = stmt.executeQuery();
-            
-            assertTrue(rs.next(), "Message should exist");
-            assertEquals(3, rs.getInt("retry_count"), "Should have retry_count=3");
-        }
+        io.vertx.sqlclient.Row row = reactivePool.withConnection(conn ->
+            conn.preparedQuery("SELECT retry_count FROM outbox WHERE topic = $1 ORDER BY id DESC LIMIT 1")
+                .execute(Tuple.of(testTopic))
+                .map(rows -> {
+                    assertTrue(rows.size() > 0, "Message should exist");
+                    return rows.iterator().next();
+                })
+        ).await();
+
+        assertEquals(3, row.getInteger("retry_count"), "Should have retry_count=3");
     }
 
     /**
@@ -171,39 +199,35 @@ public class OutboxConsumerFailureHandlingTest {
      */
     @Test
     void testProcessAvailableMessages_ConsumerClosedDuringProcessing(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
-        CountDownLatch startSignal = new CountDownLatch(1);
-        CountDownLatch finishGate = new CountDownLatch(1);
+        Promise<Void> startSignal = Promise.promise();
+        Promise<Void> finishGate = Promise.promise();
         
         // Subscribe with handler that blocks
         consumer.subscribe(message -> {
-            startSignal.countDown();
-            try {
-                finishGate.await(10, TimeUnit.SECONDS);
-            } catch (Exception e) {
-                Thread.currentThread().interrupt();
-            }
+            startSignal.tryComplete();
+            finishGate.future().await();
             return Future.succeededFuture();
         });
 
         // Send messages to trigger processing
-        CountDownLatch sendLatch1 = new CountDownLatch(1);
-        producer.send("message1").onComplete(ar -> sendLatch1.countDown());
-        assertTrue(sendLatch1.await(5, TimeUnit.SECONDS), "Send 1 should complete");
-        CountDownLatch sendLatch2 = new CountDownLatch(1);
-        producer.send("message2").onComplete(ar -> sendLatch2.countDown());
-        assertTrue(sendLatch2.await(5, TimeUnit.SECONDS), "Send 2 should complete");
+        producer.send("message1").await();
+        producer.send("message2").await();
         
         // Wait for processing to start
-        assertTrue(startSignal.await(5, TimeUnit.SECONDS), "Processing should start");
+        startSignal.future().await();
         
         // Close consumer while message is being processed
         consumer.close();
         
         // Release the blocked handler
-        finishGate.countDown();
+        finishGate.tryComplete();
         
-        // Verify consumer is closed
-        assertTrue(true, "Consumer should handle closure during processing without errors");
+        // Verify consumer is actually closed — not a tautological assertion
+        testContext.verify(() -> {
+            AtomicBoolean subscribedState = getPrivateField((OutboxConsumer<String>) consumer, "subscribed", AtomicBoolean.class);
+            assertFalse(subscribedState.get(),
+                    "Consumer should not be subscribed after close");
+        });
         testContext.completeNow();
     }
 
@@ -223,9 +247,7 @@ public class OutboxConsumerFailureHandlingTest {
 
         // Send multiple messages
         for (int i = 0; i < messageCount; i++) {
-            CountDownLatch batchSendLatch = new CountDownLatch(1);
-            producer.send("batch-message-" + i).onComplete(ar -> batchSendLatch.countDown());
-            assertTrue(batchSendLatch.await(5, TimeUnit.SECONDS), "Batch send " + i + " should complete");
+            producer.send("batch-message-" + i).await();
         }
         
         // Wait for all messages to be processed
@@ -239,25 +261,26 @@ public class OutboxConsumerFailureHandlingTest {
      */
     @Test
     void testGetReactivePoolFuture_ErrorHandling(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
-        // Close the manager to cause pool access to fail
-        CountDownLatch mgrCloseLatch = new CountDownLatch(1);
-        manager.closeReactive().onComplete(ar -> mgrCloseLatch.countDown());
-        assertTrue(mgrCloseLatch.await(10, TimeUnit.SECONDS), "Manager close should complete");
-        
-        // Try to subscribe after manager is closed
-        try {
-            consumer.subscribe(message -> Future.succeededFuture());
-            // Give time for the error to occur
-            CountDownLatch errorWaitLatch = new CountDownLatch(1);
-            vertx.setTimer(1000, timerId -> errorWaitLatch.countDown());
-            assertTrue(errorWaitLatch.await(5, TimeUnit.SECONDS), "Timer should complete");
-        } catch (Exception e) {
-            // Expected - pool access should fail
-        }
-        
-        // Verify consumer handles the error gracefully
-        assertTrue(true, "Consumer should handle pool access errors");
-        testContext.completeNow();
+        OutboxConsumer<String> typedConsumer = (OutboxConsumer<String>) consumer;
+
+        manager.closeReactive()
+                .compose(ignored -> {
+                    typedConsumer.subscribe(message -> Future.succeededFuture());
+
+                    Promise<Void> timer = Promise.promise();
+                    vertx.setTimer(1000, id -> timer.complete());
+                    return timer.future();
+                })
+                .onSuccess(ignored -> testContext.verify(() -> {
+                    AtomicBoolean subscribedState = getPrivateField(typedConsumer, "subscribed", AtomicBoolean.class);
+                    assertTrue(subscribedState.get(),
+                            "Consumer should remain subscribed after pool failure — it retries on next poll");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS),
+                "Consumer should handle pool failures gracefully without crashing");
     }
 
     /**
@@ -266,32 +289,31 @@ public class OutboxConsumerFailureHandlingTest {
      */
     @Test
     void testClose_WhileProcessing(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
-        CountDownLatch startSignal2 = new CountDownLatch(1);
-        CountDownLatch blockGate = new CountDownLatch(1);
+        Promise<Void> startSignal2 = Promise.promise();
+        Promise<Void> blockGate = Promise.promise();
         
         consumer.subscribe(message -> {
-            startSignal2.countDown();
-            try {
-                blockGate.await(5, TimeUnit.SECONDS);
-            } catch (Exception e) {
-                Thread.currentThread().interrupt();
-            }
+            startSignal2.tryComplete();
+            blockGate.future().await();
             return Future.succeededFuture();
         });
 
-        CountDownLatch closeSendLatch = new CountDownLatch(1);
-        producer.send("test").onComplete(ar -> closeSendLatch.countDown());
-        assertTrue(closeSendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
-        assertTrue(startSignal2.await(5, TimeUnit.SECONDS), "Processing should start");
+        producer.send("test").await();
+        startSignal2.future().await();
         
         // Close while processing
         consumer.close();
-        blockGate.countDown();
+        blockGate.tryComplete();
         
         // Close again (idempotent)
         consumer.close();
         
-        assertTrue(true, "Close should be idempotent and handle concurrent processing");
+        // Verify close is actually idempotent — consumer should not be subscribed
+        testContext.verify(() -> {
+            AtomicBoolean subscribedState = getPrivateField((OutboxConsumer<String>) consumer, "subscribed", AtomicBoolean.class);
+            assertFalse(subscribedState.get(),
+                    "Consumer should not be subscribed after multiple closes");
+        });
         testContext.completeNow();
     }
 
@@ -313,9 +335,7 @@ public class OutboxConsumerFailureHandlingTest {
         // Test various payload formats
         String[] payloads = {"simple-string", "{\"complex\":\"json\"}", ""};
         for (String payload : payloads) {
-            CountDownLatch parseSendLatch = new CountDownLatch(1);
-            producer.send(payload).onComplete(ar -> parseSendLatch.countDown());
-            assertTrue(parseSendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
+            producer.send(payload).await();
         }
         
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process all payload types");
@@ -351,43 +371,35 @@ public class OutboxConsumerFailureHandlingTest {
             
             try {
                 // Send message
-                CountDownLatch dlqSendLatch = new CountDownLatch(1);
-                dlqProducer.send("test-dlq-failure").onComplete(ar -> dlqSendLatch.countDown());
-                assertTrue(dlqSendLatch.await(5, TimeUnit.SECONDS), "DLQ send should complete");
+                dlqProducer.send("test-dlq-failure").await();
                 
                 // Subscribe with failing handler to exhaust retries
                 AtomicInteger attempts = new AtomicInteger(0);
-                CountDownLatch retriesExhausted = new CountDownLatch(1);
+                Promise<Void> retriesExhausted = Promise.promise();
                 
                 dlqConsumer.subscribe(message -> {
                     if (attempts.incrementAndGet() >= 2) {
-                        retriesExhausted.countDown();
+                        retriesExhausted.tryComplete();
                     }
                     throw new RuntimeException("INTENTIONAL: Force DLQ");
                 });
                 
                 // Wait for retries to exhaust
-                assertTrue(retriesExhausted.await(15, TimeUnit.SECONDS), "Retries should exhaust");
+                retriesExhausted.future().await();
                 
                 // Small delay to let DLQ operation start
-                CountDownLatch dlqWaitLatch = new CountDownLatch(1);
-                vertx.setTimer(200, timerId -> dlqWaitLatch.countDown());
-                assertTrue(dlqWaitLatch.await(5, TimeUnit.SECONDS), "DLQ wait timer should complete");
+                vertx.timer(200).await();
                 
                 // Kill connections during DLQ operation
-                try (Connection adminConn = DriverManager.getConnection(
-                        postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {
-                    PreparedStatement stmt = adminConn.prepareStatement(
+                reactivePool.withConnection(conn ->
+                    conn.preparedQuery(
                         "SELECT pg_terminate_backend(pid) FROM pg_stat_activity " +
-                        "WHERE datname = ? AND pid != pg_backend_pid() AND application_name LIKE 'PeeGeeQ%'");
-                    stmt.setString(1, postgres.getDatabaseName());
-                    stmt.executeQuery();
-                }
+                        "WHERE datname = $1 AND pid != pg_backend_pid() AND application_name LIKE 'PeeGeeQ%'")
+                        .execute(Tuple.of(postgres.getDatabaseName()))
+                ).await();
                 
                 // Wait for error handling
-                CountDownLatch dlqErrorLatch = new CountDownLatch(1);
-                vertx.setTimer(1000, timerId -> dlqErrorLatch.countDown());
-                assertTrue(dlqErrorLatch.await(5, TimeUnit.SECONDS), "Error wait timer should complete");
+                vertx.timer(1000).await();
                 
                 testContext.completeNow();
             } finally {
@@ -430,40 +442,34 @@ public class OutboxConsumerFailureHandlingTest {
             
             try {
                 // Send message
-                CountDownLatch retrySendLatch = new CountDownLatch(1);
-                retryProducer.send("test-retry-failure").onComplete(ar -> retrySendLatch.countDown());
-                assertTrue(retrySendLatch.await(5, TimeUnit.SECONDS), "Retry send should complete");
+                retryProducer.send("test-retry-failure").await();
                 
                 // Subscribe with handler that fails once
-                CountDownLatch firstAttempt = new CountDownLatch(1);
+                Promise<Void> firstAttempt = Promise.promise();
                 AtomicInteger attempts = new AtomicInteger(0);
                 
                 retryConsumer.subscribe(message -> {
                     int attempt = attempts.incrementAndGet();
                     if (attempt == 1) {
-                        firstAttempt.countDown();
+                        firstAttempt.tryComplete();
                         throw new RuntimeException("INTENTIONAL: Force retry");
                     }
                     return Future.succeededFuture();
                 });
                 
                 // Wait for first failure
-                assertTrue(firstAttempt.await(10, TimeUnit.SECONDS), "First attempt should complete");
+                firstAttempt.future().await();
                 
                 // Kill connections right after failure to disrupt retry increment
-                try (Connection adminConn = DriverManager.getConnection(
-                        postgres.getJdbcUrl(), postgres.getUsername(), postgres.getPassword())) {
-                    PreparedStatement stmt = adminConn.prepareStatement(
+                reactivePool.withConnection(conn ->
+                    conn.preparedQuery(
                         "SELECT pg_terminate_backend(pid) FROM pg_stat_activity " +
-                        "WHERE datname = ? AND pid != pg_backend_pid() AND application_name LIKE 'PeeGeeQ%'");
-                    stmt.setString(1, postgres.getDatabaseName());
-                    stmt.executeQuery();
-                }
+                        "WHERE datname = $1 AND pid != pg_backend_pid() AND application_name LIKE 'PeeGeeQ%'")
+                        .execute(Tuple.of(postgres.getDatabaseName()))
+                ).await();
                 
                 // Wait for error handling
-                CountDownLatch retryErrorLatch = new CountDownLatch(1);
-                vertx.setTimer(1000, timerId -> retryErrorLatch.countDown());
-                assertTrue(retryErrorLatch.await(5, TimeUnit.SECONDS), "Error wait timer should complete");
+                vertx.timer(1000).await();
                 
                 testContext.completeNow();
             } finally {
@@ -476,6 +482,21 @@ public class OutboxConsumerFailureHandlingTest {
             System.clearProperty("peegeeq.queue.max-retries");
             System.clearProperty("peegeeq.queue.retry-delay-ms");
         }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> T getPrivateField(Object target, String fieldName, Class<T> type) throws Exception {
+        Class<?> current = target.getClass();
+        while (current != null) {
+            try {
+                Field field = current.getDeclaredField(fieldName);
+                field.setAccessible(true);
+                return (T) field.get(target);
+            } catch (NoSuchFieldException ignored) {
+                current = current.getSuperclass();
+            }
+        }
+        throw new NoSuchFieldException("Field '" + fieldName + "' not found on " + target.getClass().getName());
     }
 }
 

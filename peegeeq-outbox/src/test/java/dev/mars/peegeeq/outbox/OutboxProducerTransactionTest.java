@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.outbox;
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 
 import dev.mars.peegeeq.api.database.ConnectionProvider;
@@ -41,15 +42,7 @@ public class OutboxProducerTransactionTest {
     private static final Logger logger = LoggerFactory.getLogger(OutboxProducerTransactionTest.class);
 
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
-        container.withDatabaseName("peegeeq_test");
-        container.withUsername("test");
-        container.withPassword("test");
-        return container;
-    }
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private PgDatabaseService databaseService;
@@ -89,11 +82,18 @@ public class OutboxProducerTransactionTest {
             producer.close();
         }
         if (manager != null) {
-            manager.closeReactive().onComplete(ar -> testContext.completeNow());
+            manager.closeReactive()
+                    .onSuccess(v -> testContext.completeNow())
+                    .onFailure(testContext::failNow);
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
         } else {
             testContext.completeNow();
         }
+        System.clearProperty("peegeeq.database.host");
+        System.clearProperty("peegeeq.database.port");
+        System.clearProperty("peegeeq.database.name");
+        System.clearProperty("peegeeq.database.username");
+        System.clearProperty("peegeeq.database.password");
     }
 
     @Test

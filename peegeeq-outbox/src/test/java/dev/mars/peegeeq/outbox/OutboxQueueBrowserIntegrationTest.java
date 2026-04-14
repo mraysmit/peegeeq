@@ -58,14 +58,14 @@ public class OutboxQueueBrowserIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxQueueBrowserIntegrationTest.class);
 
+    private static final String[] SYSTEM_PROPERTIES = {
+        "peegeeq.database.host", "peegeeq.database.port", "peegeeq.database.name",
+        "peegeeq.database.username", "peegeeq.database.password", "peegeeq.database.ssl.enabled",
+        "peegeeq.polling-interval", "peegeeq.database.schema"
+    };
+
     @Container
-    @SuppressWarnings("resource") // Managed by Testcontainers framework
-    static PostgreSQLContainer postgres = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE)
-            .withDatabaseName(PostgreSQLTestConstants.DEFAULT_DATABASE_NAME)
-            .withUsername(PostgreSQLTestConstants.DEFAULT_USERNAME)
-            .withPassword(PostgreSQLTestConstants.DEFAULT_PASSWORD)
-            .withSharedMemorySize(PostgreSQLTestConstants.DEFAULT_SHARED_MEMORY_SIZE)
-            .withReuse(false);
+    static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private OutboxQueueBrowser<String> browser;
     private OutboxProducer<String> producer;
@@ -100,6 +100,7 @@ public class OutboxQueueBrowserIntegrationTest {
         System.setProperty("peegeeq.database.password", postgres.getPassword());
         System.setProperty("peegeeq.database.ssl.enabled", "false");
         System.setProperty("peegeeq.database.schema", "public");
+        System.setProperty("peegeeq.polling-interval", "PT0.5S");
 
         // Initialize PeeGeeQ manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
@@ -137,18 +138,20 @@ public class OutboxQueueBrowserIntegrationTest {
         }
         if (manager != null) {
             manager.closeReactive()
-                .onComplete(ar -> {
-                    if (ar.failed()) {
-                        logger.warn("Error stopping manager: {}", ar.cause().getMessage());
-                    }
+                .onSuccess(v -> {
                     logger.info("OutboxQueueBrowser integration test teardown completed");
                     testContext.completeNow();
-                });
+                })
+                .onFailure(testContext::failNow);
         } else {
             logger.info("OutboxQueueBrowser integration test teardown completed");
             testContext.completeNow();
         }
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+
+        for (String prop : SYSTEM_PROPERTIES) {
+            System.clearProperty(prop);
+        }
 
         // Clear trace context
         MDC.clear();
@@ -314,7 +317,7 @@ public class OutboxQueueBrowserIntegrationTest {
                 // Then
                 assertEquals(1, messages.size());
                 Message<String> msg = messages.get(0);
-                assertTrue(msg instanceof OutboxMessage, "Message should be an instance of OutboxMessage");
+                assertInstanceOf(OutboxMessage.class, msg, "Message should be an instance of OutboxMessage");
                 assertEquals(correlationId, ((OutboxMessage<String>) msg).getCorrelationId());
                 testContext.completeNow();
             }))
@@ -355,20 +358,20 @@ public class OutboxQueueBrowserIntegrationTest {
             .compose(v -> intProducer.send(100))
             // When - browse messages
             .compose(v -> intBrowser.browse(10, 0))
-            .onComplete(ar -> {
+            .onSuccess(messages -> {
                 intProducer.close();
                 intBrowser.close();
-                if (ar.succeeded()) {
-                    testContext.verify(() -> {
-                        List<Message<Integer>> messages = ar.result();
-                        assertEquals(2, messages.size());
-                        assertEquals(100, messages.get(0).getPayload());
-                        assertEquals(42, messages.get(1).getPayload());
-                        testContext.completeNow();
-                    });
-                } else {
-                    testContext.failNow(ar.cause());
-                }
+                testContext.verify(() -> {
+                    assertEquals(2, messages.size());
+                    assertEquals(100, messages.get(0).getPayload());
+                    assertEquals(42, messages.get(1).getPayload());
+                    testContext.completeNow();
+                });
+            })
+            .onFailure(err -> {
+                intProducer.close();
+                intBrowser.close();
+                testContext.failNow(err);
             });
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
@@ -387,7 +390,7 @@ public class OutboxQueueBrowserIntegrationTest {
                 assertNotNull(msg.getId(), "Message ID should not be null");
                 assertNotNull(msg.getCreatedAt(), "Created timestamp should not be null");
                 
-                assertTrue(msg instanceof OutboxMessage, "Message should be an instance of OutboxMessage");
+                assertInstanceOf(OutboxMessage.class, msg, "Message should be an instance of OutboxMessage");
                 assertEquals("test-message", msg.getPayload(), "Payload should match");
                 testContext.completeNow();
             }))

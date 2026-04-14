@@ -7,24 +7,20 @@ import dev.mars.peegeeq.outbox.config.FilterErrorHandlingConfig;
 import dev.mars.peegeeq.outbox.resilience.FilterCircuitBreaker;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
-import io.vertx.core.Promise;
-import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.time.Instant;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Predicate;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -36,34 +32,31 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag(TestCategories.PERFORMANCE)
 @ExtendWith(VertxExtension.class)
 public class FilterErrorPerformanceTest {
-    private static final Logger logger = LoggerFactory.getLogger(FilterErrorPerformanceTest.class);
-    
+
+    private OutboxConsumerGroupMember<?> member;
+
+    @AfterEach
+    void tearDown() {
+        if (member != null) {
+            member.close();
+        }
+    }
+
     @Test
     @DisplayName("PERFORMANCE: Throughput under normal conditions")
-    void testNormalThroughputBaseline(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("📊 PERFORMANCE TEST: Normal throughput baseline");
-        
+    void testNormalThroughputBaseline(VertxTestContext testContext) throws Exception {
         int messageCount = 1000;
         AtomicInteger processedCount = new AtomicInteger(0);
-        AtomicLong totalProcessingTime = new AtomicLong(0);
         Checkpoint completionCheckpoint = testContext.checkpoint(messageCount);
         
         // Normal filter that always accepts
         Predicate<Message<TestMessage>> normalFilter = message -> true;
         
-        // Handler that tracks processing time
+        // Synchronous handler that tracks processing
         MessageHandler<TestMessage> performanceHandler = message -> {
-            long startTime = System.nanoTime();
-            Promise<Void> promise = Promise.promise();
-            vertx.setTimer(1, id -> promise.complete());
-            return promise.future().map(v -> {
-                long endTime = System.nanoTime();
-                totalProcessingTime.addAndGet(endTime - startTime);
-                processedCount.incrementAndGet();
-                completionCheckpoint.flag();
-                
-                return null;
-            });
+            processedCount.incrementAndGet();
+            completionCheckpoint.flag();
+            return Future.succeededFuture();
         };
         
         FilterErrorHandlingConfig config = FilterErrorHandlingConfig.defaultConfig();
@@ -72,6 +65,7 @@ public class FilterErrorPerformanceTest {
             "performance-baseline", "perf-group", "perf-topic",
             performanceHandler, normalFilter, null, config
         );
+        this.member = member;
         
         member.start();
         
@@ -94,30 +88,16 @@ public class FilterErrorPerformanceTest {
         
         Instant endTime = Instant.now();
         Duration totalTime = Duration.between(startTime, endTime);
-        
-        // Calculate metrics
         double throughputPerSecond = messageCount / (totalTime.toMillis() / 1000.0);
-        double avgProcessingTimeMs = totalProcessingTime.get() / (1_000_000.0 * processedCount.get());
-        
-        logger.info("📊 NORMAL THROUGHPUT BASELINE RESULTS:");
-        logger.info("   Messages processed: {}", processedCount.get());
-        logger.info("   Total time: {} ms", totalTime.toMillis());
-        logger.info("   Throughput: {:.2f} messages/second", throughputPerSecond);
-        logger.info("   Average processing time: {:.2f} ms", avgProcessingTimeMs);
         
         // Assertions
         assertEquals(messageCount, processedCount.get(), "All messages should be processed");
         assertTrue(throughputPerSecond > 100, "Throughput should be reasonable (>100 msg/sec)");
-        
-        member.close();
-        logger.info("NORMAL THROUGHPUT BASELINE COMPLETED");
     }
     
     @Test
     @DisplayName("PERFORMANCE: Throughput under filter exceptions")
-    void testThroughputUnderFilterExceptions(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("📊 PERFORMANCE TEST: Throughput under filter exceptions");
-        
+    void testThroughputUnderFilterExceptions(VertxTestContext testContext) throws Exception {
         int messageCount = 1000;
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicInteger rejectedCount = new AtomicInteger(0);
@@ -137,14 +117,10 @@ public class FilterErrorPerformanceTest {
             return true;
         };
         
-        // Handler that tracks processing
+        // Synchronous handler that tracks processing
         MessageHandler<TestMessage> performanceHandler = message -> {
-            Promise<Void> promise = Promise.promise();
-            vertx.setTimer(1, id -> promise.complete());
-            return promise.future().map(v -> {
-                processedCount.incrementAndGet();
-                return null;
-            });
+            processedCount.incrementAndGet();
+            return Future.succeededFuture();
         };
         
         FilterErrorHandlingConfig config = FilterErrorHandlingConfig.builder()
@@ -156,6 +132,7 @@ public class FilterErrorPerformanceTest {
             "performance-exceptions", "perf-group", "perf-topic",
             performanceHandler, intermittentFailingFilter, null, config
         );
+        this.member = member;
         
         member.start();
         
@@ -168,9 +145,9 @@ public class FilterErrorPerformanceTest {
             
             boolean accepted = member.acceptsMessage(message);
             if (accepted) {
-                member.processMessage(message).onComplete(ar -> {
-                    completionCheckpoint.flag();
-                });
+                member.processMessage(message)
+                        .onSuccess(v -> completionCheckpoint.flag())
+                        .onFailure(testContext::failNow);
             } else {
                 rejectedCount.incrementAndGet();
                 completionCheckpoint.flag();
@@ -183,18 +160,7 @@ public class FilterErrorPerformanceTest {
         
         Instant endTime = Instant.now();
         Duration totalTime = Duration.between(startTime, endTime);
-        
-        // Calculate metrics
         double throughputPerSecond = messageCount / (totalTime.toMillis() / 1000.0);
-        double rejectionRate = (double) rejectedCount.get() / messageCount * 100;
-        
-        logger.info("📊 FILTER EXCEPTION PERFORMANCE RESULTS:");
-        logger.info("   Messages processed: {}", processedCount.get());
-        logger.info("   Messages rejected: {}", rejectedCount.get());
-        logger.info("   Filter exceptions: {}", filterExceptions.get());
-        logger.info("   Total time: {} ms", totalTime.toMillis());
-        logger.info("   Throughput: {:.2f} messages/second", throughputPerSecond);
-        logger.info("   Rejection rate: {:.2f}%", rejectionRate);
         
         // Assertions
         assertEquals(messageCount, processedCount.get() + rejectedCount.get(), 
@@ -203,16 +169,11 @@ public class FilterErrorPerformanceTest {
         assertEquals(200, rejectedCount.get(), "Should have 200 rejections");
         assertEquals(800, processedCount.get(), "Should have 800 processed messages");
         assertTrue(throughputPerSecond > 50, "Throughput should be reasonable even with exceptions");
-        
-        member.close();
-        logger.info("FILTER EXCEPTION PERFORMANCE TEST COMPLETED");
     }
     
     @Test
     @DisplayName("PERFORMANCE: Circuit breaker impact on throughput")
     void testCircuitBreakerPerformanceImpact(VertxTestContext testContext) throws Exception {
-        logger.info("📊 PERFORMANCE TEST: Circuit breaker impact on throughput");
-        
         int messageCount = 1000;
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicInteger rejectedCount = new AtomicInteger(0);
@@ -227,9 +188,6 @@ public class FilterErrorPerformanceTest {
 
             // Fail first 50 messages to trigger circuit breaker
             if (calls <= 50) {
-                if (calls % 10 == 1) { // Log every 10th failure to avoid spam
-                    logger.info("🧪 INTENTIONAL TEST FAILURE: PERFORMANCE TEST circuit breaker trigger failure #{} (THIS IS EXPECTED)", calls);
-                }
                 throw new RuntimeException("🧪 INTENTIONAL TEST FAILURE: PERFORMANCE TEST - Circuit breaker trigger failure (THIS IS EXPECTED)");
             }
 
@@ -254,6 +212,7 @@ public class FilterErrorPerformanceTest {
             "performance-circuit-breaker", "perf-group", "perf-topic",
             performanceHandler, circuitBreakerFilter, null, config
         );
+        this.member = member;
         
         member.start();
         
@@ -270,9 +229,9 @@ public class FilterErrorPerformanceTest {
             
             boolean accepted = member.acceptsMessage(message);
             if (accepted) {
-                member.processMessage(message).onComplete(ar -> {
-                    completionCheckpoint.flag();
-                });
+                member.processMessage(message)
+                        .onSuccess(v -> completionCheckpoint.flag())
+                        .onFailure(testContext::failNow);
             } else {
                 rejectedCount.incrementAndGet();
                 if (circuitWasOpen) {
@@ -290,21 +249,7 @@ public class FilterErrorPerformanceTest {
         Duration totalTime = Duration.between(startTime, endTime);
         
         FilterCircuitBreaker.CircuitBreakerMetrics finalMetrics = member.getFilterCircuitBreakerMetrics();
-        
-        // Calculate metrics
         double throughputPerSecond = messageCount / (totalTime.toMillis() / 1000.0);
-        double circuitBreakerEfficiency = (double) circuitBreakerRejections.get() / rejectedCount.get() * 100;
-        
-        logger.info("📊 CIRCUIT BREAKER PERFORMANCE RESULTS:");
-        logger.info("   Messages processed: {}", processedCount.get());
-        logger.info("   Messages rejected: {}", rejectedCount.get());
-        logger.info("   Circuit breaker rejections: {}", circuitBreakerRejections.get());
-        logger.info("   Filter calls made: {}", filterCalls.get());
-        logger.info("   Total time: {} ms", totalTime.toMillis());
-        logger.info("   Throughput: {:.2f} messages/second", throughputPerSecond);
-        logger.info("   Circuit breaker efficiency: {:.2f}%", circuitBreakerEfficiency);
-        logger.info("   Final circuit breaker state: {}", finalMetrics.getState());
-        logger.info("   Final circuit breaker metrics: {}", finalMetrics);
         
         // Assertions
         assertEquals(messageCount, processedCount.get() + rejectedCount.get(), 
@@ -315,16 +260,11 @@ public class FilterErrorPerformanceTest {
         assertTrue(filterCalls.get() < messageCount, 
             "Circuit breaker should prevent some filter calls (efficiency)");
         assertTrue(throughputPerSecond > 100, "Throughput should be high due to circuit breaker fast-fail");
-        
-        member.close();
-        logger.info("CIRCUIT BREAKER PERFORMANCE TEST COMPLETED");
     }
     
     @Test
     @DisplayName("PERFORMANCE: Dead letter queue performance impact")
     void testDeadLetterQueuePerformanceImpact(VertxTestContext testContext) throws Exception {
-        logger.info("📊 PERFORMANCE TEST: Dead letter queue performance impact");
-
         int messageCount = 100; // Smaller count for DLQ test
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicInteger deadLetterCount = new AtomicInteger(0);
@@ -359,6 +299,7 @@ public class FilterErrorPerformanceTest {
             "performance-dlq", "perf-group", "perf-topic",
             performanceHandler, deadLetterFilter, null, config
         );
+        this.member = member;
 
         member.start();
 
@@ -371,9 +312,9 @@ public class FilterErrorPerformanceTest {
 
             boolean accepted = member.acceptsMessage(message);
             if (accepted) {
-                member.processMessage(message).onComplete(ar -> {
-                    completionCheckpoint.flag();
-                });
+                member.processMessage(message)
+                        .onSuccess(v -> completionCheckpoint.flag())
+                        .onFailure(testContext::failNow);
             } else {
                 deadLetterCount.incrementAndGet();
                 completionCheckpoint.flag();
@@ -386,17 +327,7 @@ public class FilterErrorPerformanceTest {
 
         Instant endTime = Instant.now();
         Duration totalTime = Duration.between(startTime, endTime);
-
-        // Calculate metrics
         double throughputPerSecond = messageCount / (totalTime.toMillis() / 1000.0);
-        double deadLetterRate = (double) deadLetterCount.get() / messageCount * 100;
-
-        logger.info("📊 DEAD LETTER QUEUE PERFORMANCE RESULTS:");
-        logger.info("   Messages processed: {}", processedCount.get());
-        logger.info("   Messages sent to DLQ: {}", deadLetterCount.get());
-        logger.info("   Total time: {} ms", totalTime.toMillis());
-        logger.info("   Throughput: {:.2f} messages/second", throughputPerSecond);
-        logger.info("   Dead letter rate: {:.2f}%", deadLetterRate);
 
         // Assertions
         assertEquals(messageCount, processedCount.get() + deadLetterCount.get(),
@@ -404,9 +335,6 @@ public class FilterErrorPerformanceTest {
         assertEquals(10, deadLetterCount.get(), "Should have 10 dead letter messages (every 10th)");
         assertEquals(90, processedCount.get(), "Should have 90 processed messages");
         assertTrue(throughputPerSecond > 10, "Throughput should be reasonable with DLQ operations");
-
-        member.close();
-        logger.info("DEAD LETTER QUEUE PERFORMANCE TEST COMPLETED");
     }
 
     // Test message class

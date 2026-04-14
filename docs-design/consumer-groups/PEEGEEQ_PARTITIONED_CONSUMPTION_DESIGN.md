@@ -15,7 +15,7 @@
 |------|----------|--------|
 | Fan-Out Trace Branching | LOW | **COMPLETED** (2026-04-11) |
 | Fanout Retry & DLQ Automation | MEDIUM | **COMPLETED** (2026-04-11) |
-| Consumer Group Lifecycle Alignment | HIGH | 10 sub-tasks, not started |
+| Consumer Group Lifecycle Alignment | HIGH | **COMPLETED** (2026-04-13) |
 | Offset/Watermark Mode + Partitioned Consumption | LOW | Full design complete, no implementation |
 
 ---
@@ -504,17 +504,18 @@ Run:   1 hour concurrent
 
 ---
 
-## Task 5: Consumer Group Lifecycle Alignment
+## Task 5: Consumer Group Lifecycle Alignment — COMPLETED
 
 **Priority**: HIGH (pre-requisite for Phase 6 integration)  
 **Source**: Cross-review of `PgNativeConsumerGroup` and `OutboxConsumerGroup` (2026-04-12)  
+**Completed**: 2026-04-13  
 **Goal**: Align both implementations to the best pattern from each before Phase 6 wires partitioned consumption into both.
 
 ### Rationale
 
 The two `ConsumerGroup` implementations share the same API contract but diverge in lifecycle management quality. Fixing these before Phase 6 avoids compounding the issues when partitioned engine integration adds more async complexity.
 
-### 5.1 — Adopt state machine in PgNativeConsumerGroup
+### 5.1 — Adopt state machine in PgNativeConsumerGroup — DONE
 
 **Adopt from**: `OutboxConsumerGroup` `AtomicReference<State>` with `{NEW, STARTING, ACTIVE, STOPPING, CLOSED}`  
 **Replace**: Dual `AtomicBoolean` (`active`, `closed`) in `PgNativeConsumerGroup`  
@@ -526,20 +527,20 @@ The two `ConsumerGroup` implementations share the same API contract but diverge 
 **Files**: `PgNativeConsumerGroup.java`  
 **Scope**: Replace `AtomicBoolean active`, `AtomicBoolean closed` with `AtomicReference<State>`. Update all CAS transitions in `start()`, `stop()`, `stopGracefully()`, `close()`, `isActive()`, `addConsumer()`.
 
-### 5.2 — Fix TOCTOU race in PgNativeConsumerGroup.addConsumer
+### 5.2 — Fix TOCTOU race in PgNativeConsumerGroup.addConsumer — DONE
 
 **Adopt from**: `OutboxConsumerGroup.addConsumer` uses `putIfAbsent` (line 265)  
 **Fix**: `PgNativeConsumerGroup.addConsumer` uses `containsKey` + `put` (lines 156-163), which has a time-of-check/time-of-use race under concurrent `addConsumer` calls  
 **Files**: `PgNativeConsumerGroup.java`  
 **Change**: Replace `containsKey` check + `put` with `putIfAbsent`, throw if existing returned.
 
-### 5.3 — Compose partitioned engine stop future in stopInternal
+### 5.3 — Compose partitioned engine stop future in stopInternal — DONE
 
 **Fix in**: `PgNativeConsumerGroup.stopInternal()` (lines 338-344)  
 **Problem**: `partitionedEngine.stop()` returns `Future<Void>` performing async `leaveGroup`, but the future is discarded and the engine reference nulled immediately. Both `stop()` and `stopGracefully()` report completion before the leave-group RPC finishes.  
 **Change**: `stopInternal` must return `Future<Void>`. Compose `partitionedEngine.stop()` into the returned future. `stop()` becomes `Future<Void>` (or composes internally). `stopGracefully()` composes subscription cancel → `stopInternal()` sequentially and returns the composed future.
 
-### 5.4 — Compose partitioned engine start future in start(SubscriptionOptions)
+### 5.4 — Compose partitioned engine start future in start(SubscriptionOptions) — DONE
 
 **Fix in**: `PgNativeConsumerGroup.start(SubscriptionOptions)` (lines 286-294) and `start()` (line 192)  
 **Problem**: `start()` is `void` and performs async mode detection + async engine startup via fire-and-forget `.onSuccess()`/`.onFailure()`. The `start(SubscriptionOptions)` future completes after subscription creation but before the consumer engine is ready.  
@@ -548,13 +549,13 @@ The two `ConsumerGroup` implementations share the same API contract but diverge 
 - `start(SubscriptionOptions)` must compose mode detection → `startPartitioned()`/`startReferenceCountingInternal()` into its returned future.  
 - `start()` (void) should set state to STARTING, then compose the same async chain, setting ACTIVE on success and resetting to NEW on failure (matching OutboxConsumerGroup's try/catch pattern).
 
-### 5.5 — Stop members on partitioned engine start failure
+### 5.5 — Stop members on partitioned engine start failure — DONE
 
 **Fix in**: `PgNativeConsumerGroup.startPartitioned()` (lines 236-244)  
 **Problem**: Members are started at line 236 before `partitionedEngine.start(handler)` at line 238. If engine start fails, the `.onFailure` handler sets `active=false` but never stops the members. Members remain in started state with no engine feeding them.  
 **Change**: Move `members.values().forEach(start)` into the `.onSuccess` handler of `partitionedEngine.start()`, or add `members.values().forEach(stop)` to the `.onFailure` handler.
 
-### 5.6 — Compose closeAsync future in OutboxConsumerGroup stop/close paths
+### 5.6 — Compose closeAsync future in OutboxConsumerGroup stop/close paths — DONE
 
 **Fix in**: `OutboxConsumerGroup.stopInternal()` (lines 471-479) and `close()` (lines 588-592)  
 **Problem**: `oc.closeAsync()` returns `Future<Void>` (closes reactive pool), but the future is discarded. `stopGracefully()` returns `Future.succeededFuture()` before the pool close finishes.  
@@ -577,25 +578,22 @@ The `sharedFilterScheduler` is created in `OutboxConsumerGroup`, exposed via `ge
 
 **Remaining risk**: `close()` calls `awaitTermination(5, SECONDS)` which blocks the calling thread. If `close()` is ever called from a Vert.x event-loop thread, this would block. Currently `close()` is called from application shutdown paths (not event-loop), so this is acceptable. If this changes in the future, `close()` should be reworked to use `executeBlocking()` or an async shutdown handshake.
 
-### 5.8 — Add fan-out trace propagation to OutboxConsumerGroup.distributeMessage
+### 5.8 — Add fan-out trace propagation to OutboxConsumerGroup.distributeMessage — DONE
 
 **Adopt from**: `PgNativeConsumerGroup.distributeMessage()` (lines 469-522) creates a child span per consumer group from the message's `traceparent` header  
-**Missing in**: `OutboxConsumerGroup.distributeMessage()` (lines 620-668) has no trace context propagation  
+**Implemented in**: `OutboxConsumerGroup.distributeMessage()` — now has `TraceCtx.parseOrCreate(traceparent)` → `childSpan()` → `TraceContextUtil.mdcScope()` with cleanup in `.eventually()`  
 **Change**: Add the same `TraceCtx.parseOrCreate(traceparent)` → `childSpan("consumer-group:" + groupName + "/process")` → `TraceContextUtil.mdcScope()` pattern, with `TraceContextUtil.clearTraceMDC()` in `.eventually()`.  
 **Files**: `OutboxConsumerGroup.java`, plus test coverage in outbox module.
 
-### 5.9 — Wire connectionManager/serviceId in PgNativeQueueFactory.createConsumerGroup
+### 5.9 — Wire connectionManager/serviceId in PgNativeQueueFactory.createConsumerGroup — DONE
 
 **Fix in**: `PgNativeQueueFactory.createConsumerGroup()` (lines 228-230)  
-**Problem**: Factory uses the 8-arg constructor, passing `connectionManager=null`. Partitioned mode is unreachable through this factory path.  
-**Change**: Pass the factory's `PgConnectionManager` and `serviceId` to the 10-arg constructor. Requires the factory to hold or resolve these references.  
-**Note**: This is Phase 6 critical — without it, no consumer group created through the factory can auto-detect OFFSET_WATERMARK mode.
+**Implemented**: Factory now passes `connectionManager` and `connectionServiceId` to the full constructor (line 244).
 
-### 5.10 — Adopt try/finally state reset in PgNativeConsumerGroup stop paths
+### 5.10 — Adopt try/finally state reset in PgNativeConsumerGroup stop paths — DONE
 
 **Adopt from**: `OutboxConsumerGroup.stopInternal()` uses `try { ... } finally { state.set(State.NEW); }` (lines 463-484)  
-**Fix in**: `PgNativeConsumerGroup.stopInternal()` has no protection against exceptions leaving the group in an inconsistent state  
-**Change**: After adopting the state machine (5.1), wrap `stopInternal` body in try/finally that resets state to NEW.
+**Implemented**: `stopInternal()` has try/catch with `state.compareAndSet(State.STOPPING, State.NEW)` in both the `eventually()` callback and the catch block.
 
 ### Execution Order
 

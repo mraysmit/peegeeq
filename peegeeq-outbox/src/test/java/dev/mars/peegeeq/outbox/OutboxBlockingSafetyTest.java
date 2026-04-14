@@ -8,10 +8,9 @@ import io.vertx.core.Vertx;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
 
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
-
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 @Tag(TestCategories.CORE)
@@ -46,9 +45,7 @@ class OutboxBlockingSafetyTest {
             assertIllegalStateWithMessage(effectiveCloseError,
                     "Do not call blocking close() on event-loop thread");
         } finally {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            vertx.close().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            vertx.close().await();
         }
     }
 
@@ -74,12 +71,10 @@ class OutboxBlockingSafetyTest {
             });
 
             // No synchronous exception should be thrown — async failures are in the Future
-            assertTrue(thrown == null,
+            assertNull(thrown,
                     "start(SubscriptionOptions) should not throw on event loop; got: " + thrown);
         } finally {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            vertx.close().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            vertx.close().await();
         }
     }
 
@@ -93,19 +88,12 @@ class OutboxBlockingSafetyTest {
                 outcome.complete(t);
             }
         });
-        CountDownLatch latch = new CountDownLatch(1);
-        java.util.concurrent.atomic.AtomicReference<Throwable> result = new java.util.concurrent.atomic.AtomicReference<>();
-        outcome.future().onComplete(ar -> {
-            result.set(ar.result());
-            latch.countDown();
-        });
-        latch.await(5, TimeUnit.SECONDS);
-        return result.get();
+        return outcome.future().await();
     }
 
     private static void assertIllegalStateWithMessage(Throwable thrown, String expectedMessage) {
         assertNotNull(thrown, "Expected an exception to be thrown");
-        assertTrue(thrown instanceof IllegalStateException,
+        assertInstanceOf(IllegalStateException.class, thrown,
                 "Expected IllegalStateException but got: " + thrown.getClass().getName());
         assertTrue(thrown.getMessage().contains(expectedMessage),
                 "Expected message to contain: " + expectedMessage + ", but was: " + thrown.getMessage());

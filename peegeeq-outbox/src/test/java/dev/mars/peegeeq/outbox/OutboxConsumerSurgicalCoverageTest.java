@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.outbox;
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 
 import dev.mars.peegeeq.api.database.DatabaseService;
@@ -11,6 +12,8 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -26,7 +29,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -52,16 +54,10 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 @ExtendWith(VertxExtension.class)
 class OutboxConsumerSurgicalCoverageTest {
 
-    @Container
-    private static final PostgreSQLContainer postgres = createPostgresContainer();
+    private static final Logger logger = LoggerFactory.getLogger(OutboxConsumerSurgicalCoverageTest.class);
 
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
-        container.withDatabaseName("testdb");
-        container.withUsername("testuser");
-        container.withPassword("testpass");
-        return container;
-    }
+    @Container
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private OutboxFactory outboxFactory;
@@ -86,29 +82,40 @@ class OutboxConsumerSurgicalCoverageTest {
         if (consumer != null) {
             try {
                 consumer.close();
-            } catch (Exception ignored) {}
+            } catch (Exception e) {
+                logger.warn("Error closing consumer: {}", e.getMessage());
+            }
         }
         if (producer != null) {
             try {
                 producer.close();
-            } catch (Exception ignored) {}
+            } catch (Exception e) {
+                logger.warn("Error closing producer: {}", e.getMessage());
+            }
         }
         if (outboxFactory != null) {
             try {
                 outboxFactory.close();
-            } catch (Exception ignored) {}
+            } catch (Exception e) {
+                logger.warn("Error closing outbox factory: {}", e.getMessage());
+            }
         }
         if (manager != null) {
             try {
-                CountDownLatch closeLatch = new CountDownLatch(1);
-                manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-                closeLatch.await(10, TimeUnit.SECONDS);
-            } catch (Exception ignored) {}
+                manager.closeReactive().await();
+            } catch (Exception e) {
+                logger.warn("Error closing manager: {}", e.getMessage());
+            }
         }
         System.clearProperty("peegeeq.queue.consumer-threads");
         System.clearProperty("peegeeq.queue.batch-size");
         System.clearProperty("peegeeq.queue.max-retries");
         System.clearProperty("peegeeq.queue.polling-interval");
+        System.clearProperty("peegeeq.database.host");
+        System.clearProperty("peegeeq.database.port");
+        System.clearProperty("peegeeq.database.name");
+        System.clearProperty("peegeeq.database.username");
+        System.clearProperty("peegeeq.database.password");
     }
 
     /**

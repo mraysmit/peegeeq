@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.outbox;
 
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -41,7 +42,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -56,16 +56,14 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 @ExtendWith(VertxExtension.class)
 public class OutboxProducerCoreTest {
 
-    @Container
-    private static final PostgreSQLContainer postgres = createPostgresContainer();
+    private static final String[] SYSTEM_PROPERTIES = {
+        "peegeeq.database.host", "peegeeq.database.port", "peegeeq.database.name",
+        "peegeeq.database.username", "peegeeq.database.password", "peegeeq.database.ssl.enabled",
+        "peegeeq.polling-interval"
+    };
 
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
-        container.withDatabaseName("testdb");
-        container.withUsername("testuser");
-        container.withPassword("testpass");
-        return container;
-    }
+    @Container
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private OutboxFactory outboxFactory;
@@ -89,6 +87,8 @@ public class OutboxProducerCoreTest {
         System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
         System.setProperty("peegeeq.database.username", postgres.getUsername());
         System.setProperty("peegeeq.database.password", postgres.getPassword());
+        System.setProperty("peegeeq.database.ssl.enabled", "false");
+        System.setProperty("peegeeq.polling-interval", "PT0.5S");
 
         // Create and start manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("producer-test");
@@ -116,18 +116,18 @@ public class OutboxProducerCoreTest {
             outboxFactory.close();
         }
         if (manager != null) {
-            manager.closeReactive().onComplete(ar -> tearDownContext.completeNow());
+            manager.closeReactive()
+                    .onSuccess(v -> tearDownContext.completeNow())
+                    .onFailure(tearDownContext::failNow);
             assertTrue(tearDownContext.awaitCompletion(10, TimeUnit.SECONDS));
         } else {
             tearDownContext.completeNow();
         }
 
         // Clear system properties
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
+        for (String prop : SYSTEM_PROPERTIES) {
+            System.clearProperty(prop);
+        }
 
         System.err.println("=== OutboxProducerCoreTest TEARDOWN COMPLETED ===");
         System.err.flush();
@@ -155,9 +155,7 @@ public class OutboxProducerCoreTest {
         assertNotNull(sendFuture, "Send should return a future");
 
         // Wait for send to complete
-        CountDownLatch latch = new CountDownLatch(1);
-        sendFuture.onComplete(ar -> latch.countDown());
-        assertTrue(latch.await(5, TimeUnit.SECONDS));
+        sendFuture.await();
 
         System.err.println("=== TEST: testSendBasicMessage COMPLETED ===");
         System.err.flush();
@@ -177,9 +175,7 @@ public class OutboxProducerCoreTest {
         assertNotNull(sendFuture, "Send should return a future");
 
         // Wait for send to complete
-        CountDownLatch latch = new CountDownLatch(1);
-        sendFuture.onComplete(ar -> latch.countDown());
-        assertTrue(latch.await(5, TimeUnit.SECONDS));
+        sendFuture.await();
 
         System.err.println("=== TEST: testSendMessageWithHeaders COMPLETED ===");
         System.err.flush();
@@ -199,9 +195,7 @@ public class OutboxProducerCoreTest {
         assertNotNull(sendFuture, "Send should return a future");
 
         // Wait for send to complete
-        CountDownLatch latch = new CountDownLatch(1);
-        sendFuture.onComplete(ar -> latch.countDown());
-        assertTrue(latch.await(5, TimeUnit.SECONDS));
+        sendFuture.await();
 
         System.err.println("=== TEST: testSendMessageWithCorrelationId COMPLETED ===");
         System.err.flush();
@@ -222,9 +216,7 @@ public class OutboxProducerCoreTest {
         assertNotNull(sendFuture, "Send should return a future");
 
         // Wait for send to complete
-        CountDownLatch latch = new CountDownLatch(1);
-        sendFuture.onComplete(ar -> latch.countDown());
-        assertTrue(latch.await(5, TimeUnit.SECONDS));
+        sendFuture.await();
 
         System.err.println("=== TEST: testSendMessageWithAllParameters COMPLETED ===");
         System.err.flush();
@@ -236,15 +228,10 @@ public class OutboxProducerCoreTest {
         System.err.flush();
 
         int messageCount = 10;
-        CountDownLatch allLatch = new CountDownLatch(messageCount);
-
         for (int i = 0; i < messageCount; i++) {
             String message = "Message " + i;
-            producer.send(message).onComplete(ar -> allLatch.countDown());
+            producer.send(message).await();
         }
-
-        // Wait for all sends to complete
-        assertTrue(allLatch.await(10, TimeUnit.SECONDS));
 
         System.err.println("=== TEST: testSendMultipleMessages COMPLETED ===");
         System.err.flush();
@@ -256,9 +243,7 @@ public class OutboxProducerCoreTest {
         System.err.flush();
 
         // Send a message first
-        CountDownLatch latch = new CountDownLatch(1);
-        producer.send("test message").onComplete(ar -> latch.countDown());
-        assertTrue(latch.await(5, TimeUnit.SECONDS));
+        producer.send("test message").await();
 
         // Close producer
         producer.close();

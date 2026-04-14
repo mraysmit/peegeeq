@@ -35,8 +35,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
+
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -82,9 +81,7 @@ class OutboxQueueUnitTest {
     void tearDown() throws Exception {
         if (queue != null) {
             try {
-                CountDownLatch queueCloseLatch = new CountDownLatch(1);
-                queue.close().onComplete(ar -> queueCloseLatch.countDown());
-                queueCloseLatch.await(2, TimeUnit.SECONDS);
+                queue.close().await();
             } catch (Exception e) {
                 logger.warn("Queue close failed in teardown, continuing", e);
             }
@@ -92,9 +89,7 @@ class OutboxQueueUnitTest {
         
         if (vertx != null) {
             try {
-                CountDownLatch vertxCloseLatch = new CountDownLatch(1);
-                vertx.close().onComplete(ar -> vertxCloseLatch.countDown());
-                vertxCloseLatch.await(2, TimeUnit.SECONDS);
+                vertx.close().await();
             } catch (Exception e) {
                 logger.warn("Vertx close failed in teardown, continuing", e);
             }

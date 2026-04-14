@@ -71,7 +71,9 @@ class OutboxSchemaQuotingTest {
     void tearDown(VertxTestContext testContext) throws Exception {
         if (factory != null) factory.close();
         if (manager != null) {
-            manager.closeReactive().onComplete(ar -> testContext.completeNow());
+            manager.closeReactive()
+                    .onSuccess(v -> testContext.completeNow())
+                    .onFailure(testContext::failNow);
         } else {
             testContext.completeNow();
         }
