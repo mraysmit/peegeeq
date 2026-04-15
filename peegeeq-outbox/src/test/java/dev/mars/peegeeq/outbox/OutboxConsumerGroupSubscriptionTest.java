@@ -48,6 +48,8 @@ import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Unit tests for Outbox Consumer Group subscription and handler features.
@@ -97,7 +99,7 @@ class OutboxConsumerGroupSubscriptionTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         QueueFactoryProvider provider = new PgQueueFactoryProvider();
@@ -109,6 +111,7 @@ class OutboxConsumerGroupSubscriptionTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         if (producer != null) {
             producer.close();
         }
@@ -139,6 +142,7 @@ class OutboxConsumerGroupSubscriptionTest {
 
             Checkpoint messageCheckpoint = testContext.checkpoint();
             group.addConsumer("consumer-1", msg -> {
+        logger.info("Test: start with options  from now");
                 messageCheckpoint.flag();
                 return Future.succeededFuture();
             });
@@ -165,6 +169,7 @@ class OutboxConsumerGroupSubscriptionTest {
         @DisplayName("should start with FROM_BEGINNING position")
         void testStartWithOptions_FromBeginning(Vertx vertx, VertxTestContext testContext) throws Exception {
             for (int i = 0; i < 5; i++) {
+        logger.info("Test: start with options  from beginning");
                 producer.send("Historical-" + i).await();
             }
             vertx.timer(1000).await();
@@ -195,6 +200,7 @@ class OutboxConsumerGroupSubscriptionTest {
             vertx.timer(100).await();
 
             for (int i = 0; i < 3; i++) {
+        logger.info("Test: start with options  from timestamp");
                 producer.send("Before-" + i).await();
             }
 
@@ -244,6 +250,7 @@ class OutboxConsumerGroupSubscriptionTest {
         @Test
         @DisplayName("should fail with IllegalStateException if already active")
         void testStartWithOptions_AlreadyActive(VertxTestContext testContext) throws Exception {
+        logger.info("Test: start with options  null parameter");
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
@@ -275,6 +282,7 @@ class OutboxConsumerGroupSubscriptionTest {
             group.start(options)
                 .onSuccess(v -> testContext.failNow("Should have failed with IllegalStateException"))
                 .onFailure(e -> testContext.verify(() -> {
+        logger.info("Test: start with options  after close");
                     assertInstanceOf(IllegalStateException.class, e);
                     testContext.completeNow();
                 }));
@@ -290,6 +298,7 @@ class OutboxConsumerGroupSubscriptionTest {
 
             Checkpoint messageCheckpoint = testContext.checkpoint();
             group.addConsumer("consumer-1", msg -> {
+        logger.info("Test: start with options  delegates to standard start");
                 messageCheckpoint.flag();
                 return Future.succeededFuture();
             });
@@ -319,6 +328,7 @@ class OutboxConsumerGroupSubscriptionTest {
             group1.start(SubscriptionOptions.builder()
                 .startPosition(StartPosition.FROM_NOW).build())
                 .compose(v -> {
+        logger.info("Test: start with options  multiple positions");
                     testContext.verify(() -> assertTrue(group1.isActive()));
                     group1.close();
                     // FROM_BEGINNING
@@ -378,6 +388,7 @@ class OutboxConsumerGroupSubscriptionTest {
         @Test
         @DisplayName("should return ConsumerGroupMember")
         void testSetMessageHandler_ReturnsConsumerGroupMember() {
+        logger.info("Test: set message handler  creates default consumer");
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
@@ -401,6 +412,7 @@ class OutboxConsumerGroupSubscriptionTest {
             Checkpoint messageCheckpoint = testContext.checkpoint(2);
 
             group.setMessageHandler(msg -> {
+        logger.info("Test: set message handler  processes messages");
                 messageCheckpoint.flag();
                 return Future.succeededFuture();
             });
@@ -433,6 +445,7 @@ class OutboxConsumerGroupSubscriptionTest {
         @Test
         @DisplayName("should throw NullPointerException with null handler")
         void testSetMessageHandler_NullHandler() {
+        logger.info("Test: set message handler  called twice");
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
@@ -457,6 +470,7 @@ class OutboxConsumerGroupSubscriptionTest {
         @Test
         @DisplayName("should work with start()")
         void testSetMessageHandler_IntegrationWithStart(VertxTestContext testContext) throws Exception {
+        logger.info("Test: set message handler  after close");
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
 
@@ -481,6 +495,7 @@ class OutboxConsumerGroupSubscriptionTest {
         @DisplayName("should work with start(SubscriptionOptions)")
         void testSetMessageHandler_IntegrationWithStartOptions(Vertx vertx, VertxTestContext testContext) throws Exception {
             for (int i = 0; i < 3; i++) {
+        logger.info("Test: set message handler  integration with start options");
                 producer.send("Historical-" + i).await();
             }
             vertx.timer(1000).await();
@@ -514,6 +529,7 @@ class OutboxConsumerGroupSubscriptionTest {
 
             Checkpoint messageCheckpoint = testContext.checkpoint(5);
             ConsumerGroupMember<String> member = group.setMessageHandler(msg -> {
+        logger.info("Test: set message handler  statistics");
                 messageCheckpoint.flag();
                 return Future.succeededFuture();
             });
@@ -554,6 +570,7 @@ class OutboxConsumerGroupSubscriptionTest {
 
             List<java.util.concurrent.Future<?>> futures = new ArrayList<>();
             for (int i = 0; i < 5; i++) {
+        logger.info("Test: set message handler  thread safety");
                 futures.add(executor.submit(() -> {
                     try {
                         startBarrier.await();

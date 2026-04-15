@@ -2,6 +2,8 @@ package dev.mars.peegeeq.outbox;
 
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -93,7 +95,7 @@ public class OutboxProducerCoreTest {
         // Create and start manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("producer-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create factory and producer
         DatabaseService databaseService = new PgDatabaseService(manager);
@@ -106,6 +108,7 @@ public class OutboxProducerCoreTest {
 
     @AfterEach
     void tearDown(VertxTestContext tearDownContext) throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         System.err.println("=== OutboxProducerCoreTest TEARDOWN STARTED ===");
         System.err.flush();
 
@@ -146,6 +149,7 @@ public class OutboxProducerCoreTest {
 
     @Test
     void testSendBasicMessage() throws Exception {
+        logger.info("Test: producer creation");
         System.err.println("=== TEST: testSendBasicMessage STARTED ===");
         System.err.flush();
 
@@ -183,6 +187,7 @@ public class OutboxProducerCoreTest {
 
     @Test
     void testSendMessageWithCorrelationId() throws Exception {
+        logger.info("Test: send message with headers");
         System.err.println("=== TEST: testSendMessageWithCorrelationId STARTED ===");
         System.err.flush();
 
@@ -224,6 +229,7 @@ public class OutboxProducerCoreTest {
 
     @Test
     void testSendMultipleMessages() throws Exception {
+        logger.info("Test: send message with all parameters");
         System.err.println("=== TEST: testSendMultipleMessages STARTED ===");
         System.err.flush();
 

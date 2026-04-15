@@ -100,6 +100,7 @@ class EnhancedErrorHandlingDemoTest {
 
     @BeforeEach
     void setUp() {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("🔧 Setting up EnhancedErrorHandlingDemoTest");
 
         // Initialize error counters
@@ -138,7 +139,7 @@ class EnhancedErrorHandlingDemoTest {
         // Initialize PeeGeeQ manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("error-handling-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create native factory
         var databaseService = new PgDatabaseService(manager);
@@ -154,6 +155,7 @@ class EnhancedErrorHandlingDemoTest {
 
     @AfterEach
     void tearDown() {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("🧹 Cleaning up EnhancedErrorHandlingDemoTest");
         
         if (manager != null) {

@@ -36,6 +36,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Demo test showcasing Distributed System Resilience Patterns for PeeGeeQ.
@@ -54,6 +56,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @ExtendWith(VertxExtension.class)
 class DistributedSystemResilienceDemoTest {
+    private static final Logger logger = LoggerFactory.getLogger(DistributedSystemResilienceDemoTest.class);
+
 
     static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
@@ -355,6 +359,7 @@ class DistributedSystemResilienceDemoTest {
 
     @BeforeEach
     void setUp() {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         System.out.println("\n🛡️ Setting up Distributed System Resilience Demo Test");
 
         // Configure system properties for TestContainers
@@ -368,7 +373,7 @@ class DistributedSystemResilienceDemoTest {
         // Initialize PeeGeeQ with resilience configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create native factory
         var databaseService = new PgDatabaseService(manager);
@@ -384,6 +389,7 @@ class DistributedSystemResilienceDemoTest {
 
     @AfterEach
     void tearDown() {
+        logger.info("Tearing down: closing resources and manager");
         System.out.println("🧹 Cleaning up Distributed System Resilience Demo Test");
 
         if (manager != null) {
@@ -408,6 +414,7 @@ class DistributedSystemResilienceDemoTest {
     @Order(1)
     @DisplayName("Circuit Breaker Pattern - Preventing Cascade Failures")
     void testCircuitBreakerPattern(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: circuit breaker pattern");
         System.out.println("\n🛡️ Testing Circuit Breaker Pattern");
 
         String requestQueue = "resilience-request-queue";

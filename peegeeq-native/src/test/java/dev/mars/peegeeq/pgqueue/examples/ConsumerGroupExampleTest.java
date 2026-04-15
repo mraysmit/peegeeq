@@ -90,6 +90,7 @@ class ConsumerGroupExampleTest {
     
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("=== Setting up Consumer Group Example Test ===");
 
         // Configure PeeGeeQ to use container database
@@ -112,7 +113,7 @@ class ConsumerGroupExampleTest {
                 new PeeGeeQConfiguration("development"),
                 new SimpleMeterRegistry());
 
-        manager.start();
+        manager.start().await();
         logger.info("PeeGeeQ Manager started successfully");
         
         // Create database service and factory provider
@@ -133,6 +134,7 @@ class ConsumerGroupExampleTest {
     
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("🧹 Cleaning up Consumer Group Example Test");
         
         if (manager != null) {

@@ -73,6 +73,7 @@ class ConsumerModeGracefulDegradationTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("Setting up graceful degradation test environment");
 
         // Initialize database schema using centralized schema initializer - use QUEUE_ALL for PeeGeeQManager health checks
@@ -96,7 +97,7 @@ class ConsumerModeGracefulDegradationTest {
         // Initialize PeeGeeQ (following existing patterns)
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create factory using the proper pattern
         PgDatabaseService databaseService = new PgDatabaseService(manager);
@@ -112,6 +113,7 @@ class ConsumerModeGracefulDegradationTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("Cleaning up graceful degradation test environment");
         
         if (factory != null) {

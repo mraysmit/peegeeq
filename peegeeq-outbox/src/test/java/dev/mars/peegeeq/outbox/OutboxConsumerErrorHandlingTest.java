@@ -48,6 +48,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Integration tests for OutboxConsumer error handling and edge cases.
@@ -94,7 +96,7 @@ public class OutboxConsumerErrorHandlingTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("error-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, config);
@@ -104,6 +106,7 @@ public class OutboxConsumerErrorHandlingTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         if (consumer != null) {
             consumer.close();
         }
@@ -128,6 +131,7 @@ public class OutboxConsumerErrorHandlingTest {
         AtomicInteger attemptCount = new AtomicInteger(0);
 
         consumer.subscribe(message -> {
+        logger.info("Test: handler exception with retry");
             int attempt = attemptCount.incrementAndGet();
             checkpoint.flag();
             
@@ -152,6 +156,7 @@ public class OutboxConsumerErrorHandlingTest {
         AtomicInteger attemptCount = new AtomicInteger(0);
 
         consumer.subscribe(message -> {
+        logger.info("Test: handler exception reaches max retries");
             attemptCount.incrementAndGet();
             checkpoint.flag();
             return Future.failedFuture(new RuntimeException("Always fails"));
@@ -169,6 +174,7 @@ public class OutboxConsumerErrorHandlingTest {
         Checkpoint processingCompleted = testContext.checkpoint();
 
         consumer.subscribe(message -> {
+        logger.info("Test: unsubscribe during processing");
             processingStarted.flag();
             // Simulate processing via non-blocking delay
             Promise<Void> promise = Promise.promise();
@@ -196,6 +202,7 @@ public class OutboxConsumerErrorHandlingTest {
         Checkpoint processingStarted = testContext.checkpoint();
         
         consumer.subscribe(message -> {
+        logger.info("Test: close during processing");
             processingStarted.flag();
             Promise<Void> promise = Promise.promise();
             vertx.setTimer(100, id -> promise.complete());
@@ -224,6 +231,7 @@ public class OutboxConsumerErrorHandlingTest {
 
     @Test
     void testMultipleSubscribeCallsLogsWarning() {
+        logger.info("Test: set consumer group name");
         // First subscription should succeed
         consumer.subscribe(message -> Future.succeededFuture());
 
@@ -245,6 +253,7 @@ public class OutboxConsumerErrorHandlingTest {
 
     @Test
     void testCloseMultipleTimes(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: close before subscribe");
         Checkpoint checkpoint = testContext.checkpoint();
         
         consumer.subscribe(message -> {
@@ -270,6 +279,7 @@ public class OutboxConsumerErrorHandlingTest {
         producer.send(null)
             .onSuccess(v -> testContext.failNow("Sending null payload should have failed"))
             .onFailure(err -> testContext.verify(() -> {
+        logger.info("Test: message with null payload");
                 assertInstanceOf(IllegalArgumentException.class, err,
                     "Cause should be IllegalArgumentException");
                 testContext.completeNow();
@@ -284,6 +294,7 @@ public class OutboxConsumerErrorHandlingTest {
         // Don't use checkpoints here — re-subscribing on the same consumer creates
         // duplicate polling tasks and checkpoint accumulation breaks VertxTestContext.
         for (int i = 0; i < 5; i++) {
+        logger.info("Test: rapid subscribe unsubscribe cycle");
             consumer.subscribe(message -> Future.succeededFuture());
             consumer.unsubscribe();
         }
@@ -296,6 +307,7 @@ public class OutboxConsumerErrorHandlingTest {
         Checkpoint checkpoint = testContext.checkpoint();
 
         consumer.subscribe(message -> {
+        logger.info("Test: handler with interrupted exception");
             Thread.currentThread().interrupt();
             checkpoint.flag();
             return Future.failedFuture(new RuntimeException("Interrupted"));
@@ -313,6 +325,7 @@ public class OutboxConsumerErrorHandlingTest {
         AtomicInteger processedCount = new AtomicInteger(0);
 
         consumer.subscribe(message -> {
+        logger.info("Test: concurrent message processing");
             processedCount.incrementAndGet();
             // Simulate processing via non-blocking delay
             Promise<Void> promise = Promise.promise();

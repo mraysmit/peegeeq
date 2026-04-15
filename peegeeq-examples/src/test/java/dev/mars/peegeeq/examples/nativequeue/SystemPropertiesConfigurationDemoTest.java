@@ -35,6 +35,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Demo test showcasing System Properties Configuration Patterns for PeeGeeQ.
@@ -53,6 +55,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class SystemPropertiesConfigurationDemoTest {
+    private static final Logger logger = LoggerFactory.getLogger(SystemPropertiesConfigurationDemoTest.class);
+
 
     static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
@@ -152,6 +156,7 @@ class SystemPropertiesConfigurationDemoTest {
 
     @BeforeEach
     void setUp() {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         System.out.println("\n🔧 Setting up System Properties Configuration Demo Test");
 
         // Configure system properties for TestContainers
@@ -165,7 +170,7 @@ class SystemPropertiesConfigurationDemoTest {
         // Initialize PeeGeeQ with development configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create native factory
         var databaseService = new PgDatabaseService(manager);
@@ -181,6 +186,7 @@ class SystemPropertiesConfigurationDemoTest {
 
     @AfterEach
     void tearDown(Vertx vertx) {
+        logger.info("Tearing down: closing resources and manager");
         System.out.println("🧹 Cleaning up System Properties Configuration Demo Test");
 
         // CRITICAL: Close all consumers first to stop background polling
@@ -239,6 +245,7 @@ class SystemPropertiesConfigurationDemoTest {
     @Order(1)
     @DisplayName("Dynamic Configuration Management - Runtime Property Updates")
     void testDynamicConfigurationManagement(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: dynamic configuration management");
         System.out.println("\n🔄 Testing Dynamic Configuration Management");
 
         String queueName = "config-dynamic-queue";
@@ -327,6 +334,7 @@ class SystemPropertiesConfigurationDemoTest {
     @Order(2)
     @DisplayName("Environment-Specific Settings - DEV/STAGING/PROD Configurations")
     void testEnvironmentSpecificSettings(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: environment specific settings");
         System.out.println("\n🌍 Testing Environment-Specific Settings");
 
         String queueName = "config-environment-queue";
@@ -397,6 +405,7 @@ class SystemPropertiesConfigurationDemoTest {
     @Order(3)
     @DisplayName("Configuration Validation - Property Validation and Error Handling")
     void testConfigurationValidation(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: configuration validation");
         System.out.println("\nTesting Configuration Validation");
 
         String queueName = "config-validation-queue";
@@ -476,6 +485,7 @@ class SystemPropertiesConfigurationDemoTest {
     @Order(4)
     @DisplayName("Hot Configuration Reload - Live Configuration Updates")
     void testHotConfigurationReload(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: hot configuration reload");
         System.out.println("\n🔥 Testing Hot Configuration Reload");
 
         String queueName = "config-hot-reload-queue";

@@ -94,6 +94,7 @@ public class OutboxRetryConcurrencyTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
@@ -115,7 +116,7 @@ public class OutboxRetryConcurrencyTest {
 
         // Initialize manager and components
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("basic-test"), new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, manager.getConfiguration());
@@ -148,6 +149,7 @@ public class OutboxRetryConcurrencyTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("🧹 Cleaning up OutboxRetryConcurrencyTest");
         
         // Shutdown test executor

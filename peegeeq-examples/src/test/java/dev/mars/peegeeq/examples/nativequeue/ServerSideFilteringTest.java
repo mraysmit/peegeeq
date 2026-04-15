@@ -86,6 +86,7 @@ public class ServerSideFilteringTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("=== Setting up ServerSideFilteringTest ===");
         configureSystemPropertiesForContainer();
 
@@ -94,7 +95,7 @@ public class ServerSideFilteringTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("filter-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         var databaseService = new PgDatabaseService(manager);
         QueueFactoryProvider provider = new PgQueueFactoryProvider();
@@ -106,6 +107,7 @@ public class ServerSideFilteringTest {
 
     @AfterEach
     void tearDown(Vertx vertx) {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("=== Tearing down ServerSideFilteringTest ===");
         if (nativeFactory != null) {
             try {

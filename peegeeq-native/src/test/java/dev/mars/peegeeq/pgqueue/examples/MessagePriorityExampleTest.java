@@ -139,6 +139,7 @@ class MessagePriorityExampleTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("=== Setting up Message Priority Example Test ===");
 
         // Configure PeeGeeQ to use container database
@@ -167,7 +168,7 @@ class MessagePriorityExampleTest {
                 new PeeGeeQConfiguration("development"),
                 new SimpleMeterRegistry());
 
-        manager.start();
+        manager.start().await();
         logger.info("PeeGeeQ Manager started successfully");
 
         // Create database service and factory provider
@@ -185,6 +186,7 @@ class MessagePriorityExampleTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("🧹 Cleaning up Message Priority Example Test");
 
         if (manager != null) {

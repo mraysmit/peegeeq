@@ -53,6 +53,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Integration tests for consumer groups functionality.
@@ -65,6 +67,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 @Testcontainers
 class ConsumerGroupTest {
+    private static final Logger logger = LoggerFactory.getLogger(ConsumerGroupTest.class);
+
 
     @Container
     static PostgreSQLContainer postgres = createPostgresContainer();
@@ -83,6 +87,7 @@ class ConsumerGroupTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Set test properties
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
@@ -96,7 +101,7 @@ class ConsumerGroupTest {
         // Initialize PeeGeeQ Manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create factory and producer
         DatabaseService databaseService = new PgDatabaseService(manager);
@@ -111,6 +116,7 @@ class ConsumerGroupTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (producer != null) {
             producer.close();
         }
@@ -124,6 +130,7 @@ class ConsumerGroupTest {
 
     @Test
     void testBasicConsumerGroupFunctionality(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: basic consumer group functionality");
         // Create consumer group
         ConsumerGroup<String> consumerGroup = factory.createConsumerGroup(
             "TestGroup", "test-topic", String.class);
@@ -194,6 +201,7 @@ class ConsumerGroupTest {
 
     @Test
     void testMessageFilteringByHeaders(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: message filtering by headers");
         // Create consumer group
         ConsumerGroup<String> consumerGroup = factory.createConsumerGroup(
             "FilterGroup", "test-topic", String.class);
@@ -250,6 +258,7 @@ class ConsumerGroupTest {
 
     @Test
     void testConsumerGroupWithGroupLevelFilter(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: consumer group with group level filter");
         // Create consumer group without group-level filter for now
         // TODO: Test group-level filtering once header support is fixed
         ConsumerGroup<String> consumerGroup = factory.createConsumerGroup(
@@ -291,6 +300,7 @@ class ConsumerGroupTest {
 
     @Test
     void testConsumerGroupStatistics(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: consumer group statistics");
         // Create consumer group
         ConsumerGroup<String> consumerGroup = factory.createConsumerGroup(
             "StatsGroup", "test-topic", String.class);
@@ -352,6 +362,7 @@ class ConsumerGroupTest {
 
     @Test
     void testRemoveConsumerFromGroup() throws Exception {
+        logger.info("Test: remove consumer from group");
         // Create consumer group
         ConsumerGroup<String> consumerGroup = factory.createConsumerGroup(
             "RemovalGroup", "test-topic", String.class);

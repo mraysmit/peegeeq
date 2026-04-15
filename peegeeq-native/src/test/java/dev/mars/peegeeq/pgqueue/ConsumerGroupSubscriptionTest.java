@@ -52,6 +52,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import io.vertx.core.Future;
 
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Unit tests for Consumer Group subscription and handler features.
@@ -70,6 +72,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @DisplayName("Consumer Group Subscription Features")
 class ConsumerGroupSubscriptionTest {
+    private static final Logger logger = LoggerFactory.getLogger(ConsumerGroupSubscriptionTest.class);
+
 
     @Container
     static PostgreSQLContainer postgres = createPostgresContainer();
@@ -88,6 +92,7 @@ class ConsumerGroupSubscriptionTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Set test properties
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
@@ -102,7 +107,7 @@ class ConsumerGroupSubscriptionTest {
         // Initialize PeeGeeQ Manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create factory and producer
         DatabaseService databaseService = new PgDatabaseService(manager);
@@ -117,6 +122,7 @@ class ConsumerGroupSubscriptionTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (producer != null) {
             producer.close();
         }
@@ -140,6 +146,7 @@ class ConsumerGroupSubscriptionTest {
         @Disabled("Native queue requires SubscriptionManager integration for start position support - use two-step process with SubscriptionManager.subscribe()")
         @DisplayName("should start with FROM_NOW position")
         void testStartWithOptions_FromNow(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: start with options  from now");
             // Arrange
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
@@ -177,6 +184,7 @@ class ConsumerGroupSubscriptionTest {
         @Disabled("Native queue requires SubscriptionManager integration for start position support - use two-step process with SubscriptionManager.subscribe()")
         @DisplayName("should start with FROM_BEGINNING position")
         void testStartWithOptions_FromBeginning(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: start with options  from beginning");
             // Arrange: Send messages before subscription
             List<String> sentMessages = new ArrayList<>();
             for (int i = 0; i < 5; i++) {
@@ -221,6 +229,7 @@ class ConsumerGroupSubscriptionTest {
         @Disabled("Native queue requires SubscriptionManager integration for start position support - use two-step process with SubscriptionManager.subscribe()")
         @DisplayName("should start with FROM_TIMESTAMP position")
         void testStartWithOptions_FromTimestamp(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: start with options  from timestamp");
             // Arrange: Send messages and capture timestamp
             Instant beforeTimestamp = Instant.now();
 
@@ -270,6 +279,7 @@ class ConsumerGroupSubscriptionTest {
         @Test
         @DisplayName("should throw IllegalArgumentException for null options")
         void testStartWithOptions_NullParameter() {
+        logger.info("Test: start with options  null parameter");
             // Arrange
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
@@ -287,6 +297,7 @@ class ConsumerGroupSubscriptionTest {
         @Test
         @DisplayName("should allow multiple start calls (idempotent)")
         void testStartWithOptions_AlreadyActive() throws Exception {
+        logger.info("Test: start with options  already active");
             // Arrange
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
@@ -310,6 +321,7 @@ class ConsumerGroupSubscriptionTest {
         @Test
         @DisplayName("should return failed future after close")
         void testStartWithOptions_AfterClose() throws Exception {
+        logger.info("Test: start with options  after close");
             // Arrange
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
@@ -329,6 +341,7 @@ class ConsumerGroupSubscriptionTest {
         @Disabled("Native queue requires SubscriptionManager integration for start position support - use two-step process with SubscriptionManager.subscribe()")
         @DisplayName("should delegate to standard start() method")
         void testStartWithOptions_DelegatesToStandardStart(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: start with options  delegates to standard start");
             // Arrange
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
@@ -363,6 +376,7 @@ class ConsumerGroupSubscriptionTest {
         @Test
         @DisplayName("should work with different start positions")
         void testStartWithOptions_MultiplePositions() throws Exception {
+        logger.info("Test: start with options  multiple positions");
             // Test FROM_NOW
             ConsumerGroup<String> group1 = factory.createConsumerGroup(
                 "group-from-now", "test-topic", String.class);
@@ -404,6 +418,7 @@ class ConsumerGroupSubscriptionTest {
         @Test
         @DisplayName("should create default consumer with correct ID pattern")
         void testSetMessageHandler_CreatesDefaultConsumer() {
+        logger.info("Test: set message handler  creates default consumer");
             // Arrange
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
@@ -428,6 +443,7 @@ class ConsumerGroupSubscriptionTest {
         @Test
         @DisplayName("should return ConsumerGroupMember instance")
         void testSetMessageHandler_ReturnsConsumerGroupMember() {
+        logger.info("Test: set message handler  returns consumer group member");
             // Arrange
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
@@ -449,6 +465,7 @@ class ConsumerGroupSubscriptionTest {
         @Test
         @DisplayName("should process messages correctly")
         void testSetMessageHandler_ProcessesMessages(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: set message handler  processes messages");
             // Arrange
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
@@ -488,6 +505,7 @@ class ConsumerGroupSubscriptionTest {
         @Test
         @DisplayName("should throw IllegalStateException when called twice")
         void testSetMessageHandler_CalledTwice() {
+        logger.info("Test: set message handler  called twice");
             // Arrange
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
@@ -506,6 +524,7 @@ class ConsumerGroupSubscriptionTest {
         @Test
         @DisplayName("should throw IllegalArgumentException for null handler")
         void testSetMessageHandler_NullHandler() {
+        logger.info("Test: set message handler  null handler");
             // Arrange
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
@@ -522,6 +541,7 @@ class ConsumerGroupSubscriptionTest {
         @Test
         @DisplayName("should throw IllegalStateException after close")
         void testSetMessageHandler_AfterClose() throws Exception {
+        logger.info("Test: set message handler  after close");
             // Arrange
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
@@ -537,6 +557,7 @@ class ConsumerGroupSubscriptionTest {
         @Test
         @DisplayName("should work with start() method")
         void testSetMessageHandler_IntegrationWithStart(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: set message handler  integration with start");
             // Arrange
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
@@ -571,6 +592,7 @@ class ConsumerGroupSubscriptionTest {
         @Disabled("Native queue requires SubscriptionManager integration for start position support - use two-step process with SubscriptionManager.subscribe()")
         @DisplayName("should work with start(SubscriptionOptions)")
         void testSetMessageHandler_IntegrationWithStartOptions(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: set message handler  integration with start options");
             // Arrange: Send historical messages
             for (int i = 0; i < 3; i++) {
                 producer.send("Historical-" + i);
@@ -611,6 +633,7 @@ class ConsumerGroupSubscriptionTest {
         @Test
         @DisplayName("should track statistics correctly")
         void testSetMessageHandler_Statistics(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: set message handler  statistics");
             // Arrange
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);
@@ -653,6 +676,7 @@ class ConsumerGroupSubscriptionTest {
         @Disabled("Native queue setMessageHandler() has a race condition - thread safety needs implementation fix")
         @DisplayName("should be thread-safe - only one caller succeeds")
         void testSetMessageHandler_ThreadSafety() throws Exception {
+        logger.info("Test: set message handler  thread safety");
             // Arrange
             ConsumerGroup<String> group = factory.createConsumerGroup(
                 "test-group", "test-topic", String.class);

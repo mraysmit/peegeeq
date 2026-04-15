@@ -48,6 +48,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * TDD tests for H2: filtered messages silently acknowledged as completed.
@@ -68,6 +70,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 @DisplayName("H2: Filtered messages must not be acknowledged as completed")
 class OutboxConsumerGroupFilteredMessageStatusTest {
+    private static final Logger logger = LoggerFactory.getLogger(OutboxConsumerGroupFilteredMessageStatusTest.class);
+
 
     @Container
     private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
@@ -80,6 +84,7 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
 
     @BeforeEach
     void setUp() {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         testTopic = "filter-status-test-" + UUID.randomUUID().toString().substring(0, 8);
@@ -92,7 +97,7 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("filter-status-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, config);
@@ -102,6 +107,7 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         System.clearProperty("peegeeq.database.host");
         System.clearProperty("peegeeq.database.port");
         System.clearProperty("peegeeq.database.name");
@@ -130,6 +136,7 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
     @Test
     @DisplayName("Messages accepted by group filter should be marked COMPLETED")
     void acceptedMessagesShouldBeCompleted(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: accepted messages should be completed");
         AtomicInteger processedCount = new AtomicInteger(0);
 
         // Group filter accepts messages starting with "Accept"
@@ -167,6 +174,7 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
     @Test
     @DisplayName("Messages rejected by group filter must NOT be marked COMPLETED")
     void filteredByGroupFilterShouldNotBeCompleted(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: filtered by group filter should not be completed");
         AtomicInteger processedCount = new AtomicInteger(0);
 
         // Group filter only accepts messages starting with "Accept"
@@ -216,6 +224,7 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
     @Test
     @DisplayName("Messages with no eligible consumer must NOT be marked COMPLETED")
     void noEligibleConsumerShouldNotBeCompleted(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: no eligible consumer should not be completed");
         AtomicInteger processedCount = new AtomicInteger(0);
 
         // Member only accepts messages with payload "A"
@@ -255,6 +264,7 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
     @Test
     @DisplayName("Filtered message should be available for a second consumer group to process")
     void filteredMessageShouldBeAvailableForSecondGroup(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: filtered message should be available for second group");
         AtomicInteger group1Processed = new AtomicInteger(0);
         AtomicInteger group2Processed = new AtomicInteger(0);
 

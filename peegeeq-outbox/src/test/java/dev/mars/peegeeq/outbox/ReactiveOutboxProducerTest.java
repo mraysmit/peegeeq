@@ -55,6 +55,7 @@ public class ReactiveOutboxProducerTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
@@ -76,7 +77,7 @@ public class ReactiveOutboxProducerTest {
 
         // Initialize manager
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
         logger.info("PeeGeeQ Manager started successfully");
 
         // Create outbox factory and producer - following existing patterns
@@ -109,6 +110,7 @@ public class ReactiveOutboxProducerTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (producer != null) producer.close();
         if (manager != null) {
             manager.closeReactive().await();

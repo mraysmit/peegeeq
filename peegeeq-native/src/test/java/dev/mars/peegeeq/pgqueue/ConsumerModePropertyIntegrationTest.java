@@ -71,6 +71,7 @@ class ConsumerModePropertyIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Clear any existing system properties to ensure clean state
         clearConsumerModeProperties();
 
@@ -92,6 +93,7 @@ class ConsumerModePropertyIntegrationTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (factory != null) {
             factory.close();
         }
@@ -117,7 +119,7 @@ class ConsumerModePropertyIntegrationTest {
     private void initializeManagerAndFactory() throws Exception {
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         PgDatabaseService databaseService = new PgDatabaseService(manager);
         PgQueueFactoryProvider provider = new PgQueueFactoryProvider();

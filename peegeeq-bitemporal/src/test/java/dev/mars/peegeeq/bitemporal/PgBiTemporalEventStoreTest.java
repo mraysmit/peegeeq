@@ -36,6 +36,8 @@ import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.Pool;
 import io.vertx.core.Vertx;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.lang.reflect.Constructor;
 import java.time.Instant;
@@ -59,8 +61,11 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag(TestCategories.CORE)
 @Testcontainers
 class PgBiTemporalEventStoreTest {
+    private static final Logger logger = LoggerFactory.getLogger(PgBiTemporalEventStoreTest.class);
+
     @Test
     void testTransactionTimeIsDbValueNotJvmClock() throws Exception {
+        logger.info("Test: verify transaction_time comes from database clock, not JVM clock");
         // Given
         TestEvent payload = new TestEvent("clock-skew", "db clock test", 999);
         Instant validTime = Instant.now();
@@ -97,6 +102,7 @@ class PgBiTemporalEventStoreTest {
         pool.close();
 
         // Then: The API and DB values must match
+        logger.info("Comparing API transaction_time={} with DB transaction_time={}", event.getTransactionTime(), dbTransactionTime);
         assertEquals(dbTransactionTime, event.getTransactionTime(), "API and DB transaction_time must match");
 
         // The DB value must NOT match the fake JVM clock
@@ -106,6 +112,7 @@ class PgBiTemporalEventStoreTest {
         Instant now = Instant.now();
         long secondsDiff = Math.abs(dbTransactionTime.getEpochSecond() - now.getEpochSecond());
         assertTrue(secondsDiff < 30, "DB transaction_time should be within 30s of now (was off by " + secondsDiff + "s)");
+        logger.info("Transaction time verified: DB clock used (within {}s of now)", secondsDiff);
     }
 
     private static <T> T await(io.vertx.core.Future<T> future) {
@@ -232,6 +239,7 @@ class PgBiTemporalEventStoreTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: cleaning database for test isolation");
         // Clean database before starting each test to ensure isolation
         cleanupDatabase();
 
@@ -245,6 +253,7 @@ class PgBiTemporalEventStoreTest {
         // Disable queue health checks since we only have bitemporal_event_log table
         System.setProperty("peegeeq.health-check.queue-checks-enabled", "false");
 
+        logger.info("Initializing bitemporal schema and starting PeeGeeQManager");
         // Initialize database schema using centralized schema initializer
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.BITEMPORAL);
 
@@ -253,17 +262,20 @@ class PgBiTemporalEventStoreTest {
 
         // Initialize PeeGeeQ
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         vertx = Vertx.vertx();
 
         // Create factory and event store
+        logger.info("Creating BiTemporalEventStoreFactory and event store for 'bitemporal_event_log'");
         factory = new BiTemporalEventStoreFactory(vertx, manager);
         eventStore = factory.createEventStore(TestEvent.class, "bitemporal_event_log");
+        logger.info("Setup complete");
     }
     
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing event store, manager, and cleaning database");
         // Close event store first to stop any ongoing operations
         if (eventStore != null) {
             try {
@@ -304,6 +316,7 @@ class PgBiTemporalEventStoreTest {
     
     @Test
     void testAppendEvent() throws Exception {
+        logger.info("Test: append a single event and verify all fields");
         // Given
         TestEvent payload = new TestEvent("test-1", "test data", 42);
         Instant validTime = Instant.now();
@@ -316,6 +329,7 @@ class PgBiTemporalEventStoreTest {
             .execute());
         
         // Then
+        logger.info("Appended event id={}, version={}, eventType={}", event.getEventId(), event.getVersion(), event.getEventType());
         assertNotNull(event);
         assertNotNull(event.getEventId());
         assertEquals("TestEvent", event.getEventType());
@@ -337,6 +351,7 @@ class PgBiTemporalEventStoreTest {
     
     @Test
     void testAppendEventWithMetadata() throws Exception {
+        logger.info("Test: append event with headers, correlationId, and aggregateId");
         // Given
         TestEvent payload = new TestEvent("test-2", "test data", 100);
         Instant validTime = Instant.now();
@@ -361,10 +376,12 @@ class PgBiTemporalEventStoreTest {
         assertEquals(headers, event.getHeaders());
         assertEquals(correlationId, event.getCorrelationId());
         assertEquals(aggregateId, event.getAggregateId());
+        logger.info("Metadata verified: headers={}, correlationId={}, aggregateId={}", headers, correlationId, aggregateId);
     }
     
     @Test
     void testAppendCorrection() throws Exception {
+        logger.info("Test: append original event then correction, verify version chain");
         // Given - append original event
         TestEvent originalPayload = new TestEvent("test-3", "original data", 50);
         Instant validTime = Instant.now();
@@ -392,10 +409,13 @@ class PgBiTemporalEventStoreTest {
         assertEquals(originalEvent.getEventId(), correctionEvent.getPreviousVersionId());
         assertTrue(correctionEvent.isCorrection());
         assertEquals(correctionReason, correctionEvent.getCorrectionReason());
+        logger.info("Correction verified: original={} -> correction={}, version={}, reason='{}'",
+                originalEvent.getEventId(), correctionEvent.getEventId(), correctionEvent.getVersion(), correctionReason);
     }
     
     @Test
     void testQueryAllEvents() throws Exception {
+        logger.info("Test: append two events with unique type, query all of that type");
         // Given
         TestEvent event1 = new TestEvent("test-4", "data 1", 10);
         TestEvent event2 = new TestEvent("test-5", "data 2", 20);
@@ -423,10 +443,12 @@ class PgBiTemporalEventStoreTest {
 
         // Then
         assertEquals(2, events.size());
+        logger.info("Query returned {} events for type '{}'", events.size(), uniqueEventType);
     }
     
     @Test
     void testQueryByEventType() throws Exception {
+        logger.info("Test: query events filtered by event type");
         // Given
         TestEvent event1 = new TestEvent("test-6", "data 1", 30);
         TestEvent event2 = new TestEvent("test-7", "data 2", 40);
@@ -456,10 +478,12 @@ class PgBiTemporalEventStoreTest {
         assertEquals(1, events.size());
         assertEquals(uniqueEventType1, events.get(0).getEventType());
         assertEquals(event1, events.get(0).getPayload());
+        logger.info("Query by type '{}' returned 1 event, correctly excluding type '{}'", uniqueEventType1, uniqueEventType2);
     }
     
     @Test
     void testQueryByAggregate() throws Exception {
+        logger.info("Test: query events filtered by aggregateId");
         // Given
         TestEvent event1 = new TestEvent("test-8", "data 1", 60);
         TestEvent event2 = new TestEvent("test-9", "data 2", 70);
@@ -492,10 +516,12 @@ class PgBiTemporalEventStoreTest {
         assertEquals(1, events.size());
         assertEquals("agg-1", events.get(0).getAggregateId());
         assertEquals(event1, events.get(0).getPayload());
+        logger.info("Query by aggregate 'agg-1' returned 1 event, correctly excluding 'agg-2'");
     }
 
     @Test
     void testQueryByAggregateAndEventType() throws Exception {
+        logger.info("Test: query events filtered by both aggregateId and eventType using builder");
         // Given - Create events with different aggregates and types
         TestEvent event1 = new TestEvent("test-agg-type-1", "data 1", 100);
         TestEvent event2 = new TestEvent("test-agg-type-2", "data 2", 200);
@@ -544,10 +570,12 @@ class PgBiTemporalEventStoreTest {
         assertEquals("agg-1", events.get(0).getAggregateId());
         assertEquals("TypeA", events.get(0).getEventType());
         assertEquals(event1, events.get(0).getPayload());
+        logger.info("Compound query (agg-1 + TypeA) returned 1 event, correctly excluding other combinations");
     }
 
     @Test
     void testQueryByAggregateAndEventTypeConvenienceMethod() throws Exception {
+        logger.info("Test: query by aggregate+type using convenience method forAggregateAndType");
         // Given - Create events with different aggregates and types
         TestEvent event1 = new TestEvent("test-convenience-1", "data 1", 100);
         TestEvent event2 = new TestEvent("test-convenience-2", "data 2", 200);
@@ -593,10 +621,12 @@ class PgBiTemporalEventStoreTest {
         assertEquals("order-123", events.get(0).getAggregateId());
         assertEquals("OrderCreated", events.get(0).getEventType());
         assertEquals(event1, events.get(0).getPayload());
+        logger.info("Convenience method forAggregateAndType correctly filtered to 1 matching event");
     }
 
     @Test
     void testGetById() throws Exception {
+        logger.info("Test: retrieve a specific event by its ID");
         // Given
         TestEvent payload = new TestEvent("test-10", "test data", 80);
         Instant validTime = Instant.now();
@@ -614,10 +644,12 @@ class PgBiTemporalEventStoreTest {
         assertNotNull(retrievedEvent);
         assertEquals(originalEvent.getEventId(), retrievedEvent.getEventId());
         assertEquals(originalEvent.getPayload(), retrievedEvent.getPayload());
+        logger.info("getById returned matching event with id={}", retrievedEvent.getEventId());
     }
     
     @Test
     void testGetAllVersions() throws Exception {
+        logger.info("Test: append original + correction, then getAllVersions to retrieve version chain");
         // Given
         TestEvent originalPayload = new TestEvent("test-11", "original", 90);
         Instant validTime = Instant.now();
@@ -642,10 +674,12 @@ class PgBiTemporalEventStoreTest {
         assertEquals(2L, versions.get(1).getVersion());
         assertFalse(versions.get(0).isCorrection());
         assertTrue(versions.get(1).isCorrection());
+        logger.info("getAllVersions returned {} versions: v1 (original) and v2 (correction)", versions.size());
     }
     
     @Test
     void testGetStats() throws Exception {
+        logger.info("Test: append events of different types + correction, then verify stats");
         // Given
         TestEvent event1 = new TestEvent("test-12", "data 1", 100);
         TestEvent event2 = new TestEvent("test-13", "data 2", 200);
@@ -677,26 +711,33 @@ class PgBiTemporalEventStoreTest {
         assertNotNull(stats.getOldestEventTime());
         assertNotNull(stats.getNewestEventTime());
         assertTrue(stats.getStorageSizeBytes() > 0);
+        logger.info("Stats verified: totalEvents={}, corrections={}, types={}, storageBytes={}",
+                stats.getTotalEvents(), stats.getTotalCorrections(), stats.getEventCountsByType(), stats.getStorageSizeBytes());
     }
 
     @Test
     void testConstructorRejectsSchemaQualifiedTableName() {
+        logger.info("Test: constructor rejects schema-qualified table name 'public.bitemporal_event_log'");
         IllegalArgumentException error = assertThrows(IllegalArgumentException.class,
             () -> new PgBiTemporalEventStore<>(vertx, manager, TestEvent.class, "public.bitemporal_event_log", new ObjectMapper()));
 
         assertTrue(error.getMessage().contains("unqualified"),
             "Expected schema-qualified table name to be rejected");
+        logger.info("Rejected as expected: {}", error.getMessage());
     }
 
     @Test
     void testConstructorRejectsUnsafeTableNameCharacters() {
+        logger.info("Test: constructor rejects SQL-injection-style table name");
         assertThrows(IllegalArgumentException.class,
             () -> new PgBiTemporalEventStore<>(vertx, manager, TestEvent.class,
                 "bitemporal_event_log;DROP TABLE bitemporal_event_log;--", new ObjectMapper()));
+        logger.info("Unsafe table name rejected as expected");
     }
 
     @Test
     void testPublicConstructorsAlignWithReactiveNotificationHandlerStyle() {
+        logger.info("Test: verify PgBiTemporalEventStore exposes exactly 2 public constructors (5-arg and 6-arg)");
         Constructor<?>[] constructors = PgBiTemporalEventStore.class.getConstructors();
 
         assertEquals(2, constructors.length, "Expected only convenience and explicit constructors");
@@ -719,6 +760,7 @@ class PgBiTemporalEventStoreTest {
                 ObjectMapper.class,
                 String.class
             })), "Expected 6-argument explicit constructor with clientId");
+        logger.info("Constructor shape verified: 5-arg convenience + 6-arg explicit with clientId");
     }
 }
 

@@ -131,6 +131,7 @@ class RetryAndFailureHandlingExampleTest {
     
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
@@ -147,7 +148,7 @@ class RetryAndFailureHandlingExampleTest {
         // Initialize PeeGeeQ Manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create outbox factory - following established pattern
         PgDatabaseService databaseService = new PgDatabaseService(manager);
@@ -163,6 +164,7 @@ class RetryAndFailureHandlingExampleTest {
     
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("🧹 Cleaning up Retry and Failure Handling Example Test");
         
         if (queueFactory != null) {

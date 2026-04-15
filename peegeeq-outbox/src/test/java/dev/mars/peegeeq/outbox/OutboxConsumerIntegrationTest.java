@@ -69,6 +69,7 @@ class OutboxConsumerIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema using centralized schema initializer - use QUEUE_ALL for PeeGeeQManager health checks
         logger.info("Initializing database schema for OutboxConsumer integration tests");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
@@ -87,7 +88,7 @@ class OutboxConsumerIntegrationTest {
         // Initialize PeeGeeQ manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Get client factory from manager
         clientFactory = manager.getClientFactory();
@@ -98,6 +99,7 @@ class OutboxConsumerIntegrationTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (consumer != null) {
             try {
                 consumer.close();

@@ -99,6 +99,7 @@ public class MessagePriorityExampleTest {
     
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
@@ -119,7 +120,7 @@ public class MessagePriorityExampleTest {
         
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
         
         // Create outbox factory (outbox pattern supports priorities better)
         PgDatabaseService databaseService = new PgDatabaseService(manager);
@@ -133,6 +134,7 @@ public class MessagePriorityExampleTest {
     
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("Tearing down Message Priority Example Test");
         
         if (manager != null) {

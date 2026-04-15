@@ -70,6 +70,7 @@ public class SystemPropertiesConfigurationExampleTest {
     
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
@@ -92,6 +93,7 @@ public class SystemPropertiesConfigurationExampleTest {
     
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("Tearing down System Properties Configuration Example Test");
         
         // Restore original system properties
@@ -218,7 +220,7 @@ public class SystemPropertiesConfigurationExampleTest {
         // Initialize PeeGeeQ with current system properties
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
         try (PeeGeeQManager manager = new PeeGeeQManager(config, new SimpleMeterRegistry())) {
-            manager.start();
+            manager.start().await();
             
             // Log the current configuration
             logCurrentConfiguration(config);

@@ -1,6 +1,8 @@
 package dev.mars.peegeeq.outbox;
 
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -85,7 +87,7 @@ public class OutboxErrorHandlingTest {
         // Create and start manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("error-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create factory and components
         DatabaseService databaseService = new PgDatabaseService(manager);
@@ -96,6 +98,7 @@ public class OutboxErrorHandlingTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         if (consumer != null) {
             consumer.close();
         }
@@ -131,6 +134,7 @@ public class OutboxErrorHandlingTest {
 
         // Set up consumer that fails first few times
         consumer.subscribe(message -> {
+        logger.info("Test: message processing failure and retry");
             int attempt = attemptCount.incrementAndGet();
             System.out.println("Processing attempt " + attempt + " for message: " + message.getPayload());
             
@@ -165,6 +169,7 @@ public class OutboxErrorHandlingTest {
 
         // Set up consumer that always throws exception
         consumer.subscribe(message -> {
+        logger.info("Test: consumer exception handling");
             int count = exceptionCount.incrementAndGet();
             System.out.println("INTENTIONAL FAILURE: Processing attempt " + count + ", throwing exception");
             exceptionCheckpoint.flag();
@@ -194,6 +199,7 @@ public class OutboxErrorHandlingTest {
 
         // Try to send message with closed producer — should fail
         producer.send(testMessage).onComplete(ar -> testContext.verify(() -> {
+        logger.info("Test: producer with closed connection");
             assertTrue(ar.failed(), "Sending with closed producer should fail");
             System.out.println("🔌 **SUCCESS** - Closed producer properly threw exception");
             System.out.println("🔌 ===== INTENTIONAL TEST COMPLETED =====");
@@ -210,6 +216,7 @@ public class OutboxErrorHandlingTest {
 
         // Subscribe to messages
         consumer.subscribe(message -> {
+        logger.info("Test: consumer unsubscribe");
             int count = receivedCount.incrementAndGet();
             System.out.println("Received message " + count + ": " + message.getPayload());
             firstMessageReceived.tryComplete();
@@ -243,6 +250,7 @@ public class OutboxErrorHandlingTest {
 
         // Subscribe to messages
         consumer.subscribe(message -> {
+        logger.info("Test: consumer close");
             int count = receivedCount.incrementAndGet();
             System.out.println("Received message " + count + ": " + message.getPayload());
             firstMessageReceived.tryComplete();
@@ -277,6 +285,7 @@ public class OutboxErrorHandlingTest {
 
         // producer.send(null) returns a failed Future (does not throw synchronously)
         producer.send(null).onComplete(ar -> testContext.verify(() -> {
+        logger.info("Test: null message handling");
             assertTrue(ar.failed(), "Sending null payload should return a failed Future");
             assertTrue(ar.cause() instanceof IllegalArgumentException,
                 "Cause should be IllegalArgumentException, got: " + ar.cause().getClass().getSimpleName());
@@ -293,6 +302,7 @@ public class OutboxErrorHandlingTest {
         // Create a large message (1MB)
         StringBuilder largeMessage = new StringBuilder();
         for (int i = 0; i < 100000; i++) {
+        logger.info("Test: large message handling");
             largeMessage.append("This is a large message for testing purposes. ");
         }
         

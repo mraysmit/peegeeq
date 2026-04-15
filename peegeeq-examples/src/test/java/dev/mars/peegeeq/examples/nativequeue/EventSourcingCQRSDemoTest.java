@@ -33,6 +33,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Demo test showcasing Event Sourcing & CQRS Patterns for PeeGeeQ.
@@ -51,6 +53,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class EventSourcingCQRSDemoTest {
+    private static final Logger logger = LoggerFactory.getLogger(EventSourcingCQRSDemoTest.class);
+
 
     static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
@@ -479,6 +483,7 @@ class EventSourcingCQRSDemoTest {
 
     @BeforeEach
     void setUp() {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         System.out.println("\n🏗️ Setting up Event Sourcing & CQRS Demo Test");
 
         // Configure system properties for TestContainers
@@ -492,7 +497,7 @@ class EventSourcingCQRSDemoTest {
         // Initialize PeeGeeQ with event sourcing configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create native factory
         var databaseService = new PgDatabaseService(manager);
@@ -508,6 +513,7 @@ class EventSourcingCQRSDemoTest {
 
     @AfterEach
     void tearDown(Vertx vertx) {
+        logger.info("Tearing down: closing resources and manager");
         System.out.println("🧹 Cleaning up Event Sourcing & CQRS Demo Test");
 
         if (manager != null) {
@@ -560,6 +566,7 @@ class EventSourcingCQRSDemoTest {
     @Order(1)
     @DisplayName("Event Sourcing - Storing State Changes as Events")
     void testEventSourcing(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: event sourcing");
         System.err.println("=== TEST METHOD STARTED: testEventSourcing ===");
         System.err.flush();
         System.out.println("\n📚 Testing Event Sourcing");
@@ -813,6 +820,7 @@ class EventSourcingCQRSDemoTest {
     @Order(2)
     @DisplayName("CQRS - Command Query Responsibility Segregation")
     void testCQRS(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: c q r s");
         System.out.println("\n🔍 Testing CQRS");
 
         // Queue names for command and event streams

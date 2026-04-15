@@ -133,6 +133,7 @@ public class ErrorHandlingRollbackExampleTest {
     
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
@@ -149,7 +150,7 @@ public class ErrorHandlingRollbackExampleTest {
         
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
         logger.info("✓ PeeGeeQ Manager started");
         
         // Create outbox factory
@@ -171,6 +172,7 @@ public class ErrorHandlingRollbackExampleTest {
     
     @AfterEach
     void tearDown(VertxTestContext testContext) throws InterruptedException {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("Cleaning up resources...");
         
         if (orderProducer != null) {

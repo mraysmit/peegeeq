@@ -85,6 +85,7 @@ class PostgreSQLErrorHandlingTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Configure test properties using TestContainer pattern
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
@@ -106,7 +107,7 @@ class PostgreSQLErrorHandlingTest {
         // Initialize PeeGeeQ
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create factory using the proper pattern
         PgDatabaseService databaseService = new PgDatabaseService(manager);
@@ -122,6 +123,7 @@ class PostgreSQLErrorHandlingTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (factory != null) {
             factory.close();
         }

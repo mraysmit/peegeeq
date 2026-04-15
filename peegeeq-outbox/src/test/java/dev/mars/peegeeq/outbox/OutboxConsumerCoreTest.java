@@ -1,6 +1,8 @@
 package dev.mars.peegeeq.outbox;
 
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -97,7 +99,7 @@ public class OutboxConsumerCoreTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("consumer-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, config);
@@ -107,6 +109,7 @@ public class OutboxConsumerCoreTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         if (consumer != null) {
             consumer.close();
         }
@@ -131,6 +134,7 @@ public class OutboxConsumerCoreTest {
 
     @Test
     void testConsumerSubscribe(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: consumer creation");
         Checkpoint latch = testContext.checkpoint();
         AtomicReference<String> receivedMessage = new AtomicReference<>();
 
@@ -153,6 +157,7 @@ public class OutboxConsumerCoreTest {
         AtomicInteger messageCount = new AtomicInteger(0);
 
         consumer.subscribe(message -> {
+        logger.info("Test: consumer unsubscribe");
             messageCount.incrementAndGet();
             firstReceivedPromise.tryComplete();
             return Future.succeededFuture();
@@ -180,6 +185,7 @@ public class OutboxConsumerCoreTest {
         AtomicInteger receivedCount = new AtomicInteger(0);
 
         consumer.subscribe(message -> {
+        logger.info("Test: consumer receives multiple messages");
             receivedCount.incrementAndGet();
             latch.flag();
             return Future.succeededFuture();
@@ -199,6 +205,7 @@ public class OutboxConsumerCoreTest {
         AtomicReference<Map<String, String>> receivedHeaders = new AtomicReference<>();
 
         consumer.subscribe(message -> {
+        logger.info("Test: consumer receives messages with headers");
             receivedHeaders.set(message.getHeaders());
             latch.flag();
             return Future.succeededFuture();
@@ -222,6 +229,7 @@ public class OutboxConsumerCoreTest {
         AtomicInteger attemptCount = new AtomicInteger(0);
 
         consumer.subscribe(message -> {
+        logger.info("Test: consumer handler exception");
             int attempt = attemptCount.incrementAndGet();
             latch.flag();
 
@@ -243,6 +251,7 @@ public class OutboxConsumerCoreTest {
         AtomicInteger messageCount = new AtomicInteger(0);
 
         consumer.subscribe(message -> {
+        logger.info("Test: consumer close");
             messageCount.incrementAndGet();
             firstReceivedPromise.tryComplete();
             return Future.succeededFuture();
@@ -266,6 +275,7 @@ public class OutboxConsumerCoreTest {
         MessageConsumer<String> groupConsumer = outboxFactory.createConsumer(testTopic, String.class);
 
         if (groupConsumer instanceof OutboxConsumer) {
+        logger.info("Test: consumer group name setting");
             ((OutboxConsumer<String>) groupConsumer).setConsumerGroupName("test-group");
         }
 

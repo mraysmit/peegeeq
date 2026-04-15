@@ -32,6 +32,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Demo test showcasing Enterprise Integration Patterns for PeeGeeQ.
@@ -49,6 +51,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class EnterpriseIntegrationDemoTest {
+    private static final Logger logger = LoggerFactory.getLogger(EnterpriseIntegrationDemoTest.class);
+
 
     static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
@@ -265,6 +269,7 @@ class EnterpriseIntegrationDemoTest {
 
     @BeforeEach
     void setUp() {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         System.out.println("\n🔗 Setting up Enterprise Integration Demo Test");
 
         // Configure system properties for TestContainers
@@ -278,7 +283,7 @@ class EnterpriseIntegrationDemoTest {
         // Initialize PeeGeeQ with integration configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create native factory
         var databaseService = new PgDatabaseService(manager);
@@ -294,6 +299,7 @@ class EnterpriseIntegrationDemoTest {
 
     @AfterEach
     void tearDown() {
+        logger.info("Tearing down: closing resources and manager");
         System.out.println("🧹 Cleaning up Enterprise Integration Demo Test");
         
         if (manager != null) {
@@ -316,6 +322,7 @@ class EnterpriseIntegrationDemoTest {
     @Order(1)
     @DisplayName("Message Transformation - Converting Between Different Message Formats")
     void testMessageTransformation() throws Exception {
+        logger.info("Test: message transformation");
         System.out.println("\n🔄 Testing Message Transformation");
 
         String inputQueue = "integration-input-queue";
@@ -468,6 +475,7 @@ class EnterpriseIntegrationDemoTest {
     @Order(2)
     @DisplayName("Content-Based Routing - Routing Messages Based on Content")
     void testContentBasedRouting() throws Exception {
+        logger.info("Test: content based routing");
         System.out.println("\n🎯 Testing Content-Based Routing");
 
         String inputQueue = "routing-input-queue";

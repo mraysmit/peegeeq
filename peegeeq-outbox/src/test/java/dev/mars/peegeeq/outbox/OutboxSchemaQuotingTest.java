@@ -37,6 +37,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * TDD tests for M1: schema name interpolated into SQL without identifier quoting.
@@ -60,6 +62,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 @DisplayName("M1: Schema names with special characters must be properly quoted")
 class OutboxSchemaQuotingTest {
+    private static final Logger logger = LoggerFactory.getLogger(OutboxSchemaQuotingTest.class);
+
 
     @Container
     private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
@@ -69,6 +73,7 @@ class OutboxSchemaQuotingTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (factory != null) factory.close();
         if (manager != null) {
             manager.closeReactive()
@@ -144,6 +149,7 @@ class OutboxSchemaQuotingTest {
     @Test
     @DisplayName("Schema with simple identifier (underscore) should work for stats queries")
     void simpleSchemaNameShouldWork(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: simple schema name should work");
         String schema = "simple_tenant";
 
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, schema,
@@ -154,7 +160,7 @@ class OutboxSchemaQuotingTest {
                 postgres.getDatabaseName(), postgres.getUsername(), postgres.getPassword(),
                 schema);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         factory = new OutboxFactory(new PgDatabaseService(manager), config);
 
@@ -179,6 +185,7 @@ class OutboxSchemaQuotingTest {
     @Test
     @DisplayName("Schema 'order' (reserved word) should work when properly quoted — getStatsAsync")
     void reservedWordOrderShouldWorkForStats(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: reserved word order should work for stats");
         // "order" passes PgConnectionManager's regex [A-Za-z0-9_,\s]+ but is a SQL reserved word.
         // Unquoted SQL: FROM order.outbox — PostgreSQL parses "order" as ORDER BY keyword.
         // Quoted SQL: FROM "order".outbox — correct.
@@ -190,7 +197,7 @@ class OutboxSchemaQuotingTest {
                 postgres.getDatabaseName(), postgres.getUsername(), postgres.getPassword(),
                 schema);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         factory = new OutboxFactory(new PgDatabaseService(manager), config);
 
@@ -215,6 +222,7 @@ class OutboxSchemaQuotingTest {
     @Test
     @DisplayName("Schema 'order' (reserved word) should work when properly quoted — countMessagesAsync")
     void reservedWordOrderShouldWorkForCount(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: reserved word order should work for count");
         String schema = "order";
         createSchemaWithQuotedDDL(schema);
 
@@ -223,7 +231,7 @@ class OutboxSchemaQuotingTest {
                 postgres.getDatabaseName(), postgres.getUsername(), postgres.getPassword(),
                 schema);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         factory = new OutboxFactory(new PgDatabaseService(manager), config);
 
@@ -245,6 +253,7 @@ class OutboxSchemaQuotingTest {
     @Test
     @DisplayName("Schema 'order' (reserved word) should work when properly quoted — purgeMessagesAsync")
     void reservedWordOrderShouldWorkForPurge(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: reserved word order should work for purge");
         String schema = "order";
         createSchemaWithQuotedDDL(schema);
 
@@ -253,7 +262,7 @@ class OutboxSchemaQuotingTest {
                 postgres.getDatabaseName(), postgres.getUsername(), postgres.getPassword(),
                 schema);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         factory = new OutboxFactory(new PgDatabaseService(manager), config);
 
@@ -275,6 +284,7 @@ class OutboxSchemaQuotingTest {
     @Test
     @DisplayName("Schema 'select' (reserved word) should work when properly quoted")
     void reservedWordSelectShouldWork(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: reserved word select should work");
         // "select" is another SQL reserved word that passes the regex validator
         String schema = "select";
         createSchemaWithQuotedDDL(schema);
@@ -284,7 +294,7 @@ class OutboxSchemaQuotingTest {
                 postgres.getDatabaseName(), postgres.getUsername(), postgres.getPassword(),
                 schema);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         factory = new OutboxFactory(new PgDatabaseService(manager), config);
 

@@ -72,6 +72,7 @@ public class OutboxDirectExceptionHandlingTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
@@ -86,7 +87,7 @@ public class OutboxDirectExceptionHandlingTest {
 
         // Initialize PeeGeeQ
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create outbox factory and producer/consumer
         PgDatabaseService databaseService = new PgDatabaseService(manager);
@@ -100,6 +101,7 @@ public class OutboxDirectExceptionHandlingTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (consumer != null) consumer.close();
         if (producer != null) producer.close();
         if (manager != null) {

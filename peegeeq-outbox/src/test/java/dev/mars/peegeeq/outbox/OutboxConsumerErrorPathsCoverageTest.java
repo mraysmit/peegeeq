@@ -33,6 +33,10 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Coverage-focused tests for OutboxConsumer error handling paths.
@@ -44,6 +48,8 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @ExtendWith(VertxExtension.class)
 public class OutboxConsumerErrorPathsCoverageTest {
+    private static final Logger logger = LoggerFactory.getLogger(OutboxConsumerErrorPathsCoverageTest.class);
+
 
     @Container
     private static final PostgreSQLContainer postgres = createPostgresContainer();
@@ -69,6 +75,7 @@ public class OutboxConsumerErrorPathsCoverageTest {
 
     @BeforeEach
     void setup() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
         
         testTopic = "err-test-" + UUID.randomUUID().toString().substring(0, 8);
@@ -81,7 +88,7 @@ public class OutboxConsumerErrorPathsCoverageTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("error-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, config);
@@ -91,6 +98,7 @@ public class OutboxConsumerErrorPathsCoverageTest {
 
     @AfterEach
     void teardown(VertxTestContext testContext) throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (consumer != null) {
             consumer.close();
         }
@@ -118,6 +126,7 @@ public class OutboxConsumerErrorPathsCoverageTest {
         AtomicBoolean errorHandled = new AtomicBoolean(false);
         
         MessageHandler<TestMessage> failingHandler = message -> {
+        logger.info("Test: handler exception triggers error handling");
             errorHandled.set(true);
             failureCheckpoint.flag();
             // Fail to trigger error handling path
@@ -142,6 +151,7 @@ public class OutboxConsumerErrorPathsCoverageTest {
         AtomicReference<Throwable> capturedError = new AtomicReference<>();
         
         MessageHandler<TestMessage> asyncFailingHandler = message -> {
+        logger.info("Test: async handler completes exceptionally");
             Promise<Void> promise = Promise.promise();
             
             // Simulate async processing that fails immediately
@@ -171,6 +181,7 @@ public class OutboxConsumerErrorPathsCoverageTest {
         AtomicInteger failureCount = new AtomicInteger(0);
         
         MessageHandler<TestMessage> rapidFailHandler = message -> {
+        logger.info("Test: rapid message failures");
             failureCount.incrementAndGet();
             failureCheckpoint.flag();
             throw new RuntimeException("Rapid failure: " + message.getId());
@@ -195,6 +206,7 @@ public class OutboxConsumerErrorPathsCoverageTest {
         Checkpoint errorCheckpoint = testContext.checkpoint();
         
         MessageHandler<TestMessage> nullPointerHandler = message -> {
+        logger.info("Test: handler throws null pointer exception");
             errorCheckpoint.flag();
             // Simulate NPE
             String nullString = null;
@@ -217,6 +229,7 @@ public class OutboxConsumerErrorPathsCoverageTest {
         Checkpoint errorCheckpoint = testContext.checkpoint();
         
         MessageHandler<TestMessage> errorHandler = message -> {
+        logger.info("Test: handler throws error");
             errorCheckpoint.flag();
             // Throw Error instead of Exception
             throw new AssertionError("Simulated assertion error");
@@ -237,6 +250,7 @@ public class OutboxConsumerErrorPathsCoverageTest {
         Checkpoint errorCheckpoint = testContext.checkpoint();
         
         MessageHandler<TestMessage> failHandler = message -> {
+        logger.info("Test: message with special characters failure");
             errorCheckpoint.flag();
             throw new RuntimeException("Failed with special chars: " + message.getPayload().getData());
         };
@@ -259,6 +273,7 @@ public class OutboxConsumerErrorPathsCoverageTest {
         Checkpoint errorCheckpoint = testContext.checkpoint();
         
         MessageHandler<TestMessage> failHandler = message -> {
+        logger.info("Test: large message failure");
             errorCheckpoint.flag();
             throw new RuntimeException("Failed processing large message");
         };
@@ -284,6 +299,7 @@ public class OutboxConsumerErrorPathsCoverageTest {
         Checkpoint startCheckpoint = testContext.checkpoint();
         
         MessageHandler<TestMessage> slowFailHandler = message -> {
+        logger.info("Test: handler timeout simulation");
             startCheckpoint.flag();
             // Simulate slow processing then fail using non-blocking timer
             Promise<Void> promise = Promise.promise();
@@ -307,6 +323,7 @@ public class OutboxConsumerErrorPathsCoverageTest {
         MessageConsumer<TestMessage> consumer2 = outboxFactory.createConsumer(testTopic, TestMessage.class);
         
         try {
+        logger.info("Test: multiple consumers with failures");
             Checkpoint receivedCheckpoint = testContext.checkpoint();
             
             consumer.subscribe(message -> {
@@ -337,6 +354,7 @@ public class OutboxConsumerErrorPathsCoverageTest {
         Checkpoint successCheckpoint = testContext.checkpoint();
         
         MessageHandler<TestMessage> intermittentHandler = message -> {
+        logger.info("Test: failure then success pattern");
             int attempt = attemptCount.incrementAndGet();
             if (attempt == 1) {
                 // First attempt fails

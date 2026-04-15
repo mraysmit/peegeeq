@@ -31,10 +31,14 @@ import io.vertx.core.Promise;
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile.BASIC;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent.*;
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @ExtendWith(VertxExtension.class)
 @Testcontainers
 class PgNativeQueueConsumerClaimIT {
+    private static final Logger logger = LoggerFactory.getLogger(PgNativeQueueConsumerClaimIT.class);
+
 
     private static final String TOPIC = "it-claim-topic";
 
@@ -54,6 +58,7 @@ class PgNativeQueueConsumerClaimIT {
 
     @BeforeEach
     void setUp() {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Configure system properties for TestContainers
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
@@ -65,7 +70,7 @@ class PgNativeQueueConsumerClaimIT {
         // Initialize PeeGeeQ Manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create adapter using DatabaseService interfaces
         PgDatabaseService databaseService = new PgDatabaseService(manager);
@@ -82,6 +87,7 @@ class PgNativeQueueConsumerClaimIT {
 
     @AfterEach
     void tearDown() {
+        logger.info("Tearing down: closing resources and manager");
         if (manager != null) {
             try {
                 manager.closeReactive().await();
@@ -91,6 +97,7 @@ class PgNativeQueueConsumerClaimIT {
 
     @Test
     void visibleAt_serverTime_is_honored_and_consumer_batchSize_from_consumerConfig(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: visible at server time is honored and consumer batch size from consumer config");
         ConsumerConfig consumerConfig = ConsumerConfig.builder()
             .mode(ConsumerMode.LISTEN_NOTIFY_ONLY)
             .pollingInterval(Duration.ofSeconds(1))

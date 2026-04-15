@@ -1,6 +1,8 @@
 package dev.mars.peegeeq.outbox;
 
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -92,7 +94,7 @@ public class OutboxConsumerCrashRecoveryTest {
         // Create and start manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create factory and components
         DatabaseService databaseService = new PgDatabaseService(manager);
@@ -120,6 +122,7 @@ public class OutboxConsumerCrashRecoveryTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         if (consumer != null) {
             consumer.close();
         }
@@ -183,6 +186,7 @@ public class OutboxConsumerCrashRecoveryTest {
      * without any consumer actually processing it. This simulates the crash scenario.
      */
     private void createStuckProcessingMessage(String messagePayload) throws Exception {
+        logger.info("Test: consumer crash leaves messages in processing state");
         String updateSql = """
             UPDATE outbox
             SET status = 'PROCESSING', processed_at = $1

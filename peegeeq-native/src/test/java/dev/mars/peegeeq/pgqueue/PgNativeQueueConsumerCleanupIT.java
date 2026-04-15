@@ -30,11 +30,15 @@ import io.vertx.core.Future;
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile.BASIC;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent.*;
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Tag(TestCategories.INTEGRATION)
 @ExtendWith(VertxExtension.class)
 @Testcontainers
 class PgNativeQueueConsumerCleanupIT {
+    private static final Logger logger = LoggerFactory.getLogger(PgNativeQueueConsumerCleanupIT.class);
+
 
     private static final String TOPIC = "it-cleanup-topic";
 
@@ -55,6 +59,7 @@ class PgNativeQueueConsumerCleanupIT {
 
     @BeforeEach
     void setUp() {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Configure system properties for TestContainers
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
@@ -66,7 +71,7 @@ class PgNativeQueueConsumerCleanupIT {
         // Initialize PeeGeeQ Manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create adapter using DatabaseService interfaces
         PgDatabaseService databaseService = new PgDatabaseService(manager);
@@ -83,6 +88,7 @@ class PgNativeQueueConsumerCleanupIT {
 
     @AfterEach
     void tearDown(VertxTestContext tearDownContext) throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (consumer != null) {
             consumer.close();
         }
@@ -98,6 +104,7 @@ class PgNativeQueueConsumerCleanupIT {
 
     @Test
     void expired_lock_cleanup_in_hybrid_mode_resets_and_processes_message(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: expired lock cleanup in hybrid mode resets and processes message");
         ConsumerConfig consumerConfig = ConsumerConfig.builder()
             .mode(ConsumerMode.HYBRID)
             .pollingInterval(Duration.ofMillis(200))

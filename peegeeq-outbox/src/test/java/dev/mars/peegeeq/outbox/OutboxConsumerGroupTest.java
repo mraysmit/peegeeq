@@ -48,6 +48,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Tests for consumer group functionality in the outbox pattern.
@@ -56,6 +58,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 class OutboxConsumerGroupTest {
+    private static final Logger logger = LoggerFactory.getLogger(OutboxConsumerGroupTest.class);
+
 
     @Container
     private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
@@ -74,6 +78,7 @@ class OutboxConsumerGroupTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         testTopic = "group-test-topic-" + UUID.randomUUID().toString().substring(0, 8);
@@ -88,7 +93,7 @@ class OutboxConsumerGroupTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("group-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         PgDatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, config);
@@ -98,6 +103,7 @@ class OutboxConsumerGroupTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (consumerGroup != null) {
             consumerGroup.close();
         }
@@ -117,6 +123,7 @@ class OutboxConsumerGroupTest {
 
     @Test
     void testBasicConsumerGroup(VertxTestContext testContext) throws Exception {
+        logger.info("Test: basic consumer group");
         int messageCount = 6;
         Checkpoint messageCheckpoint = testContext.checkpoint(messageCount);
         Set<String> consumerIds = ConcurrentHashMap.newKeySet();
@@ -154,6 +161,7 @@ class OutboxConsumerGroupTest {
 
     @Test
     void testConsumerGroupWithFilters(VertxTestContext testContext) throws Exception {
+        logger.info("Test: consumer group with filters");
         int messageCount = 6;
         Checkpoint messageCheckpoint = testContext.checkpoint(messageCount);
         AtomicInteger usProcessedCount = new AtomicInteger(0);
@@ -196,6 +204,7 @@ class OutboxConsumerGroupTest {
 
     @Test
     void testConsumerGroupLoadBalancing(VertxTestContext testContext) throws Exception {
+        logger.info("Test: consumer group load balancing");
         int messageCount = 12;
         Checkpoint messageCheckpoint = testContext.checkpoint(messageCount);
         Map<String, AtomicInteger> consumerCounts = new ConcurrentHashMap<>();
@@ -244,6 +253,7 @@ class OutboxConsumerGroupTest {
 
     @Test
     void testConsumerGroupDynamicScaling(VertxTestContext testContext) throws Exception {
+        logger.info("Test: consumer group dynamic scaling");
         int initialMessageCount = 3;
         int additionalMessageCount = 6;
         Promise<Void> initialPhaseDone = Promise.promise();

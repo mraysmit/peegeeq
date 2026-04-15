@@ -78,6 +78,7 @@ public class ConsumerGroupExampleTest {
     
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
@@ -95,7 +96,7 @@ public class ConsumerGroupExampleTest {
         // Initialize PeeGeeQ Manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
         
         // Register factory providers
         DatabaseService databaseService = new PgDatabaseService(manager);
@@ -112,6 +113,7 @@ public class ConsumerGroupExampleTest {
     
     @AfterEach
     void tearDown(VertxTestContext testContext) throws InterruptedException {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("Tearing down Consumer Group Example Test");
         
         if (manager != null) {

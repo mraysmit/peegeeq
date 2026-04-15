@@ -49,6 +49,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import io.vertx.core.Future;
 
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Tests for PgNativeQueue shutdown scenarios and race condition handling.
@@ -62,6 +64,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 @Testcontainers
 class PgNativeQueueShutdownTest {
+    private static final Logger logger = LoggerFactory.getLogger(PgNativeQueueShutdownTest.class);
+
 
     @Container
     private static final PostgreSQLContainer postgres = createPostgresContainer();
@@ -81,6 +85,7 @@ class PgNativeQueueShutdownTest {
 
     @BeforeEach
     void setUp() {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Configure test properties - following existing pattern exactly
         Properties testProps = new Properties();
         testProps.setProperty("peegeeq.database.host", postgres.getHost());
@@ -102,7 +107,7 @@ class PgNativeQueueShutdownTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Initialize native queue components using DatabaseService pattern
         DatabaseService databaseService = new PgDatabaseService(manager);
@@ -113,6 +118,7 @@ class PgNativeQueueShutdownTest {
 
     @AfterEach
     void tearDown() {
+        logger.info("Tearing down: closing resources and manager");
         try {
             if (consumer != null) {
                 consumer.close();
@@ -142,6 +148,7 @@ class PgNativeQueueShutdownTest {
 
     @Test
     void testBasicShutdownWithoutErrors(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: basic shutdown without errors");
         // Step 1: Send a simple message
         String testMessage = "Basic shutdown test";
         producer.send(testMessage).await();
@@ -165,6 +172,7 @@ class PgNativeQueueShutdownTest {
 
     @Test
     void testShutdownDuringMessageProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: shutdown during message processing");
         // Step 1: Send a message
         String testMessage = "Shutdown during processing test";
         producer.send(testMessage).await();
@@ -195,6 +203,7 @@ class PgNativeQueueShutdownTest {
 
     @Test
     void testFactoryCloseClosesCreatedConsumers(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: factory close closes created consumers");
         consumer.subscribe(message -> Future.succeededFuture());
 
         PgNativeQueueConsumer<?> concrete = (PgNativeQueueConsumer<?>) consumer;

@@ -82,6 +82,7 @@ public class OutboxServerSideFilteringTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("=== Setting up OutboxServerSideFilteringTest ===");
         configureSystemPropertiesForContainer();
 
@@ -90,7 +91,7 @@ public class OutboxServerSideFilteringTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("outbox-filter-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         var databaseService = new PgDatabaseService(manager);
         QueueFactoryProvider provider = new PgQueueFactoryProvider();
@@ -102,6 +103,7 @@ public class OutboxServerSideFilteringTest {
 
     @AfterEach
     void tearDown(Vertx vertx) {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("=== Tearing down OutboxServerSideFilteringTest ===");
         if (outboxFactory != null) {
             try {

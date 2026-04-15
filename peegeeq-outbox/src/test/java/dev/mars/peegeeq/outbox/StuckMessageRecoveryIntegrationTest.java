@@ -82,6 +82,7 @@ public class StuckMessageRecoveryIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
@@ -98,7 +99,7 @@ public class StuckMessageRecoveryIntegrationTest {
         // Create and start manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create factory and components
         DatabaseService databaseService = new PgDatabaseService(manager);
@@ -114,6 +115,7 @@ public class StuckMessageRecoveryIntegrationTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (consumer != null) {
             consumer.close();
         }

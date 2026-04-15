@@ -35,6 +35,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Demo test showcasing Consumer Group Load Balancing Patterns for PeeGeeQ.
@@ -53,6 +55,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class ConsumerGroupLoadBalancingDemoTest {
+    private static final Logger logger = LoggerFactory.getLogger(ConsumerGroupLoadBalancingDemoTest.class);
+
 
     static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
@@ -151,6 +155,7 @@ class ConsumerGroupLoadBalancingDemoTest {
 
     @BeforeEach
     void setUp() {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         System.out.println("\n⚖️ Setting up Consumer Group Load Balancing Demo Test");
 
         // Configure system properties for TestContainers
@@ -164,7 +169,7 @@ class ConsumerGroupLoadBalancingDemoTest {
         // Initialize PeeGeeQ with load balancing configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create native factory
         var databaseService = new PgDatabaseService(manager);
@@ -180,6 +185,7 @@ class ConsumerGroupLoadBalancingDemoTest {
 
     @AfterEach
     void tearDown() {
+        logger.info("Tearing down: closing resources and manager");
         System.out.println("🧹 Cleaning up Consumer Group Load Balancing Demo Test");
         
         if (manager != null) {
@@ -221,6 +227,7 @@ class ConsumerGroupLoadBalancingDemoTest {
     @Order(1)
     @DisplayName("Round Robin Load Balancing - Even Distribution Across Consumers")
     void testRoundRobinLoadBalancing(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: round robin load balancing");
         System.out.println("\n🔄 Testing Round Robin Load Balancing");
 
         String queueName = "loadbalancing-roundrobin-queue";
@@ -320,6 +327,7 @@ class ConsumerGroupLoadBalancingDemoTest {
     @Order(2)
     @DisplayName("Weighted Load Balancing - Distribution Based on Consumer Capacity")
     void testWeightedLoadBalancing(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: weighted load balancing");
         System.out.println("\n⚖️ Testing Weighted Load Balancing");
 
         String queueName = "loadbalancing-weighted-queue";
@@ -435,6 +443,7 @@ class ConsumerGroupLoadBalancingDemoTest {
     @Order(3)
     @DisplayName("Sticky Session Load Balancing - Session Affinity for Stateful Processing")
     void testStickySessionLoadBalancing(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: sticky session load balancing");
         System.out.println("\n🔗 Testing Sticky Session Load Balancing");
 
         String queueName = "loadbalancing-sticky-queue";
@@ -562,6 +571,7 @@ class ConsumerGroupLoadBalancingDemoTest {
     @Order(4)
     @DisplayName("Dynamic Load Balancing - Adaptive Distribution Based on Performance")
     void testDynamicLoadBalancing(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: dynamic load balancing");
         System.out.println("\n📈 Testing Dynamic Load Balancing");
 
         String queueName = "loadbalancing-dynamic-queue";

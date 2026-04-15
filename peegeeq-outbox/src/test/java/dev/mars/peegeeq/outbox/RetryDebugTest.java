@@ -81,6 +81,7 @@ public class RetryDebugTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
@@ -93,7 +94,7 @@ public class RetryDebugTest {
         System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
 
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create factory and components (following the pattern of working tests)
         DatabaseService databaseService = new PgDatabaseService(manager);
@@ -110,6 +111,7 @@ public class RetryDebugTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (consumer != null) consumer.close();
         if (producer != null) producer.close();
         if (outboxFactory != null) outboxFactory.close();

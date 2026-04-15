@@ -93,6 +93,7 @@ public class TransactionalOutboxAnalysisTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("=== Setting up TransactionalOutboxAnalysisTest ===");
 
         // Initialize schema with queue components
@@ -111,7 +112,7 @@ public class TransactionalOutboxAnalysisTest {
         // Create and start manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("outbox-tx-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create factory
         DatabaseService databaseService = new PgDatabaseService(manager);
@@ -125,6 +126,7 @@ public class TransactionalOutboxAnalysisTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("=== Tearing down TransactionalOutboxAnalysisTest ===");
 
         if (outboxFactory != null) {

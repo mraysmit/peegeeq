@@ -73,12 +73,14 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Manager and factory are initialized per-scenario after the container profile is set.
         // No-op here to avoid binding to the wrong container profile.
     }
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (factory != null) {
             factory.close();
         }
@@ -98,7 +100,7 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
         // Initialize PeeGeeQ with test configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create factory using the proper pattern
         PgDatabaseService databaseService = new PgDatabaseService(manager);
@@ -237,7 +239,7 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
         System.setProperty("peegeeq.database.password", container.getPassword());
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
         PgDatabaseService databaseService = new PgDatabaseService(manager);
         PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
         PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);

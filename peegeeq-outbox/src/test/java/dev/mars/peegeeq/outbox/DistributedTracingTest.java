@@ -30,6 +30,8 @@ import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Integration test demonstrating distributed tracing with W3C Trace Context.
@@ -64,6 +66,8 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 @Tag(TestCategories.INTEGRATION)
 @ExtendWith(VertxExtension.class)
 class DistributedTracingTest {
+    private static final Logger logger = LoggerFactory.getLogger(DistributedTracingTest.class);
+
 
     @Container
     static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
@@ -76,6 +80,7 @@ class DistributedTracingTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
@@ -89,7 +94,7 @@ class DistributedTracingTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("tracing-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, config);
@@ -100,6 +105,7 @@ class DistributedTracingTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (consumer != null) {
             consumer.close();
         }
@@ -121,6 +127,7 @@ class DistributedTracingTest {
 
     @Test
     void testDistributedTracingWithW3CTraceContext(VertxTestContext testContext) throws Exception {
+        logger.info("Test: distributed tracing with w3 c trace context");
         // Generate W3C Trace Context IDs
         String traceId = generateTraceId();
         String spanId = generateSpanId();
@@ -165,6 +172,7 @@ class DistributedTracingTest {
 
     @Test
     void testAutomaticTraceGenerationForMissingHeaders(VertxTestContext testContext) throws Exception {
+        logger.info("Test: automatic trace generation for missing headers");
         AtomicReference<String> consumerTraceId = new AtomicReference<>();
         Checkpoint messageReceived = testContext.checkpoint();
 

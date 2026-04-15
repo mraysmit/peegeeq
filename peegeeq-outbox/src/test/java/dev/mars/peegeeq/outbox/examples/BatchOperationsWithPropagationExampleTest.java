@@ -72,6 +72,7 @@ public class BatchOperationsWithPropagationExampleTest {
     
     @BeforeEach
     void setUp() {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("Setting up Batch Operations with Propagation Example Test");
         
         // Configure system properties for container
@@ -82,6 +83,7 @@ public class BatchOperationsWithPropagationExampleTest {
     
     @AfterEach
     void tearDown() {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("Tearing down Batch Operations with Propagation Example Test");
         
         if (manager != null) {
@@ -105,7 +107,7 @@ public class BatchOperationsWithPropagationExampleTest {
         
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
         
         // Test simple batch processing
         SimpleBatchResult result = testSimpleBatchProcessingPattern();
@@ -131,7 +133,7 @@ public class BatchOperationsWithPropagationExampleTest {
         
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
         
         // Test multi-stage batch operations
         MultiStageResult result = testMultiStageBatchOperationsPattern();
@@ -157,7 +159,7 @@ public class BatchOperationsWithPropagationExampleTest {
         
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
         
         // Test nested batch operations
         NestedBatchResult result = testNestedBatchOperationsPattern();
@@ -183,7 +185,7 @@ public class BatchOperationsWithPropagationExampleTest {
         
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
         
         // Test large batch processing
         LargeBatchResult result = testLargeBatchProcessingPattern();
@@ -209,7 +211,7 @@ public class BatchOperationsWithPropagationExampleTest {
         
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
         
         // Test batch error handling
         BatchErrorResult result = testBatchErrorHandlingPattern();
@@ -235,7 +237,7 @@ public class BatchOperationsWithPropagationExampleTest {
         
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
         
         // Test performance optimization
         PerformanceOptimizationResult result = testPerformanceOptimizationPattern();

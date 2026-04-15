@@ -67,6 +67,7 @@ class MultiConfigurationIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Start PostgreSQL container using standardized configuration
         postgres = PostgreSQLTestConstants.createStandardContainer();
         postgres.start();
@@ -97,6 +98,7 @@ class MultiConfigurationIntegrationTest {
 
     @AfterEach
     void tearDown() {
+        logger.info("Tearing down: closing resources and manager");
         if (configManager != null) {
             configManager.close().await();
         }

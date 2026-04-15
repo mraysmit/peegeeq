@@ -69,7 +69,7 @@ public class BitemporalConfig {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration(properties.getProfile());
         manager = new PeeGeeQManager(config, meterRegistry);
-        manager.start();
+        manager.start().await();
 
         logger.info("PeeGeeQManager started successfully");
         return manager;

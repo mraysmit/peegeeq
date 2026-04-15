@@ -71,6 +71,7 @@ public class JdbcIntegrationHybridExampleTest {
     
     @BeforeEach
     void setUp() {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("Setting up JDBC Integration Hybrid Example Test");
         
         // Configure system properties for container
@@ -81,6 +82,7 @@ public class JdbcIntegrationHybridExampleTest {
     
     @AfterEach
     void tearDown() {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("Tearing down JDBC Integration Hybrid Example Test");
         
         if (manager != null) {
@@ -104,7 +106,7 @@ public class JdbcIntegrationHybridExampleTest {
         
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
         
         // Test existing JDBC method
         JdbcMethodResult result = testExistingJdbcMethodPattern();
@@ -132,7 +134,7 @@ public class JdbcIntegrationHybridExampleTest {
         
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
         
         // Test hybrid approach (demonstrating incompatibility)
         HybridApproachResult result = testHybridApproachPattern();
@@ -157,7 +159,7 @@ public class JdbcIntegrationHybridExampleTest {
         
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
         
         // Test new reactive method
         ReactiveMethodResult result = testNewReactiveMethodPattern();
@@ -182,7 +184,7 @@ public class JdbcIntegrationHybridExampleTest {
         
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
         
         // Test performance comparison
         PerformanceComparisonResult result = testPerformanceComparisonPattern();
@@ -208,7 +210,7 @@ public class JdbcIntegrationHybridExampleTest {
         
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
         
         // Test migration strategies
         MigrationStrategiesResult result = testMigrationStrategiesPattern();

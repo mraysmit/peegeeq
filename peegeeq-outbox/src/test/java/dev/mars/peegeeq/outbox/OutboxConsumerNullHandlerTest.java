@@ -34,6 +34,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Tests the null handler return path in OutboxConsumer.processMessageWithCompletion.
@@ -78,7 +80,7 @@ public class OutboxConsumerNullHandlerTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("null-handler-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, config);
@@ -100,6 +102,7 @@ public class OutboxConsumerNullHandlerTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         if (consumer != null) {
             consumer.close();
         }
@@ -129,6 +132,7 @@ public class OutboxConsumerNullHandlerTest {
         AtomicBoolean invoked = new AtomicBoolean(false);
 
         consumer.subscribe(message -> {
+        logger.info("Test: null handler return");
             invoked.set(true);
             handlerCalled.tryComplete();
             return null; // Triggers null check → IllegalStateException → retry path
