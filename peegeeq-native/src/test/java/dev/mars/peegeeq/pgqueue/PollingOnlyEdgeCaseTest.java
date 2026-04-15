@@ -32,7 +32,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -110,9 +109,7 @@ class PollingOnlyEdgeCaseTest {
             factory.close();
         }
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
         logger.info("Test teardown completed");
     }
@@ -143,11 +140,9 @@ class PollingOnlyEdgeCaseTest {
         });
 
         // Send messages rapidly
-        CountDownLatch fastSendLatch = new CountDownLatch(5);
         for (int i = 1; i <= 5; i++) {
-            producer.send("Fast polling message " + i).onComplete(ar -> fastSendLatch.countDown());
+            producer.send("Fast polling message " + i).await();
         }
-        assertTrue(fastSendLatch.await(15, TimeUnit.SECONDS));
 
         // Wait for all messages to be processed
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive all 5 messages with fast polling");
@@ -184,10 +179,8 @@ class PollingOnlyEdgeCaseTest {
         });
 
         // Send messages before polling kicks in
-        CountDownLatch slowSendLatch = new CountDownLatch(2);
-        producer.send("Slow polling message 1").onComplete(ar -> slowSendLatch.countDown());
-        producer.send("Slow polling message 2").onComplete(ar -> slowSendLatch.countDown());
-        assertTrue(slowSendLatch.await(10, TimeUnit.SECONDS));
+        producer.send("Slow polling message 1").await();
+        producer.send("Slow polling message 2").await();
 
         // Wait for polling to pick up messages (need to wait longer than polling interval)
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should receive all 2 messages with slow polling");
@@ -226,11 +219,9 @@ class PollingOnlyEdgeCaseTest {
         });
 
         // Send messages sequentially to avoid overwhelming the system
-        CountDownLatch concurrentSendLatch = new CountDownLatch(10);
         for (int i = 1; i <= 10; i++) {
-            producer.send("Concurrent message " + i).onComplete(ar -> concurrentSendLatch.countDown());
+            producer.send("Concurrent message " + i).await();
         }
-        assertTrue(concurrentSendLatch.await(15, TimeUnit.SECONDS));
 
         // Wait for all messages to be processed
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should receive all 10 messages with high concurrency");
@@ -269,11 +260,9 @@ class PollingOnlyEdgeCaseTest {
 
         // Send messages before consumer starts polling
         logger.info("Sending 10 messages for batch processing...");
-        CountDownLatch batchSendLatch = new CountDownLatch(10);
         for (int i = 1; i <= 10; i++) {
-            producer.send("Batch message " + i).onComplete(ar -> batchSendLatch.countDown());
+            producer.send("Batch message " + i).await();
         }
-        assertTrue(batchSendLatch.await(15, TimeUnit.SECONDS));
 
         // Wait for all messages to be processed in batches
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should receive all 10 messages in batches");
@@ -362,11 +351,9 @@ class PollingOnlyEdgeCaseTest {
         });
 
         // Send messages sequentially
-        CountDownLatch resilSendLatch = new CountDownLatch(3);
-        producer.send("Message 1 - resilience test").onComplete(ar -> resilSendLatch.countDown());
-        producer.send("Message 2 - resilience test").onComplete(ar -> resilSendLatch.countDown());
-        producer.send("Message 3 - resilience test").onComplete(ar -> resilSendLatch.countDown());
-        assertTrue(resilSendLatch.await(10, TimeUnit.SECONDS));
+        producer.send("Message 1 - resilience test").await();
+        producer.send("Message 2 - resilience test").await();
+        producer.send("Message 3 - resilience test").await();
 
         // Wait for messages to be processed (consumer should handle normal operations)
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive all messages in normal operation");

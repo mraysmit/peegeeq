@@ -33,8 +33,6 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -119,20 +117,8 @@ public class RestApiStreamingExampleTest {
         
         if (vertx != null) {
             try {
-                CountDownLatch vertxCloseLatch = new CountDownLatch(1);
-                vertx.close()
-                    .onSuccess(v -> {
-                        logger.info("Vert.x closed successfully");
-                        vertxCloseLatch.countDown();
-                    })
-                    .onFailure(throwable -> {
-                        logger.warn("⚠️ Error closing Vert.x", throwable);
-                        vertxCloseLatch.countDown();
-                    });
-
-                if (!vertxCloseLatch.await(5, TimeUnit.SECONDS)) {
-                    logger.warn("⚠️ Vert.x close timed out");
-                }
+                vertx.close().await();
+                logger.info("Vert.x closed successfully");
             } catch (Exception e) {
                 logger.warn("⚠️ Error during Vert.x cleanup", e);
             }

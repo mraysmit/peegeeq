@@ -21,7 +21,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.lang.reflect.Field;
 import java.time.Duration;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -94,9 +93,7 @@ public class ListenReconnectFaultInjectionIT {
         if (consumer != null) consumer.unsubscribe();
         if (factory != null) factory.close();
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
     }
 

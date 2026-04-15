@@ -26,7 +26,6 @@ import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -88,9 +87,7 @@ class PgNativeQueueConcurrentClaimIT {
     void tearDown() {
         if (manager != null) {
             try {
-                CountDownLatch closeLatch = new CountDownLatch(1);
-                manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-                closeLatch.await(10, TimeUnit.SECONDS);
+                manager.closeReactive().await();
             } catch (Exception ignore) {}
         }
     }
@@ -102,14 +99,12 @@ class PgNativeQueueConcurrentClaimIT {
             INSERT INTO queue_messages (topic, payload, headers, correlation_id, status, created_at, visible_at, priority)
             VALUES ($1, $2::jsonb, $3::jsonb, $4, 'AVAILABLE', now(), now(), 1)
         """;
-        CountDownLatch insertLatch = new CountDownLatch(2);
         pool.preparedQuery(insertSql)
             .execute(Tuple.of(TOPIC, new JsonObject().put("value", "m1"), new JsonObject(), "c-1"))
-            .onComplete(ar -> insertLatch.countDown());
+            .await();
         pool.preparedQuery(insertSql)
             .execute(Tuple.of(TOPIC, new JsonObject().put("value", "m2"), new JsonObject(), "c-2"))
-            .onComplete(ar -> insertLatch.countDown());
-        assertTrue(insertLatch.await(5, TimeUnit.SECONDS), "Inserts should complete");
+            .await();
 
         ConsumerConfig cfg = ConsumerConfig.builder()
             .mode(ConsumerMode.POLLING_ONLY)

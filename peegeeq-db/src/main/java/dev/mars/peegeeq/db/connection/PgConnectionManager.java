@@ -102,6 +102,15 @@ public class PgConnectionManager {
     }
 
     /**
+     * Gets the Vert.x instance used by this connection manager.
+     *
+     * @return The Vert.x instance
+     */
+    public Vertx getVertx() {
+        return vertx;
+    }
+
+    /**
      * Gets the instance ID of this PgConnectionManager.
      * Useful for correlating log messages across components.
      *

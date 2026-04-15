@@ -573,7 +573,7 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
      * Applies group-level filtering and load balancing.
      * Creates a child span from the message's trace context for fan-out visibility.
      */
-    private Future<Void> distributeMessage(Message<T> message) {
+    Future<Void> distributeMessage(Message<T> message) {
         // Create a child span from the message's traceparent for fan-out trace propagation.
         // The underlying PgNativeQueueConsumer already sets MDC from headers; here we
         // derive a per-group child span so that parallel group deliveries form a span tree.

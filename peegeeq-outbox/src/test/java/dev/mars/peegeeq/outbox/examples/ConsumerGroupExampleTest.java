@@ -116,10 +116,11 @@ public class ConsumerGroupExampleTest {
         
         if (manager != null) {
             manager.closeReactive()
-                .onComplete(ar -> {
+                .onSuccess(v -> {
                     logger.info("✓ Consumer Group Example Test teardown completed");
                     testContext.completeNow();
-                });
+                })
+                .onFailure(testContext::failNow);
         } else {
             logger.info("✓ Consumer Group Example Test teardown completed");
             testContext.completeNow();

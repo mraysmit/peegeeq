@@ -187,13 +187,13 @@ public class ErrorHandlingRollbackExampleTest {
             ? manager.closeReactive()
             : Future.succeededFuture();
 
-        closeFuture.onComplete(ar -> {
-            if (ar.succeeded()) {
-                logger.info("✓ PeeGeeQ Manager stopped");
-            }
-            logger.info("✓ Cleanup completed");
-            testContext.completeNow();
-        });
+        closeFuture
+                .onSuccess(v -> {
+                    logger.info("✓ PeeGeeQ Manager stopped");
+                    logger.info("✓ Cleanup completed");
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
     

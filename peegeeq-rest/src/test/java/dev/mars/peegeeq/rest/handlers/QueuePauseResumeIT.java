@@ -24,23 +24,23 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Manual test for queue deletion functionality.
+ * Integration test for queue pause/resume REST API surface.
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
-public class QueueDeleteManualTest {
+public class QueuePauseResumeIT {
 
-    private static final Logger logger = LoggerFactory.getLogger(QueueDeleteManualTest.class);
-    private static final int TEST_PORT = 18100;
+    private static final Logger logger = LoggerFactory.getLogger(QueuePauseResumeIT.class);
+    private static final int TEST_PORT = 18099;
 
     @Container
     static PostgreSQLContainer postgres = createPostgresContainer();
 
     private static PostgreSQLContainer createPostgresContainer() {
         PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
-        container.withDatabaseName("peegeeq_delete_test");
+        container.withDatabaseName("peegeeq_pause_test");
         container.withUsername("peegeeq_test");
         container.withPassword("peegeeq_test");
         container.withSharedMemorySize(PostgreSQLTestConstants.DEFAULT_SHARED_MEMORY_SIZE);
@@ -48,31 +48,30 @@ public class QueueDeleteManualTest {
         return container;
     }
 
-    private PeeGeeQRestServer server;
     private String deploymentId;
     private String setupId;
     private WebClient webClient;
 
     @BeforeAll
     void setupServer(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("=== Setting up Queue Delete Manual Test ===");
+        logger.info("=== Setting up Queue Pause/Resume Manual Test ===");
 
-        setupId = "delete-test-" + System.currentTimeMillis();
+        setupId = "pause-test-" + System.currentTimeMillis();
 
         // Create the setup service using PeeGeeQRuntime
         DatabaseSetupService setupService = PeeGeeQRuntime.createDatabaseSetupService();
 
         // Start REST server
         RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults(), java.util.List.of("*"));
-        server = new PeeGeeQRestServer(testConfig, setupService);
-        vertx.deployVerticle(server)
+        PeeGeeQRestServer restServer = new PeeGeeQRestServer(testConfig, setupService);
+        vertx.deployVerticle(restServer)
             .compose(id -> {
                 deploymentId = id;
                 logger.info("REST server deployed with ID: {}", deploymentId);
                 webClient = WebClient.create(vertx);
 
                 // Create database setup with queue
-                return createSetupWithQueue(vertx);
+                return createSetupWithQueue();
             })
             .onSuccess(v -> {
                 logger.info("Test setup complete");
@@ -81,13 +80,13 @@ public class QueueDeleteManualTest {
             .onFailure(testContext::failNow);
     }
 
-    private Future<Void> createSetupWithQueue(Vertx vertx) {
+    private Future<Void> createSetupWithQueue() {
         JsonObject setupRequest = new JsonObject()
             .put("setupId", setupId)
             .put("databaseConfig", new JsonObject()
                 .put("host", postgres.getHost())
                 .put("port", postgres.getFirstMappedPort())
-                .put("databaseName", "delete_test_db_" + System.currentTimeMillis())
+                .put("databaseName", "pause_test_db_" + System.currentTimeMillis())
                 .put("username", postgres.getUsername())
                 .put("password", postgres.getPassword())
                 .put("schema", "public")
@@ -115,7 +114,9 @@ public class QueueDeleteManualTest {
 
     @AfterAll
     void tearDown(Vertx vertx, VertxTestContext testContext) {
-        logger.info("=== Tearing down Queue Delete Manual Test ===");
+        if (webClient != null) {
+            webClient.close();
+        }
 
         Future<Void> undeploy = deploymentId != null
             ? vertx.undeploy(deploymentId)
@@ -125,51 +126,46 @@ public class QueueDeleteManualTest {
     }
 
     @Test
-    @DisplayName("Queue Delete - Delete queue and verify cleanup")
-    void testQueueDelete(Vertx vertx, VertxTestContext testContext) {
-        logger.info("=== Testing Queue Delete ===");
+    @DisplayName("Queue pause/resume API returns expected response shape")
+    void testQueuePauseResume(Vertx vertx, VertxTestContext testContext) {
 
         String queueName = "test_queue";
 
-        // Step 1: Verify queue exists
-        webClient.get(TEST_PORT, "localhost",
-                "/api/v1/queues/" + setupId + "/" + queueName)
+        // Step 1: Pause the queue (even if no subscriptions exist)
+        webClient.post(TEST_PORT, "localhost",
+                "/api/v1/queues/" + setupId + "/" + queueName + "/pause")
             .send()
-            .compose(getResponse -> {
+            .compose(pauseResponse -> {
                 testContext.verify(() -> {
-                    assertEquals(200, getResponse.statusCode(), "Queue should exist");
-                    logger.info("Queue exists and is accessible");
-                });
+                    assertEquals(200, pauseResponse.statusCode(), "Pause should return 200 OK");
 
-                // Step 2: Delete the queue
-                return webClient.delete(TEST_PORT, "localhost",
-                        "/api/v1/queues/" + setupId + "/" + queueName)
-                    .send();
-            })
-            .compose(deleteResponse -> {
-                testContext.verify(() -> {
-                    assertEquals(200, deleteResponse.statusCode(), "Delete should return 200 OK");
-
-                    JsonObject body = deleteResponse.bodyAsJsonObject();
-                    assertNotNull(body, "Delete response should be JSON");
+                    JsonObject body = pauseResponse.bodyAsJsonObject();
+                    assertNotNull(body, "Pause response should be JSON");
                     assertNotNull(body.getString("message"), "Should have message field");
-                    assertEquals(queueName, body.getString("queueName"), "Should return correct queue name");
-                    assertEquals(setupId, body.getString("setupId"), "Should return correct setup ID");
+                    assertNotNull(body.getInteger("pausedSubscriptions"), "Should have pausedSubscriptions field");
 
-                    logger.info("Queue deleted successfully");
+                    int pausedCount = body.getInteger("pausedSubscriptions");
+                    logger.info("Paused {} subscriptions for queue", pausedCount);
                 });
 
-                // Step 3: Verify queue no longer exists
-                return webClient.get(TEST_PORT, "localhost",
-                        "/api/v1/queues/" + setupId + "/" + queueName)
+                // Step 2: Resume the queue
+                return webClient.post(TEST_PORT, "localhost",
+                        "/api/v1/queues/" + setupId + "/" + queueName + "/resume")
                     .send();
             })
-            .onSuccess(verifyResponse -> {
+            .onSuccess(resumeResponse -> {
                 testContext.verify(() -> {
-                    // Queue should not be found after deletion
-                    assertEquals(404, verifyResponse.statusCode(), "Queue should not exist after deletion");
-                    logger.info("Verified queue no longer exists");
-                    logger.info("Queue Delete test PASSED!");
+                    assertEquals(200, resumeResponse.statusCode(), "Resume should return 200 OK");
+
+                    JsonObject body = resumeResponse.bodyAsJsonObject();
+                    assertNotNull(body, "Resume response should be JSON");
+                    assertNotNull(body.getString("message"), "Should have message field");
+                    assertNotNull(body.getInteger("resumedSubscriptions"), "Should have resumedSubscriptions field");
+
+                    int resumedCount = body.getInteger("resumedSubscriptions");
+                    logger.info("Resumed {} subscriptions for queue", resumedCount);
+
+                    logger.info("Queue Pause/Resume test PASSED!");
                     testContext.completeNow();
                 });
             })

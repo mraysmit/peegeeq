@@ -114,7 +114,9 @@ public class RetryDebugTest {
         if (producer != null) producer.close();
         if (outboxFactory != null) outboxFactory.close();
         if (manager != null) {
-            manager.closeReactive().onComplete(ar -> testContext.completeNow());
+            manager.closeReactive()
+                    .onSuccess(v -> testContext.completeNow())
+                    .onFailure(testContext::failNow);
         } else {
             testContext.completeNow();
         }

@@ -44,7 +44,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -125,9 +124,7 @@ class ConsumerGroupSubscriptionTest {
             factory.close();
         }
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
     }
 
@@ -661,7 +658,7 @@ class ConsumerGroupSubscriptionTest {
                 "test-group", "test-topic", String.class);
 
             ExecutorService executor = Executors.newFixedThreadPool(5);
-            CountDownLatch startSignal = new CountDownLatch(1);
+            java.util.concurrent.CyclicBarrier startBarrier = new java.util.concurrent.CyclicBarrier(6);
 
             AtomicInteger successCount = new AtomicInteger(0);
             AtomicInteger failureCount = new AtomicInteger(0);
@@ -672,7 +669,7 @@ class ConsumerGroupSubscriptionTest {
             for (int i = 0; i < 5; i++) {
                 futures.add(executor.submit(() -> {
                     try {
-                        startSignal.await();
+                        startBarrier.await();
                         group.setMessageHandler(msg -> Future.succeededFuture());
                         successCount.incrementAndGet();
                     } catch (IllegalStateException e) {
@@ -685,7 +682,7 @@ class ConsumerGroupSubscriptionTest {
             }
 
             // Release all threads simultaneously
-            startSignal.countDown();
+            startBarrier.await();
 
             // Wait for completion
             for (java.util.concurrent.Future<?> future : futures) {

@@ -31,7 +31,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -111,9 +110,7 @@ class HybridModeEdgeCaseTest {
             factory.close();
         }
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
         logger.info("Test teardown completed");
     }
@@ -166,10 +163,8 @@ class HybridModeEdgeCaseTest {
 
         // Send messages BEFORE creating consumer (to test polling fallback)
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-        CountDownLatch sendLatch1 = new CountDownLatch(2);
-        producer.send("Existing message 1").onComplete(ar -> sendLatch1.countDown());
-        producer.send("Existing message 2").onComplete(ar -> sendLatch1.countDown());
-        assertTrue(sendLatch1.await(5, TimeUnit.SECONDS), "Sends should complete");
+        producer.send("Existing message 1").await();
+        producer.send("Existing message 2").await();
 
         ConsumerConfig config = ConsumerConfig.builder()
                 .mode(ConsumerMode.HYBRID)
@@ -204,10 +199,8 @@ class HybridModeEdgeCaseTest {
 
         // Send some messages BEFORE consumer starts
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-        CountDownLatch sendLatch2 = new CountDownLatch(2);
-        producer.send("Pre-existing message 1").onComplete(ar -> sendLatch2.countDown());
-        producer.send("Pre-existing message 2").onComplete(ar -> sendLatch2.countDown());
-        assertTrue(sendLatch2.await(5, TimeUnit.SECONDS), "Sends should complete");
+        producer.send("Pre-existing message 1").await();
+        producer.send("Pre-existing message 2").await();
 
         ConsumerConfig config = ConsumerConfig.builder()
                 .mode(ConsumerMode.HYBRID)
@@ -308,11 +301,9 @@ class HybridModeEdgeCaseTest {
         });
 
         // Send messages in sequence
-        CountDownLatch sendLatch3 = new CountDownLatch(6);
         for (int i = 1; i <= 6; i++) {
-            producer.send("Message " + i).onComplete(ar -> sendLatch3.countDown());
+            producer.send("Message " + i).await();
         }
-        assertTrue(sendLatch3.await(10, TimeUnit.SECONDS), "All sends should complete");
 
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should receive all 6 messages");
         assertEquals(6, messageCount.get(), "Should have processed exactly 6 messages");
@@ -350,11 +341,9 @@ class HybridModeEdgeCaseTest {
         });
 
         // Send messages
-        CountDownLatch sendLatch4 = new CountDownLatch(15);
         for (int i = 1; i <= 15; i++) {
-            producer.send("Performance test message " + i).onComplete(ar -> sendLatch4.countDown());
+            producer.send("Performance test message " + i).await();
         }
-        assertTrue(sendLatch4.await(10, TimeUnit.SECONDS), "All sends should complete");
 
         assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Should handle moderate load efficiently");
         assertEquals(15, messageCount.get(), "Should have processed exactly 15 messages");

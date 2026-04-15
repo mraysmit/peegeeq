@@ -52,7 +52,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -137,9 +136,7 @@ public class MessagePriorityExampleTest {
         logger.info("Tearing down Message Priority Example Test");
         
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
         
         logger.info("✓ Message Priority Example Test teardown completed");
@@ -303,17 +300,13 @@ public class MessagePriorityExampleTest {
     // Helper methods
     private void sendPriorityMessage(MessageProducer<PriorityMessage> producer, String id, String type, String content, int priority) throws Exception {
         PriorityMessage message = new PriorityMessage(id, type, content, priority, "2025-01-01T00:00:00Z", new HashMap<>());
-        CountDownLatch latch = new CountDownLatch(1);
-        producer.send(message).onComplete(ar -> latch.countDown());
-        assertTrue(latch.await(5, TimeUnit.SECONDS));
+        producer.send(message).await();
         logger.info("Sent: {} (Priority: {})", content, message.getPriorityLabel());
     }
 
     private void sendPriorityMessageWithMetadata(MessageProducer<PriorityMessage> producer, String id, String type, String content, int priority, Map<String, String> metadata) throws Exception {
         PriorityMessage message = new PriorityMessage(id, type, content, priority, "2025-01-01T00:00:00Z", metadata);
-        CountDownLatch latch = new CountDownLatch(1);
-        producer.send(message).onComplete(ar -> latch.countDown());
-        assertTrue(latch.await(5, TimeUnit.SECONDS));
+        producer.send(message).await();
         logger.info("Sent: {} (Priority: {}, Metadata: {})", content, message.getPriorityLabel(), metadata.size());
     }
 

@@ -23,7 +23,6 @@ import java.sql.DriverManager;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -73,9 +72,7 @@ public class RetryableErrorIT {
     void tearDown() throws Exception {
         if (factory != null) factory.close();
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
     }
 
@@ -91,9 +88,7 @@ public class RetryableErrorIT {
             return Future.succeededFuture();
         });
 
-        CountDownLatch sendLatch = new CountDownLatch(1);
-        producer.send("one").onComplete(ar -> sendLatch.countDown());
-        assertTrue(sendLatch.await(5, TimeUnit.SECONDS));
+        producer.send("one").await();
 
         // Should still process successfully even though the first claim attempt fails with 40P01
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Message should be processed after one retry");

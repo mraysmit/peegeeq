@@ -25,7 +25,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -111,9 +110,7 @@ class PeeGeeQConfigurationConsumerModeTest {
         logger.info("Tearing down PeeGeeQConfiguration consumer mode integration test");
 
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
 
         // Clear system properties to avoid test interference

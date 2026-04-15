@@ -154,13 +154,15 @@ public class EventStoreIntegrationTest {
                         }
                         return vertx.undeploy(deploymentId);
                     })
-                    .onComplete(ar -> {
+                    .onSuccess(v -> {
                         logger.info("=== EVENTSTORE TEST CLEANUP COMPLETE ===");
                         testContext.completeNow();
-                    });
+                    })
+                    .onFailure(testContext::failNow);
         } else if (deploymentId != null) {
             vertx.undeploy(deploymentId)
-                    .onComplete(ar -> testContext.completeNow());
+                    .onSuccess(v -> testContext.completeNow())
+                    .onFailure(testContext::failNow);
         } else {
             testContext.completeNow();
         }

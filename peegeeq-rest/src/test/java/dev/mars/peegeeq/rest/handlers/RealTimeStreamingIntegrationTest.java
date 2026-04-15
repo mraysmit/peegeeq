@@ -119,10 +119,11 @@ class RealTimeStreamingIntegrationTest {
         }
         if (deploymentId != null) {
             vertx.undeploy(deploymentId)
-                .onComplete(ar -> {
+                .onSuccess(v -> {
                     logger.info("Test cleanup completed");
                     testContext.completeNow();
-                });
+                })
+                .onFailure(testContext::failNow);
         } else {
             testContext.completeNow();
         }

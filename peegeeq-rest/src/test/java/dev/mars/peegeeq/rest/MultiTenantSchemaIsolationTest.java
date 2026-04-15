@@ -166,10 +166,10 @@ class MultiTenantSchemaIsolationTest {
         // Undeploy REST server
         if (deploymentId != null) {
             vertx.undeploy(deploymentId)
-                .onComplete(ar -> {
+                .onSuccess(v -> {
                     logger.info("========== TEARDOWN COMPLETED ==========");
                     testContext.completeNow();
-                });
+                }).onFailure(testContext::failNow);
         } else {
             logger.info("========== TEARDOWN COMPLETED ==========");
             testContext.completeNow();

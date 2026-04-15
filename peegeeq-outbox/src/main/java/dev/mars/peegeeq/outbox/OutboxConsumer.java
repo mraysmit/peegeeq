@@ -28,6 +28,7 @@ import dev.mars.peegeeq.api.tracing.TraceCtx;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Pool;
@@ -37,16 +38,14 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 // Removed JDBC imports - no longer needed after migration to Vert.x 5.x reactive patterns
+import java.nio.channels.ClosedChannelException;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.CompletionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
@@ -77,12 +76,19 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
     // PgClientFactory)
     private final String clientId;
 
+    // Vert.x instance for timer-based polling
+    private final Vertx vertx;
+
     // Consumer group name for tracking which messages this consumer has processed
     private String consumerGroupName;
 
     private MessageHandler<T> messageHandler;
-    private ScheduledExecutorService scheduler;
-    private ExecutorService messageProcessingExecutor;
+    private volatile long pollingTimerId = -1;
+
+    // Tracks the in-flight processAvailableMessages future so closeAsync() can
+    // wait for it to complete before signalling done. This prevents pool.close()
+    // from hanging on borrowed connections held by in-flight queries.
+    private volatile Future<Void> inflightProcessing = Future.succeededFuture();
 
     // Vert.x 5.x reactive pool for non-blocking database operations
     private volatile Pool reactivePool;
@@ -109,6 +115,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             PeeGeeQConfiguration configuration, String clientId, OutboxConsumerConfig consumerConfig) {
         this.clientFactory = clientFactory;
         this.databaseService = null;
+        this.vertx = clientFactory.getConnectionManager().getVertx();
         this.objectMapper = objectMapper;
         this.topic = topic;
         this.payloadType = payloadType;
@@ -116,25 +123,12 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
         this.configuration = configuration;
         this.consumerConfig = consumerConfig;
         this.clientId = clientId; // null means use default pool
-        this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "outbox-consumer-" + topic);
-            t.setDaemon(true);
-            return t;
-        });
-
-        // Initialize message processing thread pool - consumerConfig takes precedence
-        int consumerThreads = getEffectiveConsumerThreads();
-        this.messageProcessingExecutor = Executors.newFixedThreadPool(consumerThreads, r -> {
-            Thread t = new Thread(r, "outbox-processor-" + topic + "-" + System.currentTimeMillis());
-            t.setDaemon(true);
-            return t;
-        });
 
         logger.info(
-                "Created outbox consumer for topic: {} with configuration: {}, consumerConfig: {} (threads: {}, clientId: {})",
+                "Created outbox consumer for topic: {} with configuration: {}, consumerConfig: {} (clientId: {})",
                 topic, configuration != null ? "enabled" : "disabled",
                 consumerConfig != null ? consumerConfig : "default",
-                consumerThreads, clientId != null ? clientId : "default");
+                clientId != null ? clientId : "default");
     }
 
     public OutboxConsumer(DatabaseService databaseService, ObjectMapper objectMapper,
@@ -159,6 +153,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             PeeGeeQConfiguration configuration, String clientId, OutboxConsumerConfig consumerConfig) {
         this.clientFactory = null;
         this.databaseService = databaseService;
+        this.vertx = databaseService.getVertx();
         this.objectMapper = objectMapper;
         this.topic = topic;
         this.payloadType = payloadType;
@@ -166,25 +161,12 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
         this.configuration = configuration;
         this.consumerConfig = consumerConfig;
         this.clientId = clientId; // null means use default pool
-        this.scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "outbox-consumer-" + topic);
-            t.setDaemon(true);
-            return t;
-        });
-
-        // Initialize message processing thread pool - consumerConfig takes precedence
-        int consumerThreads = getEffectiveConsumerThreads();
-        this.messageProcessingExecutor = Executors.newFixedThreadPool(consumerThreads, r -> {
-            Thread t = new Thread(r, "outbox-processor-" + topic + "-" + System.currentTimeMillis());
-            t.setDaemon(true);
-            return t;
-        });
 
         logger.info(
-                "Created outbox consumer for topic: {} (using DatabaseService) with configuration: {}, consumerConfig: {} (threads: {}, clientId: {})",
+                "Created outbox consumer for topic: {} (using DatabaseService) with configuration: {}, consumerConfig: {} (clientId: {})",
                 topic, configuration != null ? "enabled" : "disabled",
                 consumerConfig != null ? consumerConfig : "default",
-                consumerThreads, clientId != null ? clientId : "default");
+                clientId != null ? clientId : "default");
     }
 
     /**
@@ -237,23 +219,13 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
         long pollingIntervalMs = pollingInterval.toMillis();
 
         logger.info("Starting polling for topic {} with interval: {} ms", topic, pollingIntervalMs);
-        logger.debug("Scheduler state: {}", scheduler != null ? "present" : "null");
-        logger.debug("Scheduler shutdown: {}", scheduler != null ? scheduler.isShutdown() : "N/A");
-        logger.debug("Scheduler terminated: {}", scheduler != null ? scheduler.isTerminated() : "N/A");
 
-        // Poll for messages at configured interval
-        try {
-            logger.debug("About to schedule polling task for topic {}", topic);
-            scheduler.scheduleWithFixedDelay(this::scheduledProcessMessages, 0, pollingIntervalMs,
-                    TimeUnit.MILLISECONDS);
-            logger.debug("Polling task scheduled successfully for topic {}", topic);
-        } catch (Exception e) {
-            logger.error("Error scheduling polling task for topic {}: {}", topic, e.getMessage(), e);
-            throw e;
-        }
+        // Use Vert.x periodic timer for polling — automatically canceled on vertx.close()
+        // Fire an initial poll immediately, then schedule periodic
+        vertx.runOnContext(v -> scheduledProcessMessages());
+        pollingTimerId = vertx.setPeriodic(pollingIntervalMs, id -> scheduledProcessMessages());
 
-        logger.info("Scheduled polling task for topic {} with interval: {}", topic, pollingInterval);
-
+        logger.info("Scheduled Vert.x periodic timer for topic {} with interval: {}", topic, pollingInterval);
     }
 
     private void scheduledProcessMessages() {
@@ -266,16 +238,16 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
 
         // Use reactive processing for Vert.x 5.x compliance
         try {
-            processAvailableMessages()
+            Future<Void> processing = processAvailableMessages()
                     .onSuccess(result -> logger.debug("Successfully processed messages for topic {}", topic))
                     .onFailure(error -> {
-                        String msg = error.getMessage() != null ? error.getMessage() : error.getClass().getSimpleName();
-                        if (isShutdownRelatedError(msg)) {
-                            logger.debug("Reactive message processing skipped (shutdown) for topic {}: {}", topic, msg);
+                        if (isShutdownRelatedError(error)) {
+                            logger.debug("Reactive message processing skipped (shutdown) for topic {}: {}", topic, error.getMessage());
                         } else {
-                            logger.error("Reactive message processing failed for topic {}: {}", topic, msg, error);
+                            logger.error("Reactive message processing failed for topic {}: {}", topic, error.getMessage(), error);
                         }
                     });
+            inflightProcessing = processing;
         } catch (Exception e) {
             logger.error("Failed to start reactive message processing for topic {}: {}", topic, e.getMessage(), e);
         }
@@ -286,12 +258,12 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
      */
     private Future<Void> processAvailableMessages() {
         logger.debug("OUTBOX-DEBUG: processAvailableMessages() called for topic: {}", topic);
-        // : Check if consumer is closed to prevent infinite retry loops
-        // during shutdown
+        // Check if consumer is closed to prevent infinite retry loops during shutdown
         if (closed.get()) {
             logger.debug("OUTBOX-DEBUG: Skipping message processing - consumer closed for topic {}", topic);
             return Future.succeededFuture();
         }
+
         logger.debug("OUTBOX-DEBUG: Consumer is active, proceeding with message processing for topic: {}", topic);
 
         try {
@@ -374,42 +346,37 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                         return processingChain;
                     })
                     .onFailure(error -> {
-                        // : Handle shutdown-related errors gracefully following established
-                        // pattern
-                        String msg = error.getMessage() != null ? error.getMessage() : error.getClass().getSimpleName();
-                        if (isShutdownRelatedError(msg)) {
-                            logger.debug("Expected error during shutdown for topic {}: {}", topic, msg);
+                        if (isShutdownRelatedError(error)) {
+                            logger.debug("Expected error during shutdown for topic {}: {}", topic, error.getMessage());
                         } else {
-                            logger.error("Error querying messages for topic {}: {}", topic, msg);
+                            logger.error("Error querying messages for topic {}: {}", topic, error.getMessage());
                         }
                     });
 
         } catch (Exception e) {
-            // : Handle various error conditions gracefully following
-            // established pattern
-            String errorMessage = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-
-            if (isShutdownRelatedError(errorMessage)) {
-                logger.debug("Expected error during shutdown for topic {}: {}", topic, errorMessage);
+            if (isShutdownRelatedError(e)) {
+                logger.debug("Expected error during shutdown for topic {}: {}", topic, e.getMessage());
                 if (!closed.get()) {
-                    // Mark as closed to prevent further processing attempts
                     closed.set(true);
                 }
-            } else if (closed.get()) {
-                logger.debug("Error during shutdown for topic {}: {}", topic, errorMessage);
             } else {
-                logger.error("Failed to process messages reactively for topic {}: {}", topic, errorMessage, e);
+                logger.error("Failed to process messages reactively for topic {}: {}", topic, e.getMessage(), e);
             }
             return Future.failedFuture(e);
         }
     }
 
-    private boolean isShutdownRelatedError(String message) {
-        return message.contains("Pool closed")
-                || message.contains("event executor terminated")
-                || message.contains("Connection closed")
-                || message.contains("RejectedExecutionException")
-                || message.contains("ConnectionProvider is not available");
+    private boolean isShutdownRelatedError(Throwable error) {
+        if (closed.get()) {
+            return true;
+        }
+        for (Throwable cause = error; cause != null; cause = cause.getCause()) {
+            if (cause instanceof RejectedExecutionException
+                    || cause instanceof ClosedChannelException) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -603,11 +570,9 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                     return Future.succeededFuture();
                 })
                 .onFailure(error -> {
-                    if (closed.get() && (error.getMessage().contains("Connection is not active") ||
-                            error.getMessage().contains("Pool closed") ||
-                            error.getMessage().contains("CLOSING"))) {
-                        logger.debug(
-                                "Pool/connection closed during shutdown for message {} completion - this is expected during shutdown",
+                    if (isShutdownRelatedError(error)) {
+                        logger.warn(
+                                "Shutdown during completion of message {} - message may be stuck in PROCESSING",
                                 messageId);
                     } else {
                         logger.error(
@@ -709,11 +674,9 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                     }
                 })
                 .onFailure(error -> {
-                    if (closed.get() && (error.getMessage().contains("Connection is not active") ||
-                            error.getMessage().contains("Pool closed") ||
-                            error.getMessage().contains("CLOSING"))) {
+                    if (isShutdownRelatedError(error)) {
                         logger.debug(
-                                "Pool/connection closed during shutdown for message {} failure handling - this is expected during shutdown",
+                                "Expected error during shutdown for message {} failure handling",
                                 messageId);
                     } else {
                         logger.warn("Failed to handle message failure for {}: {}", messageId, error.getMessage());
@@ -757,11 +720,9 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                             currentRetryCount + 1, messageId);
                 })
                 .onFailure(error -> {
-                    if (closed.get() && (error.getMessage().contains("Connection is not active") ||
-                            error.getMessage().contains("Pool closed") ||
-                            error.getMessage().contains("CLOSING"))) {
+                    if (isShutdownRelatedError(error)) {
                         logger.debug(
-                                "Pool/connection closed during shutdown for message {} retry increment - this is expected during shutdown",
+                                "Expected error during shutdown for message {} retry increment",
                                 messageId);
                     } else {
                         logger.warn("Failed to increment retry count for message {}: {}", messageId,
@@ -838,12 +799,9 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                                                         messageId, retryCount);
                                             })
                                             .onFailure(error -> {
-                                                if (closed.get()
-                                                        && (error.getMessage().contains("Connection is not active") ||
-                                                                error.getMessage().contains("Pool closed") ||
-                                                                error.getMessage().contains("CLOSING"))) {
+                                                if (isShutdownRelatedError(error)) {
                                                     logger.debug(
-                                                            "Pool/connection closed during shutdown for message {} dead letter queue operation - this is expected during shutdown",
+                                                            "Expected error during shutdown for message {} dead letter queue operation",
                                                             messageId);
                                                 } else {
                                                     logger.error("Failed to move message {} to dead letter queue: {}",
@@ -858,11 +816,9 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                             return Future.succeededFuture();
                         }))
                 .onFailure(error -> {
-                    if (closed.get() && (error.getMessage().contains("Connection is not active") ||
-                            error.getMessage().contains("Pool closed") ||
-                            error.getMessage().contains("CLOSING"))) {
+                    if (isShutdownRelatedError(error)) {
                         logger.debug(
-                                "Pool/connection closed during shutdown for message {} details retrieval - this is expected during shutdown",
+                                "Expected error during shutdown for message {} details retrieval",
                                 messageId);
                     } else {
                         logger.error("Failed to retrieve message {} details for dead letter queue: {}", messageId,
@@ -888,11 +844,12 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
 
     /**
      * Non-blocking close that initiates orderly shutdown and returns a Future
-     * that completes when the reactive pool is closed. Executors are signalled
-     * to stop but allowed to drain on their own threads without blocking.
+     * that completes when in-flight processing is done and the reactive pool is
+     * closed. The Vert.x periodic timer is cancelled, in-flight message processing
+     * is awaited, and then the reactive pool is closed.
      * Safe to call from a Vert.x event-loop context.
      *
-     * @return Future that completes when the reactive pool (the primary resource) is closed
+     * @return Future that completes when in-flight processing finishes and the pool is closed
      */
     public Future<Void> closeAsync() {
         if (!closed.compareAndSet(false, true)) {
@@ -901,53 +858,45 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
 
         unsubscribe();
 
-        // Initiate orderly shutdown of executors (non-blocking)
-        if (scheduler != null) {
-            scheduler.shutdown();
-        }
-        if (messageProcessingExecutor != null) {
-            messageProcessingExecutor.shutdown();
+        // Cancel Vert.x periodic timer — no new processing cycles will start
+        if (pollingTimerId != -1) {
+            vertx.cancelTimer(pollingTimerId);
+            pollingTimerId = -1;
         }
 
-        // Close reactive pool — this is the resource that matters for callers
-        Future<Void> poolClose;
-        if (reactivePool != null) {
-            poolClose = reactivePool.close()
-                .onSuccess(v -> logger.debug("Closed reactive pool for topic: {}", topic))
-                .onFailure(err -> logger.warn("Error closing reactive pool for topic {}: {}", topic, err.getMessage()));
-        } else {
-            poolClose = Future.succeededFuture();
-        }
+        // Wait for any in-flight processing to finish so borrowed connections are
+        // returned before pool.close() is called. Without this, pool.close() hangs
+        // waiting for connections that are still held by in-flight query chains.
+        Future<Void> awaitInflight = inflightProcessing
+            .recover(e -> {
+                logger.debug("In-flight processing completed with error during close for topic {}: {}",
+                    topic, e.getMessage());
+                return Future.succeededFuture();
+            });
 
-        return poolClose.onSuccess(v -> logger.info("Closed outbox consumer for topic: {}", topic));
+        return awaitInflight.compose(v -> {
+            // Close reactive pool — this is the resource that matters for callers
+            Future<Void> poolClose;
+            if (reactivePool != null) {
+                poolClose = reactivePool.close()
+                    .onSuccess(v2 -> logger.debug("Closed reactive pool for topic: {}", topic))
+                    .onFailure(err -> logger.warn("Error closing reactive pool for topic {}: {}", topic, err.getMessage()));
+            } else {
+                poolClose = Future.succeededFuture();
+            }
+            return poolClose;
+        }).onSuccess(v -> logger.info("Closed outbox consumer for topic: {}", topic));
     }
 
     @Override
     public void close() {
         if (closed.compareAndSet(false, true)) {
             unsubscribe();
-            if (scheduler != null) {
-                scheduler.shutdown();
-                try {
-                    if (!scheduler.awaitTermination(5, TimeUnit.SECONDS)) {
-                        scheduler.shutdownNow();
-                    }
-                } catch (InterruptedException e) {
-                    scheduler.shutdownNow();
-                    Thread.currentThread().interrupt();
-                }
-            }
 
-            if (messageProcessingExecutor != null) {
-                messageProcessingExecutor.shutdown();
-                try {
-                    if (!messageProcessingExecutor.awaitTermination(10, TimeUnit.SECONDS)) {
-                        messageProcessingExecutor.shutdownNow();
-                    }
-                } catch (InterruptedException e) {
-                    messageProcessingExecutor.shutdownNow();
-                    Thread.currentThread().interrupt();
-                }
+            // Cancel Vert.x periodic timer
+            if (pollingTimerId != -1) {
+                vertx.cancelTimer(pollingTimerId);
+                pollingTimerId = -1;
             }
 
             // Close reactive pool
@@ -1057,16 +1006,6 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
 
     // Helper methods to get effective configuration values
     // OutboxConsumerConfig takes precedence over PeeGeeQConfiguration
-
-    private int getEffectiveConsumerThreads() {
-        if (consumerConfig != null) {
-            return consumerConfig.getConsumerThreads();
-        }
-        if (configuration != null) {
-            return configuration.getQueueConfig().getConsumerThreads();
-        }
-        return 1; // default
-    }
 
     private Duration getEffectivePollingInterval() {
         if (consumerConfig != null) {

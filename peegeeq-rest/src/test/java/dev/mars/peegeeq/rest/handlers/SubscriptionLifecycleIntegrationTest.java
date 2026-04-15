@@ -187,7 +187,7 @@ public class SubscriptionLifecycleIntegrationTest {
             ? vertx.undeploy(deploymentId) 
             : Future.succeededFuture();
             
-        undeploy.onComplete(ar -> testContext.completeNow());
+        undeploy.onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
     }
 
     // ========== Test Methods ==========
