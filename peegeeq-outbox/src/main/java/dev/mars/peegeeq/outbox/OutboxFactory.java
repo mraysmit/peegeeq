@@ -64,7 +64,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
 
     // Common fields
     private final ObjectMapper objectMapper;
-    private volatile boolean closed = false;
+    private final java.util.concurrent.atomic.AtomicBoolean closed = new java.util.concurrent.atomic.AtomicBoolean(false);
 
     // Track created consumers and producers for proper cleanup
     private final Set<AutoCloseable> createdResources = ConcurrentHashMap.newKeySet();
@@ -97,7 +97,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
                 configuration != null ? "enabled" : "disabled",
                 clientId != null ? clientId : "default");
 
-        // Register a no-op close hook with the manager if available (explicit
+        // Register a close hook with the manager if available (explicit
         // lifecycle, no reflection)
         if (this.databaseService instanceof dev.mars.peegeeq.api.lifecycle.LifecycleHookRegistrar registrar) {
             registrar.registerCloseHook(new dev.mars.peegeeq.api.lifecycle.PeeGeeQCloseHook() {
@@ -108,10 +108,10 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
 
                 @Override
                 public io.vertx.core.Future<Void> closeReactive() {
-                    return io.vertx.core.Future.succeededFuture();
+                    return closeTrackedResourcesAsync();
                 }
             });
-            logger.debug("Registered outbox close hook (no-op) with PeeGeeQManager");
+            logger.debug("Registered outbox close hook with PeeGeeQManager");
         }
     }
 
@@ -292,7 +292,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
     @Override
     public boolean isHealthy() {
         assertNotEventLoopForBlocking("isHealthy()", "use isHealthyAsync() on Vert.x contexts");
-        if (closed) {
+        if (closed.get()) {
             return false;
         }
 
@@ -314,7 +314,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
 
     @Override
     public io.vertx.core.Future<Boolean> isHealthyAsync() {
-        if (closed) {
+        if (closed.get()) {
             return io.vertx.core.Future.succeededFuture(false);
         }
 
@@ -400,7 +400,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
 
     @Override
     public io.vertx.core.Future<dev.mars.peegeeq.api.messaging.QueueStats> getStatsAsync(String topic) {
-        if (closed) {
+        if (closed.get()) {
             return io.vertx.core.Future.failedFuture(new IllegalStateException("Factory is closed"));
         }
         logger.debug("Getting stats async for topic: {}", topic);
@@ -468,7 +468,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
 
     @Override
     public io.vertx.core.Future<Long> countMessagesAsync(String topic) {
-        if (closed) {
+        if (closed.get()) {
             return io.vertx.core.Future.failedFuture(new IllegalStateException("Factory is closed"));
         }
 
@@ -489,7 +489,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
 
     @Override
     public io.vertx.core.Future<Integer> purgeMessagesAsync(String topic) {
-        if (closed) {
+        if (closed.get()) {
             return io.vertx.core.Future.failedFuture(new IllegalStateException("Factory is closed"));
         }
 
@@ -535,30 +535,54 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
         return null;
     }
 
-    @Override
-    public synchronized void close() throws Exception {
-        assertNotEventLoopForBlocking("close()", "close this factory from a worker thread");
-        if (closed) {
-            logger.debug("OutboxFactory already closed");
-            return;
+    /**
+     * Closes all tracked resources asynchronously. Consumers and consumer groups
+     * use their async close path; producers and browsers use sync close (lightweight).
+     * Idempotent — safe to call from both the close hook and explicit close().
+     */
+    private io.vertx.core.Future<Void> closeTrackedResourcesAsync() {
+        if (!closed.compareAndSet(false, true)) {
+            return io.vertx.core.Future.succeededFuture();
         }
 
-        logger.info("Closing OutboxFactory");
-        closed = true;
-
-        // Close all tracked resources (consumers, producers, consumer groups)
         logger.info("Closing {} tracked resources", createdResources.size());
+
+        java.util.List<io.vertx.core.Future<Void>> asyncCloses = new java.util.ArrayList<>();
         for (AutoCloseable resource : createdResources) {
-            try {
-                resource.close();
-                logger.debug("Closed resource: {}", resource.getClass().getSimpleName());
-            } catch (Exception e) {
-                logger.warn("Error closing resource {}: {}", resource.getClass().getSimpleName(), e.getMessage());
+            if (resource instanceof OutboxConsumer<?> consumer) {
+                asyncCloses.add(consumer.closeAsync()
+                    .onFailure(e -> logger.warn("Error closing consumer: {}", e.getMessage()))
+                    .recover(e -> io.vertx.core.Future.succeededFuture()));
+            } else if (resource instanceof OutboxConsumerGroup<?> group) {
+                asyncCloses.add(group.closeAsync()
+                    .onFailure(e -> logger.warn("Error closing consumer group: {}", e.getMessage()))
+                    .recover(e -> io.vertx.core.Future.succeededFuture()));
+            } else {
+                try {
+                    resource.close();
+                    logger.debug("Closed resource: {}", resource.getClass().getSimpleName());
+                } catch (Exception e) {
+                    logger.warn("Error closing resource {}: {}",
+                        resource.getClass().getSimpleName(), e.getMessage());
+                }
             }
         }
         createdResources.clear();
 
-        logger.info("OutboxFactory closed successfully");
+        if (asyncCloses.isEmpty()) {
+            logger.info("OutboxFactory closed successfully");
+            return io.vertx.core.Future.succeededFuture();
+        }
+
+        return io.vertx.core.Future.all(asyncCloses)
+            .<Void>mapEmpty()
+            .onSuccess(v -> logger.info("OutboxFactory closed successfully"));
+    }
+
+    @Override
+    public void close() throws Exception {
+        assertNotEventLoopForBlocking("close()", "close this factory from a worker thread");
+        closeTrackedResourcesAsync().await();
     }
 
     /**
@@ -582,7 +606,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
     }
 
     private void checkNotClosed() {
-        if (closed) {
+        if (closed.get()) {
             throw new IllegalStateException("Queue factory is closed");
         }
     }

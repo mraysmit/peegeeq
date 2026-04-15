@@ -192,25 +192,24 @@ class EnhancedErrorHandlingExampleTest {
             ? manager.closeReactive()
             : Future.succeededFuture();
 
-        closeFuture.onComplete(ar -> {
-            if (ar.failed()) {
-                logger.warn("Error closing manager: {}", ar.cause().getMessage());
-            }
-            // Clear system properties
-            System.clearProperty("peegeeq.database.host");
-            System.clearProperty("peegeeq.database.port");
-            System.clearProperty("peegeeq.database.name");
-            System.clearProperty("peegeeq.database.username");
-            System.clearProperty("peegeeq.database.password");
-            System.clearProperty("peegeeq.database.schema");
-            System.clearProperty("peegeeq.queue.max-retries");
-            System.clearProperty("peegeeq.queue.polling-interval");
-            System.clearProperty("peegeeq.consumer.threads");
-            System.clearProperty("peegeeq.queue.batch-size");
+        closeFuture
+                .onSuccess(v -> {
+                    // Clear system properties
+                    System.clearProperty("peegeeq.database.host");
+                    System.clearProperty("peegeeq.database.port");
+                    System.clearProperty("peegeeq.database.name");
+                    System.clearProperty("peegeeq.database.username");
+                    System.clearProperty("peegeeq.database.password");
+                    System.clearProperty("peegeeq.database.schema");
+                    System.clearProperty("peegeeq.queue.max-retries");
+                    System.clearProperty("peegeeq.queue.polling-interval");
+                    System.clearProperty("peegeeq.consumer.threads");
+                    System.clearProperty("peegeeq.queue.batch-size");
 
-            logger.info("Enhanced Error Handling Example Test cleanup completed");
-            testContext.completeNow();
-        });
+                    logger.info("Enhanced Error Handling Example Test cleanup completed");
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
     

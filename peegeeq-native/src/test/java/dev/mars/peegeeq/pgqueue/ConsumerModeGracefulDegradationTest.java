@@ -118,9 +118,7 @@ class ConsumerModeGracefulDegradationTest {
             factory.close();
         }
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
         
         // Clear test properties

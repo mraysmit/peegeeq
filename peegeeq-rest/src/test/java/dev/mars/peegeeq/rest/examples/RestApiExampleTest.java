@@ -34,8 +34,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -100,20 +98,8 @@ public class RestApiExampleTest {
         
         if (vertx != null) {
             try {
-                CountDownLatch vertxCloseLatch = new CountDownLatch(1);
-                vertx.close()
-                    .onSuccess(v -> {
-                        logger.info("Vert.x closed successfully");
-                        vertxCloseLatch.countDown();
-                    })
-                    .onFailure(throwable -> {
-                        logger.warn("⚠️ Error closing Vert.x", throwable);
-                        vertxCloseLatch.countDown();
-                    });
-
-                if (!vertxCloseLatch.await(5, TimeUnit.SECONDS)) {
-                    logger.warn("⚠️ Vert.x close timed out");
-                }
+                vertx.close().await();
+                logger.info("Vert.x closed successfully");
             } catch (Exception e) {
                 logger.warn("⚠️ Error during Vert.x cleanup", e);
             }

@@ -119,7 +119,9 @@ public class BasicReactiveOperationsExampleTest {
         }
         
         if (manager != null) {
-            manager.closeReactive().onComplete(ar -> testContext.completeNow());
+            manager.closeReactive()
+                    .onSuccess(v -> testContext.completeNow())
+                    .onFailure(testContext::failNow);
         } else {
             testContext.completeNow();
         }

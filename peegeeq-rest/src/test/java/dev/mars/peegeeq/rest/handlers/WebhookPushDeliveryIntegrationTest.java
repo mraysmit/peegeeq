@@ -183,12 +183,13 @@ public class WebhookPushDeliveryIntegrationTest {
 
         undeploy
                 .compose(v -> webhookServer != null ? webhookServer.close() : Future.succeededFuture())
-                .onComplete(ar -> {
+                .onSuccess(v -> {
                     if (postgres != null) {
                         postgres.stop();
                     }
                     testContext.completeNow();
-                });
+                })
+                .onFailure(testContext::failNow);
     }
 
     @BeforeEach

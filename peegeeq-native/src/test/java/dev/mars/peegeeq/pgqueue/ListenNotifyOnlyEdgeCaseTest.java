@@ -30,7 +30,6 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -111,9 +110,7 @@ class ListenNotifyOnlyEdgeCaseTest {
             factory.close();
         }
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
         logger.info("Test teardown completed");
     }
@@ -127,11 +124,9 @@ class ListenNotifyOnlyEdgeCaseTest {
         // First, send messages BEFORE setting up the consumer
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
 
-        CountDownLatch preSendLatch = new CountDownLatch(3);
-        producer.send("Message 1 - Before Consumer").onComplete(ar -> preSendLatch.countDown());
-        producer.send("Message 2 - Before Consumer").onComplete(ar -> preSendLatch.countDown());
-        producer.send("Message 3 - Before Consumer").onComplete(ar -> preSendLatch.countDown());
-        assertTrue(preSendLatch.await(5, TimeUnit.SECONDS), "Pre-consumer sends should complete");
+        producer.send("Message 1 - Before Consumer").await();
+        producer.send("Message 2 - Before Consumer").await();
+        producer.send("Message 3 - Before Consumer").await();
 
         logger.info("Sent 3 messages before consumer setup");
 
@@ -269,10 +264,8 @@ class ListenNotifyOnlyEdgeCaseTest {
                 final int producerId = i;
                 vertx.executeBlocking(() -> {
                     MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-                    CountDownLatch sendLatch = new CountDownLatch(2);
-                    producer.send("Message from producer " + producerId + " - msg 1").onComplete(ar -> sendLatch.countDown());
-                    producer.send("Message from producer " + producerId + " - msg 2").onComplete(ar -> sendLatch.countDown());
-                    sendLatch.await(5, TimeUnit.SECONDS);
+                    producer.send("Message from producer " + producerId + " - msg 1").await();
+                    producer.send("Message from producer " + producerId + " - msg 2").await();
                     producer.close();
                     return null;
                 }).onFailure(testContext::failNow);

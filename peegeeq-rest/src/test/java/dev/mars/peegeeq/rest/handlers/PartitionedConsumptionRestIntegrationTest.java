@@ -197,7 +197,7 @@ public class PartitionedConsumptionRestIntegrationTest {
         }
         closeFuture
             .compose(v -> deploymentId != null ? vertx.undeploy(deploymentId) : Future.succeededFuture())
-            .onComplete(ar -> testContext.completeNow());
+            .onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
     }
 
     // ========================================================================

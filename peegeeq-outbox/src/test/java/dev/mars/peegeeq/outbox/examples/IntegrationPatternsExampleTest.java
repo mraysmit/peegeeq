@@ -35,7 +35,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -128,9 +127,7 @@ public class IntegrationPatternsExampleTest {
 
         if (manager != null) {
             try {
-                CountDownLatch closeLatch = new CountDownLatch(1);
-                manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-                closeLatch.await(10, TimeUnit.SECONDS);
+                manager.closeReactive().await();
             } catch (Exception e) {
                 logger.warn("Error closing manager: {}", e.getMessage());
             }

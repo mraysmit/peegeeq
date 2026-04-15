@@ -150,7 +150,7 @@ class ReactiveNotificationHandlerLifecycleTest {
                 logger.info("✓ Handler started successfully and is active");
                 
                 // Cleanup
-                handler.stop().onComplete(ar -> testContext.completeNow());
+                handler.stop().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
             })));
     }
 
@@ -190,7 +190,7 @@ class ReactiveNotificationHandlerLifecycleTest {
                 logger.info("✓ Multiple start calls are idempotent");
                 
                 // Cleanup
-                handler.stop().onComplete(ar -> testContext.completeNow());
+                handler.stop().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
             })));
     }
 
@@ -252,7 +252,7 @@ class ReactiveNotificationHandlerLifecycleTest {
                 logger.info("✓ Subscribe succeeded with exact event type");
                 
                 // Cleanup
-                handler.stop().onComplete(ar -> testContext.completeNow());
+                handler.stop().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
             })));
     }
 
@@ -273,7 +273,7 @@ class ReactiveNotificationHandlerLifecycleTest {
                 logger.info("✓ Subscribe succeeded with wildcard event type");
                 
                 // Cleanup
-                handler.stop().onComplete(ar -> testContext.completeNow());
+                handler.stop().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
             })));
     }
 
@@ -294,7 +294,7 @@ class ReactiveNotificationHandlerLifecycleTest {
                 logger.info("✓ Subscribe succeeded with null event type (all events)");
                 
                 // Cleanup
-                handler.stop().onComplete(ar -> testContext.completeNow());
+                handler.stop().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
             })));
     }
 
@@ -326,7 +326,7 @@ class ReactiveNotificationHandlerLifecycleTest {
                     assertEquals("evt-001", receivedEvents.get(0), "Should receive correct event ID");
                     logger.info("✓ Received notification for exact event type match");
                 });
-                handler.stop().onComplete(ar -> testContext.completeNow());
+                handler.stop().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
             }));
     }
 
@@ -363,7 +363,7 @@ class ReactiveNotificationHandlerLifecycleTest {
                     assertEquals(1, secondHandlerCount.get(), "Second handler should be invoked once");
                     logger.info("✓ Multiple handlers for same key are all notified");
                 });
-                handler.stop().onComplete(ar -> testContext.completeNow());
+                handler.stop().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
             }));
     }
 
@@ -394,7 +394,7 @@ class ReactiveNotificationHandlerLifecycleTest {
                     assertTrue(receivedEvents.contains("order.updated"), "Should receive order.updated");
                     logger.info("✓ Received notifications for wildcard pattern match");
                 });
-                handler.stop().onComplete(ar -> testContext.completeNow());
+                handler.stop().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
             }));
     }
 
@@ -427,7 +427,7 @@ class ReactiveNotificationHandlerLifecycleTest {
                 logger.info("✓ Correctly filtered out non-matching event type");
                 
                 // Cleanup
-                handler.stop().onComplete(ar -> testContext.completeNow());
+                handler.stop().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
             })));
     }
 
@@ -472,7 +472,7 @@ class ReactiveNotificationHandlerLifecycleTest {
                     assertEquals(1, allCount.get(), "All-events handler should receive one event");
                     logger.info("✓ Multiple subscriptions handled correctly");
                 });
-                handler.stop().onComplete(ar -> testContext.completeNow());
+                handler.stop().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
             }));
     }
 
@@ -503,7 +503,7 @@ class ReactiveNotificationHandlerLifecycleTest {
                         "Should receive event with correct aggregate ID");
                     logger.info("✓ Aggregate ID filtering works correctly");
                 });
-                handler.stop().onComplete(ar -> testContext.completeNow());
+                handler.stop().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
             }));
     }
 
@@ -532,7 +532,7 @@ class ReactiveNotificationHandlerLifecycleTest {
                     assertEquals(1, errorCount.get(), "Handler should be invoked once");
                     logger.info("✓ Handler errors are caught and logged gracefully");
                 });
-                handler.stop().onComplete(ar -> testContext.completeNow());
+                handler.stop().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
             }));
     }
 
@@ -595,7 +595,7 @@ class ReactiveNotificationHandlerLifecycleTest {
                         "Stale subscriptions from before stop() should not receive notifications after restart");
                     logger.info("✓ Stop/start does not retain stale subscriptions");
                 });
-                handler.stop().onComplete(ar -> testContext.completeNow());
+                handler.stop().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
             }));
     }
 
@@ -624,7 +624,7 @@ class ReactiveNotificationHandlerLifecycleTest {
                         "Wildcard subscription should correctly match underscore aggregate IDs");
                     logger.info("✓ Wildcard aggregate matching works with underscores");
                 });
-                handler.stop().onComplete(ar -> testContext.completeNow());
+                handler.stop().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
             }));
     }
 

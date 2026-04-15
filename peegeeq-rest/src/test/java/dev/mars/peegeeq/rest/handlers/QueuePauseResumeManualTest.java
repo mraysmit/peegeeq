@@ -24,7 +24,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
- * Manual test for queue pause/resume functionality.
+ * Integration test for queue pause/resume REST API surface.
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
@@ -48,7 +48,6 @@ public class QueuePauseResumeManualTest {
         return container;
     }
 
-    private PeeGeeQRestServer server;
     private String deploymentId;
     private String setupId;
     private WebClient webClient;
@@ -64,15 +63,15 @@ public class QueuePauseResumeManualTest {
 
         // Start REST server
         RestServerConfig testConfig = new RestServerConfig(TEST_PORT, RestServerConfig.MonitoringConfig.defaults(), java.util.List.of("*"));
-        server = new PeeGeeQRestServer(testConfig, setupService);
-        vertx.deployVerticle(server)
+        PeeGeeQRestServer restServer = new PeeGeeQRestServer(testConfig, setupService);
+        vertx.deployVerticle(restServer)
             .compose(id -> {
                 deploymentId = id;
                 logger.info("REST server deployed with ID: {}", deploymentId);
                 webClient = WebClient.create(vertx);
 
                 // Create database setup with queue
-                return createSetupWithQueue(vertx);
+                return createSetupWithQueue();
             })
             .onSuccess(v -> {
                 logger.info("Test setup complete");
@@ -81,7 +80,7 @@ public class QueuePauseResumeManualTest {
             .onFailure(testContext::failNow);
     }
 
-    private Future<Void> createSetupWithQueue(Vertx vertx) {
+    private Future<Void> createSetupWithQueue() {
         JsonObject setupRequest = new JsonObject()
             .put("setupId", setupId)
             .put("databaseConfig", new JsonObject()
@@ -115,19 +114,20 @@ public class QueuePauseResumeManualTest {
 
     @AfterAll
     void tearDown(Vertx vertx, VertxTestContext testContext) {
-        logger.info("=== Tearing down Queue Pause/Resume Manual Test ===");
+        if (webClient != null) {
+            webClient.close();
+        }
 
         Future<Void> undeploy = deploymentId != null
             ? vertx.undeploy(deploymentId)
             : Future.succeededFuture();
 
-        undeploy.onComplete(ar -> testContext.completeNow());
+        undeploy.onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
     }
 
     @Test
-    @DisplayName("Queue Pause/Resume - Pause and resume queue subscriptions")
+    @DisplayName("Queue pause/resume API returns expected response shape")
     void testQueuePauseResume(Vertx vertx, VertxTestContext testContext) {
-        logger.info("=== Testing Queue Pause/Resume ===");
 
         String queueName = "test_queue";
 

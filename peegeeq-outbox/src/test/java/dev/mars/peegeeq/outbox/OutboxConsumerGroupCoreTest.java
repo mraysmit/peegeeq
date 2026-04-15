@@ -28,12 +28,16 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
 import org.slf4j.MDC;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.util.List;
 import java.util.Set;
@@ -62,10 +66,17 @@ import static org.junit.jupiter.api.Assertions.*;
  * The integration-level tests remain in {@link OutboxConsumerGroupTest}.</p>
  */
 @Tag(TestCategories.CORE)
+@ExtendWith(VertxExtension.class)
 @DisplayName("OutboxConsumerGroup — core unit tests")
 class OutboxConsumerGroupCoreTest {
 
     private OutboxConsumerGroup<String> group;
+    private Vertx vertx;
+
+    @BeforeEach
+    void setUp(Vertx vertx) {
+        this.vertx = vertx;
+    }
 
     @AfterEach
     void tearDown() {
@@ -1043,7 +1054,7 @@ class OutboxConsumerGroupCoreTest {
     private OutboxConsumerGroup<String> createGroup(String groupName, String topic) {
         return new OutboxConsumerGroup<>(
                 groupName, topic, String.class,
-                new StubDatabaseService(), null, null,
+                new StubDatabaseService(vertx), null, null,
                 new PeeGeeQConfiguration("test"));
     }
 
@@ -1052,6 +1063,9 @@ class OutboxConsumerGroupCoreTest {
     }
 
     private static class StubDatabaseService implements DatabaseService {
+        private final Vertx vertx;
+        StubDatabaseService() { this(null); }
+        StubDatabaseService(Vertx vertx) { this.vertx = vertx; }
         @Override public Future<Void> initialize() { return Future.succeededFuture(); }
         @Override public Future<Void> start() { return Future.succeededFuture(); }
         @Override public Future<Void> stop() { return Future.succeededFuture(); }
@@ -1062,7 +1076,7 @@ class OutboxConsumerGroupCoreTest {
         @Override public dev.mars.peegeeq.api.subscription.SubscriptionService getSubscriptionService() { return null; }
         @Override public Future<Void> runMigrations() { return Future.succeededFuture(); }
         @Override public Future<Boolean> performHealthCheck() { return Future.succeededFuture(true); }
-        @Override public io.vertx.core.Vertx getVertx() { return null; }
+        @Override public Vertx getVertx() { return vertx; }
         @Override public io.vertx.sqlclient.Pool getPool() { return null; }
         @Override public io.vertx.pgclient.PgConnectOptions getConnectOptions() { return null; }
         @Override public void close() { }

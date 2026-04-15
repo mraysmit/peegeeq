@@ -107,7 +107,7 @@ public class SystemMonitoringIntegrationTest {
         }
         if (deploymentId != null) {
             vertx.undeploy(deploymentId)
-                    .onComplete(ar -> testContext.completeNow());
+                    .onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
         } else {
             testContext.completeNow();
         }

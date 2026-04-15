@@ -48,7 +48,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -189,9 +188,7 @@ class MessagePriorityExampleTest {
         logger.info("🧹 Cleaning up Message Priority Example Test");
 
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
 
         // Clear system properties
@@ -501,9 +498,7 @@ class MessagePriorityExampleTest {
             "messageType", messageType
         );
 
-        CountDownLatch sendLatch = new CountDownLatch(1);
-        producer.send(message, headers, messageId, String.valueOf(priority)).onComplete(ar -> sendLatch.countDown());
-        assertTrue(sendLatch.await(5, TimeUnit.SECONDS), "Send should complete");
+        producer.send(message, headers, messageId, String.valueOf(priority)).await();
         logger.debug("Sent message: {} with priority {}", messageId, priority);
     }
 

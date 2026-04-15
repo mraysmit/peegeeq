@@ -33,7 +33,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -93,9 +92,7 @@ public class ConsumerModeMetricsTest {
             factory.close();
         }
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
         logger.info("🧹 ConsumerModeMetricsTest teardown completed");
     }
@@ -190,14 +187,7 @@ public class ConsumerModeMetricsTest {
         }
         
         // Wait for metrics to update and queue depth to increase
-        CountDownLatch depthIncreasedLatch = new CountDownLatch(1);
-        long depthCheckTimer = vertx.setPeriodic(100, id -> {
-            if (queueDepthGauge.value() >= initialDepth) {
-                depthIncreasedLatch.countDown();
-            }
-        });
-        depthIncreasedLatch.await(3, TimeUnit.SECONDS);
-        vertx.cancelTimer(depthCheckTimer);
+        vertx.timer(3000).await();
 
         double newDepth = queueDepthGauge.value();
         logger.info("📊 Queue depth after sending messages: {}", newDepth);
@@ -219,14 +209,7 @@ public class ConsumerModeMetricsTest {
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "All messages should be processed");
         
         // Wait for metrics to update and queue depth to decrease
-        CountDownLatch depthDecreasedLatch = new CountDownLatch(1);
-        long depthCheckTimer2 = vertx.setPeriodic(100, id -> {
-            if (queueDepthGauge.value() <= newDepth) {
-                depthDecreasedLatch.countDown();
-            }
-        });
-        depthDecreasedLatch.await(3, TimeUnit.SECONDS);
-        vertx.cancelTimer(depthCheckTimer2);
+        vertx.timer(3000).await();
 
         double finalDepth = queueDepthGauge.value();
         logger.info("📊 Final queue depth after processing: {}", finalDepth);
@@ -255,7 +238,7 @@ public class ConsumerModeMetricsTest {
             initialSent, initialReceived, initialProcessed);
 
         // Create consumer and producer
-        CountDownLatch allProcessedLatch = new CountDownLatch(1);
+        Promise<Void> allProcessed = Promise.promise();
         AtomicInteger processedCount = new AtomicInteger(0);
         
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
@@ -266,15 +249,13 @@ public class ConsumerModeMetricsTest {
 
         consumer.subscribe(message -> {
             if (processedCount.incrementAndGet() >= messageCount) {
-                allProcessedLatch.countDown();
+                allProcessed.tryComplete();
             }
             return Future.succeededFuture();
         });
 
         // Wait for consumer setup using Vert.x timer
-        CountDownLatch setupDelayLatch = new CountDownLatch(1);
-        vertx.setTimer(3000, id -> setupDelayLatch.countDown());
-        setupDelayLatch.await(5, TimeUnit.SECONDS);
+        vertx.timer(3000).await();
 
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
         
@@ -284,20 +265,11 @@ public class ConsumerModeMetricsTest {
         }
 
         // Wait for all messages to be processed
-        assertTrue(allProcessedLatch.await(15, TimeUnit.SECONDS), "All messages should be processed");
+        allProcessed.future().await();
         assertEquals(messageCount, processedCount.get(), "All messages should be processed");
 
         // Wait for metrics to be updated using Vert.x periodic polling
-        CountDownLatch metricsUpdatedLatch = new CountDownLatch(1);
-        long metricsTimer = vertx.setPeriodic(100, id -> {
-            if (sentCounter.count() >= initialSent + messageCount &&
-                receivedCounter.count() >= initialReceived + messageCount &&
-                processedCounter.count() >= initialProcessed + messageCount) {
-                metricsUpdatedLatch.countDown();
-            }
-        });
-        metricsUpdatedLatch.await(3, TimeUnit.SECONDS);
-        vertx.cancelTimer(metricsTimer);
+        vertx.timer(3000).await();
 
         double finalSent = sentCounter.count();
         double finalReceived = receivedCounter.count();
@@ -319,7 +291,7 @@ public class ConsumerModeMetricsTest {
         logger.info("📊 Initial processing timer count: {}", initialCount);
 
         // Create consumer with artificial processing delay
-        CountDownLatch allProcessedLatch2 = new CountDownLatch(1);
+        Promise<Void> allProcessed2 = Promise.promise();
         AtomicInteger processed = new AtomicInteger(0);
         
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
@@ -334,7 +306,7 @@ public class ConsumerModeMetricsTest {
             Promise<Void> promise = Promise.promise();
             vertx.setTimer(10, timerId -> {
                 if (processed.incrementAndGet() >= messageCount) {
-                    allProcessedLatch2.countDown();
+                    allProcessed2.tryComplete();
                 }
                 promise.complete();
             });
@@ -342,9 +314,7 @@ public class ConsumerModeMetricsTest {
         });
 
         // Wait for consumer setup using Vert.x timer
-        CountDownLatch setupDelayLatch2 = new CountDownLatch(1);
-        vertx.setTimer(3000, id -> setupDelayLatch2.countDown());
-        setupDelayLatch2.await(5, TimeUnit.SECONDS);
+        vertx.timer(3000).await();
 
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
         
@@ -354,18 +324,10 @@ public class ConsumerModeMetricsTest {
         }
 
         // Wait for all messages to be processed
-        assertTrue(allProcessedLatch2.await(15, TimeUnit.SECONDS), "All messages should be processed");
+        allProcessed2.future().await();
 
         // Wait for metrics to be updated using Vert.x periodic polling
-        CountDownLatch metricsUpdatedLatch2 = new CountDownLatch(1);
-        long metricsTimer = vertx.setPeriodic(100, id -> {
-            if (processingTimer.count() >= initialCount + messageCount &&
-                processingTimer.totalTime(TimeUnit.MILLISECONDS) > 0) {
-                metricsUpdatedLatch2.countDown();
-            }
-        });
-        metricsUpdatedLatch2.await(3, TimeUnit.SECONDS);
-        vertx.cancelTimer(metricsTimer);
+        vertx.timer(3000).await();
 
         long finalCount = processingTimer.count();
         double totalTime = processingTimer.totalTime(TimeUnit.MILLISECONDS);

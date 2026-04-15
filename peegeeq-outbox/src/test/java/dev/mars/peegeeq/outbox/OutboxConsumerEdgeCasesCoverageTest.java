@@ -174,11 +174,11 @@ class OutboxConsumerEdgeCasesCoverageTest {
     @Test
     void testMessageProcessingExecutorShutdown(Vertx vertx, VertxTestContext testContext) throws Exception {
         AtomicInteger messagesProcessed = new AtomicInteger(0);
-        Checkpoint firstMessageCheckpoint = testContext.checkpoint();
+        Checkpoint messageCheckpoint = testContext.checkpoint(3);
 
         consumer.subscribe(message -> {
             messagesProcessed.incrementAndGet();
-            firstMessageCheckpoint.flag();
+            messageCheckpoint.flag();
             return Future.succeededFuture();
         });
 
@@ -187,8 +187,8 @@ class OutboxConsumerEdgeCasesCoverageTest {
         producer.send("message2").await();
         producer.send("message3").await();
 
-        // Wait for first message
-        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should process first message");
+        // Wait for messages to be processed
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should process messages");
 
         // Close consumer to shut down executor
         consumer.close();
@@ -313,6 +313,116 @@ class OutboxConsumerEdgeCasesCoverageTest {
         unsubscribeConsumer.subscribe(msg -> Future.succeededFuture());
         unsubscribeConsumer.unsubscribe();
         unsubscribeConsumer.close();
+    }
+
+    // ---- In-flight processing tracking tests ----
+
+    /**
+     * Verifies that closeAsync() waits for in-flight message processing to finish
+     * before returning. Without this, pool.close() hangs on borrowed connections.
+     */
+    @Test
+    void closeAsyncWaitsForInflightProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
+        AtomicInteger messagesProcessed = new AtomicInteger(0);
+        Checkpoint allProcessed = testContext.checkpoint();
+
+        consumer.subscribe(message -> {
+            // Slow processing — non-blocking delay
+            Promise<Void> promise = Promise.promise();
+            vertx.setTimer(200, id -> {
+                messagesProcessed.incrementAndGet();
+                promise.complete();
+            });
+            return promise.future();
+        });
+
+        producer.send("slow-message").await();
+
+        // Give the consumer time to pick up the message and start processing
+        vertx.setTimer(300, id -> {
+            // closeAsync should wait for in-flight processing, not return immediately
+            OutboxConsumer<String> typedConsumer = (OutboxConsumer<String>) consumer;
+            typedConsumer.closeAsync()
+                .onSuccess(v -> testContext.verify(() -> {
+                    // By the time closeAsync completes, the in-flight message must be done
+                    assertEquals(1, messagesProcessed.get(),
+                        "In-flight message should have completed before closeAsync resolved");
+                    allProcessed.flag();
+                }))
+                .onFailure(testContext::failNow);
+        });
+
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS),
+            "closeAsync should complete after in-flight processing finishes");
+    }
+
+    /**
+     * Verifies that closeAsync() completes even when in-flight processing fails.
+     * The consumer should recover from the error and still close cleanly.
+     */
+    @Test
+    void closeAsyncCompletesWhenInflightProcessingFails(Vertx vertx, VertxTestContext testContext) throws Exception {
+        Checkpoint closedCleanly = testContext.checkpoint();
+
+        consumer.subscribe(message -> {
+            // Simulate slow failure
+            Promise<Void> promise = Promise.promise();
+            vertx.setTimer(200, id -> promise.fail(new RuntimeException("INTENTIONAL in-flight failure")));
+            return promise.future();
+        });
+
+        producer.send("failing-message").await();
+
+        // Give consumer time to start processing
+        vertx.setTimer(100, id -> {
+            OutboxConsumer<String> typedConsumer = (OutboxConsumer<String>) consumer;
+            typedConsumer.closeAsync()
+                .onSuccess(v -> {
+                    closedCleanly.flag();
+                })
+                .onFailure(testContext::failNow);
+        });
+
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS),
+            "closeAsync should complete even when in-flight processing fails");
+    }
+
+    /**
+     * Verifies that manager shutdown (close hooks) does not hang when a consumer
+     * has in-flight processing. This is the end-to-end scenario that was hanging.
+     */
+    @Test
+    void managerShutdownDoesNotHangWithInflightProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
+        Checkpoint shutdownComplete = testContext.checkpoint();
+
+        consumer.subscribe(message -> {
+            // Slow processing
+            Promise<Void> promise = Promise.promise();
+            vertx.setTimer(300, id -> promise.complete());
+            return promise.future();
+        });
+
+        producer.send("inflight-message").await();
+
+        // Give consumer time to start processing, then shut down the full stack
+        vertx.setTimer(150, id -> {
+            // This is the exact sequence that was hanging before the fix:
+            // consumer.close() → outboxFactory.close() → manager.closeReactive()
+            try { consumer.close(); } catch (Exception e) { /* ignore */ }
+            try { producer.close(); } catch (Exception e) { /* ignore */ }
+            try { outboxFactory.close(); } catch (Exception e) { /* ignore */ }
+            manager.closeReactive()
+                .onSuccess(v -> shutdownComplete.flag())
+                .onFailure(testContext::failNow);
+            // Null out so @AfterEach doesn't double-close
+            consumer = null;
+            producer = null;
+            outboxFactory = null;
+            manager = null;
+        });
+
+        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS),
+            "Full manager shutdown must complete without hanging");
     }
 }
 

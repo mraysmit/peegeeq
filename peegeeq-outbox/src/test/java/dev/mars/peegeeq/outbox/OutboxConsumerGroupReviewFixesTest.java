@@ -27,18 +27,21 @@ import dev.mars.peegeeq.outbox.config.FilterErrorHandlingConfig;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
@@ -51,17 +54,24 @@ import static org.junit.jupiter.api.Assertions.*;
  *   <li>Fix #6  — Per-member concurrency gate (maxConcurrency / inFlightCount)</li>
  *   <li>Fix #8  — Non-blocking {@code closeAsync()} lifecycle</li>
  *   <li>Fix #10 — Remove/route race (post-selection liveness check)</li>
- *   <li>Shared {@code ScheduledExecutorService} for filter retry</li>
+ *   <li>Shared Vert.x instance for filter retry timers</li>
  * </ul>
  * Also covers the weighted-average stats computation fix (#7).
  *
  * <p>These are fast in-process CORE tests — no database or Testcontainers.</p>
  */
 @Tag(TestCategories.CORE)
-@DisplayName("OutboxConsumerGroup — review fix coverage")
+@ExtendWith(VertxExtension.class)
+@DisplayName("OutboxConsumerGroup \u2014 review fix coverage")
 class OutboxConsumerGroupReviewFixesTest {
 
     private OutboxConsumerGroup<String> group;
+    private Vertx vertx;
+
+    @BeforeEach
+    void setUp(Vertx vertx) {
+        this.vertx = vertx;
+    }
 
     @AfterEach
     void tearDown() {
@@ -346,10 +356,9 @@ class OutboxConsumerGroupReviewFixesTest {
             AtomicInteger filtered = new AtomicInteger();
 
             ExecutorService executor = Executors.newFixedThreadPool(4);
-            ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
             try {
-                // Schedule removeConsumer after a brief delay
-                scheduler.schedule(() -> group.removeConsumer("c1"), 5, TimeUnit.MILLISECONDS);
+                // Schedule removeConsumer after a brief delay using Vert.x timer
+                vertx.setTimer(5, id -> group.removeConsumer("c1"));
 
                 // Threads that distribute messages
                 for (int i = 0; i < messageCount; i++) {
@@ -376,7 +385,6 @@ class OutboxConsumerGroupReviewFixesTest {
                     "Every message should either be delivered or filtered");
             } finally {
                 executor.shutdownNow();
-                scheduler.shutdownNow();
             }
         }
     }
@@ -484,78 +492,42 @@ class OutboxConsumerGroupReviewFixesTest {
     }
 
     // ========================================================================
-    // Shared ScheduledExecutorService lifecycle
+    // Vert.x instance lifecycle (replaced shared ScheduledExecutorService tests)
     // ========================================================================
 
     @Nested
-    @DisplayName("Shared ScheduledExecutorService lifecycle")
-    class SharedSchedulerLifecycle {
+    @DisplayName("Vert.x instance lifecycle")
+    class VertxInstanceLifecycle {
 
         @Test
-        @DisplayName("group provides a non-null shared scheduler")
-        void groupProvidesSharedScheduler() {
-            group = createGroup("scheduler-group", "test-topic");
-            ScheduledExecutorService scheduler = group.getSharedFilterScheduler();
-            assertNotNull(scheduler, "Group should provide a shared filter scheduler");
-            assertFalse(scheduler.isShutdown());
+        @DisplayName("group provides a non-null Vertx instance")
+        void groupProvidesVertxInstance() {
+            group = createGroup("vertx-group", "test-topic");
+            Vertx groupVertx = group.getVertx();
+            assertNotNull(groupVertx, "Group should provide a Vertx instance");
         }
 
         @Test
-        @DisplayName("members added to group share the group's scheduler, not their own")
-        void membersShareGroupScheduler() {
-            group = createGroup("scheduler-group", "test-topic");
+        @DisplayName("closing a member does not affect the group's Vertx instance")
+        void closingMemberDoesNotAffectVertx() {
+            group = createGroup("vertx-group", "test-topic");
             var m1 = (OutboxConsumerGroupMember<String>) group.addConsumer("c1", msg -> Future.succeededFuture());
             var m2 = (OutboxConsumerGroupMember<String>) group.addConsumer("c2", msg -> Future.succeededFuture());
 
-            // Both members should reference the group's scheduler, not own independent ones
-            // We verify by checking that closing a member does NOT shut down the scheduler
-            ScheduledExecutorService groupScheduler = group.getSharedFilterScheduler();
             m1.close();
-            assertFalse(groupScheduler.isShutdown(),
-                "Closing a member should not shut down the shared scheduler");
+            // Vertx should still be usable after member close
+            assertNotNull(group.getVertx());
             m2.close();
-            assertFalse(groupScheduler.isShutdown(),
-                "Closing all members should not shut down the shared scheduler");
+            assertNotNull(group.getVertx());
         }
 
         @Test
-        @DisplayName("group close() shuts down the shared scheduler")
-        void groupCloseShutdownsScheduler() {
-            group = createGroup("scheduler-group", "test-topic");
-            ScheduledExecutorService scheduler = group.getSharedFilterScheduler();
-            group.addConsumer("c1", msg -> Future.succeededFuture());
-
-            assertFalse(scheduler.isShutdown());
-            group.close();
-            assertTrue(scheduler.isShutdown(), "Group close should shut down the shared scheduler");
-            group = null; // prevent double-close in tearDown
-        }
-
-        @Test
-        @DisplayName("standalone member (no parent group) creates its own scheduler and shuts it down on close")
-        void standaloneMemberOwnsScheduler() {
+        @DisplayName("standalone member (no parent group) closes without errors")
+        void standaloneMemberClosesCleanly() {
             OutboxConsumerGroupMember<String> member = new OutboxConsumerGroupMember<>(
                 "standalone", "test-group", "test-topic",
                 msg -> Future.succeededFuture(), null, null);
-            // Member without parent group should create its own scheduler
-            // Closing should shut down the scheduler without errors
             assertDoesNotThrow(member::close);
-        }
-
-        @Test
-        @DisplayName("shared scheduler is still usable after individual member close")
-        void sharedSchedulerUsableAfterMemberClose() {
-            group = createGroup("scheduler-group", "test-topic");
-            var m1 = (OutboxConsumerGroupMember<String>) group.addConsumer("c1", msg -> Future.succeededFuture());
-            group.addConsumer("c2", msg -> Future.succeededFuture());
-
-            m1.close();
-
-            // Scheduler should still accept tasks for remaining members
-            ScheduledExecutorService scheduler = group.getSharedFilterScheduler();
-            assertFalse(scheduler.isShutdown());
-            assertDoesNotThrow(() ->
-                scheduler.schedule(() -> {}, 1, TimeUnit.MILLISECONDS));
         }
     }
 
@@ -703,7 +675,7 @@ class OutboxConsumerGroupReviewFixesTest {
     private OutboxConsumerGroup<String> createGroup(String groupName, String topic) {
         return new OutboxConsumerGroup<>(
             groupName, topic, String.class,
-            new StubDatabaseService(), null, null,
+            new StubDatabaseService(vertx), null, null,
             new PeeGeeQConfiguration("test"));
     }
 
@@ -718,6 +690,9 @@ class OutboxConsumerGroupReviewFixesTest {
     }
 
     private static class StubDatabaseService implements DatabaseService {
+        private final io.vertx.core.Vertx vertx;
+        StubDatabaseService() { this(null); }
+        StubDatabaseService(io.vertx.core.Vertx vertx) { this.vertx = vertx; }
         @Override public Future<Void> initialize() { return Future.succeededFuture(); }
         @Override public Future<Void> start() { return Future.succeededFuture(); }
         @Override public Future<Void> stop() { return Future.succeededFuture(); }
@@ -728,7 +703,7 @@ class OutboxConsumerGroupReviewFixesTest {
         @Override public dev.mars.peegeeq.api.subscription.SubscriptionService getSubscriptionService() { return null; }
         @Override public Future<Void> runMigrations() { return Future.succeededFuture(); }
         @Override public Future<Boolean> performHealthCheck() { return Future.succeededFuture(true); }
-        @Override public io.vertx.core.Vertx getVertx() { return null; }
+        @Override public io.vertx.core.Vertx getVertx() { return vertx; }
         @Override public io.vertx.sqlclient.Pool getPool() { return null; }
         @Override public io.vertx.pgclient.PgConnectOptions getConnectOptions() { return null; }
         @Override public void close() { }

@@ -48,7 +48,6 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -134,9 +133,7 @@ class PeeGeeQExampleTest {
         logger.info("🧹 Cleaning up PeeGeeQ Example Test");
         
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
         
         // Clear system properties

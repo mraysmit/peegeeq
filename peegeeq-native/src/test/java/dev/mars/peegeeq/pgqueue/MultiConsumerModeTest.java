@@ -35,7 +35,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -173,9 +172,7 @@ class MultiConsumerModeTest {
             }
 
             // Wait for consumer setup
-            CountDownLatch setupLatch = new CountDownLatch(1);
-            vertx.setTimer(2000, id -> setupLatch.countDown());
-            setupLatch.await(5, TimeUnit.SECONDS);
+            vertx.timer(2000).await();
 
             // Send messages
             MessageProducer<String> producer = factory.createProducer(topicName, String.class);
@@ -254,9 +251,7 @@ class MultiConsumerModeTest {
             });
 
             // Wait for consumer setup
-            CountDownLatch setupLatch = new CountDownLatch(1);
-            vertx.setTimer(2000, id -> setupLatch.countDown());
-            setupLatch.await(5, TimeUnit.SECONDS);
+            vertx.timer(2000).await();
 
             // Send messages
             MessageProducer<String> listenProducer = factory.createProducer(topicName + "-listen", String.class);
@@ -334,9 +329,7 @@ class MultiConsumerModeTest {
             });
 
             // Wait for consumer setup
-            CountDownLatch setupLatch = new CountDownLatch(1);
-            vertx.setTimer(2000, id -> setupLatch.countDown());
-            setupLatch.await(5, TimeUnit.SECONDS);
+            vertx.timer(2000).await();
 
             // Send messages
             MessageProducer<String> producer = factory.createProducer(topicName, String.class);
@@ -406,9 +399,7 @@ class MultiConsumerModeTest {
             }
 
             // Wait for consumer setup
-            CountDownLatch setupLatch = new CountDownLatch(1);
-            vertx.setTimer(3000, id -> setupLatch.countDown());
-            setupLatch.await(5, TimeUnit.SECONDS);
+            vertx.timer(3000).await();
 
             // Send messages to each consumer's topic
             for (int i = 0; i < consumerCount; i++) {
@@ -479,9 +470,7 @@ class MultiConsumerModeTest {
             });
 
             // Wait for consumer setup
-            CountDownLatch setupLatch = new CountDownLatch(1);
-            vertx.setTimer(2000, id -> setupLatch.countDown());
-            setupLatch.await(5, TimeUnit.SECONDS);
+            vertx.timer(2000).await();
 
             // Send messages
             MessageProducer<String> fastProducer = factory.createProducer(topicName + "-fast", String.class);

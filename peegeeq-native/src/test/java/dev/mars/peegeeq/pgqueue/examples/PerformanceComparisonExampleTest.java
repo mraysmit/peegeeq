@@ -53,7 +53,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.time.Duration;
 import java.time.Instant;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -159,9 +158,7 @@ class PerformanceComparisonExampleTest {
         }
 
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
 
         // Clear system properties
@@ -264,27 +261,19 @@ class PerformanceComparisonExampleTest {
         // Test all configurations and compare performance
         PerformanceResult singleThreaded = testConfiguration("Single-Threaded", 1, 1, "PT1S", vertx);
 
-        CountDownLatch delay1 = new CountDownLatch(1);
-        vertx.setTimer(2000, id -> delay1.countDown());
-        delay1.await(5, TimeUnit.SECONDS);
+        vertx.timer(2000).await();
 
         PerformanceResult multiThreaded = testConfiguration("Multi-Threaded", 4, 1, "PT1S", vertx);
 
-        CountDownLatch delay2 = new CountDownLatch(1);
-        vertx.setTimer(2000, id -> delay2.countDown());
-        delay2.await(5, TimeUnit.SECONDS);
+        vertx.timer(2000).await();
 
         PerformanceResult batched = testConfiguration("Batched Processing", 2, 25, "PT1S", vertx);
 
-        CountDownLatch delay3 = new CountDownLatch(1);
-        vertx.setTimer(2000, id -> delay3.countDown());
-        delay3.await(5, TimeUnit.SECONDS);
+        vertx.timer(2000).await();
 
         PerformanceResult fastPolling = testConfiguration("Fast Polling", 2, 10, "PT0.1S", vertx);
 
-        CountDownLatch delay4 = new CountDownLatch(1);
-        vertx.setTimer(2000, id -> delay4.countDown());
-        delay4.await(5, TimeUnit.SECONDS);
+        vertx.timer(2000).await();
 
         PerformanceResult optimized = testConfiguration("Optimized", 6, 50, "PT0.2S", vertx);
 
@@ -366,7 +355,7 @@ class PerformanceComparisonExampleTest {
             // Performance tracking
             AtomicInteger processedCount = new AtomicInteger(0);
             AtomicLong totalProcessingTime = new AtomicLong(0);
-            CountDownLatch allProcessed = new CountDownLatch(1);
+            Promise<Void> allProcessed = Promise.promise();
 
             // Start consumer
             Instant consumerStartTime = Instant.now();
@@ -384,7 +373,7 @@ class PerformanceComparisonExampleTest {
                     logger.debug("Processed message {} for config {}", message.getId(), configName);
 
                     if (count >= MESSAGE_COUNT) {
-                        allProcessed.countDown();
+                        allProcessed.tryComplete();
                     }
                     result.complete();
                 });
@@ -410,7 +399,14 @@ class PerformanceComparisonExampleTest {
             logger.info("📤 Sent {} messages in {}ms", MESSAGE_COUNT, sendingTimeMs);
 
             // Wait for processing to complete (with timeout)
-            boolean completed = allProcessed.await(30, TimeUnit.SECONDS);
+            boolean completed;
+            try {
+                vertx.timer(30000).onSuccess(id -> allProcessed.tryFail("Timeout waiting for all messages"));
+                allProcessed.future().await();
+                completed = true;
+            } catch (Exception e) {
+                completed = false;
+            }
             Instant endTime = Instant.now();
 
             long totalTimeMs = Duration.between(startTime, endTime).toMillis();

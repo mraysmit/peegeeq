@@ -32,15 +32,13 @@ import dev.mars.peegeeq.api.tracing.TraceCtx;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import io.vertx.core.Future;
+import io.vertx.core.Vertx;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Predicate;
@@ -83,8 +81,8 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     private final AtomicReference<State> state = new AtomicReference<>(State.NEW);
     private final AtomicLong totalMessagesFiltered = new AtomicLong(0);
 
-    // Shared scheduler for filter retry across all members — avoids one thread per member
-    private final ScheduledExecutorService sharedFilterScheduler;
+    // Vert.x instance for scheduling filter retry timers across all members
+    private final Vertx vertx;
 
     private volatile Predicate<Message<T>> groupFilter;
     private volatile MessageConsumer<T> underlyingConsumer;
@@ -212,11 +210,13 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
         this.configuration = configuration;
         this.clientId = clientId;
         this.createdAt = Instant.now();
-        this.sharedFilterScheduler = Executors.newScheduledThreadPool(1, r -> {
-            Thread t = new Thread(r, "filter-retry-" + groupName);
-            t.setDaemon(true);
-            return t;
-        });
+        if (databaseService != null) {
+            this.vertx = databaseService.getVertx();
+        } else if (clientFactory != null) {
+            this.vertx = clientFactory.getConnectionManager().getVertx();
+        } else {
+            this.vertx = null;
+        }
 
         logger.info("Created outbox consumer group '{}' for topic '{}' (clientId: {})",
                 groupName, topic, clientId != null ? clientId : "default");
@@ -228,8 +228,8 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
         return state.get();
     }
 
-    ScheduledExecutorService getSharedFilterScheduler() {
-        return sharedFilterScheduler;
+    Vertx getVertx() {
+        return vertx;
     }
     
     @Override
@@ -623,17 +623,6 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
         // Close all members
         members.values().forEach(OutboxConsumerGroupMember::close);
         members.clear();
-
-        // Shutdown shared filter retry scheduler
-        sharedFilterScheduler.shutdown();
-        try {
-            if (!sharedFilterScheduler.awaitTermination(5, TimeUnit.SECONDS)) {
-                sharedFilterScheduler.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            sharedFilterScheduler.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
 
         return consumerClose.onSuccess(v -> logger.info("Outbox consumer group '{}' closed", groupName));
     }

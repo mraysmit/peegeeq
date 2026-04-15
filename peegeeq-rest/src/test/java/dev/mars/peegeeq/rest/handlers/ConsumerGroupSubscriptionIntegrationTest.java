@@ -168,7 +168,8 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                 .onComplete(ar -> {
                     if (deploymentId != null) {
                         vertx.undeploy(deploymentId)
-                            .onComplete(result -> testContext.completeNow());
+                            .onSuccess(v -> testContext.completeNow())
+                            .onFailure(testContext::failNow);
                     } else {
                         testContext.completeNow();
                     }

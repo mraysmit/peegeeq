@@ -43,7 +43,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.lang.reflect.Field;
 import java.util.Properties;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -122,9 +121,7 @@ class PgNativeQueueShutdownTest {
                 producer.close();
             }
             if (manager != null) {
-                CountDownLatch closeLatch = new CountDownLatch(1);
-                manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-                closeLatch.await(10, TimeUnit.SECONDS);
+                manager.closeReactive().await();
             }
         } catch (Exception e) {
             // Ignore cleanup errors
@@ -147,9 +144,7 @@ class PgNativeQueueShutdownTest {
     void testBasicShutdownWithoutErrors(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Step 1: Send a simple message
         String testMessage = "Basic shutdown test";
-        CountDownLatch sendLatch1 = new CountDownLatch(1);
-        producer.send(testMessage).onComplete(ar -> sendLatch1.countDown());
-        assertTrue(sendLatch1.await(5, TimeUnit.SECONDS), "Send should complete");
+        producer.send(testMessage).await();
 
         // Step 2: Process the message
         AtomicBoolean messageReceived = new AtomicBoolean(false);
@@ -172,9 +167,7 @@ class PgNativeQueueShutdownTest {
     void testShutdownDuringMessageProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Step 1: Send a message
         String testMessage = "Shutdown during processing test";
-        CountDownLatch sendLatch2 = new CountDownLatch(1);
-        producer.send(testMessage).onComplete(ar -> sendLatch2.countDown());
-        assertTrue(sendLatch2.await(5, TimeUnit.SECONDS), "Send should complete");
+        producer.send(testMessage).await();
 
         // Step 2: Set up consumer that will trigger shutdown during processing
         AtomicBoolean messageReceived = new AtomicBoolean(false);

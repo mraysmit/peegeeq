@@ -50,7 +50,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import java.util.Map;
 import java.util.Set;
 
-import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -137,9 +136,7 @@ class ConsumerGroupExampleTest {
         logger.info("🧹 Cleaning up Consumer Group Example Test");
         
         if (manager != null) {
-            CountDownLatch closeLatch = new CountDownLatch(1);
-            manager.closeReactive().onComplete(ar -> closeLatch.countDown());
-            closeLatch.await(10, TimeUnit.SECONDS);
+            manager.closeReactive().await();
         }
         
         // Clear system properties

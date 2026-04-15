@@ -25,12 +25,15 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
 import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -48,10 +51,17 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2026-04-04
  */
 @Tag(TestCategories.CORE)
-@DisplayName("OutboxConsumerGroup — graceful shutdown")
+@ExtendWith(VertxExtension.class)
+@DisplayName("OutboxConsumerGroup \u2014 graceful shutdown")
 class OutboxConsumerGroupGracefulShutdownTest {
 
     private OutboxConsumerGroup<String> group;
+    private Vertx vertx;
+
+    @BeforeEach
+    void setUp(Vertx vertx) {
+        this.vertx = vertx;
+    }
 
     @AfterEach
     void tearDown() {
@@ -67,7 +77,7 @@ class OutboxConsumerGroupGracefulShutdownTest {
     @Test
     @DisplayName("stopGracefully on NEW group returns succeeded future")
     void stopGracefully_whenNotActive_returnsSuccess() {
-        group = createGroup("not-active-group", "test-topic", new StubDatabaseService());
+        group = createGroup("not-active-group", "test-topic", new StubDatabaseService(vertx));
         var future = group.stopGracefully();
         assertTrue(future.succeeded(), "Should succeed on non-active group");
     }
@@ -75,7 +85,7 @@ class OutboxConsumerGroupGracefulShutdownTest {
     @Test
     @DisplayName("stopGracefully on CLOSED group returns succeeded future")
     void stopGracefully_whenClosed_returnsSuccess() {
-        group = createGroup("closed-group", "test-topic", new StubDatabaseService());
+        group = createGroup("closed-group", "test-topic", new StubDatabaseService(vertx));
         group.close();
         var future = group.stopGracefully();
         assertTrue(future.succeeded(), "Should succeed on closed group");
@@ -84,7 +94,7 @@ class OutboxConsumerGroupGracefulShutdownTest {
     @Test
     @DisplayName("stopGracefully is idempotent — second call returns succeeded")
     void stopGracefully_idempotent() {
-        group = createGroup("idempotent-group", "test-topic", new StubDatabaseService());
+        group = createGroup("idempotent-group", "test-topic", new StubDatabaseService(vertx));
         group.addConsumer("c1", msg -> Future.succeededFuture());
         group.start();
         assertTrue(group.isActive());
@@ -105,7 +115,7 @@ class OutboxConsumerGroupGracefulShutdownTest {
     @DisplayName("stopGracefully on group started without subscription stops locally, no cancel call")
     void stopGracefully_withoutSubscription_stopsLocallyOnly() {
         var cancelTracker = new AtomicBoolean(false);
-        var dbService = new CancelTrackingDatabaseService(cancelTracker);
+        var dbService = new CancelTrackingDatabaseService(vertx, cancelTracker);
         group = createGroup("local-group", "test-topic", dbService);
         group.addConsumer("c1", msg -> Future.succeededFuture());
         group.start();  // start without subscription options
@@ -125,7 +135,7 @@ class OutboxConsumerGroupGracefulShutdownTest {
     @DisplayName("stopGracefully on subscription-started group cancels subscription then stops")
     void stopGracefully_withSubscription_cancelsAndStops() {
         var cancelCount = new AtomicInteger(0);
-        var dbService = new SubscriptionTrackingDatabaseService(cancelCount);
+        var dbService = new SubscriptionTrackingDatabaseService(vertx, cancelCount);
         group = createGroup("sub-group", "test-topic", dbService);
         group.addConsumer("c1", msg -> Future.succeededFuture());
 
@@ -143,7 +153,7 @@ class OutboxConsumerGroupGracefulShutdownTest {
     @Test
     @DisplayName("stopGracefully when cancel fails still stops the group")
     void stopGracefully_cancelFails_stillStops() {
-        var dbService = new FailingCancelDatabaseService();
+        var dbService = new FailingCancelDatabaseService(vertx);
         group = createGroup("fail-cancel-group", "test-topic", dbService);
         group.addConsumer("c1", msg -> Future.succeededFuture());
 
@@ -160,7 +170,7 @@ class OutboxConsumerGroupGracefulShutdownTest {
     @DisplayName("stopGracefully after stop() is no-op — does not cancel again")
     void stopGracefully_afterStop_isNoOp() {
         var cancelCount = new AtomicInteger(0);
-        var dbService = new SubscriptionTrackingDatabaseService(cancelCount);
+        var dbService = new SubscriptionTrackingDatabaseService(vertx, cancelCount);
         group = createGroup("stop-then-graceful", "test-topic", dbService);
         group.addConsumer("c1", msg -> Future.succeededFuture());
 
@@ -190,6 +200,9 @@ class OutboxConsumerGroupGracefulShutdownTest {
      * Stub DatabaseService with no-op subscription service.
      */
     private static class StubDatabaseService implements DatabaseService {
+        private final Vertx vertx;
+        StubDatabaseService() { this(null); }
+        StubDatabaseService(Vertx vertx) { this.vertx = vertx; }
         @Override public Future<Void> initialize() { return Future.succeededFuture(); }
         @Override public Future<Void> start() { return Future.succeededFuture(); }
         @Override public Future<Void> stop() { return Future.succeededFuture(); }
@@ -200,7 +213,7 @@ class OutboxConsumerGroupGracefulShutdownTest {
         @Override public SubscriptionService getSubscriptionService() { return null; }
         @Override public Future<Void> runMigrations() { return Future.succeededFuture(); }
         @Override public Future<Boolean> performHealthCheck() { return Future.succeededFuture(true); }
-        @Override public Vertx getVertx() { return null; }
+        @Override public Vertx getVertx() { return vertx; }
         @Override public Pool getPool() { return null; }
         @Override public PgConnectOptions getConnectOptions() { return null; }
         @Override public void close() { }
@@ -212,7 +225,8 @@ class OutboxConsumerGroupGracefulShutdownTest {
     private static class CancelTrackingDatabaseService extends StubDatabaseService {
         private final AtomicBoolean cancelCalled;
 
-        CancelTrackingDatabaseService(AtomicBoolean cancelCalled) {
+        CancelTrackingDatabaseService(Vertx vertx, AtomicBoolean cancelCalled) {
+            super(vertx);
             this.cancelCalled = cancelCalled;
         }
 
@@ -234,7 +248,8 @@ class OutboxConsumerGroupGracefulShutdownTest {
     private static class SubscriptionTrackingDatabaseService extends StubDatabaseService {
         private final AtomicInteger cancelCount;
 
-        SubscriptionTrackingDatabaseService(AtomicInteger cancelCount) {
+        SubscriptionTrackingDatabaseService(Vertx vertx, AtomicInteger cancelCount) {
+            super(vertx);
             this.cancelCount = cancelCount;
         }
 
@@ -259,6 +274,7 @@ class OutboxConsumerGroupGracefulShutdownTest {
      * Subscribe succeeds but cancel fails.
      */
     private static class FailingCancelDatabaseService extends StubDatabaseService {
+        FailingCancelDatabaseService(Vertx vertx) { super(vertx); }
         @Override
         public SubscriptionService getSubscriptionService() {
             return new StubSubscriptionService() {

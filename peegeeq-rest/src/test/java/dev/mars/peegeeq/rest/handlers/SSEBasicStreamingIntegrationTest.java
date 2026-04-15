@@ -192,7 +192,8 @@ class SSEBasicStreamingIntegrationTest {
         } else if (deploymentId != null) {
             // No setup to destroy, just undeploy
             vertx.undeploy(deploymentId)
-                .onComplete(ar -> testContext.completeNow());
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
         } else {
             testContext.completeNow();
         }

@@ -6,10 +6,14 @@ import dev.mars.peegeeq.outbox.config.FilterErrorHandlingConfig;
 import dev.mars.peegeeq.outbox.resilience.AsyncFilterRetryManager;
 import dev.mars.peegeeq.outbox.resilience.FilterCircuitBreaker;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,10 +34,17 @@ import static org.junit.jupiter.api.Assertions.*;
  * The AsyncFilterRetryManager logs only error messages (not stack traces) at DEBUG level.</p>
  */
 @Tag(TestCategories.CORE)
+@ExtendWith(VertxExtension.class)
 public class AsyncRetryMechanismTest {
     private static final Logger logger = LoggerFactory.getLogger(AsyncRetryMechanismTest.class);
 
     private AsyncFilterRetryManager retryManager;
+    private Vertx vertx;
+
+    @BeforeEach
+    void setUp(Vertx vertx) {
+        this.vertx = vertx;
+    }
 
     @AfterEach
     void tearDown() {
@@ -75,7 +86,7 @@ public class AsyncRetryMechanismTest {
             .circuitBreakerEnabled(false) // Disable for pure retry testing
             .build();
         
-        retryManager = new AsyncFilterRetryManager("test-filter", config);
+        retryManager = new AsyncFilterRetryManager("test-filter", config, vertx);
         FilterCircuitBreaker circuitBreaker = new FilterCircuitBreaker("test-filter", config);
         
         // Test message
@@ -123,7 +134,7 @@ public class AsyncRetryMechanismTest {
             .circuitBreakerEnabled(false)
             .build();
         
-        retryManager = new AsyncFilterRetryManager("test-filter", config);
+        retryManager = new AsyncFilterRetryManager("test-filter", config, vertx);
         FilterCircuitBreaker circuitBreaker = new FilterCircuitBreaker("test-filter", config);
         
         // Test message
@@ -173,7 +184,7 @@ public class AsyncRetryMechanismTest {
             .circuitBreakerEnabled(false)
             .build();
         
-        retryManager = new AsyncFilterRetryManager("test-filter", config);
+        retryManager = new AsyncFilterRetryManager("test-filter", config, vertx);
         FilterCircuitBreaker circuitBreaker = new FilterCircuitBreaker("test-filter", config);
         
         // Test message
@@ -224,7 +235,7 @@ public class AsyncRetryMechanismTest {
             .defaultStrategy(FilterErrorHandlingConfig.FilterErrorStrategy.REJECT_IMMEDIATELY)
             .build();
         
-        retryManager = new AsyncFilterRetryManager("test-filter", config);
+        retryManager = new AsyncFilterRetryManager("test-filter", config, vertx);
         FilterCircuitBreaker circuitBreaker = new FilterCircuitBreaker("test-filter", config);
         
         // First message - should fail and contribute to circuit breaker

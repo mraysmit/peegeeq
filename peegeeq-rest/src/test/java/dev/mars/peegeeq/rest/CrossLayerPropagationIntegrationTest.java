@@ -205,7 +205,7 @@ public class CrossLayerPropagationIntegrationTest {
             cleanup = cleanup.compose(v -> vertx.undeploy(deploymentId));
         }
 
-        cleanup.onComplete(ar -> testContext.completeNow());
+        cleanup.onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
     }
 
     // ========== Test 1: REST → Database → SSE Consumer ==========

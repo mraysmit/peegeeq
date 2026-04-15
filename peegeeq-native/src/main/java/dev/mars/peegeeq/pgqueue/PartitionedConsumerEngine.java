@@ -158,8 +158,16 @@ class PartitionedConsumerEngine<T> {
 
                     logger.info("PartitionedConsumerEngine started: topic={}, group={}, partitions={}",
                             topic, groupName, assignedPartitions.size());
-                    return Future.succeededFuture();
-                });
+                        return Future.<Void>succeededFuture();
+                })
+                .recover(err -> resetAfterFailedStart(err));
+    }
+
+    private Future<Void> resetAfterFailedStart(Throwable err) {
+        running.set(false);
+        messageHandler = null;
+        return teardown()
+                .compose(v -> Future.failedFuture(err));
     }
 
     /**
@@ -171,14 +179,15 @@ class PartitionedConsumerEngine<T> {
         if (!running.compareAndSet(true, false)) {
             return Future.succeededFuture();
         }
+        return teardown();
+    }
 
-        // Cancel fetch timer
+    private Future<Void> teardown() {
         if (fetchTimerId >= 0) {
             vertx.cancelTimer(fetchTimerId);
             fetchTimerId = -1;
         }
 
-        // Stop watermark job
         if (watermarkJob != null) {
             watermarkJob.stop();
             watermarkJob = null;
@@ -189,7 +198,7 @@ class PartitionedConsumerEngine<T> {
 
         return assignmentService.leaveGroup(topic, groupName, instanceId)
                 .recover(err -> {
-                    logger.warn("Failed to leave partitioned group on stop: topic={}, group={}, err={}",
+                    logger.warn("Failed to leave group during teardown: topic={}, group={}, err={}",
                             topic, groupName, err.getMessage());
                     return Future.succeededFuture();
                 });
@@ -242,7 +251,7 @@ class PartitionedConsumerEngine<T> {
                 .compose(messages -> processAndCommit(messages, partitionKey, generation))
                 .eventually(() -> {
                     inProgress.set(false);
-                    return Future.succeededFuture();
+                    return Future.<Void>succeededFuture();
                 })
                 .onFailure(err -> {
                     if (running.get()) {
@@ -280,7 +289,7 @@ class PartitionedConsumerEngine<T> {
     }
 
     @SuppressWarnings("unchecked")
-    private Future<Void> dispatchMessage(OutboxMessage outboxMsg) {
+    Future<Void> dispatchMessage(OutboxMessage outboxMsg) {
         try {
             T payload = parsePayload(outboxMsg.getPayload());
             Map<String, String> headers = parseHeaders(outboxMsg.getHeaders());
@@ -303,7 +312,7 @@ class PartitionedConsumerEngine<T> {
     }
 
     @SuppressWarnings("unchecked")
-    private T parsePayload(JsonObject payload) {
+    T parsePayload(JsonObject payload) {
         if (payload == null) return null;
         if (payloadType == String.class) {
             // For String payloads, extract the "data" field or use the full JSON string
@@ -323,7 +332,7 @@ class PartitionedConsumerEngine<T> {
         throw new RuntimeException("Cannot deserialize payload: no ObjectMapper configured and type is not String/JsonObject");
     }
 
-    private Map<String, String> parseHeaders(JsonObject headers) {
+    Map<String, String> parseHeaders(JsonObject headers) {
         if (headers == null) return Map.of();
         Map<String, String> result = new HashMap<>();
         for (String key : headers.fieldNames()) {
