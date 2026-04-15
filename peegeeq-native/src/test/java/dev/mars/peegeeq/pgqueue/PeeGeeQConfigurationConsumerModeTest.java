@@ -70,6 +70,7 @@ class PeeGeeQConfigurationConsumerModeTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("Setting up PeeGeeQConfiguration consumer mode integration test");
 
         // Configure database connection from container
@@ -91,7 +92,7 @@ class PeeGeeQConfigurationConsumerModeTest {
         // Initialize PeeGeeQ with test configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create factory using the proper pattern
         PgDatabaseService databaseService = new PgDatabaseService(manager);
@@ -107,6 +108,7 @@ class PeeGeeQConfigurationConsumerModeTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("Tearing down PeeGeeQConfiguration consumer mode integration test");
 
         if (manager != null) {

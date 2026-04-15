@@ -74,6 +74,7 @@ public class BasicReactiveOperationsExampleTest {
     
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
@@ -90,7 +91,7 @@ public class BasicReactiveOperationsExampleTest {
         
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
         logger.info("PeeGeeQ Manager started successfully");
         
         // Create outbox factory
@@ -108,6 +109,7 @@ public class BasicReactiveOperationsExampleTest {
     
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("Tearing down Basic Reactive Operations Example Test");
         
         try {

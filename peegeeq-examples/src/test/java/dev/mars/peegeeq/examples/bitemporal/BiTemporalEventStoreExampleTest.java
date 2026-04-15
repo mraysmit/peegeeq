@@ -146,6 +146,7 @@ class BiTemporalEventStoreExampleTest {
     
     @BeforeEach
     void setUp() {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("=== Setting up BiTemporalEventStoreExampleTest ===");
 
         logger.info("Database configured: {}:{}/{}", postgres.getHost(), postgres.getFirstMappedPort(), postgres.getDatabaseName());
@@ -184,7 +185,7 @@ class BiTemporalEventStoreExampleTest {
         logger.info("Initializing PeeGeeQ manager and starting services");
         PeeGeeQConfiguration config = new PeeGeeQConfiguration();
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
         logger.info("PeeGeeQ manager started successfully");
 
         // Create event store with unique table name for test isolation
@@ -197,6 +198,7 @@ class BiTemporalEventStoreExampleTest {
     
     @AfterEach
     void tearDown() {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("=== Tearing down BiTemporalEventStoreExampleTest ===");
         System.setOut(originalOut);
         System.setErr(originalErr);

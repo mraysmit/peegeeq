@@ -96,6 +96,7 @@ class PeeGeeQExampleTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("=== Setting up PeeGeeQ Example Test ===");
         
         // Display PeeGeeQ logo
@@ -123,13 +124,14 @@ class PeeGeeQExampleTest {
 
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
         
         logger.info("PeeGeeQ Example Test setup completed");
     }
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("🧹 Cleaning up PeeGeeQ Example Test");
         
         if (manager != null) {

@@ -86,6 +86,7 @@ public class SimpleNativeQueueTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("=== Setting up SimpleNativeQueueTest ===");
 
         // Configure system properties for TestContainers
@@ -99,7 +100,7 @@ public class SimpleNativeQueueTest {
         // Create manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("simple-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
         
         // Create native factory
         var databaseService = new PgDatabaseService(manager);
@@ -115,6 +116,7 @@ public class SimpleNativeQueueTest {
 
     @AfterEach
     void tearDown(Vertx vertx) {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("=== Tearing down SimpleNativeQueueTest ===");
 
         if (nativeFactory != null) {

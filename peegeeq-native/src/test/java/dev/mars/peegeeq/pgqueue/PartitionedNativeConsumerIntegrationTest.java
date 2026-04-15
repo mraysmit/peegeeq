@@ -78,6 +78,7 @@ class PartitionedNativeConsumerIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
         System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
@@ -87,7 +88,7 @@ class PartitionedNativeConsumerIntegrationTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         databaseService = new PgDatabaseService(manager);
         adapter = new VertxPoolAdapter(
@@ -115,6 +116,7 @@ class PartitionedNativeConsumerIntegrationTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         // Clean up test data
         if (connectionManager != null) {
             try {

@@ -1,6 +1,8 @@
 package dev.mars.peegeeq.outbox;
 
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -104,7 +106,7 @@ public class OutboxPerformanceTest {
         // Create and start manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("perf-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create factory and components
         DatabaseService databaseService = new PgDatabaseService(manager);
@@ -115,6 +117,7 @@ public class OutboxPerformanceTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         if (consumer != null) {
             consumer.close();
         }
@@ -154,6 +157,7 @@ public class OutboxPerformanceTest {
 
         // Set up consumer with timing
         consumer.subscribe(message -> {
+        logger.info("Test: throughput performance");
             long startTime = System.nanoTime();
             
             int count = processedCount.incrementAndGet();
@@ -222,6 +226,7 @@ public class OutboxPerformanceTest {
 
         // Set up consumer with latency measurement
         consumer.subscribe(message -> {
+        logger.info("Test: latency performance");
             long receiveTime = System.nanoTime();
             long sendTime = Long.parseLong(message.getHeaders().get("sendTime"));
             long latency = receiveTime - sendTime;
@@ -280,6 +285,7 @@ public class OutboxPerformanceTest {
 
         // Set up consumer
         consumer.subscribe(message -> {
+        logger.info("Test: concurrent producer performance");
             int count = processedCount.incrementAndGet();
             if (count % 100 == 0) {
                 System.out.println("Processed " + count + " concurrent messages...");

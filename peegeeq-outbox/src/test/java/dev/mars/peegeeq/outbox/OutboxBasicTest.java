@@ -49,6 +49,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Basic integration tests for outbox producer and consumer functionality.
@@ -58,6 +60,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 @Testcontainers
 class OutboxBasicTest {
+    private static final Logger logger = LoggerFactory.getLogger(OutboxBasicTest.class);
+
 
     @Container
     private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
@@ -76,6 +80,7 @@ class OutboxBasicTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         testTopic = "test-topic-" + UUID.randomUUID().toString().substring(0, 8);
@@ -90,7 +95,7 @@ class OutboxBasicTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("basic-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, config);
@@ -100,6 +105,7 @@ class OutboxBasicTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (consumer != null) {
             consumer.close();
         }
@@ -119,6 +125,7 @@ class OutboxBasicTest {
 
     @Test
     void testBasicMessageProducerAndConsumer(VertxTestContext testContext) throws Exception {
+        logger.info("Test: basic message producer and consumer");
         String testMessage = "Hello, Basic Outbox Test!";
 
         Checkpoint messageReceived = testContext.checkpoint();
@@ -140,6 +147,7 @@ class OutboxBasicTest {
 
     @Test
     void testMessageWithHeaders(VertxTestContext testContext) throws Exception {
+        logger.info("Test: message with headers");
         String testMessage = "Message with headers test";
         Map<String, String> headers = Map.of(
             "content-type", "text/plain",
@@ -171,6 +179,7 @@ class OutboxBasicTest {
 
     @Test
     void testMultipleMessages(VertxTestContext testContext) throws Exception {
+        logger.info("Test: multiple messages");
         int messageCount = 5;
         Checkpoint messagesReceived = testContext.checkpoint(messageCount);
         List<String> receivedMessages = new ArrayList<>();
@@ -194,6 +203,7 @@ class OutboxBasicTest {
 
     @Test
     void testCorrelationId(VertxTestContext testContext) throws Exception {
+        logger.info("Test: correlation id");
         String testMessage = "Correlation ID test";
         String correlationId = "test-correlation-" + UUID.randomUUID();
 
@@ -222,6 +232,7 @@ class OutboxBasicTest {
 
     @Test
     void testMessageGroup(VertxTestContext testContext) throws Exception {
+        logger.info("Test: message group");
         String testMessage = "Message group test";
         String messageGroup = "test-group-" + UUID.randomUUID();
 

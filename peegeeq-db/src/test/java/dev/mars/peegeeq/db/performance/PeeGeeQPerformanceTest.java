@@ -47,6 +47,8 @@ import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxTestContext;
 
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Performance tests for PeeGeeQ system.
@@ -102,11 +104,12 @@ class PeeGeeQPerformanceTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("performance");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
     }
 
     @AfterEach
     void tearDown() {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         if (manager != null) {
             manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
@@ -130,6 +133,7 @@ class PeeGeeQPerformanceTest {
         Instant startTime = Instant.now();
 
         for (int i = 0; i < threadCount; i++) {
+        logger.info("Test: high throughput metrics recording");
             executor.submit(() -> {
                 try {
                     Instant threadStart = Instant.now();
@@ -187,6 +191,7 @@ class PeeGeeQPerformanceTest {
         Instant startTime = Instant.now();
 
         for (int i = 0; i < threadCount; i++) {
+        logger.info("Test: backpressure under load");
             executor.submit(() -> {
                 try {
                     for (int j = 0; j < operationsPerThread; j++) {
@@ -251,6 +256,7 @@ class PeeGeeQPerformanceTest {
         Instant startTime = Instant.now();
 
         for (int i = 0; i < threadCount; i++) {
+        logger.info("Test: concurrent health checks");
             executor.submit(() -> {
                 try {
                     for (int j = 0; j < checksPerThread; j++) {
@@ -305,6 +311,7 @@ class PeeGeeQPerformanceTest {
         Instant startTime = Instant.now();
 
         for (int i = 0; i < threadCount; i++) {
+        logger.info("Test: database connection pool performance");
             executor.submit(() -> {
                 try {
                     for (int j = 0; j < queriesPerThread; j++) {
@@ -374,6 +381,7 @@ class PeeGeeQPerformanceTest {
         // Generate load
         int operations = 10000;
         for (int i = 0; i < operations; i++) {
+        logger.info("Test: memory usage under load");
             metrics.recordMessageSent("memory-test");
             metrics.recordMessageReceived("memory-test");
             metrics.recordMessageProcessed("memory-test", Duration.ofMillis(1));

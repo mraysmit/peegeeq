@@ -27,10 +27,14 @@ import io.vertx.core.Future;
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile.BASIC;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent.*;
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @ExtendWith(VertxExtension.class)
 @Testcontainers
 class PgNativeQueueConsumerListenIT {
+    private static final Logger logger = LoggerFactory.getLogger(PgNativeQueueConsumerListenIT.class);
+
 
     private static final String TOPIC = "it-listen-topic";
 
@@ -50,6 +54,7 @@ class PgNativeQueueConsumerListenIT {
 
     @BeforeEach
     void setUp() {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Configure system properties for TestContainers
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
@@ -61,7 +66,7 @@ class PgNativeQueueConsumerListenIT {
         // Initialize PeeGeeQ Manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create adapter using DatabaseService interfaces
         PgDatabaseService databaseService = new PgDatabaseService(manager);
@@ -77,6 +82,7 @@ class PgNativeQueueConsumerListenIT {
 
     @AfterEach
     void tearDown() {
+        logger.info("Tearing down: closing resources and manager");
         if (manager != null) {
             try {
                 manager.closeReactive().await();
@@ -86,6 +92,7 @@ class PgNativeQueueConsumerListenIT {
 
     @Test
     void listenNotify_onlyMode_deliversMessage(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: listen notify only mode delivers message");
         // Arrange: consumer in LISTEN_NOTIFY_ONLY mode
         ConsumerConfig consumerConfig = ConsumerConfig.builder()
             .mode(ConsumerMode.LISTEN_NOTIFY_ONLY)

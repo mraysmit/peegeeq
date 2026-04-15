@@ -1,6 +1,8 @@
 package dev.mars.peegeeq.outbox;
 
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -109,7 +111,7 @@ public class OutboxParallelProcessingTest {
         System.out.println("   - Polling interval configured: " + config.getQueueConfig().getPollingInterval());
 
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create factory and components with configuration
         DatabaseService databaseService = new PgDatabaseService(manager);
@@ -122,6 +124,7 @@ public class OutboxParallelProcessingTest {
      * Clear all PeeGeeQ-related system properties to ensure test isolation.
      */
     private void clearAllPeeGeeQSystemProperties() {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         System.getProperties().stringPropertyNames().stream()
             .filter(name -> name.startsWith("peegeeq."))
             .forEach(System::clearProperty);
@@ -131,6 +134,7 @@ public class OutboxParallelProcessingTest {
     @AfterEach
     void tearDown(VertxTestContext tearDownContext) throws Exception {
         if (consumer != null) {
+        logger.info("Tearing down: closing resources and manager");
             consumer.close();
         }
         if (producer != null) {
@@ -168,6 +172,7 @@ public class OutboxParallelProcessingTest {
         AtomicInteger processedCount = new AtomicInteger(0);
 
         consumer.subscribe(message -> {
+        logger.info("Test: parallel consumer processing");
             // Capture which thread is processing this message
             String threadName = Thread.currentThread().getName();
             processingThreads.add(threadName);
@@ -233,6 +238,7 @@ public class OutboxParallelProcessingTest {
         Set<String> processingThreads = ConcurrentHashMap.newKeySet();
 
         consumer.subscribe(message -> {
+        logger.info("Test: batch processing");
             String threadName = Thread.currentThread().getName();
             processingThreads.add(threadName);
             
@@ -271,6 +277,7 @@ public class OutboxParallelProcessingTest {
         Set<String> processingThreads = ConcurrentHashMap.newKeySet();
 
         consumer.subscribe(message -> {
+        logger.info("Test: concurrent producers");
             String threadName = Thread.currentThread().getName();
             processingThreads.add(threadName);
             

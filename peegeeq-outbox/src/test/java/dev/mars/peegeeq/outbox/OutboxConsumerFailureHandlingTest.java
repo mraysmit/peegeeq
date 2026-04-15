@@ -1,6 +1,8 @@
 package dev.mars.peegeeq.outbox;
 
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -106,7 +108,7 @@ public class OutboxConsumerFailureHandlingTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("failure-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, config);
@@ -128,6 +130,7 @@ public class OutboxConsumerFailureHandlingTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         if (consumer != null) {
             consumer.close();
         }
@@ -165,6 +168,7 @@ public class OutboxConsumerFailureHandlingTest {
         
         // Subscribe with handler that always fails - triggers retry logic and error paths
         consumer.subscribe(message -> {
+        logger.info("Test: retry logic with failing messages");
             int attempt = attemptCount.incrementAndGet();
             latch.flag();
             throw new RuntimeException("Intentional failure attempt " + attempt);
@@ -204,6 +208,7 @@ public class OutboxConsumerFailureHandlingTest {
         
         // Subscribe with handler that blocks
         consumer.subscribe(message -> {
+        logger.info("Test: process available messages  consumer closed during processing");
             startSignal.tryComplete();
             finishGate.future().await();
             return Future.succeededFuture();
@@ -241,6 +246,7 @@ public class OutboxConsumerFailureHandlingTest {
         Checkpoint latch = testContext.checkpoint(messageCount);
         
         consumer.subscribe(message -> {
+        logger.info("Test: process available messages  batch processing");
             latch.flag();
             return Future.succeededFuture();
         });
@@ -265,6 +271,7 @@ public class OutboxConsumerFailureHandlingTest {
 
         manager.closeReactive()
                 .compose(ignored -> {
+        logger.info("Test: get reactive pool future  error handling");
                     typedConsumer.subscribe(message -> Future.succeededFuture());
 
                     Promise<Void> timer = Promise.promise();
@@ -293,6 +300,7 @@ public class OutboxConsumerFailureHandlingTest {
         Promise<Void> blockGate = Promise.promise();
         
         consumer.subscribe(message -> {
+        logger.info("Test: close  while processing");
             startSignal2.tryComplete();
             blockGate.future().await();
             return Future.succeededFuture();
@@ -327,6 +335,7 @@ public class OutboxConsumerFailureHandlingTest {
         CopyOnWriteArrayList<String> receivedPayloads = new CopyOnWriteArrayList<>();
         
         consumer.subscribe(message -> {
+        logger.info("Test: parse payload from json object  edge cases");
             receivedPayloads.add(message.getPayload());
             latch.flag();
             return Future.succeededFuture();
@@ -359,9 +368,10 @@ public class OutboxConsumerFailureHandlingTest {
         
         PeeGeeQConfiguration dlqConfig = new PeeGeeQConfiguration("dlq-fail-test");
         PeeGeeQManager dlqManager = new PeeGeeQManager(dlqConfig, new SimpleMeterRegistry());
-        dlqManager.start();
+        dlqManager.start().await();
         
         try {
+        logger.info("Test: d l q connection failure");
             DatabaseService dbService = new PgDatabaseService(dlqManager);
             OutboxFactory dlqFactory = new OutboxFactory(dbService, dlqConfig);
             
@@ -430,9 +440,10 @@ public class OutboxConsumerFailureHandlingTest {
         
         PeeGeeQConfiguration retryConfig = new PeeGeeQConfiguration("retry-fail-test");
         PeeGeeQManager retryManager = new PeeGeeQManager(retryConfig, new SimpleMeterRegistry());
-        retryManager.start();
+        retryManager.start().await();
         
         try {
+        logger.info("Test: retry increment connection failure");
             DatabaseService dbService = new PgDatabaseService(retryManager);
             OutboxFactory retryFactory = new OutboxFactory(dbService, retryConfig);
             

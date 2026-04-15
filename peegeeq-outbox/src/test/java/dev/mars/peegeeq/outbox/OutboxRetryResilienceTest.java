@@ -90,6 +90,7 @@ public class OutboxRetryResilienceTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
@@ -111,7 +112,7 @@ public class OutboxRetryResilienceTest {
 
         // Initialize manager and components
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("basic-test"), new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create queue factory using the standard pattern
         PgDatabaseService databaseService = new PgDatabaseService(manager);
@@ -141,6 +142,7 @@ public class OutboxRetryResilienceTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("🧹 Cleaning up OutboxRetryResilienceTest");
         
         if (consumer != null) {

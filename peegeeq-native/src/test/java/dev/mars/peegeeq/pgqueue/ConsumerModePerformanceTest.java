@@ -76,6 +76,7 @@ public class ConsumerModePerformanceTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("🔧 Setting up ConsumerModePerformanceTest");
 
         // Clear any existing system properties
@@ -98,6 +99,7 @@ public class ConsumerModePerformanceTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (factory != null) {
             factory.close();
         }
@@ -123,7 +125,7 @@ public class ConsumerModePerformanceTest {
         // Initialize PeeGeeQ with test configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create factory using the proper pattern
         PgDatabaseService databaseService = new PgDatabaseService(manager);

@@ -46,6 +46,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Integration test to verify that the outbox module correctly uses the max-retries configuration.
@@ -54,6 +56,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 class OutboxConfigurationIntegrationTest {
+    private static final Logger logger = LoggerFactory.getLogger(OutboxConfigurationIntegrationTest.class);
+
 
     @Container
     private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
@@ -71,6 +75,7 @@ class OutboxConfigurationIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         System.clearProperty("peegeeq.queue.max-retries");
@@ -86,6 +91,7 @@ class OutboxConfigurationIntegrationTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (consumer != null) {
             consumer.close();
         }
@@ -106,10 +112,11 @@ class OutboxConfigurationIntegrationTest {
 
     @Test
     void testOutboxRespectsMaxRetriesConfiguration(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: outbox respects max retries configuration");
         System.setProperty("peegeeq.queue.max-retries", "2");
 
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("basic-test"), new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, manager.getConfiguration());
@@ -140,8 +147,9 @@ class OutboxConfigurationIntegrationTest {
 
     @Test
     void testOutboxUsesDefaultWhenNoConfigurationSet(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: outbox uses default when no configuration set");
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("basic-test"), new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, manager.getConfiguration());
@@ -172,8 +180,9 @@ class OutboxConfigurationIntegrationTest {
 
     @Test
     void testBasicOutboxMessageProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: basic outbox message processing");
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("basic-test"), new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, manager.getConfiguration());

@@ -94,6 +94,7 @@ class NativeVsOutboxComparisonExampleTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("=== Setting up Native vs Outbox Comparison Test ===");
 
         // Configure PeeGeeQ to use container database
@@ -125,7 +126,7 @@ class NativeVsOutboxComparisonExampleTest {
                 new PeeGeeQConfiguration("development"),
                 new SimpleMeterRegistry());
 
-        manager.start();
+        manager.start().await();
         logger.info("PeeGeeQ Manager started successfully");
 
         PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
@@ -138,6 +139,7 @@ class NativeVsOutboxComparisonExampleTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("🧹 Cleaning up Native vs Outbox Comparison Test");
         
         if (manager != null) {

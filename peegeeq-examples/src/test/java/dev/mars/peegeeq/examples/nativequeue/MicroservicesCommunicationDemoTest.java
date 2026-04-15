@@ -31,6 +31,8 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Demo test showcasing Microservices Communication Patterns for PeeGeeQ.
@@ -48,6 +50,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class MicroservicesCommunicationDemoTest {
+    private static final Logger logger = LoggerFactory.getLogger(MicroservicesCommunicationDemoTest.class);
+
 
     static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
@@ -294,6 +298,7 @@ class MicroservicesCommunicationDemoTest {
 
     @BeforeEach
     void setUp() {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         System.out.println("\n🔗 Setting up Microservices Communication Demo Test");
 
         // Configure system properties for TestContainers
@@ -307,7 +312,7 @@ class MicroservicesCommunicationDemoTest {
         // Initialize PeeGeeQ with microservices configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create native factory
         var databaseService = new PgDatabaseService(manager);
@@ -323,6 +328,7 @@ class MicroservicesCommunicationDemoTest {
 
     @AfterEach
     void tearDown() {
+        logger.info("Tearing down: closing resources and manager");
         System.out.println("🧹 Cleaning up Microservices Communication Demo Test");
 
         if (manager != null) {
@@ -345,6 +351,7 @@ class MicroservicesCommunicationDemoTest {
     @Order(1)
     @DisplayName("Request-Response Pattern - Synchronous-style Communication Over Async Messaging")
     void testRequestResponsePattern() throws Exception {
+        logger.info("Test: request response pattern");
         System.out.println("\n🔄 Testing Request-Response Pattern");
 
         String requestQueue = "microservices-request-queue";

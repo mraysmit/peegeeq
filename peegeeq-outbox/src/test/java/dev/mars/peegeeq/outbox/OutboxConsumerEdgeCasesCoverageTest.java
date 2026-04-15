@@ -31,6 +31,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Edge case tests to improve OutboxConsumer coverage from 75% to 90%+.
@@ -43,6 +45,8 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 class OutboxConsumerEdgeCasesCoverageTest {
+    private static final Logger logger = LoggerFactory.getLogger(OutboxConsumerEdgeCasesCoverageTest.class);
+
 
     private static final String[] SYSTEM_PROPERTIES = {
         "peegeeq.database.host", "peegeeq.database.port", "peegeeq.database.name",
@@ -61,6 +65,7 @@ class OutboxConsumerEdgeCasesCoverageTest {
 
     @BeforeEach
     void setup() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
@@ -80,7 +85,7 @@ class OutboxConsumerEdgeCasesCoverageTest {
         // Create and start manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("edge-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create factory and components
         DatabaseService databaseService = new PgDatabaseService(manager);

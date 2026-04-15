@@ -107,7 +107,7 @@ public class CloudEventsJsonbQueryTest {
 
         // Initialize PeeGeeQManager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Get Pool for direct SQL queries
         pool = manager.getClientFactory().getPool("peegeeq-main")

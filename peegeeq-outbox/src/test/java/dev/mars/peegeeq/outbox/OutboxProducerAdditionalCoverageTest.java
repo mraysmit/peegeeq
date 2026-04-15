@@ -56,6 +56,7 @@ class OutboxProducerAdditionalCoverageTest {
 
     @BeforeEach
     void setup() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         testTopic = "prod-cov-" + UUID.randomUUID().toString().substring(0, 8);
@@ -68,7 +69,7 @@ class OutboxProducerAdditionalCoverageTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("prod-cov-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, config);

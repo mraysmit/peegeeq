@@ -85,6 +85,7 @@ public class OutboxConsumerLifecycleBugReproducerTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         System.setProperty("peegeeq.database.host", postgres.getHost());
@@ -95,7 +96,7 @@ public class OutboxConsumerLifecycleBugReproducerTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("lifecycle-bug-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, config);
@@ -118,6 +119,7 @@ public class OutboxConsumerLifecycleBugReproducerTest {
 
     @AfterEach
     void tearDown() {
+        logger.info("Tearing down: closing resources and manager");
         System.clearProperty("peegeeq.database.host");
         System.clearProperty("peegeeq.database.port");
         System.clearProperty("peegeeq.database.name");

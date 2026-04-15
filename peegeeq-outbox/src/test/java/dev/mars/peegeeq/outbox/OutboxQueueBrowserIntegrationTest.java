@@ -76,6 +76,7 @@ public class OutboxQueueBrowserIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize trace context for logging
         String traceId = UUID.randomUUID().toString().replace("-", "");
         String spanId = UUID.randomUUID().toString().replace("-", "").substring(0, 16);
@@ -105,7 +106,7 @@ public class OutboxQueueBrowserIntegrationTest {
         // Initialize PeeGeeQ manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Get client factory from manager
         clientFactory = manager.getClientFactory();
@@ -122,6 +123,7 @@ public class OutboxQueueBrowserIntegrationTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws InterruptedException {
+        logger.info("Tearing down: closing resources and manager");
         if (producer != null) {
             try {
                 producer.close();

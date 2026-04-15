@@ -20,6 +20,9 @@
     <!-- PeeGeeQ specific loggers -->
     <logger name="dev.mars.peegeeq" level="WARN" />
     
+    <!-- Show close-reactive error propagation test procedure -->
+    <logger name="dev.mars.peegeeq.db.PeeGeeQManagerCloseReactiveErrorPropagationTest" level="INFO" />
+    
     <!-- Reduce TestContainers noise -->
     <logger name="org.testcontainers" level="WARN" />
     <logger name="com.github.dockerjava" level="WARN" />

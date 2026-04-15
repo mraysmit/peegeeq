@@ -49,6 +49,8 @@ import java.util.concurrent.TimeUnit;
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile.BASIC;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent.ALL;
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Integration tests for consumer group subscription lifecycle paths.
@@ -68,6 +70,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 @Testcontainers
 class ConsumerGroupSubscriptionIntegrationTest {
+    private static final Logger logger = LoggerFactory.getLogger(ConsumerGroupSubscriptionIntegrationTest.class);
+
 
     private static final String SERVICE_ID = "sub-test";
 
@@ -93,6 +97,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
 
     @BeforeEach
     void setUp() {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
         System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
@@ -102,7 +107,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         databaseService = new PgDatabaseService(manager);
         adapter = new VertxPoolAdapter(
@@ -129,6 +134,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (connectionManager != null) {
             cleanupTestData().recover(err -> Future.succeededFuture()).await();
             connectionManager.close();
@@ -148,6 +154,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
     @Test
     @DisplayName("start(SubscriptionOptions) creates subscription and starts group")
     void startWithSubscriptionOptions(VertxTestContext testContext) throws Exception {
+        logger.info("Test: start with subscription options");
         String topic = "test-sub-start-" + System.nanoTime();
         String groupName = "sub-1";
 
@@ -182,6 +189,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
     @Test
     @DisplayName("stopGracefully cancels subscription after start(SubscriptionOptions)")
     void stopGracefullyCancelsSubscription(VertxTestContext testContext) throws Exception {
+        logger.info("Test: stop gracefully cancels subscription");
         String topic = "test-sub-stop-" + System.nanoTime();
         String groupName = "sub-2";
 
@@ -221,6 +229,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
     @Test
     @DisplayName("start() falls back to reference counting for unknown topic")
     void startFallsBackForUnknownTopic(VertxTestContext testContext) throws Exception {
+        logger.info("Test: start falls back for unknown topic");
         String topic = "test-sub-unknown-" + System.nanoTime();
         String groupName = "sub-3";
 
@@ -253,6 +262,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
     @Test
     @DisplayName("start() uses reference counting for PUB_SUB topic")
     void startUsesReferenceCountingForPubSubTopic(VertxTestContext testContext) throws Exception {
+        logger.info("Test: start uses reference counting for pub sub topic");
         String topic = "test-sub-pubsub-" + System.nanoTime();
         String groupName = "sub-4";
 
@@ -288,6 +298,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
     @Test
     @DisplayName("start(SubscriptionOptions) recovers when topic does not exist in outbox_topics")
     void startWithSubscriptionRecoverOnMissingTopic(VertxTestContext testContext) throws Exception {
+        logger.info("Test: start with subscription recover on missing topic");
         String topic = "test-sub-recover-" + System.nanoTime();
         String groupName = "sub-5";
 

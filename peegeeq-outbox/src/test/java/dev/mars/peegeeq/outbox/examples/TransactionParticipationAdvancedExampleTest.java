@@ -128,6 +128,7 @@ class TransactionParticipationAdvancedExampleTest {
     
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
@@ -143,7 +144,7 @@ class TransactionParticipationAdvancedExampleTest {
         
         // Initialize PeeGeeQ Manager - following established pattern
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
         logger.info("PeeGeeQ Manager started successfully");
         
         // Create outbox factory - following established pattern
@@ -177,6 +178,7 @@ class TransactionParticipationAdvancedExampleTest {
     
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("🧹 Cleaning up Transaction Participation Advanced Example Test");
         
         if (orderProducer != null) {

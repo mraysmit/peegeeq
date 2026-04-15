@@ -62,7 +62,7 @@ public class CloudEventsExample {
         try {
             // Initialize PeeGeeQ Manager
             manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-            manager.start();
+            manager.start().await();
             logger.info("PeeGeeQ Manager started");
             
             // Create outbox factory with CloudEvents support

@@ -395,13 +395,17 @@ public class PeeGeeQManager implements AutoCloseable {
         Future<Void> awaitStart;
         if (pendingStart != null) {
             logger.info("Awaiting in-flight start() before closing pools");
-            awaitStart = pendingStart.recover(e -> Future.succeededFuture());
+            awaitStart = pendingStart;
         } else {
             awaitStart = Future.succeededFuture();
         }
 
-        // 1. Stop reactive components (background tasks, health checks)
+        // Absorb any start failure so the cleanup chain always runs, then re-raise
+        // the original start failure at the end. This avoids .eventually() which cannot
+        // dispatch the final result after vertx.close() destroys the event loop.
         return awaitStart
+            .recover(startError -> Future.succeededFuture()) // let cleanup proceed
+            // 1. Stop reactive components (background tasks, health checks)
             .compose(v -> stop())
             .recover(e -> {
                 logger.warn("stop() failed during close, continuing cleanup: {}", e.getMessage());
@@ -490,6 +494,13 @@ public class PeeGeeQManager implements AutoCloseable {
                     return Future.succeededFuture();
                 }
                 return Future.failedFuture(e);
+            })
+            .compose(v -> {
+                // After cleanup completes, propagate the original start failure if any
+                if (awaitStart.failed()) {
+                    return Future.failedFuture(awaitStart.cause());
+                }
+                return Future.succeededFuture();
             });
     }
 

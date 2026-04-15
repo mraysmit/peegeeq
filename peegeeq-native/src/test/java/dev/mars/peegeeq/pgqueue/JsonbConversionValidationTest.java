@@ -46,6 +46,8 @@ import java.util.Map;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Test to validate that JSONB conversion is working correctly for Native Queue.
@@ -55,6 +57,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 class JsonbConversionValidationTest {
+    private static final Logger logger = LoggerFactory.getLogger(JsonbConversionValidationTest.class);
+
 
     @Container
     static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
@@ -70,6 +74,7 @@ class JsonbConversionValidationTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
         System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
@@ -84,7 +89,7 @@ class JsonbConversionValidationTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("jsonb-native-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         databaseService = new PgDatabaseService(manager);
         factory = new PgNativeQueueFactory(databaseService);
@@ -92,6 +97,7 @@ class JsonbConversionValidationTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (factory != null) {
             factory.close();
         }
@@ -108,6 +114,7 @@ class JsonbConversionValidationTest {
      */
     @Test
     void testSimpleStringPayloadStoredAsJsonb() throws Exception {
+        logger.info("Test: simple string payload stored as jsonb");
         String testMessage = "Hello, Native JSONB World!";
         String topic = "jsonb-native-test-simple";
 
@@ -143,6 +150,7 @@ class JsonbConversionValidationTest {
      */
     @Test
     void testHeadersStoredAsJsonb() throws Exception {
+        logger.info("Test: headers stored as jsonb");
         String testMessage = "Message with headers";
         String topic = "jsonb-native-test-headers";
 
@@ -189,6 +197,7 @@ class JsonbConversionValidationTest {
      */
     @Test
     void testConsumerCanReadJsonbObjects(VertxTestContext testContext) throws Exception {
+        logger.info("Test: consumer can read jsonb objects");
         String topic = "jsonb-native-test-consumer";
         String testMessage = "Consumer test message";
 

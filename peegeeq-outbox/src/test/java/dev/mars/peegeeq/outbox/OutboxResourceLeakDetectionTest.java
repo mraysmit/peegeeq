@@ -70,6 +70,7 @@ public class OutboxResourceLeakDetectionTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
@@ -91,7 +92,7 @@ public class OutboxResourceLeakDetectionTest {
 
         // Create manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create outbox factory
         PgDatabaseService databaseService = new PgDatabaseService(manager);
@@ -107,6 +108,7 @@ public class OutboxResourceLeakDetectionTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws InterruptedException {
+        logger.info("Tearing down: closing resources and manager");
         System.err.println("=== OutboxResourceLeakDetectionTest.tearDown() STARTED ===");
         System.err.flush();
 

@@ -54,7 +54,7 @@ public class FullDistributedTracingExample {
         // Initialize PeeGeeQ
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("default");
         PeeGeeQManager manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create outbox factory
         PgDatabaseService databaseService = new PgDatabaseService(manager);

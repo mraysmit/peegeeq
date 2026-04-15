@@ -80,6 +80,7 @@ class PeeGeeQExampleTest {
     
     @BeforeEach
     void setUpStreams(Vertx vertx) {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         this.vertx = vertx;
         System.setOut(new PrintStream(outContent));
         System.setErr(new PrintStream(errContent));
@@ -209,7 +210,7 @@ class PeeGeeQExampleTest {
         try (PeeGeeQManager manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry())) {
 
             // Start the manager
-            manager.start();
+            manager.start().await();
             logger.info("PeeGeeQ Manager started successfully");
 
             // Run all demonstrations

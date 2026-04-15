@@ -73,6 +73,7 @@ public class AutomaticTransactionManagementExampleTest {
     
     @BeforeEach
     void setUp() {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("Setting up Automatic Transaction Management Example Test");
         
         // Configure system properties for container
@@ -83,6 +84,7 @@ public class AutomaticTransactionManagementExampleTest {
     
     @AfterEach
     void tearDown() {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("Tearing down Automatic Transaction Management Example Test");
         
         if (manager != null) {
@@ -106,7 +108,7 @@ public class AutomaticTransactionManagementExampleTest {
         
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
         
         // Test basic automatic transaction management
         AutomaticTransactionResult result = testBasicAutomaticTransactionManagementPattern();
@@ -132,7 +134,7 @@ public class AutomaticTransactionManagementExampleTest {
         
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
         
         // Test transaction propagation context
         PropagationContextResult result = testTransactionPropagationContextPattern();
@@ -158,7 +160,7 @@ public class AutomaticTransactionManagementExampleTest {
         
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
         
         // Test batch operations with shared context
         BatchOperationsResult result = testBatchOperationsWithSharedContextPattern();
@@ -184,7 +186,7 @@ public class AutomaticTransactionManagementExampleTest {
         
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
         
         // Test full parameter automatic transactions
         FullParameterResult result = testFullParameterAutomaticTransactionsPattern();
@@ -210,7 +212,7 @@ public class AutomaticTransactionManagementExampleTest {
         
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
         
         // Test performance validation
         PerformanceValidationResult result = testPerformanceValidationPattern();

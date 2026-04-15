@@ -32,6 +32,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 
 import java.util.concurrent.TimeUnit;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Base test class for funds & custody examples.
@@ -171,7 +173,7 @@ public abstract class FundsCustodyTestBase {
         // Initialize PeeGeeQ manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration();
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create event stores
         factory = new BiTemporalEventStoreFactory(vertx, manager);
@@ -190,6 +192,7 @@ public abstract class FundsCustodyTestBase {
     
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Close event stores
         if (tradeEventStore != null) {
             try {

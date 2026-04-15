@@ -50,6 +50,7 @@ public class OutboxProducerTransactionTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         System.setProperty("peegeeq.database.host", postgres.getHost());
@@ -60,7 +61,7 @@ public class OutboxProducerTransactionTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration();
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         PgDatabaseService dbs = new PgDatabaseService(manager);
         databaseService = dbs;
@@ -78,6 +79,7 @@ public class OutboxProducerTransactionTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (producer != null) {
             producer.close();
         }

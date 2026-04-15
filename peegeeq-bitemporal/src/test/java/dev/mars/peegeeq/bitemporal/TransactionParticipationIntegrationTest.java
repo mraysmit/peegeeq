@@ -93,7 +93,7 @@ public class TransactionParticipationIntegrationTest {
 
         // Initialize PeeGeeQ Manager - following established patterns
         peeGeeQManager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        peeGeeQManager.start();
+        peeGeeQManager.start().await();
 
         vertx = Vertx.vertx();
 

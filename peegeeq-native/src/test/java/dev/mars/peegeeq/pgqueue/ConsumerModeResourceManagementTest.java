@@ -37,6 +37,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 import io.vertx.core.Future;
 
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Resource management tests for consumer mode implementation.
@@ -54,6 +56,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 @Testcontainers
 class ConsumerModeResourceManagementTest {
+    private static final Logger logger = LoggerFactory.getLogger(ConsumerModeResourceManagementTest.class);
+
 
     @Container
     static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
@@ -70,6 +74,7 @@ class ConsumerModeResourceManagementTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
         System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
@@ -88,7 +93,7 @@ class ConsumerModeResourceManagementTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         PgDatabaseService databaseService = new PgDatabaseService(manager);
         PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
@@ -98,6 +103,7 @@ class ConsumerModeResourceManagementTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (factory != null) {
             factory.close();
         }
@@ -111,6 +117,7 @@ class ConsumerModeResourceManagementTest {
 
     @Test
     void testConnectionPoolUsageAcrossConsumerModes(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: connection pool usage across consumer modes");
         String topicName = "test-connection-pool-usage";
         List<MessageConsumer<String>> consumers = new ArrayList<>();
         List<MessageProducer<String>> producers = new ArrayList<>();
@@ -168,6 +175,7 @@ class ConsumerModeResourceManagementTest {
 
     @Test
     void testSchedulerResourceManagement(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: scheduler resource management");
 
         String topicName = "test-scheduler-resources";
         List<MessageConsumer<String>> pollingConsumers = new ArrayList<>();
@@ -224,6 +232,7 @@ class ConsumerModeResourceManagementTest {
 
     @Test
     void testMemoryUsagePatterns(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: memory usage patterns");
         String topicName = "test-memory-usage";
 
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,
@@ -261,6 +270,7 @@ class ConsumerModeResourceManagementTest {
 
     @Test
     void testGracefulShutdownResourceCleanup(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: graceful shutdown resource cleanup");
         String topicName = "test-graceful-shutdown";
 
         MessageConsumer<String> consumer = factory.createConsumer(topicName, String.class,

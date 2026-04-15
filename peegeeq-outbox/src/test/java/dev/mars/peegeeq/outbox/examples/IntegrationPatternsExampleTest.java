@@ -81,6 +81,7 @@ public class IntegrationPatternsExampleTest {
     
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
@@ -98,7 +99,7 @@ public class IntegrationPatternsExampleTest {
         // Initialize PeeGeeQ manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
         
         // Register queue factory implementations
         PgDatabaseService databaseService = new PgDatabaseService(manager);
@@ -115,6 +116,7 @@ public class IntegrationPatternsExampleTest {
     
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         logger.info("Tearing down Integration Patterns Example Test");
 
         if (outboxFactory != null) {

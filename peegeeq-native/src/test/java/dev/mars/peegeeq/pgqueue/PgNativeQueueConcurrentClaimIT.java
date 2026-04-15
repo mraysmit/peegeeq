@@ -34,10 +34,14 @@ import io.vertx.core.Future;
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile.BASIC;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent.*;
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @ExtendWith(VertxExtension.class)
 @Testcontainers
 class PgNativeQueueConcurrentClaimIT {
+    private static final Logger logger = LoggerFactory.getLogger(PgNativeQueueConcurrentClaimIT.class);
+
 
     private static final String TOPIC = "it-concurrent-claim-topic";
 
@@ -57,6 +61,7 @@ class PgNativeQueueConcurrentClaimIT {
 
     @BeforeEach
     void setUp() {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Configure system properties for TestContainers
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
@@ -68,7 +73,7 @@ class PgNativeQueueConcurrentClaimIT {
         // Initialize PeeGeeQ Manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create adapter using DatabaseService interfaces
         PgDatabaseService databaseService = new PgDatabaseService(manager);
@@ -85,6 +90,7 @@ class PgNativeQueueConcurrentClaimIT {
 
     @AfterEach
     void tearDown() {
+        logger.info("Tearing down: closing resources and manager");
         if (manager != null) {
             try {
                 manager.closeReactive().await();
@@ -94,6 +100,7 @@ class PgNativeQueueConcurrentClaimIT {
 
     @Test
     void two_consumers_do_not_double_claim_messages_in_polling_mode(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: two consumers do not double claim messages in polling mode");
         // Insert two messages with unique payloads
         String insertSql = """
             INSERT INTO queue_messages (topic, payload, headers, correlation_id, status, created_at, visible_at, priority)

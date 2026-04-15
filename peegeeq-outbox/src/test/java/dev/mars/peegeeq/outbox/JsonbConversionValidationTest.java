@@ -46,6 +46,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Test to validate that JSONB conversion is working correctly.
@@ -54,6 +56,8 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 class JsonbConversionValidationTest {
+    private static final Logger logger = LoggerFactory.getLogger(JsonbConversionValidationTest.class);
+
 
     private static final String[] SYSTEM_PROPERTIES = {
         "peegeeq.database.host", "peegeeq.database.port", "peegeeq.database.name",
@@ -71,6 +75,7 @@ class JsonbConversionValidationTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
         System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
@@ -80,7 +85,7 @@ class JsonbConversionValidationTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("jsonb-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
@@ -101,6 +106,7 @@ class JsonbConversionValidationTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (factory != null) {
             factory.close();
         }
@@ -123,6 +129,7 @@ class JsonbConversionValidationTest {
      */
     @Test
     void testSimpleStringPayloadStoredAsJsonb() throws Exception {
+        logger.info("Test: simple string payload stored as jsonb");
         String testMessage = "Hello, JSONB World!";
         String topic = "jsonb-test-simple";
 
@@ -160,6 +167,7 @@ class JsonbConversionValidationTest {
      */
     @Test
     void testComplexObjectPayloadStoredAsJsonb() throws Exception {
+        logger.info("Test: complex object payload stored as jsonb");
         OrderEvent testOrder = new OrderEvent("ORD-JSONB-001", "customer-123", new BigDecimal("299.99"), "PROCESSING");
         String topic = "jsonb-test-complex";
 
@@ -211,6 +219,7 @@ class JsonbConversionValidationTest {
      */
     @Test
     void testConsumerCanReadJsonbObjects() throws Exception {
+        logger.info("Test: consumer can read jsonb objects");
         String topic = "jsonb-test-consumer";
         OrderEvent testOrder = new OrderEvent("ORD-CONSUMER-001", "customer-456", new BigDecimal("199.99"), "COMPLETED");
 

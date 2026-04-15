@@ -98,6 +98,7 @@ class NativeQueueIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Initialize database schema using centralized schema initializer ()
         logger.info("Initializing database schema for native queue integration tests");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
@@ -131,7 +132,7 @@ class NativeQueueIntegrationTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Initialize native queue components - following provider pattern like working examples
         DatabaseService databaseService = new PgDatabaseService(manager);
@@ -150,6 +151,7 @@ class NativeQueueIntegrationTest {
 
     @AfterEach
     void tearDown() {
+        logger.info("Tearing down: closing resources and manager");
         // Close resources in reverse order of creation for proper cleanup
         if (consumer != null) {
             try {

@@ -133,12 +133,13 @@ class NativeVsOutboxComparisonTest {
     
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Configure system properties for TestContainers
         configureSystemPropertiesForContainer();
 
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create both factory types
         DatabaseService databaseService = new PgDatabaseService(manager);
@@ -156,6 +157,7 @@ class NativeVsOutboxComparisonTest {
     
     @AfterEach
     void tearDown() {
+        logger.info("Tearing down: closing resources and manager");
         if (nativeFactory != null) {
             try {
                 nativeFactory.close();

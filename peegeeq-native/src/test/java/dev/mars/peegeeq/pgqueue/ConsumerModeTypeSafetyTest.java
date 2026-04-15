@@ -38,6 +38,8 @@ import java.util.concurrent.atomic.AtomicReference;
 import io.vertx.core.Future;
 
 import static org.junit.jupiter.api.Assertions.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Type safety tests for consumer mode implementation.
@@ -56,6 +58,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 @Testcontainers
 class ConsumerModeTypeSafetyTest {
+    private static final Logger logger = LoggerFactory.getLogger(ConsumerModeTypeSafetyTest.class);
+
 
     @Container
     static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
@@ -72,6 +76,7 @@ class ConsumerModeTypeSafetyTest {
 
     @BeforeEach
     void setUp() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         System.setProperty("peegeeq.database.host", postgres.getHost());
         System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
         System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
@@ -90,7 +95,7 @@ class ConsumerModeTypeSafetyTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         PgDatabaseService databaseService = new PgDatabaseService(manager);
         PgQueueFactoryProvider provider = new PgQueueFactoryProvider();
@@ -100,6 +105,7 @@ class ConsumerModeTypeSafetyTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (factory != null) {
             factory.close();
         }
@@ -156,6 +162,7 @@ class ConsumerModeTypeSafetyTest {
 
     @Test
     void testStringTypeSafetyAcrossConsumerModes() throws Exception {
+        logger.info("Test: string type safety across consumer modes");
         String topicName = "test-string-type-safety";
         String testMessage = "Hello, Type Safety! 🚀";
 
@@ -166,6 +173,7 @@ class ConsumerModeTypeSafetyTest {
 
     @Test
     void testIntegerTypeSafetyAcrossConsumerModes() throws Exception {
+        logger.info("Test: integer type safety across consumer modes");
         String topicName = "test-integer-type-safety";
         Integer testMessage = 42;
 
@@ -176,6 +184,7 @@ class ConsumerModeTypeSafetyTest {
 
     @Test
     void testComplexObjectTypeSafetyAcrossConsumerModes() throws Exception {
+        logger.info("Test: complex object type safety across consumer modes");
         String topicName = "test-complex-object-type-safety";
         TestPerson testMessage = new TestPerson("Alice Johnson", 30, "alice@example.com");
 
@@ -186,6 +195,7 @@ class ConsumerModeTypeSafetyTest {
 
     @Test
     void testListTypeSafetyAcrossConsumerModes() throws Exception {
+        logger.info("Test: list type safety across consumer modes");
         String topicName = "test-list-type-safety";
         @SuppressWarnings("unchecked")
         Class<List<String>> listClass = (Class<List<String>>) (Class<?>) List.class;
@@ -198,6 +208,7 @@ class ConsumerModeTypeSafetyTest {
 
     @Test
     void testMapTypeSafetyAcrossConsumerModes() throws Exception {
+        logger.info("Test: map type safety across consumer modes");
         String topicName = "test-map-type-safety";
         @SuppressWarnings("unchecked")
         Class<Map<String, Object>> mapClass = (Class<Map<String, Object>>) (Class<?>) Map.class;
@@ -213,6 +224,7 @@ class ConsumerModeTypeSafetyTest {
 
     @Test
     void testBigDecimalTypeSafetyAcrossConsumerModes() throws Exception {
+        logger.info("Test: big decimal type safety across consumer modes");
         String topicName = "test-bigdecimal-type-safety";
         BigDecimal testMessage = new BigDecimal("123.456789");
 
@@ -223,6 +235,7 @@ class ConsumerModeTypeSafetyTest {
 
     @Test
     void testNullValueHandlingAcrossConsumerModes(VertxTestContext testContext) throws Exception {
+        logger.info("Test: null value handling across consumer modes");
         String topicName = "test-null-value-handling";
 
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);

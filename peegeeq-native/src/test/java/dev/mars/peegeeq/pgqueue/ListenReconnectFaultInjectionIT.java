@@ -31,6 +31,8 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Fault-injection IT: forcibly closes the dedicated LISTEN connection and verifies
@@ -75,7 +77,7 @@ public class ListenReconnectFaultInjectionIT {
         // Start manager using a dedicated profile
         PeeGeeQConfiguration cfg = new PeeGeeQConfiguration("listen-reconnect-test");
         manager = new PeeGeeQManager(cfg, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Use DatabaseService pattern for factory creation
         DatabaseService databaseService = new PgDatabaseService(manager);
@@ -90,6 +92,7 @@ public class ListenReconnectFaultInjectionIT {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         if (consumer != null) consumer.unsubscribe();
         if (factory != null) factory.close();
         if (manager != null) {
@@ -100,6 +103,7 @@ public class ListenReconnectFaultInjectionIT {
     @Test
     void testListenReconnectAfterForcedDisconnect(Vertx vertx, VertxTestContext testContext) throws Exception {
         consumer.subscribe(msg -> {
+        logger.info("Test: listen reconnect after forced disconnect");
             testContext.completeNow();
             return Future.succeededFuture();
         });
@@ -142,6 +146,7 @@ public class ListenReconnectFaultInjectionIT {
 
         // Wait for LISTEN connection to establish
         vertx.setPeriodic(100, waitId -> {
+        logger.info("Test: unsubscribe does not reestablish listen connection");
             try {
                 if (getSubscriber(concrete) != null) {
                     vertx.cancelTimer(waitId);

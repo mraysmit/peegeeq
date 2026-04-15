@@ -1,6 +1,8 @@
 package dev.mars.peegeeq.outbox;
 
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -85,7 +87,7 @@ public class OutboxMetricsTest {
         // Create and start manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("metrics-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         // Create factory and components using DatabaseService
         DatabaseService databaseService = new PgDatabaseService(manager);
@@ -96,6 +98,7 @@ public class OutboxMetricsTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         if (consumer != null) {
             consumer.close();
         }
@@ -141,6 +144,7 @@ public class OutboxMetricsTest {
         // Set up consumer
         Promise<Void> messageProcessed = Promise.promise();
         consumer.subscribe(message -> {
+        logger.info("Test: metrics integration");
             System.out.println("Processing message for metrics test: " + message.getPayload());
             messageProcessed.tryComplete();
             return Future.succeededFuture();
@@ -198,6 +202,7 @@ public class OutboxMetricsTest {
         // Health checks may need time to initialise after manager.start()
         var healthStatus = healthCheckManager.getOverallHealth();
         for (int i = 0; i < 50 && (healthStatus == null || !healthStatus.isHealthy()); i++) {
+        logger.info("Test: health check integration");
             LockSupport.parkNanos(200_000_000L); // 200ms
             healthStatus = healthCheckManager.getOverallHealth();
         }
@@ -249,6 +254,7 @@ public class OutboxMetricsTest {
 
     @Test
     void testMultipleMessageMetrics(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: circuit breaker integration");
         int messageCount = 5;
         
         // Get initial metrics
@@ -328,6 +334,7 @@ public class OutboxMetricsTest {
         // Set up consumer that always fails
         Promise<Void> errorOccurred = Promise.promise();
         consumer.subscribe(message -> {
+        logger.info("Test: error metrics");
             System.out.println("INTENTIONAL FAILURE: Processing message that will fail");
             errorOccurred.tryComplete();
             throw new RuntimeException("Intentional error for metrics testing");

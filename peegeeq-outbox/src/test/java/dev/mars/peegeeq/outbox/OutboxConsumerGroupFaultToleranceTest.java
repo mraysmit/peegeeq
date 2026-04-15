@@ -98,6 +98,7 @@ class OutboxConsumerGroupFaultToleranceTest {
 
     @BeforeEach
     void setUp(Vertx vertx) {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         testTopic = "fault-test-" + UUID.randomUUID().toString().substring(0, 8);
@@ -110,7 +111,7 @@ class OutboxConsumerGroupFaultToleranceTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("fault-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, config);
@@ -132,6 +133,7 @@ class OutboxConsumerGroupFaultToleranceTest {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Tearing down: closing resources and manager");
         if (consumerGroup != null) {
             consumerGroup.stop();
             consumerGroup.close();
@@ -454,7 +456,7 @@ class OutboxConsumerGroupFaultToleranceTest {
             }
             PeeGeeQConfiguration config = new PeeGeeQConfiguration("retry-test");
             manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-            manager.start();
+            manager.start().await();
             DatabaseService databaseService = new PgDatabaseService(manager);
             outboxFactory = new OutboxFactory(databaseService, config);
             producer = outboxFactory.createProducer(testTopic, String.class);

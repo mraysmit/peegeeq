@@ -36,6 +36,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
@@ -73,7 +75,7 @@ public class OutboxConsumerGroupIntegrationTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("group-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, config);
@@ -83,6 +85,7 @@ public class OutboxConsumerGroupIntegrationTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         if (consumerGroup != null) {
             consumerGroup.stop();
             consumerGroup.close();
@@ -114,6 +117,7 @@ public class OutboxConsumerGroupIntegrationTest {
         List<String> member2Messages = Collections.synchronizedList(new ArrayList<>());
 
         ConsumerGroupMember<String> member1 = consumerGroup.addConsumer("member-1", message -> {
+        logger.info("Test: group distribution");
             member1Messages.add(message.getPayload());
             latch.flag();
             return Future.succeededFuture();
@@ -153,6 +157,7 @@ public class OutboxConsumerGroupIntegrationTest {
         consumerGroup.setGroupFilter(msg -> msg.getPayload().startsWith("Keep"));
 
         consumerGroup.addConsumer("member-1", message -> {
+        logger.info("Test: group filtering");
             receivedMessages.add(message.getPayload());
             latch.flag();
             return Future.succeededFuture();
@@ -191,6 +196,7 @@ public class OutboxConsumerGroupIntegrationTest {
         List<String> member2Messages = Collections.synchronizedList(new ArrayList<>());
 
         consumerGroup.addConsumer("member-A", message -> {
+        logger.info("Test: member filtering");
             member1Messages.add(message.getPayload());
             latch.flag();
             return Future.succeededFuture();
@@ -223,6 +229,7 @@ public class OutboxConsumerGroupIntegrationTest {
         
         // Member only accepts "A"
         consumerGroup.addConsumer("member-A", message -> {
+        logger.info("Test: no eligible consumer");
             processedCount.incrementAndGet(); // Should not happen
             return Future.succeededFuture();
         }, msg -> msg.getPayload().equals("A"));
@@ -247,6 +254,7 @@ public class OutboxConsumerGroupIntegrationTest {
     void testDynamicMemberManagement(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
         io.vertx.core.Promise<Void> signal1 = io.vertx.core.Promise.promise();
         consumerGroup.addConsumer("member-1", message -> {
+        logger.info("Test: dynamic member management");
             signal1.tryComplete();
             return Future.succeededFuture();
         });

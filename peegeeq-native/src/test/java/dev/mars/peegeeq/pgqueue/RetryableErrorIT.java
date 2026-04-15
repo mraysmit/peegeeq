@@ -27,6 +27,8 @@ import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Deterministic retry IT (pending):
@@ -62,7 +64,7 @@ public class RetryableErrorIT {
 
         PeeGeeQConfiguration cfg = new PeeGeeQConfiguration("retryable-error-test");
         manager = new PeeGeeQManager(cfg, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         factory = new PgNativeQueueFactory(databaseService);
@@ -70,6 +72,7 @@ public class RetryableErrorIT {
 
     @AfterEach
     void tearDown() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         if (factory != null) factory.close();
         if (manager != null) {
             manager.closeReactive().await();
@@ -84,6 +87,7 @@ public class RetryableErrorIT {
                 new ConsumerConfig.Builder().mode(ConsumerMode.HYBRID).consumerThreads(1).build());
 
         consumer.subscribe(msg -> {
+        logger.info("Test: consumer retries on40 p01 and succeeds");
             testContext.completeNow();
             return Future.succeededFuture();
         });

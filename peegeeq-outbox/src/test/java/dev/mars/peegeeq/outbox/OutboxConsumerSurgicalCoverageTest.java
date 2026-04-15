@@ -67,6 +67,7 @@ class OutboxConsumerSurgicalCoverageTest {
 
     @BeforeEach
     void setup() throws Exception {
+        logger.info("Setting up: configuring database and starting PeeGeeQManager");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
         testTopic = "surgical-" + UUID.randomUUID().toString().substring(0, 8);
 
@@ -129,7 +130,7 @@ class OutboxConsumerSurgicalCoverageTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("multi-thread-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, config);
@@ -165,7 +166,7 @@ class OutboxConsumerSurgicalCoverageTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("batch-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, config);
@@ -201,7 +202,7 @@ class OutboxConsumerSurgicalCoverageTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("retry-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, config);
@@ -232,7 +233,7 @@ class OutboxConsumerSurgicalCoverageTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("group-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, config);
@@ -266,7 +267,7 @@ class OutboxConsumerSurgicalCoverageTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("except-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, config);
@@ -295,7 +296,7 @@ class OutboxConsumerSurgicalCoverageTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("correlation-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, config);
@@ -331,7 +332,7 @@ class OutboxConsumerSurgicalCoverageTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("double-sub-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, config);
@@ -352,7 +353,7 @@ class OutboxConsumerSurgicalCoverageTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("closed-sub-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, config);
@@ -374,7 +375,7 @@ class OutboxConsumerSurgicalCoverageTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("unsub-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, config);
@@ -393,7 +394,7 @@ class OutboxConsumerSurgicalCoverageTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("null-headers-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, config);
@@ -425,7 +426,7 @@ class OutboxConsumerSurgicalCoverageTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("empty-headers-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, config);
@@ -460,7 +461,7 @@ class OutboxConsumerSurgicalCoverageTest {
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("metrics-test");
         manager = new PeeGeeQManager(config, meterRegistry);
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, config);
@@ -489,7 +490,7 @@ class OutboxConsumerSurgicalCoverageTest {
         SimpleMeterRegistry meterRegistry = new SimpleMeterRegistry();
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("failure-metrics-test");
         manager = new PeeGeeQManager(config, meterRegistry);
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, config);
@@ -517,7 +518,7 @@ class OutboxConsumerSurgicalCoverageTest {
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("double-close-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
-        manager.start();
+        manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
         outboxFactory = new OutboxFactory(databaseService, config);
