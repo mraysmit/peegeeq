@@ -140,10 +140,9 @@ public class DeadLetterQueueManager implements DeadLetterService {
                         }
                         return (Void) null;
                     });
-            }).recover(throwable -> {
+            }).onFailure(throwable -> {
                 logger.error("Failed to move message to dead letter queue (reactive): table={}, id={}",
                     originalTable, originalId, throwable);
-                return Future.failedFuture(throwable);
             });
         } catch (Exception e) {
             return Future.failedFuture(e);
@@ -179,9 +178,8 @@ public class DeadLetterQueueManager implements DeadLetterService {
                         return new DeadLetterQueueStats(0, 0, 0, null, null, 0.0);
                     }
                 });
-        }).recover(throwable -> {
+        }).onFailure(throwable -> {
             logger.error("Failed to get dead letter queue statistics (reactive)", throwable);
-            return Future.failedFuture(throwable);
         });
     }
 
@@ -207,9 +205,8 @@ public class DeadLetterQueueManager implements DeadLetterService {
                     }
                     return messages;
                 });
-        }).recover(throwable -> {
+        }).onFailure(throwable -> {
             logger.error("Failed to retrieve dead letter messages for topic (reactive): {}", topic, throwable);
-            return Future.failedFuture(throwable);
         });
     }
 
@@ -234,9 +231,8 @@ public class DeadLetterQueueManager implements DeadLetterService {
                     }
                     return messages;
                 });
-        }).recover(throwable -> {
+        }).onFailure(throwable -> {
             logger.error("Failed to retrieve all dead letter messages (reactive)", throwable);
-            return Future.failedFuture(throwable);
         });
     }
 
@@ -259,9 +255,8 @@ public class DeadLetterQueueManager implements DeadLetterService {
                         return Optional.<DeadLetterMessage>empty();
                     }
                 });
-        }).recover(throwable -> {
+        }).onFailure(throwable -> {
             logger.error("Failed to retrieve dead letter message with id (reactive): {}", id, throwable);
-            return Future.failedFuture(throwable);
         });
     }
 
@@ -319,9 +314,8 @@ public class DeadLetterQueueManager implements DeadLetterService {
                             return Future.succeededFuture(true);
                         });
                 });
-        }).recover(throwable -> {
+        }).onFailure(throwable -> {
             logger.error("Failed to reprocess dead letter message (reactive): {}", deadLetterMessageId, throwable);
-            return Future.failedFuture(throwable);
         });
     }
 
@@ -341,9 +335,8 @@ public class DeadLetterQueueManager implements DeadLetterService {
                         return false;
                     }
                 });
-        }).recover(throwable -> {
+        }).onFailure(throwable -> {
             logger.error("Failed to delete dead letter message (reactive): {}", id, throwable);
-            return Future.failedFuture(throwable);
         });
     }
 
@@ -363,9 +356,8 @@ public class DeadLetterQueueManager implements DeadLetterService {
                     }
                     return deleted;
                 });
-        }).recover(throwable -> {
+        }).onFailure(throwable -> {
             logger.error("Failed to cleanup old dead letter messages (reactive)", throwable);
-            return Future.failedFuture(throwable);
         });
     }
 

@@ -16,7 +16,6 @@ package dev.mars.peegeeq.outbox;
  * limitations under the License.
  */
 
-import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import dev.mars.peegeeq.api.database.DatabaseService;
@@ -35,6 +34,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -74,6 +74,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @Testcontainers
 public class OutboxConsumerLifecycleBugReproducerTest {
 
+    private static final Logger logger = LoggerFactory.getLogger(OutboxConsumerLifecycleBugReproducerTest.class);
+
     @Container
     @SuppressWarnings("resource")
     private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
@@ -109,10 +111,10 @@ public class OutboxConsumerLifecycleBugReproducerTest {
         logAppender = new ListAppender<>();
         logAppender.start();
 
-        Logger consumerLogger = (Logger) LoggerFactory.getLogger(OutboxConsumer.class);
+        ch.qos.logback.classic.Logger consumerLogger = (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(OutboxConsumer.class);
         consumerLogger.addAppender(logAppender);
 
-        Logger providerLogger = (Logger) LoggerFactory.getLogger(
+        ch.qos.logback.classic.Logger providerLogger = (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(
                 "dev.mars.peegeeq.db.provider.PgConnectionProvider");
         providerLogger.addAppender(logAppender);
     }
@@ -127,10 +129,10 @@ public class OutboxConsumerLifecycleBugReproducerTest {
         System.clearProperty("peegeeq.database.password");
 
         if (logAppender != null) {
-            Logger consumerLogger = (Logger) LoggerFactory.getLogger(OutboxConsumer.class);
+            ch.qos.logback.classic.Logger consumerLogger = (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(OutboxConsumer.class);
             consumerLogger.detachAppender(logAppender);
 
-            Logger providerLogger = (Logger) LoggerFactory.getLogger(
+            ch.qos.logback.classic.Logger providerLogger = (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(
                     "dev.mars.peegeeq.db.provider.PgConnectionProvider");
             providerLogger.detachAppender(logAppender);
 

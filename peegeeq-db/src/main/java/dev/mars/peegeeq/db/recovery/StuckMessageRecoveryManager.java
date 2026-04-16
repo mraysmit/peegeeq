@@ -100,10 +100,6 @@ public class StuckMessageRecoveryManager {
                         }
                         return recoveredCount;
                     });
-            })
-            .recover(throwable -> {
-                logger.error("Failed to recover stuck messages: {}", throwable.getMessage(), throwable);
-                return Future.succeededFuture(0);
             });
     }
 
@@ -129,9 +125,6 @@ public class StuckMessageRecoveryManager {
                     }
                     return 0;
                 });
-        }).recover(throwable -> {
-            logger.error("Failed to count stuck messages", throwable);
-            return Future.succeededFuture(0);
         });
     }
 
@@ -155,15 +148,11 @@ public class StuckMessageRecoveryManager {
 
                     // Log details of what was recovered if there were updates
                     if (updatedCount > 0) {
-                        return logRecoveredMessages()
-                            .map(v -> updatedCount);
-                    } else {
-                        return Future.succeededFuture(updatedCount);
+                        logRecoveredMessages()
+                            .onFailure(t -> logger.warn("Failed to log recovered messages: {}", t.getMessage()));
                     }
+                    return Future.succeededFuture(updatedCount);
                 });
-        }).recover(throwable -> {
-            logger.error("Failed to reset stuck messages", throwable);
-            return Future.succeededFuture(0);
         });
     }
 
@@ -199,9 +188,6 @@ public class StuckMessageRecoveryManager {
                     }
                     return (Void) null;
                 });
-        }).recover(throwable -> {
-            logger.warn("Failed to log recovered messages: {}", throwable.getMessage());
-            return Future.succeededFuture((Void) null);
         });
     }
 
@@ -217,10 +203,6 @@ public class StuckMessageRecoveryManager {
             .compose(stuckCount -> {
                 return countTotalProcessingMessages()
                     .map(totalProcessingCount -> new RecoveryStats(stuckCount, totalProcessingCount, true));
-            })
-            .recover(throwable -> {
-                logger.warn("Failed to get recovery stats: {}", throwable.getMessage());
-                return Future.succeededFuture(new RecoveryStats(0, 0, true));
             });
     }
 
@@ -238,9 +220,6 @@ public class StuckMessageRecoveryManager {
                     }
                     return 0;
                 });
-        }).recover(throwable -> {
-            logger.error("Failed to count total processing messages", throwable);
-            return Future.succeededFuture(0);
         });
     }
 

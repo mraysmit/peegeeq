@@ -70,6 +70,8 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 @ExtendWith(VertxExtension.class)
 public class OutboxConsumerCoreTest {
 
+    private static final Logger logger = LoggerFactory.getLogger(OutboxConsumerCoreTest.class);
+
     private static final String[] SYSTEM_PROPERTIES = {
         "peegeeq.database.host", "peegeeq.database.port", "peegeeq.database.name",
         "peegeeq.database.username", "peegeeq.database.password", "peegeeq.database.ssl.enabled"

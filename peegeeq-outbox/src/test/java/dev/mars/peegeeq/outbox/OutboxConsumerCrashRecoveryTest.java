@@ -58,6 +58,8 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 @Testcontainers
 public class OutboxConsumerCrashRecoveryTest {
 
+    private static final Logger logger = LoggerFactory.getLogger(OutboxConsumerCrashRecoveryTest.class);
+
     private static final String[] SYSTEM_PROPERTIES = {
         "peegeeq.database.host", "peegeeq.database.port", "peegeeq.database.name",
         "peegeeq.database.username", "peegeeq.database.password", "peegeeq.database.ssl.enabled"

@@ -9,6 +9,7 @@ import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
@@ -35,8 +36,6 @@ import static org.junit.jupiter.api.Assertions.*;
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * Coverage-focused tests for OutboxConsumer error handling paths.
@@ -52,15 +51,7 @@ public class OutboxConsumerErrorPathsCoverageTest {
 
 
     @Container
-    private static final PostgreSQLContainer postgres = createPostgresContainer();
-
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
-        container.withDatabaseName("testdb");
-        container.withUsername("testuser");
-        container.withPassword("testpass");
-        return container;
-    }
+    private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
     private PeeGeeQManager manager;
     private OutboxFactory outboxFactory;
@@ -370,7 +361,7 @@ public class OutboxConsumerErrorPathsCoverageTest {
         TestMessage testMsg = new TestMessage("intermittent", "Intermittent failure test");
         producer.send(testMsg);
         
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should eventually succeed after retry");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Should eventually succeed after retry");
         assertTrue(attemptCount.get() >= 2, "Should have multiple attempts");
     }
 

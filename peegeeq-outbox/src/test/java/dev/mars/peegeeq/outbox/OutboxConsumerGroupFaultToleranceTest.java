@@ -319,16 +319,23 @@ class OutboxConsumerGroupFaultToleranceTest {
                     return entered.future();
                 })
                 .compose(v -> {
-                    // Now stop the group gracefully while handler is in-flight
+                    // Now stop the group gracefully while handler is in-flight.
+                    // closeAsync() waits for in-flight processing to finish, so we must
+                    // release the handler gate concurrently — otherwise stopGracefully()
+                    // would block forever waiting for the handler that is waiting on the gate.
                     logger.info("Calling stopGracefully() while handler is in-flight");
+
+                    // Schedule gate release after a short delay so closeAsync() can proceed
+                    vertx.timer(500).onSuccess(id -> {
+                        logger.info("Releasing handler gate to allow in-flight processing to complete");
+                        handlerGate.complete();
+                    });
+
                     return consumerGroup.stopGracefully();
                 })
                 .compose(v -> {
                     // Verify the group is no longer active
                     assertFalse(consumerGroup.isActive(), "Group should not be active after stopGracefully()");
-
-                    // Release the handler gate so the in-flight future completes
-                    handlerGate.complete();
 
                     // Send another message — it should NOT be processed (group is stopped)
                     AtomicInteger postStopReceived = new AtomicInteger();
