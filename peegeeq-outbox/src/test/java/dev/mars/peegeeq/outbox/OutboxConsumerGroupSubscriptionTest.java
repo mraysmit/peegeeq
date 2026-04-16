@@ -72,6 +72,8 @@ import org.slf4j.LoggerFactory;
 @DisplayName("Outbox Consumer Group Subscription Features")
 class OutboxConsumerGroupSubscriptionTest {
 
+    private static final Logger logger = LoggerFactory.getLogger(OutboxConsumerGroupSubscriptionTest.class);
+
     @Container
     private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
@@ -111,7 +113,7 @@ class OutboxConsumerGroupSubscriptionTest {
 
     @AfterEach
     void tearDown() throws Exception {
-        logger.info("Setting up: configuring database and starting PeeGeeQManager");
+        logger.info("Tearing down: closing resources and clearing system properties");
         if (producer != null) {
             producer.close();
         }

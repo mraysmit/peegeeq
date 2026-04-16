@@ -60,6 +60,8 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 @Testcontainers
 public class OutboxErrorHandlingTest {
 
+    private static final Logger logger = LoggerFactory.getLogger(OutboxErrorHandlingTest.class);
+
     @Container
     private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 

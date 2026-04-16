@@ -44,6 +44,8 @@ import org.slf4j.LoggerFactory;
 @ExtendWith(VertxExtension.class)
 public class OutboxConsumerGroupIntegrationTest {
 
+    private static final Logger logger = LoggerFactory.getLogger(OutboxConsumerGroupIntegrationTest.class);
+
     private static final String[] SYSTEM_PROPERTIES = {
         "peegeeq.database.host", "peegeeq.database.port", "peegeeq.database.name",
         "peegeeq.database.username", "peegeeq.database.password", "peegeeq.database.ssl.enabled",

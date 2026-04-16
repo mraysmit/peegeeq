@@ -63,6 +63,8 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
 @ExtendWith(VertxExtension.class)
 public class OutboxParallelProcessingTest {
 
+    private static final Logger logger = LoggerFactory.getLogger(OutboxParallelProcessingTest.class);
+
     @Container
     private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 

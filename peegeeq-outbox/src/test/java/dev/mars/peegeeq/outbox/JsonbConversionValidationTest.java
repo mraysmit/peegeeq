@@ -83,11 +83,11 @@ class JsonbConversionValidationTest {
         System.setProperty("peegeeq.database.password", postgres.getPassword());
         System.setProperty("peegeeq.database.ssl.enabled", "false");
 
+        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
+
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("jsonb-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
-
-        PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
 
         factory = new OutboxFactory(manager.getDatabaseService());
 

@@ -186,12 +186,11 @@ public class SubscriptionManager implements SubscriptionService {
                         }
                         return (Void) null;
                     })
-                    .recover(error -> {
+                    .onFailure(error -> {
                         try (var scope = TraceContextUtil.mdcScope(trace)) {
-                            logger.warn("Auto-backfill failed for topic='{}', group='{}': {} (subscription was still created)",
+                            logger.warn("Auto-backfill failed for topic='{}', group='{}': {}",
                                        topic, groupName, error.getMessage());
                         }
-                        return Future.succeededFuture();
                     });
             });
         }
@@ -408,13 +407,11 @@ public class SubscriptionManager implements SubscriptionService {
                                 }
                                 return (Void) null;
                             })
-                            .recover(err -> {
+                            .onFailure(err -> {
                                 try (var scope = TraceContextUtil.mdcScope(trace)) {
-                                    logger.warn("Cancel cleanup failed for group='{}' on topic='{}' " +
-                                                    "(cancel still succeeded): {}",
+                                    logger.warn("Cancel cleanup failed for group='{}' on topic='{}': {}",
                                             groupName, topic, err.getMessage());
                                 }
-                                return Future.succeededFuture();
                             });
                 });
     }
@@ -584,12 +581,11 @@ public class SubscriptionManager implements SubscriptionService {
                                 }
                                 return (Void) null;
                             })
-                            .recover(error -> {
+                            .onFailure(error -> {
                                 try (var scope = TraceContextUtil.mdcScope(trace)) {
-                                    logger.warn("Resurrection re-backfill failed for topic='{}', group='{}': {} (resurrection was still successful)",
+                                    logger.warn("Resurrection re-backfill failed for topic='{}', group='{}': {}",
                                                topic, groupName, error.getMessage());
                                 }
-                                return Future.succeededFuture();
                             });
                     }
                     return Future.succeededFuture();
