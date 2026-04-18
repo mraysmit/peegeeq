@@ -76,7 +76,6 @@ public class AdvancedConfigurationExampleTest {
 
         if (manager != null) {
             manager.closeReactive()
-                .recover(t -> Future.succeededFuture())
                 .onComplete(v -> {
                     clearTestProperties();
                     logger.info("✓ Advanced Configuration Example Test teardown completed");

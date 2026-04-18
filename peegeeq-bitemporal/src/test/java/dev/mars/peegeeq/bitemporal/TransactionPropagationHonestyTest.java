@@ -184,7 +184,6 @@ class TransactionPropagationHonestyTest {
         Pool setupPool = PgBuilder.pool().connectingTo(connectOptions()).using(vertx).build();
 
         setupPool.query("TRUNCATE TABLE " + schema + ".bitemporal_event_log CASCADE").execute()
-                .recover(err -> Future.succeededFuture(null))
                 .compose(v -> setupPool.close())
                 .compose(v -> manager.start())
                 .onSuccess(v -> {
@@ -282,8 +281,8 @@ class TransactionPropagationHonestyTest {
                     });
         })
         // The external transaction rolled back.
-        .recover(err -> {
-            logger.info("External transaction rolled back as expected: {}", err.getMessage());
+        .transform(ar -> {
+            if (ar.failed()) logger.info("External transaction rolled back as expected: {}", ar.cause().getMessage());
             return Future.succeededFuture(null);
         })
         .compose(ignored -> {
@@ -401,8 +400,8 @@ class TransactionPropagationHonestyTest {
                                     new RuntimeException("Deliberate rollback"));
                         })
         )
-        .recover(err -> {
-            logger.info("Transaction rolled back as expected: {}", err.getMessage());
+        .transform(ar -> {
+            if (ar.failed()) logger.info("Transaction rolled back as expected: {}", ar.cause().getMessage());
             return Future.succeededFuture(null);
         })
         .compose(ignored -> {
@@ -489,8 +488,8 @@ class TransactionPropagationHonestyTest {
                                 Future.<BiTemporalEvent<TestPayload>>failedFuture(
                                         new RuntimeException("Deliberate rollback")))
         )
-        .recover(err -> {
-            logger.info("External transaction rolled back as expected: {}", err.getMessage());
+        .transform(ar -> {
+            if (ar.failed()) logger.info("External transaction rolled back as expected: {}", ar.cause().getMessage());
             return Future.succeededFuture(null);
         })
         .compose(ignored -> {
@@ -543,7 +542,6 @@ class TransactionPropagationHonestyTest {
                                 Future.<BiTemporalEvent<TestPayload>>failedFuture(
                                         new RuntimeException("Deliberate rollback")))
         )
-        .recover(err -> Future.succeededFuture(null))
         .compose(ignored -> {
             String countSql = "SELECT COUNT(*) FROM " + schema +
                     ".bitemporal_event_log WHERE event_type = $1";
@@ -597,7 +595,6 @@ class TransactionPropagationHonestyTest {
                                 Future.<BiTemporalEvent<TestPayload>>failedFuture(
                                         new RuntimeException("Deliberate rollback")))
         )
-        .recover(err -> Future.succeededFuture(null))
         .compose(ignored -> {
             String countSql = "SELECT COUNT(*) FROM " + schema +
                     ".bitemporal_event_log WHERE event_type = $1";
@@ -750,7 +747,6 @@ class TransactionPropagationHonestyTest {
                                 Future.<BiTemporalEvent<TestPayload>>failedFuture(
                                         new RuntimeException("Deliberate rollback")))
         )
-        .recover(err -> Future.succeededFuture(null))
         .compose(ignored -> {
             String countSql = "SELECT COUNT(*) FROM " + schema +
                     ".bitemporal_event_log WHERE event_type = $1";
@@ -891,11 +887,12 @@ class TransactionPropagationHonestyTest {
         .compose(v -> closedStore.append(eventType, payload, validTime)
                 .compose(event -> Future.<BiTemporalEvent<TestPayload>>failedFuture(
                         new AssertionError("append() should have been rejected by closed store"))))
-        .recover(err -> {
+        .transform(ar -> {
+            if (ar.succeeded()) return Future.failedFuture(new AssertionError("Expected failure from closed store append()"));
             testContext.verify(() -> {
-                assertInstanceOf(IllegalStateException.class, err,
+                assertInstanceOf(IllegalStateException.class, ar.cause(),
                         "Closed store must produce IllegalStateException from append()");
-                assertTrue(err.getMessage().contains("Event store is closed"),
+                assertTrue(ar.cause().getMessage().contains("Event store is closed"),
                         "Error message must mention closed store");
             });
             return Future.succeededFuture(null);
@@ -906,11 +903,12 @@ class TransactionPropagationHonestyTest {
                 Map.of(), null, null, null, null)
                 .compose(event -> Future.<BiTemporalEvent<TestPayload>>failedFuture(
                         new AssertionError("appendInTransaction() should have been rejected by closed store"))))
-        .recover(err -> {
+        .transform(ar -> {
+            if (ar.succeeded()) return Future.failedFuture(new AssertionError("Expected failure from closed store appendInTransaction()"));
             testContext.verify(() -> {
-                assertInstanceOf(IllegalStateException.class, err,
+                assertInstanceOf(IllegalStateException.class, ar.cause(),
                         "Closed store must produce IllegalStateException from appendInTransaction()");
-                assertTrue(err.getMessage().contains("Event store is closed"),
+                assertTrue(ar.cause().getMessage().contains("Event store is closed"),
                         "Error message must mention closed store");
             });
             return Future.succeededFuture(null);
@@ -1030,8 +1028,8 @@ class TransactionPropagationHonestyTest {
                                         new RuntimeException("Deliberate rollback"));
                             })
             )
-            .recover(err -> {
-                logger.info("External transaction rolled back as expected: {}", err.getMessage());
+            .transform(ar -> {
+                if (ar.failed()) logger.info("External transaction rolled back as expected: {}", ar.cause().getMessage());
                 return Future.succeededFuture(null);
             });
         })

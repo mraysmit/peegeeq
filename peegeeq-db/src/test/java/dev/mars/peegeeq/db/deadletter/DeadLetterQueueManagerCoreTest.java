@@ -91,7 +91,7 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
     private Future<Void> cleanupDeadLetterQueue() {
         return reactivePool.<Void>withConnection(connection ->
             connection.preparedQuery("DELETE FROM dead_letter_queue").execute().mapEmpty()
-        ).recover(e -> Future.succeededFuture());
+        ).transform(ar -> Future.<Void>succeededFuture());
     }
 
     @AfterEach
@@ -511,7 +511,12 @@ public class DeadLetterQueueManagerCoreTest extends BaseIntegrationTest {
                 fail("Expected future to fail but it succeeded with: " + result);
                 return (Void) null;
             })
-            .recover(err -> Future.succeededFuture());
+            .transform(ar -> {
+                if (ar.failed() && !(ar.cause() instanceof AssertionError)) {
+                    return Future.<Void>succeededFuture();
+                }
+                return ar.failed() ? Future.failedFuture(ar.cause()) : Future.succeededFuture();
+            });
     }
 
     private Future<Integer> countOutboxRowsByTopic(String topic) {

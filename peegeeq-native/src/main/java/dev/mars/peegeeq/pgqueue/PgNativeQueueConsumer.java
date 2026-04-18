@@ -277,7 +277,9 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                             logger.debug("Error during UNLISTEN for channel {}: {}", notifyChannel,
                                     err.getMessage()))
                     .eventually(() -> connectionToClose.close()
-                            .recover(ignore -> Future.succeededFuture()));
+                            .onFailure(ignore ->
+                                logger.debug("Error closing connection after UNLISTEN: {}", ignore.getMessage()))
+                            .transform(ar -> Future.<Void>succeededFuture()));
         }
     }
 

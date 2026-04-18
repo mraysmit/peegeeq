@@ -105,8 +105,8 @@ class VersionLineageIntegrationTest {
 
         if (peeGeeQManager != null) {
             chain = peeGeeQManager.closeReactive()
-                .recover(err -> {
-                    logger.warn("Error closing PeeGeeQManager: {}", err.getMessage());
+                .transform(ar -> {
+                    if (ar.failed()) logger.warn("Error closing PeeGeeQManager: {}", ar.cause().getMessage());
                     return Future.succeededFuture();
                 });
             peeGeeQManager = null;

@@ -82,7 +82,6 @@ public class PerformanceComparisonExampleTest {
 
         if (manager != null) {
             manager.closeReactive()
-                .recover(t -> Future.succeededFuture())
                 .onComplete(v -> {
                     System.getProperties().entrySet().removeIf(entry ->
                         entry.getKey().toString().startsWith("peegeeq."));
@@ -229,9 +228,7 @@ public class PerformanceComparisonExampleTest {
 
                 return mgr.closeReactive().map(closed -> result);
             })
-            .recover(t -> mgr.closeReactive()
-                .recover(closeErr -> Future.succeededFuture())
-                .compose(v -> Future.failedFuture(t)));
+            .eventually(() -> mgr.closeReactive().transform(ar -> Future.<Void>succeededFuture()));
     }
     
     /**

@@ -105,7 +105,6 @@ public class PeeGeeQManagerCloseLogLevelTest {
 
         if (manager != null) {
             manager.closeReactive()
-                    .recover(t -> Future.succeededFuture())
                     .onComplete(v -> {
                         clearSystemProperties();
                         testContext.completeNow();
@@ -179,7 +178,7 @@ public class PeeGeeQManagerCloseLogLevelTest {
                     return manager.closeReactive();
                 })
                 .onSuccess(v -> testContext.verify(() -> {
-                    // closeReactive() should complete (via .recover()) even with failures
+                    // closeReactive() should complete (via .eventually()) even with failures
                     // The key assertion: failures are logged at ERROR, not WARN
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
                     List<ILoggingEvent> warns = logCapture.eventsAtLevel(Level.WARN);

@@ -102,7 +102,11 @@ public class ConnectionRouter {
                                                    String environment, String region, int retryCount) {
         
         return makeRequest(instance, path)
-                .recover(throwable -> {
+                .transform(ar -> {
+                    if (ar.succeeded()) {
+                        return Future.succeededFuture(ar.result());
+                    }
+                    Throwable throwable = ar.cause();
                     logger.warn("Request failed to instance {}: {}", instance.getInstanceId(), throwable.getMessage());
                     
                     if (retryCount >= maxRetries) {

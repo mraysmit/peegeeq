@@ -210,7 +210,9 @@ class ReactiveNotificationHandlerFailurePathTest {
         handler.start()
                 .compose(v -> handler.subscribe("test.event", null, message -> Future.<Void>succeededFuture())
                         .compose(ignored -> Future.<Void>failedFuture("subscribe should have failed"))
-                        .recover(error -> {
+                        .transform(ar -> {
+                            if (ar.succeeded()) return Future.<Void>failedFuture(\"Expected subscribe to fail\");
+                            Throwable error = ar.cause();
                             testContext.verify(() -> {
                                 assertTrue(error.getMessage().contains("forced listen failure"));
                                 assertTrue(handler.subscriptionsView().isEmpty(), "Failed subscribe should not retain handler state");

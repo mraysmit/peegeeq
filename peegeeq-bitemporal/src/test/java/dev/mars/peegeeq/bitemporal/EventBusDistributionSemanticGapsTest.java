@@ -182,7 +182,7 @@ class EventBusDistributionSemanticGapsTest {
 
                     Pool setupPool = PgBuilder.pool().connectingTo(connectOptions()).using(managerVertx).build();
                     return setupPool.query("TRUNCATE TABLE " + schema + ".bitemporal_event_log CASCADE").execute()
-                            .recover(err -> Future.succeededFuture(null))
+                            .transform(ar -> Future.succeededFuture(null))
                             .compose(r -> setupPool.close());
                 })
                 .compose(v -> {

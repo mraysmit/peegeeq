@@ -158,10 +158,7 @@ class BiTemporalEventStoreExampleTest {
         }
 
         closeChain
-                .recover(error -> {
-                    logger.warn("Bi-Temporal Event Store Example Test cleanup encountered an error: {}", error.getMessage());
-                    return Future.<Void>succeededFuture();
-                })
+                .onFailure(error -> logger.warn("Bi-Temporal Event Store Example Test cleanup encountered an error: {}", error.getMessage()))
                 .onSuccess(v -> {
                     System.clearProperty("peegeeq.database.host");
                     System.clearProperty("peegeeq.database.port");
@@ -185,10 +182,7 @@ class BiTemporalEventStoreExampleTest {
                 .query("TRUNCATE TABLE bitemporal_event_log CASCADE")
                 .execute()
                 .map(rows -> (Void) null)
-                .recover(error -> {
-                    logger.debug("Could not truncate tables (they may not exist yet): {}", error.getMessage());
-                    return Future.succeededFuture((Void) null);
-                });
+                .onFailure(error -> logger.debug("Could not truncate tables (they may not exist yet): {}", error.getMessage()));
     }
     
     @Test

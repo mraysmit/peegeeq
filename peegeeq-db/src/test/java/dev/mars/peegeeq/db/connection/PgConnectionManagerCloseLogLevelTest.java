@@ -91,7 +91,6 @@ public class PgConnectionManagerCloseLogLevelTest {
 
         if (connectionManager != null) {
             connectionManager.close()
-                    .recover(t -> Future.succeededFuture())
                     .onComplete(v -> testContext.completeNow());
         } else {
             testContext.completeNow();
@@ -180,7 +179,7 @@ public class PgConnectionManagerCloseLogLevelTest {
                     return ownConnMgr.close();
                 })
                 .onComplete(ar -> testContext.verify(() -> {
-                    // closeAsync() completes via .recover() even when pools fail
+                    // closeAsync() completes via .mapEmpty() even when pools fail
                     List<ILoggingEvent> errors = ownCapture.eventsAtLevel(Level.ERROR);
                     List<ILoggingEvent> warns = ownCapture.eventsAtLevel(Level.WARN);
 

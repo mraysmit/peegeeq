@@ -219,11 +219,11 @@ class SSEBasicStreamingIntegrationTest {
                         return Future.succeededFuture(); // Don't fail teardown
                     }
                 })
-                .recover(err -> {
+                .eventually(() -> {
                     client.close();
-                    logger.warn("Failed to cleanup test setup: {}", testSetupId, err);
-                    return Future.succeededFuture(); // Don't fail teardown
-                });
+                    return Future.succeededFuture();
+                })
+                .onFailure(err -> logger.warn("Failed to cleanup test setup: {}", testSetupId, err));
     }
 
     /**

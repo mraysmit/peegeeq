@@ -174,7 +174,6 @@ class AppendBatchIntegrationTest {
                 }
                 return Future.succeededFuture();
             })
-            .recover(t -> Future.succeededFuture())
             .compose(v -> cleanupDatabase())
             .onSuccess(v -> {
                 restoreTestProperties();

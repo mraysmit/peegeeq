@@ -165,7 +165,7 @@ class VersionLineageBugSurfacingTest {
         Pool setupPool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
 
         setupPool.query("TRUNCATE TABLE " + schema + ".bitemporal_event_log CASCADE").execute()
-                .recover(err -> Future.succeededFuture(null))
+                .transform(ar -> Future.succeededFuture(null))
                 .compose(v -> setupPool.close())
                 .compose(v -> manager.start())
                 .onSuccess(v -> {

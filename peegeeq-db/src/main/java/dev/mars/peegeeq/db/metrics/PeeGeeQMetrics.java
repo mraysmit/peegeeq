@@ -669,9 +669,6 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
                     }
                     return 0.0;
                 });
-        }).recover(throwable -> {
-            logger.warn("Failed to execute reactive count query: {}", sql, throwable);
-            return Future.succeededFuture(0.0);
         });
     }
 
@@ -702,7 +699,7 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
             }
 
             return future.onSuccess(v -> logger.debug("Persisted metrics to database using reactive patterns"));
-        }).recover(throwable -> {
+        }).onFailure(throwable -> {
             // Check if this is a connection error during shutdown (expected during cleanup)
             String errorMsg = throwable.getMessage();
             boolean isConnectionError = errorMsg != null &&
@@ -715,7 +712,6 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
             } else {
                 logger.error("Failed to persist metrics to database", throwable);
             }
-            return Future.succeededFuture();
         });
     }
 
@@ -742,9 +738,12 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
             // Simple query to test connection health
             return connection.preparedQuery("SELECT 1").execute()
                 .map(rowSet -> true);
-        }).recover(throwable -> {
-            logger.warn("Reactive health check failed", throwable);
-            return Future.succeededFuture(false);
+        }).transform(ar -> {
+            if (ar.failed()) {
+                logger.warn("Reactive health check failed", ar.cause());
+                return Future.succeededFuture(false);
+            }
+            return Future.succeededFuture(ar.result());
         });
     }
 

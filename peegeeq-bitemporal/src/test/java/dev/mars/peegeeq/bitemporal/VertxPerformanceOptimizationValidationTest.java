@@ -130,8 +130,8 @@ class VertxPerformanceOptimizationValidationTest {
             eventStore.close();
         }
         if (manager != null) {
-            closeFuture = manager.closeReactive().recover(err -> {
-                logger.warn("Error during manager close: {}", err.getMessage());
+            closeFuture = manager.closeReactive().transform(ar -> {
+                if (ar.failed()) logger.warn("Error during manager close: {}", ar.cause().getMessage());
                 return Future.succeededFuture();
             });
         }

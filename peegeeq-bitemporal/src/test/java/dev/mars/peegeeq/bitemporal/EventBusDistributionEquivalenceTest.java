@@ -176,7 +176,7 @@ class EventBusDistributionEquivalenceTest {
                             .using(manager.getVertx()).build();
                     return setupPool.query("TRUNCATE TABLE " + schema + "." + TABLE_NAME + " CASCADE")
                             .execute()
-                            .recover(err -> Future.succeededFuture(null))
+                            .transform(ar -> Future.succeededFuture(null))
                             .compose(r -> setupPool.close());
                 })
                 .compose(v -> {

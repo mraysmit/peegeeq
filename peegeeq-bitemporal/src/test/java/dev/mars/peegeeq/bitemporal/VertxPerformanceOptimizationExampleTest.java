@@ -104,8 +104,8 @@ public class VertxPerformanceOptimizationExampleTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) {
         Future<Void> closeFuture = (manager != null)
-            ? manager.closeReactive().recover(err -> {
-                logger.warn("Error closing PeeGeeQ Manager", err);
+            ? manager.closeReactive().transform(ar -> {
+                if (ar.failed()) logger.warn("Error closing PeeGeeQ Manager", ar.cause());
                 return Future.succeededFuture();
             })
             : Future.succeededFuture();

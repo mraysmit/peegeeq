@@ -115,7 +115,7 @@ class BiTemporalPerformanceParityTest {
                 }
                 return Future.succeededFuture();
             })
-            .recover(t -> Future.succeededFuture())
+            .transform(ar -> Future.succeededFuture())
             .compose(v -> cleanupDatabase())
             .onSuccess(v -> {
                 restoreTestProperties();

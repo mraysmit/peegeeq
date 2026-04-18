@@ -113,6 +113,7 @@ public class PeeGeeQManager implements AutoCloseable {
     private volatile boolean started = false;
     private volatile boolean closing = false;
     private volatile Future<Void> startFuture = null;
+    private volatile Future<Void> closeFuture = null;
 
     // Cached subscription service — created once, reused per request
     private volatile dev.mars.peegeeq.api.subscription.SubscriptionService cachedSubscriptionService;
@@ -275,16 +276,26 @@ public class PeeGeeQManager implements AutoCloseable {
                 logger.debug("DB-DEBUG: PeeGeeQ Manager reactive startup completed, all components initialized");
                 return publishLifecycleEvent("manager.ready");
             })
-            .recover(throwable -> {
+            .onFailure(throwable -> {
                 logger.error("Failed to start PeeGeeQ Manager reactively", throwable);
                 logger.debug("DB-DEBUG: PeeGeeQ Manager reactive startup failed, error: {}", throwable.getMessage());
-                
-                // Stop background tasks and health checks on failure to prevent leaks
+            })
+            // On failure ONLY: stop background tasks and health checks to prevent leaks,
+            // publish manager.failed, and propagate a wrapped RuntimeException.
+            // .transform() lets us inspect the AsyncResult and branch on failure without
+            // using .recover() (which is forbidden per the recover-removal initiative).
+            .transform(ar -> {
+                if (ar.succeeded()) {
+                    return Future.<Void>succeededFuture();
+                }
+                Throwable original = ar.cause();
                 return stopBackgroundTasks()
-                    .compose(v -> healthCheckManager.stop())
-                    .recover(e -> Future.succeededFuture()) // Ignore errors during stop
-                    .compose(v -> publishLifecycleEvent("manager.failed"))
-                    .compose(v -> Future.failedFuture(new RuntimeException("Failed to start PeeGeeQ Manager", throwable)));
+                    .eventually(() -> healthCheckManager.stop()
+                        .onFailure(e -> logger.warn("Error stopping health checks during startup cleanup: {}", e.getMessage())))
+                    .eventually(() -> publishLifecycleEvent("manager.failed")
+                        .onFailure(e -> logger.debug("Failed to publish manager.failed event: {}", e.getMessage())))
+                    .transform(unused -> Future.<Void>failedFuture(
+                            new RuntimeException("Failed to start PeeGeeQ Manager", original)));
             })
             .eventually(() -> {
                 startFuture = null;
@@ -322,10 +333,9 @@ public class PeeGeeQManager implements AutoCloseable {
                 logger.debug("DB-DEBUG: PeeGeeQ Manager shutdown completed");
                 return Future.<Void>succeededFuture();
             })
-            .recover(throwable -> {
+            .onFailure(throwable -> {
                 logger.error("Error stopping PeeGeeQ Manager", throwable);
                 started = false; // Mark as stopped even if there were errors
-                return Future.failedFuture(throwable);
             });
     }
 
@@ -387,6 +397,12 @@ public class PeeGeeQManager implements AutoCloseable {
      * "Pool closed" errors from racing startup futures.
      */
     public Future<Void> closeReactive() {
+        // Return cached close future if already closing — prevents re-running
+        // the shutdown chain on a dead event loop.
+        Future<Void> existing = closeFuture;
+        if (existing != null) {
+            return existing;
+        }
         closing = true;
         logger.info("PeeGeeQManager.closeReactive() called - starting shutdown sequence");
 
@@ -400,58 +416,44 @@ public class PeeGeeQManager implements AutoCloseable {
             awaitStart = Future.succeededFuture();
         }
 
-        // Absorb any start failure so the cleanup chain always runs, then re-raise
-        // the original start failure at the end. This avoids .eventually() which cannot
-        // dispatch the final result after vertx.close() destroys the event loop.
-        return awaitStart
-            .recover(startError -> Future.succeededFuture()) // let cleanup proceed
+        // .eventually() chains ensure ALL cleanup runs regardless of any failure.
+        // The original awaitStart outcome flows through to the caller automatically —
+        // if start() was in-flight and failed, that failure propagates after cleanup.
+        Future<Void> result = awaitStart
             // 1. Stop reactive components (background tasks, health checks)
-            .compose(v -> stop())
-            .recover(e -> {
-                logger.warn("stop() failed during close, continuing cleanup: {}", e.getMessage());
-                return Future.succeededFuture();
-            })
-            .compose(v -> {
-                // 2. Run registered close hooks
+            .eventually(() -> stop()
+                .onFailure(e -> logger.warn("stop() failed during close, continuing cleanup: {}", e.getMessage())))
+            // 2. Run registered close hooks
+            .eventually(() -> {
                 io.vertx.core.Future<Void> chain = io.vertx.core.Future.succeededFuture();
                 if (!closeHooks.isEmpty()) {
                     logger.info("Running {} registered close hooks", closeHooks.size());
                     for (dev.mars.peegeeq.api.lifecycle.PeeGeeQCloseHook hook : closeHooks) {
-                        chain = chain.compose(ignored -> hook.closeReactive()
+                        chain = chain.eventually(() -> hook.closeReactive()
                             .onSuccess(v2 -> logger.debug("Close hook '{}' completed", hook.name()))
-                            .onFailure(e -> logger.warn("Close hook '{}' failed: {}", hook.name(), e.getMessage()))
-                            .recover(e -> Future.succeededFuture()) // Continue chain on error
-                        );
+                            .onFailure(e -> logger.warn("Close hook '{}' failed: {}", hook.name(), e.getMessage())));
                     }
                 } else {
                     logger.debug("No registered close hooks to run");
                 }
                 return chain;
             })
-            .compose(v -> {
-                // 3. Timer cancellation already handled by stop()->stopBackgroundTasks()
-                //    No duplicate cancellation needed here (H4 remediation)
-
-                // 4. Close worker executor (finish pending tasks)
-                return workerExecutor.close()
-                    .recover(e -> {
-                        logger.warn("Failed to close worker executor", e);
-                        return Future.succeededFuture();
-                    });
-            })
-            .compose(v -> {
-                // 5. Close client factory (DB pools) - AFTER workers are done
+            // 3. Timer cancellation already handled by stop()->stopBackgroundTasks()
+            // 4. Close worker executor (finish pending tasks)
+            .eventually(() -> workerExecutor.close()
+                .onFailure(e -> logger.warn("Failed to close worker executor", e)))
+            // 5. Close client factory (DB pools) - AFTER workers are done
+            .eventually(() -> {
                 if (clientFactory != null) {
                     logger.info("Closing client factory");
                     return clientFactory.closeAsync()
                         .onSuccess(v2 -> logger.info("Client factory closed successfully"))
-                        .onFailure(e -> logger.warn("Error closing client factory: {}", e.getMessage()))
-                        .recover(e -> Future.succeededFuture());
+                        .onFailure(e -> logger.warn("Error closing client factory: {}", e.getMessage()));
                 }
                 return Future.succeededFuture();
             })
-            .compose(v -> {
-                // 6. Close manager-owned MeterRegistry
+            // 6. Close manager-owned MeterRegistry
+            .eventually(() -> {
                 if (meterRegistryOwnedByManager && meterRegistry instanceof AutoCloseable ac) {
                     try {
                         ac.close();
@@ -462,46 +464,28 @@ public class PeeGeeQManager implements AutoCloseable {
                 }
                 return Future.succeededFuture();
             })
-            .compose(v -> {
+            // 7. Close Vert.x instance (if owned)
+            .eventually(() -> {
                 logger.info("PeeGeeQManager.closeReactive() cleanup completed");
-                
-                // 7. Close Vert.x instance (if owned)
                 if (vertx != null && vertxOwnedByManager) {
                     logger.info("Closing Vert.x instance (manager-owned)");
-                    // Attempt to close gracefully, but handle the inevitable "executor terminated" error
                     return vertx.close()
                         .onSuccess(v2 -> logger.info("Vert.x instance closed successfully"))
-                        .recover(e -> {
-                            if (e instanceof java.util.concurrent.RejectedExecutionException || 
+                        .onFailure(e -> {
+                            if (e instanceof java.util.concurrent.RejectedExecutionException ||
                                 (e.getCause() != null && e.getCause() instanceof java.util.concurrent.RejectedExecutionException)) {
-                                logger.debug("Vert.x event executor terminated during close (expected); treating as closed.");
-                                return Future.succeededFuture();
+                                logger.debug("Vert.x event executor terminated during close (expected)");
+                            } else {
+                                logger.warn("Error closing Vert.x instance", e);
                             }
-                            logger.warn("Error closing Vert.x instance", e);
-                            return Future.succeededFuture();
                         });
                 } else if (vertx != null) {
                     logger.info("Skipping Vert.x close (external ownership)");
-                    return Future.succeededFuture();
-                } else {
-                    return Future.succeededFuture();
-                }
-            })
-            .recover(e -> {
-                if (e instanceof java.util.concurrent.RejectedExecutionException || 
-                    (e.getCause() != null && e.getCause() instanceof java.util.concurrent.RejectedExecutionException)) {
-                    logger.warn("Vert.x event executor already terminated during close; ignoring and treating as closed.");
-                    return Future.succeededFuture();
-                }
-                return Future.failedFuture(e);
-            })
-            .compose(v -> {
-                // After cleanup completes, propagate the original start failure if any
-                if (awaitStart.failed()) {
-                    return Future.failedFuture(awaitStart.cause());
                 }
                 return Future.succeededFuture();
             });
+        closeFuture = result;
+        return result;
     }
 
     @Override
@@ -735,9 +719,13 @@ public class PeeGeeQManager implements AutoCloseable {
                         return (Void) null;
                     })
             )
-        ).recover(throwable -> {
-            logger.error("Database connectivity validation failed: {}", throwable.getMessage());
-            return Future.failedFuture(new RuntimeException("Database startup validation failed", throwable));
+        ).onFailure(throwable ->
+            logger.error("Database connectivity validation failed: {}", throwable.getMessage())
+        ).transform(ar -> {
+            if (ar.failed()) {
+                return Future.failedFuture(new RuntimeException("Database startup validation failed", ar.cause()));
+            }
+            return Future.succeededFuture();
         });
     }
 
@@ -932,7 +920,7 @@ public class PeeGeeQManager implements AutoCloseable {
         Future<Void> jobStop = Future.succeededFuture();
         if (deadConsumerDetectionJob != null) {
             jobStop = deadConsumerDetectionJob.stop()
-                .recover(e -> Future.succeededFuture());
+                .onFailure(e -> logger.warn("Error stopping dead consumer detection job: {}", e.getMessage()));
             deadConsumerDetectionJob = null;
         }
         if (consumerGroupRetryJob != null) {

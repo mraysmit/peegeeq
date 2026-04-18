@@ -196,7 +196,15 @@ public class DeadConsumerDetectionJob {
             try (var scope = TraceContextUtil.mdcScope(stopTrace)) {
                 logger.info("Awaiting in-flight detection run before stop completes");
             }
-            return pending.recover(e -> Future.succeededFuture())
+            return pending
+                    .transform(ar -> {
+                        if (ar.failed()) {
+                            try (var scope = TraceContextUtil.mdcScope(stopTrace)) {
+                                logger.warn("In-flight detection failed during stop: {}", ar.cause().getMessage());
+                            }
+                        }
+                        return Future.<Void>succeededFuture();
+                    })
                     .map(v -> {
                         try (var scope = TraceContextUtil.mdcScope(stopTrace)) {
                             logger.info("DeadConsumerDetectionJob stopped");
@@ -360,7 +368,12 @@ public class DeadConsumerDetectionJob {
 
         // Track in-flight detection so stop() can await it before pools close
         inFlightDetection = detection.<Void>mapEmpty()
-                .recover(e -> Future.succeededFuture())
+                .onFailure(e -> {
+                    try (var scope = TraceContextUtil.mdcScope(trace)) {
+                        logger.debug("Detection run completed with failure (already logged above)");
+                    }
+                })
+                .transform(ar -> Future.<Void>succeededFuture())
                 .eventually(() -> {
                     inFlightDetection = null;
                     return Future.succeededFuture();

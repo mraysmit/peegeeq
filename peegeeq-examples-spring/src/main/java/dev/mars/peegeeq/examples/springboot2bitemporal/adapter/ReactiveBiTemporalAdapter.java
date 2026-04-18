@@ -138,7 +138,8 @@ public class ReactiveBiTemporalAdapter {
      * 
      * <p>This demonstrates the composability benefit of the native Vert.x Future API.
      * With the native API, you can use Vert.x operators like {@code .compose()},
-     * {@code .map()}, {@code .recover()} before converting to Mono/Flux.
+     * {@code .map()}, {@code .transform()}, {@code .eventually()},
+     * {@code .onSuccess()}, and {@code .onFailure()} before converting to Mono/Flux.
      * 
      * @param future The Vert.x Future from proposed native API
      * @param <T> The type of the event payload

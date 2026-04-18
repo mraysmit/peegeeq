@@ -67,7 +67,6 @@ class MissingSchemaFailFastTest {
     void tearDown(VertxTestContext testContext) {
         if (peeGeeQManager != null) {
             peeGeeQManager.closeReactive()
-                .recover(err -> io.vertx.core.Future.succeededFuture())
                 .onComplete(v -> {
                     restoreTestProperties();
                     testContext.completeNow();

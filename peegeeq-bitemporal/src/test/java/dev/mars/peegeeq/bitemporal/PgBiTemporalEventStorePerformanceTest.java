@@ -95,8 +95,8 @@ class PgBiTemporalEventStorePerformanceTest {
             eventStore.close();
         }
         Future<Void> closeFuture = (peeGeeQManager != null)
-            ? peeGeeQManager.closeReactive().recover(err -> {
-                logger.warn("Error during cleanup: {}", err.getMessage());
+            ? peeGeeQManager.closeReactive().transform(ar -> {
+                if (ar.failed()) logger.warn("Error during cleanup: {}", ar.cause().getMessage());
                 return Future.succeededFuture();
             })
             : Future.succeededFuture();

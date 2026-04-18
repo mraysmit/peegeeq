@@ -280,7 +280,7 @@ public class ResurrectionReBackfillIntegrationTest extends BaseIntegrationTest {
 
         // Create a BackfillService with a BROKEN connection manager (no pool registered).
         // When startBackfill tries to use it, withConnection returns failedFuture.
-        // This exercises the .recover() path in updateHeartbeat.
+        // This exercises the .transform() fallback path in updateHeartbeat.
         PgConnectionManager brokenConnectionManager = new PgConnectionManager(manager.getVertx(), null);
         // Intentionally do NOT register any pool on brokenConnectionManager
         BackfillService brokenBackfillService = new BackfillService(brokenConnectionManager, "no-such-pool");
@@ -290,7 +290,7 @@ public class ResurrectionReBackfillIntegrationTest extends BaseIntegrationTest {
         setSubscriptionStatus(topic, groupName, "DEAD");
 
         // Resurrect via heartbeat — backfill will fail ("No reactive pool found"),
-        // but .recover() should catch it and heartbeat still succeeds
+        // but .transform() should catch it and heartbeat still succeeds
         subscriptionManager.updateHeartbeat(topic, groupName)
             .toCompletionStage().toCompletableFuture().get();
 

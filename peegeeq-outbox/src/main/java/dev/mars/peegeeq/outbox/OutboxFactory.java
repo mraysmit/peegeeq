@@ -322,9 +322,12 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
             // Truly async health check via ConnectionProvider
             return databaseService.getConnectionProvider()
                     .isHealthy()
-                    .recover(err -> {
-                        logger.warn("Async health check failed for outbox queue factory", err);
-                        return io.vertx.core.Future.succeededFuture(false);
+                    .transform(ar -> {
+                        if (ar.failed()) {
+                            logger.warn("Async health check failed for outbox queue factory", ar.cause());
+                            return io.vertx.core.Future.succeededFuture(false);
+                        }
+                        return io.vertx.core.Future.succeededFuture(ar.result());
                     });
         }
         return io.vertx.core.Future.succeededFuture(false);
@@ -459,11 +462,8 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
                                         messagesPerSecond, 0.0, firstMessage, lastMessage);
                             });
                 })
-                .recover(err -> {
-                    logger.warn("Failed to get async stats for topic {}: {}", topic, err.getMessage());
-                    return io.vertx.core.Future.succeededFuture(
-                            dev.mars.peegeeq.api.messaging.QueueStats.basic(topic, 0, 0, 0));
-                });
+                .onFailure(err ->
+                    logger.warn("Failed to get async stats for topic {}: {}", topic, err.getMessage()));
     }
 
     @Override
@@ -552,11 +552,11 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
             if (resource instanceof OutboxConsumer<?> consumer) {
                 asyncCloses.add(consumer.closeAsync()
                     .onFailure(e -> logger.warn("Error closing consumer: {}", e.getMessage()))
-                    .recover(e -> io.vertx.core.Future.succeededFuture()));
+                    .transform(ar -> io.vertx.core.Future.<Void>succeededFuture()));
             } else if (resource instanceof OutboxConsumerGroup<?> group) {
                 asyncCloses.add(group.closeAsync()
                     .onFailure(e -> logger.warn("Error closing consumer group: {}", e.getMessage()))
-                    .recover(e -> io.vertx.core.Future.succeededFuture()));
+                    .transform(ar -> io.vertx.core.Future.<Void>succeededFuture()));
             } else {
                 try {
                     resource.close();

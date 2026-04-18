@@ -353,9 +353,11 @@ class PeeGeeQBiTemporalIntegrationTest {
                     }
                     return Future.succeededFuture();
                 })
-                .recover(err -> {
-                    logger.error("Failed to persist to bi-temporal store", err);
-                    ctx.failNow(err);
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.error("Failed to persist to bi-temporal store", ar.cause());
+                        ctx.failNow(ar.cause());
+                    }
                     return Future.succeededFuture();
                 });
         });
@@ -499,9 +501,11 @@ class PeeGeeQBiTemporalIntegrationTest {
                         persistedCp.flag();
                         return (Void) null;
                     })
-                    .recover(err -> {
-                        logger.error("Failed to persist event", err);
-                        ctx.failNow(err);
+                    .transform(ar -> {
+                        if (ar.failed()) {
+                            logger.error("Failed to persist event", ar.cause());
+                            ctx.failNow(ar.cause());
+                        }
                         return Future.succeededFuture();
                     });
             });

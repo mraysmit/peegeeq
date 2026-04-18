@@ -386,10 +386,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
                         return Future.failedFuture(e);
                     }
                 })
-                .recover(err -> {
-                    state.set(State.NEW);
-                    return Future.failedFuture(err);
-                });
+                .onFailure(err -> state.set(State.NEW));
         } else {
             logger.warn("DatabaseService is null - cannot create subscription. " +
                        "Subscription must be created manually via SubscriptionManager before starting.");
@@ -445,11 +442,10 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
                     groupName, topic);
             return databaseService.getSubscriptionService()
                     .cancel(topic, groupName)
-                    .recover(err -> {
+                    .onFailure(err ->
                         logger.warn("Failed to cancel subscription for group '{}' on topic '{}': {}",
-                                groupName, topic, err.getMessage());
-                        return Future.succeededFuture();
-                    })
+                                groupName, topic, err.getMessage()))
+                    .transform(ar -> Future.<Void>succeededFuture())
                     .compose(v -> stopInternal());
         }
 

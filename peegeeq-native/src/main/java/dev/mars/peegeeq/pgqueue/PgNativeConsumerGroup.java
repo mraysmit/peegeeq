@@ -243,7 +243,9 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
                     if (!state.compareAndSet(State.STARTING, State.ACTIVE)) {
                         logger.warn("Consumer group '{}' was closed during startup, aborting", groupName);
                         return partitionedEngine.stop()
-                                .recover(stopErr -> Future.succeededFuture())
+                                .onFailure(stopErr ->
+                                    logger.warn("Failed to stop engine during startup abort: {}", stopErr.getMessage()))
+                                .transform(ar -> Future.<Void>succeededFuture())
                                 .compose(v2 -> Future.<Void>failedFuture(
                                         new IllegalStateException("Consumer group closed during startup")));
                     }
@@ -253,11 +255,10 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
                             groupName, members.size());
                     return Future.succeededFuture();
                 })
-                .recover(err -> {
+                .onFailure(err -> {
                     logger.error("Failed to start partitioned engine for group '{}': {}",
                             groupName, err.getMessage());
                     state.compareAndSet(State.STARTING, State.NEW);
-                    return Future.failedFuture(err);
                 });
     }
 
@@ -273,10 +274,13 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
 
         if (connectionManager != null) {
             return PartitionedConsumerEngine.isOffsetWatermarkTopic(connectionManager, connectionServiceId, topic)
-                    .recover(err -> {
-                        logger.warn("Failed to detect topic mode for '{}', falling back to reference counting: {}",
-                                topic, err.getMessage());
-                        return Future.succeededFuture(false);
+                    .transform(ar -> {
+                        if (ar.failed()) {
+                            logger.warn("Failed to detect topic mode for '{}', falling back to reference counting: {}",
+                                    topic, ar.cause().getMessage());
+                            return Future.succeededFuture(false);
+                        }
+                        return Future.succeededFuture(ar.result());
                     })
                     .compose(isOffsetWatermark -> {
                         if (isOffsetWatermark) {
@@ -368,9 +372,8 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
                     startedWithSubscription = true;
                     return startInternal();
                 })
-                .recover(err -> {
+                .onFailure(err -> {
                     state.compareAndSet(State.STARTING, State.NEW);
-                    return Future.failedFuture(err);
                 });
         } else {
             logger.warn("DatabaseService is null - cannot create subscription. " +
@@ -402,11 +405,10 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
                     groupName, topic);
             return databaseService.getSubscriptionService()
                     .cancel(topic, groupName)
-                    .recover(err -> {
+                    .onFailure(err ->
                         logger.warn("Failed to cancel subscription for group '{}' on topic '{}': {}",
-                                groupName, topic, err.getMessage());
-                        return Future.succeededFuture();
-                    })
+                                groupName, topic, err.getMessage()))
+                    .transform(ar -> Future.<Void>succeededFuture())
                     .compose(v -> stopInternal());
         }
 

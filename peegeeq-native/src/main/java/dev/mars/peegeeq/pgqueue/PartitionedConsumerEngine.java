@@ -160,7 +160,12 @@ class PartitionedConsumerEngine<T> {
                             topic, groupName, assignedPartitions.size());
                         return Future.<Void>succeededFuture();
                 })
-                .recover(err -> resetAfterFailedStart(err));
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        return resetAfterFailedStart(ar.cause());
+                    }
+                    return Future.succeededFuture();
+                });
     }
 
     private Future<Void> resetAfterFailedStart(Throwable err) {
@@ -197,11 +202,10 @@ class PartitionedConsumerEngine<T> {
         fetchInProgress.clear();
 
         return assignmentService.leaveGroup(topic, groupName, instanceId)
-                .recover(err -> {
+                .onFailure(err ->
                     logger.warn("Failed to leave group during teardown: topic={}, group={}, err={}",
-                            topic, groupName, err.getMessage());
-                    return Future.succeededFuture();
-                });
+                            topic, groupName, err.getMessage()))
+                .transform(ar -> Future.<Void>succeededFuture());
     }
 
     /**

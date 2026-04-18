@@ -74,7 +74,6 @@ public class PeeGeeQExampleTest {
         
         if (manager != null) {
             manager.closeReactive()
-                .recover(t -> Future.succeededFuture())
                 .onComplete(v -> {
                     logger.info("✓ PeeGeeQ Example Test teardown completed");
                     testContext.completeNow();

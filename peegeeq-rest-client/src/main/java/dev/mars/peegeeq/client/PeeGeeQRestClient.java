@@ -789,13 +789,22 @@ public class PeeGeeQRestClient implements PeeGeeQClient {
         }
 
         return responseFuture
-            .recover(this::handleNetworkError)
+            .transform(ar -> {
+                if (ar.failed()) {
+                    return handleNetworkError(ar.cause());
+                }
+                return Future.succeededFuture(ar.result());
+            })
             .compose(response -> handleResponse(response, path));
     }
 
     private Future<HttpResponse<Buffer>> executeWithRetry(Supplier<Future<HttpResponse<Buffer>>> attemptSupplier,
                                                           int attempt) {
-        return attemptSupplier.get().recover(error -> {
+        return attemptSupplier.get().transform(ar -> {
+            if (ar.succeeded()) {
+                return Future.succeededFuture(ar.result());
+            }
+            Throwable error = ar.cause();
             if (!isRetryable(error) || attempt >= config.getMaxRetries()) {
                 return Future.failedFuture(error);
             }

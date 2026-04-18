@@ -145,8 +145,8 @@ class MultiTenantSchemaIsolationTest {
 
         // Clean up test data to ensure isolation between tests
         closeTenantAFuture
-                .recover(error -> Future.<Void>succeededFuture())
-                .compose(v -> closeTenantBFuture.recover(error -> Future.<Void>succeededFuture()))
+                .transform(ar -> Future.<Void>succeededFuture())
+                .compose(v -> closeTenantBFuture.transform(ar -> Future.<Void>succeededFuture()))
                 .onSuccess(v -> {
                     PeeGeeQTestSchemaInitializer.cleanupTestData(postgres, "tenant_a", SchemaComponent.BITEMPORAL);
                     PeeGeeQTestSchemaInitializer.cleanupTestData(postgres, "tenant_b", SchemaComponent.BITEMPORAL);

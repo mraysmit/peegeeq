@@ -101,10 +101,9 @@ class DeadLetterQueueManagerTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) {
         Future<Void> cleanup = (reactivePool != null)
-            ? cleanupTestData().recover(e -> {
+            ? cleanupTestData().onFailure(e -> {
                 System.err.println("Warning: Failed to cleanup test data in tearDown: " + e.getMessage());
-                return Future.succeededFuture();
-            })
+            }).transform(ar -> Future.<Void>succeededFuture())
             : Future.succeededFuture();
 
         cleanup.compose(v -> {

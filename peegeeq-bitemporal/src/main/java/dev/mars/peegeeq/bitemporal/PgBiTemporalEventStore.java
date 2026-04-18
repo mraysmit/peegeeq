@@ -1276,53 +1276,36 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         eventBusInstanceRegistry.computeIfPresent(eventBusInstanceKey,
             (key, existing) -> existing == this ? null : existing);
 
-        // Compose close operations sequentially: notification handler → reactive pool → pipelined client
-        // Best-effort: attempt all closes even if one fails, but propagate the first error to the caller.
+        // Close resources sequentially: notification handler → reactive pool → pipelined client.
+        // .eventually() ensures subsequent closes run regardless of earlier failures.
+        // The notification handler is closed first via .compose() so its error propagates;
+        // pool and client use .eventually() for best-effort cleanup with errors logged.
         Future<Void> chain = Future.succeededFuture();
-        java.util.concurrent.atomic.AtomicReference<Throwable> firstError = new java.util.concurrent.atomic.AtomicReference<>();
 
         if (reactiveNotificationHandler != null) {
             chain = chain.compose(v -> reactiveNotificationHandler.stop()
-                    .recover(e -> {
-                        logger.warn("Error closing reactive notification handler: {}", e.getMessage(), e);
-                        firstError.compareAndSet(null, e);
-                        return Future.succeededFuture();
-                    }));
+                    .onFailure(e -> logger.warn("Error closing reactive notification handler: {}", e.getMessage(), e)));
         }
 
         if (reactivePool != null) {
             Pool poolRef = reactivePool;
             reactivePool = null;
-            chain = chain.compose(v -> poolRef.close()
+            chain = chain.eventually(() -> poolRef.close()
                     .onSuccess(x -> logger.debug("Closed reactive pool"))
-                    .recover(e -> {
-                        logger.warn("Error closing reactive pool: {}", e.getMessage(), e);
-                        firstError.compareAndSet(null, e);
-                        return Future.succeededFuture();
-                    }));
+                    .onFailure(e -> logger.warn("Error closing reactive pool: {}", e.getMessage(), e)));
         }
 
         if (pipelinedClient != null) {
             SqlClient clientRef = pipelinedClient;
             pipelinedClient = null;
-            chain = chain.compose(v -> clientRef.close()
+            chain = chain.eventually(() -> clientRef.close()
                     .onSuccess(x -> logger.debug("Closed pipelined client"))
-                    .recover(e -> {
-                        logger.warn("Error closing pipelined client: {}", e.getMessage(), e);
-                        firstError.compareAndSet(null, e);
-                        return Future.succeededFuture();
-                    }));
+                    .onFailure(e -> logger.warn("Error closing pipelined client: {}", e.getMessage(), e)));
         }
 
-        return chain.compose(v -> {
-            Throwable error = firstError.get();
-            if (error != null) {
-                logger.warn("Bi-temporal event store closed with errors");
-                return Future.failedFuture(error);
-            }
-            logger.info("Bi-temporal event store closed");
-            return Future.<Void>succeededFuture();
-        });
+        return chain
+                .onSuccess(v -> logger.info("Bi-temporal event store closed"))
+                .onFailure(e -> logger.warn("Bi-temporal event store closed with errors"));
     }
 
 
@@ -1792,7 +1775,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
         // Propagate W3C traceparent to worker verticles for distributed tracing.
         // NOTE: The traceparent is forwarded so the worker continues the trace tree correctly,
-        // but the .map()/.recover() callbacks below run on the caller's event-loop thread
+        // but the .map()/.onFailure() callbacks below run on the caller's event-loop thread
         // without restoring the MDC scope from send time. This means logs emitted in these
         // callbacks may not correlate to the correct trace if the MDC has been modified between
         // send and callback. The trace structure (parent/child spans) is correct; only log
@@ -1813,11 +1796,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                             operation.getString("operation"), requestId);
                     return result;
                 })
-                .recover(error -> {
-                    logger.error("Database operation '{}' failed with requestId '{}': {}",
-                            operation.getString("operation"), requestId, error.getMessage(), error);
-                    return Future.failedFuture(error);
-                });
+                .onFailure(error -> logger.error("Database operation '{}' failed with requestId '{}': {}",
+                        operation.getString("operation"), requestId, error.getMessage(), error));
     }
 
     /**
@@ -2112,38 +2092,23 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      */
     public Future<Void> clearInstancePools() {
         Future<Void> chain = Future.succeededFuture();
-        java.util.concurrent.atomic.AtomicReference<Throwable> firstError = new java.util.concurrent.atomic.AtomicReference<>();
         synchronized (this) {
             if (reactivePool != null) {
                 Pool poolRef = reactivePool;
                 reactivePool = null;
                 chain = chain.compose(v -> poolRef.close()
                         .onSuccess(x -> logger.debug("Cleared reactive pool"))
-                        .recover(e -> {
-                            logger.warn("Error clearing reactive pool: {}", e.getMessage(), e);
-                            firstError.compareAndSet(null, e);
-                            return Future.succeededFuture();
-                        }));
+                        .onFailure(e -> logger.warn("Error clearing reactive pool: {}", e.getMessage(), e)));
             }
             if (pipelinedClient != null) {
                 SqlClient clientRef = pipelinedClient;
                 pipelinedClient = null;
-                chain = chain.compose(v -> clientRef.close()
+                chain = chain.eventually(() -> clientRef.close()
                         .onSuccess(x -> logger.debug("Cleared pipelined client"))
-                        .recover(e -> {
-                            logger.warn("Error clearing pipelined client: {}", e.getMessage(), e);
-                            firstError.compareAndSet(null, e);
-                            return Future.succeededFuture();
-                        }));
+                        .onFailure(e -> logger.warn("Error clearing pipelined client: {}", e.getMessage(), e)));
             }
         }
-        return chain.compose(v -> {
-            Throwable error = firstError.get();
-            if (error != null) {
-                return Future.failedFuture(error);
-            }
-            return Future.<Void>succeededFuture();
-        });
+        return chain;
     }
 
     /**

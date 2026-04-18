@@ -40,12 +40,12 @@ import static org.junit.jupiter.api.Assertions.*;
 
 /**
  * Tests that closeReactive() correctly propagates startup errors instead of
- * silently swallowing them via .recover().
+ * silently swallowing them.
  *
- * <p>The bug: closeReactive() uses {@code pendingStart.recover(e -> Future.succeededFuture())}
- * to ensure the cleanup chain runs when start() is in-flight and fails. But .recover()
- * converts the failure to success, so the startup error is silently discarded.
- * The caller of closeReactive() sees success and never knows start failed.</p>
+ * <p>The old bug: closeReactive() used {@code pendingStart.recover(e -> Future.succeededFuture())}
+ * to ensure the cleanup chain runs when start() is in-flight and fails, but that
+ * converted the failure to success, so the startup error was silently discarded.
+ * The caller of closeReactive() saw success and never knew start failed.</p>
  *
  * <p>The fix: use {@code .eventually()} instead. It runs the cleanup chain regardless
  * of whether the preceding future succeeded or failed, then propagates the original result.
@@ -92,11 +92,9 @@ class PeeGeeQManagerCloseReactiveErrorPropagationTest {
         // Call closeReactive() while start is still in-flight.
         // closeReactive() sees startFuture != null and awaits it.
         //
-        // BUG:    .recover(e -> Future.succeededFuture()) swallows the failure.
-        //         closeReactive() returns a succeeded future — error is invisible.
-        //
         // EXPECT: closeReactive() must return a failed future carrying the startup error.
-        //         Cleanup (stop, hooks, pools) must still run, but the error must propagate.
+        //         Cleanup (stop, hooks, pools) must still run via .eventually(), but
+        //         the original error must propagate.
         logger.info("[propagates_startup_failure] Step 4: Calling closeReactive() while start is in-flight");
         manager.closeReactive()
             .onComplete(ar -> testContext.verify(() -> {

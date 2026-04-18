@@ -909,10 +909,13 @@ public class ConsumerGroupHandler {
                     }
                     return subscriptionInfoToOptions(subscriptionInfo);
                 })
-                .recover(e -> {
-                    logger.debug("No subscription options found for consumer group '{}' on topic '{}', caller should use defaults: {}",
-                               groupName, topic, e.getMessage());
-                    return Future.succeededFuture(null);
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.debug("No subscription options found for consumer group '{}' on topic '{}', caller should use defaults: {}",
+                                   groupName, topic, ar.cause().getMessage());
+                        return Future.succeededFuture(null);
+                    }
+                    return Future.succeededFuture(ar.result());
                 });
         } catch (Exception e) {
             logger.debug("No subscription options found for consumer group '{}' on topic '{}', caller should use defaults: {}",

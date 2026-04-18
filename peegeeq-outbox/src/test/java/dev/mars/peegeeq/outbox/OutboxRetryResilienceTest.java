@@ -478,8 +478,10 @@ public class OutboxRetryResilienceTest {
                         });
                     });
                 })
-                .recover(throwable -> {
-                    logger.info("Connection pool exhausted at connection {}: {}", connectionNum, throwable.getMessage());
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.info("Connection pool exhausted at connection {}: {}", connectionNum, ar.cause().getMessage());
+                    }
                     return io.vertx.core.Future.succeededFuture();
                 });
         }

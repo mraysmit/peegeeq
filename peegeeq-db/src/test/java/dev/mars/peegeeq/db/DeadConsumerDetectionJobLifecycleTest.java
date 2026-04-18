@@ -81,10 +81,7 @@ public class DeadConsumerDetectionJobLifecycleTest {
         if (manager != null) {
             try {
                 manager.closeReactive()
-                    .recover(t -> {
-                        System.err.println("Error during manager teardown: " + t.getMessage());
-                        return Future.succeededFuture();
-                    });
+                    .onFailure(t -> System.err.println("Error during manager teardown: " + t.getMessage()));
             } catch (Exception e) {
                 System.err.println("Exception during tearDown: " + e.getMessage());
             }
@@ -151,7 +148,12 @@ public class DeadConsumerDetectionJobLifecycleTest {
 
         // Close the manager from setUp and create a new one with detection disabled
         manager.closeReactive()
-            .recover(t -> Future.succeededFuture())
+            .transform(ar -> {
+                if (ar.failed()) {
+                    System.err.println("Error closing manager: " + ar.cause().getMessage());
+                }
+                return Future.<Void>succeededFuture();
+            })
             .compose(v -> {
                 manager = new PeeGeeQManager(disabledConfig, new SimpleMeterRegistry());
                 return manager.start();
