@@ -85,7 +85,6 @@ public class PerformanceTuningExampleTest {
         
         if (manager != null) {
             manager.closeReactive()
-                .recover(t -> Future.succeededFuture())
                 .onComplete(v -> {
                     logger.info("✓ Performance Tuning Example Test teardown completed");
                     testContext.completeNow();

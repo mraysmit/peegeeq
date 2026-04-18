@@ -59,7 +59,7 @@ public class PeeGeeQSelfContainedDemoTest {
         if (manager != null) {
             try {
                 manager.closeReactive()
-                    .recover(t -> Future.succeededFuture());
+                    .onFailure(t -> logger.warn("Error closing manager during tearDown: {}", t.getMessage()));
             } catch (Exception e) {
                 logger.warn("Error closing manager during tearDown: {}", e.getMessage());
             }

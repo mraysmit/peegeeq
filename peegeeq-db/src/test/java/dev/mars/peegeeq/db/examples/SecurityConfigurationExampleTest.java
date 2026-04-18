@@ -62,7 +62,6 @@ public class SecurityConfigurationExampleTest {
     void tearDown(VertxTestContext testContext) throws InterruptedException {
         if (manager != null) {
             manager.closeReactive()
-                .recover(t -> Future.succeededFuture())
                 .onComplete(v -> {
                     System.getProperties().entrySet().removeIf(e ->
                         e.getKey().toString().startsWith("peegeeq."));

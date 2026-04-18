@@ -192,9 +192,13 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
         // 1. Create database from template reactively
         return createDatabaseFromTemplate(request.getDatabaseConfig())
                 .map(v -> request)
-                .recover(ex -> {
-                    logger.error("STEP 1 FAILED for setupId={}: {}", request.getSetupId(), ex.getMessage(), ex);
-                    return Future.failedFuture(new RuntimeException("Database creation failed", ex));
+                .onFailure(ex ->
+                    logger.error("STEP 1 FAILED for setupId={}: {}", request.getSetupId(), ex.getMessage(), ex))
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        return Future.failedFuture(new RuntimeException("Database creation failed", ar.cause()));
+                    }
+                    return Future.succeededFuture(ar.result());
                 })
                 .compose(req -> {
                     // 2. Apply schema migrations asynchronously
@@ -249,7 +253,11 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                         return result;
                     }
                 })
-                .recover(ex -> {
+                .transform(ar -> {
+                    if (ar.succeeded()) {
+                        return Future.succeededFuture(ar.result());
+                    }
+                    Throwable ex = ar.cause();
                     if (isDatabaseCreationConflict(ex)) {
                         logger.debug(
                                 "EXPECTED: Database creation conflict for setup: {} (concurrent test scenario)",
@@ -263,12 +271,10 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                     // Clean up any partially created resources asynchronously
                     return destroySetup(request.getSetupId())
                             .compose(ignore -> dropTestDatabase(request.getDatabaseConfig()))
-                            .recover(cleanupEx -> {
+                            .onFailure(cleanupEx ->
                                 logger.error("Failed to clean up after setup failure: {}", request.getSetupId(),
-                                        cleanupEx);
-                                return Future.succeededFuture();
-                            })
-                            .compose(v -> Future.failedFuture(
+                                        cleanupEx))
+                            .transform(ar2 -> Future.failedFuture(
                                     new RuntimeException(
                                             "Failed to create database setup: " + request.getSetupId(), ex)));
                 });
@@ -563,7 +569,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                     return manager.closeReactive()
                             .onSuccess(ignored -> logger.info("PeeGeeQManager closed successfully for setup: {}", setupId))
                             .onFailure(error -> logger.error("Failed to close PeeGeeQManager for setup: {}", setupId, error))
-                            .recover(error -> Future.succeededFuture());
+                            .transform(ar -> Future.<Void>succeededFuture());
                 });
             } else {
                 shutdownFuture = closeResourcesFuture;
@@ -771,9 +777,17 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                     }
                     return null;
                 })
-                .recover(error -> Future.failedFuture(
-                    new RuntimeException("Failed to add event store '" + eventStoreConfig.getEventStoreName()
-                            + "' to setup '" + setupId + "'", error)));
+                .onFailure(error ->
+                    logger.error("Failed to add event store '{}' to setup '{}': {}",
+                            eventStoreConfig.getEventStoreName(), setupId, error.getMessage(), error))
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        return Future.failedFuture(
+                            new RuntimeException("Failed to add event store '" + eventStoreConfig.getEventStoreName()
+                                    + "' to setup '" + setupId + "'", ar.cause()));
+                    }
+                    return Future.succeededFuture(ar.result());
+                });
     }
 
     private PeeGeeQConfiguration createConfiguration(DatabaseConfig dbConfig, String setupId) {
@@ -1108,15 +1122,13 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
         Set<String> setupIds = new HashSet<>(activeSetups.keySet());
         List<Future<Void>> destroyFutures = setupIds.stream()
                 .map(setupId -> destroySetup(setupId)
-                        .recover(error -> {
+                        .onFailure(error ->
                             logger.warn("Failed to destroy setup '{}' during service close: {}", setupId,
-                                    error.getMessage());
-                            return Future.succeededFuture();
-                        }))
+                                    error.getMessage())))
                 .toList();
 
-        return Future.all(destroyFutures)
-                .mapEmpty()
+        return Future.join(destroyFutures)
+                .transform(ar -> Future.<Void>succeededFuture())
                 .compose(v -> setupWorkerExecutor.close())
                 .compose(v -> {
                     if (ownsVertx) {

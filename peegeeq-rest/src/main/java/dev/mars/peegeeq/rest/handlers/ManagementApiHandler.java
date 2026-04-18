@@ -155,10 +155,8 @@ public class ManagementApiHandler {
                         return queues;
                     });
                 })
-                .recover(e -> {
-                    logger.warn("Failed to retrieve real queue data", e);
-                    return Future.failedFuture(new RuntimeException("Failed to retrieve queue data", e));
-                });
+                .onFailure(e ->
+                    logger.warn("Failed to retrieve real queue data", e));
     }
 
     private Future<JsonArray> getQueuesForSetup(String setupId) {
@@ -206,9 +204,12 @@ public class ManagementApiHandler {
                         return queues;
                     });
                 })
-                .recover(e -> {
-                    logger.debug("Setup {} not found or error occurred: {}", setupId, e.getMessage());
-                    return Future.succeededFuture(new JsonArray());
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.debug("Setup {} not found or error occurred: {}", setupId, ar.cause().getMessage());
+                        return Future.succeededFuture(new JsonArray());
+                    }
+                    return Future.succeededFuture(ar.result());
                 });
     }
 
@@ -424,9 +425,12 @@ public class ManagementApiHandler {
                     }
                     return Future.succeededFuture(0L);
                 })
-                .recover(e -> {
-                    logger.debug("Failed to get real event count for store {}: {}", storeName, e.getMessage());
-                    return Future.succeededFuture(0L);
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.debug("Failed to get real event count for store {}: {}", storeName, ar.cause().getMessage());
+                        return Future.succeededFuture(0L);
+                    }
+                    return Future.succeededFuture(ar.result());
                 });
     }
 
@@ -443,9 +447,12 @@ public class ManagementApiHandler {
                     }
                     return Future.succeededFuture(0L);
                 })
-                .recover(e -> {
-                    logger.debug("Failed to get real aggregate count for store {}: {}", storeName, e.getMessage());
-                    return Future.succeededFuture(0L);
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.debug("Failed to get real aggregate count for store {}: {}", storeName, ar.cause().getMessage());
+                        return Future.succeededFuture(0L);
+                    }
+                    return Future.succeededFuture(ar.result());
                 });
     }
 
@@ -462,9 +469,12 @@ public class ManagementApiHandler {
                     }
                     return Future.succeededFuture(0L);
                 })
-                .recover(e -> {
-                    logger.debug("Failed to get real correction count for store {}: {}", storeName, e.getMessage());
-                    return Future.succeededFuture(0L);
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.debug("Failed to get real correction count for store {}: {}", storeName, ar.cause().getMessage());
+                        return Future.succeededFuture(0L);
+                    }
+                    return Future.succeededFuture(ar.result());
                 });
     }
 
@@ -586,9 +596,12 @@ public class ManagementApiHandler {
                         return activities;
                     });
                 })
-                .recover(e -> {
-                    logger.warn("Failed to get recent activity: {}", e.getMessage());
-                    return Future.succeededFuture(new JsonArray());
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.warn("Failed to get recent activity: {}", ar.cause().getMessage());
+                        return Future.succeededFuture(new JsonArray());
+                    }
+                    return Future.succeededFuture(ar.result());
                 });
     }
 
@@ -624,9 +637,12 @@ public class ManagementApiHandler {
                                             }
                                             return activities;
                                         })
-                                        .recover(e -> {
-                                            logger.debug("Failed to query events from store {}: {}", storeName, e.getMessage());
-                                            return Future.succeededFuture(List.<JsonObject>of());
+                                        .transform(ar2 -> {
+                                            if (ar2.failed()) {
+                                                logger.debug("Failed to query events from store {}: {}", storeName, ar2.cause().getMessage());
+                                                return Future.succeededFuture(List.<JsonObject>of());
+                                            }
+                                            return Future.succeededFuture(ar2.result());
                                         }));
                     }
                     if (storeFutures.isEmpty()) {
@@ -640,9 +656,12 @@ public class ManagementApiHandler {
                         return results;
                     });
                 })
-                .recover(e -> {
-                    logger.debug("Failed to get setup result for {}: {}", setupId, e.getMessage());
-                    return Future.succeededFuture(List.<JsonObject>of());
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.debug("Failed to get setup result for {}: {}", setupId, ar.cause().getMessage());
+                        return Future.succeededFuture(List.<JsonObject>of());
+                    }
+                    return Future.succeededFuture(ar.result());
                 });
     }
 
@@ -747,10 +766,8 @@ public class ManagementApiHandler {
                         return consumerGroups;
                     });
                 })
-                .recover(e -> {
-                    logger.warn("Failed to retrieve real consumer group data", e);
-                    return Future.failedFuture(new RuntimeException("Failed to retrieve consumer group data", e));
-                });
+                .onFailure(e ->
+                    logger.warn("Failed to retrieve real consumer group data", e));
     }
 
     private Future<JsonArray> getConsumerGroupsForSetup(String setupId) {
@@ -792,9 +809,12 @@ public class ManagementApiHandler {
                                                 }
                                                 return groups;
                                             })
-                                            .recover(e -> {
-                                                logger.debug("Failed to list subscriptions for topic {}: {}", queueName, e.getMessage());
-                                                return Future.succeededFuture(new JsonArray());
+                                            .transform(ar2 -> {
+                                                if (ar2.failed()) {
+                                                    logger.debug("Failed to list subscriptions for topic {}: {}", queueName, ar2.cause().getMessage());
+                                                    return Future.succeededFuture(new JsonArray());
+                                                }
+                                                return Future.succeededFuture(ar2.result());
                                             }));
                         }
                     }
@@ -810,9 +830,12 @@ public class ManagementApiHandler {
                         return consumerGroups;
                     });
                 })
-                .recover(e -> {
-                    logger.debug("Setup {} not found or error occurred: {}", setupId, e.getMessage());
-                    return Future.succeededFuture(new JsonArray());
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.debug("Setup {} not found or error occurred: {}", setupId, ar.cause().getMessage());
+                        return Future.succeededFuture(new JsonArray());
+                    }
+                    return Future.succeededFuture(ar.result());
                 });
     }
 
@@ -853,10 +876,8 @@ public class ManagementApiHandler {
                         return eventStores;
                     });
                 })
-                .recover(e -> {
-                    logger.warn("Failed to retrieve real event store data", e);
-                    return Future.failedFuture(new RuntimeException("Failed to retrieve event store data", e));
-                });
+                .onFailure(e ->
+                    logger.warn("Failed to retrieve real event store data", e));
     }
 
     private Future<JsonArray> getEventStoresForSetup(String setupId) {
@@ -897,9 +918,12 @@ public class ManagementApiHandler {
                         return eventStores;
                     });
                 })
-                .recover(e -> {
-                    logger.debug("Setup {} not found or error occurred: {}", setupId, e.getMessage());
-                    return Future.succeededFuture(new JsonArray());
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.debug("Setup {} not found or error occurred: {}", setupId, ar.cause().getMessage());
+                        return Future.succeededFuture(new JsonArray());
+                    }
+                    return Future.succeededFuture(ar.result());
                 });
     }
 
@@ -948,9 +972,12 @@ public class ManagementApiHandler {
                                 return Future.succeededFuture();
                             });
                 })
-                .recover(e -> {
-                    logger.debug("Failed to retrieve message data (table may not exist): {}", e.getMessage());
-                    return Future.succeededFuture(new JsonArray());
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        logger.debug("Failed to retrieve message data (table may not exist): {}", ar.cause().getMessage());
+                        return Future.succeededFuture(new JsonArray());
+                    }
+                    return Future.succeededFuture(ar.result());
                 });
     }
 
@@ -1615,9 +1642,12 @@ public class ManagementApiHandler {
                         .map(subscriptions -> (int) subscriptions.stream()
                                 .filter(sub -> sub.state() == dev.mars.peegeeq.api.subscription.SubscriptionState.ACTIVE)
                                 .count())
-                        .recover(e -> {
-                            logger.debug("Error getting real consumer count for queue {}: {}", queueName, e.getMessage());
-                            return Future.succeededFuture(0);
+                        .transform(ar -> {
+                            if (ar.failed()) {
+                                logger.debug("Error getting real consumer count for queue {}: {}", queueName, ar.cause().getMessage());
+                                return Future.succeededFuture(0);
+                            }
+                            return Future.succeededFuture(ar.result());
                         });
             }
 
@@ -1730,9 +1760,12 @@ public class ManagementApiHandler {
                     Future<java.util.List<SubscriptionInfo>> subsFuture;
                     if (subscriptionService != null) {
                         subsFuture = subscriptionService.listSubscriptions(queueName)
-                                .recover(e -> {
-                                    logger.debug("Failed to list subscriptions for queue {}: {}", queueName, e.getMessage());
-                                    return Future.succeededFuture(java.util.List.of());
+                                .transform(ar -> {
+                                    if (ar.failed()) {
+                                        logger.debug("Failed to list subscriptions for queue {}: {}", queueName, ar.cause().getMessage());
+                                        return Future.succeededFuture(java.util.List.of());
+                                    }
+                                    return Future.succeededFuture(ar.result());
                                 });
                     } else {
                         subsFuture = Future.succeededFuture(java.util.List.of());

@@ -406,15 +406,18 @@ public class SystemMonitoringHandler {
 
                         return newCache.json;
                     })
-                    .recover(e -> {
-                        log.error("Failed to collect monitoring metrics", e);
-                        Counter.builder("peegeeq.monitoring.errors")
-                                .tag("operation", "collection")
-                                .description("Total errors during monitoring operations")
-                                .register(meterRegistry)
-                                .increment();
-                        return Future.succeededFuture(
-                                current != null ? current.json : collectMinimalRuntimeMetrics());
+                    .transform(ar -> {
+                        if (ar.failed()) {
+                            log.error("Failed to collect monitoring metrics", ar.cause());
+                            Counter.builder("peegeeq.monitoring.errors")
+                                    .tag("operation", "collection")
+                                    .description("Total errors during monitoring operations")
+                                    .register(meterRegistry)
+                                    .increment();
+                            return Future.succeededFuture(
+                                    current != null ? current.json : collectMinimalRuntimeMetrics());
+                        }
+                        return Future.succeededFuture(ar.result());
                     });
         }
 
@@ -504,16 +507,19 @@ public class SystemMonitoringHandler {
                                     .put("topics", topicsArray.size()))
                             .put("activeBackfills", agg.getJsonArray("activeBackfills", new JsonArray()));
                 })
-                .recover(e -> {
-                    log.error("Error collecting metrics from services", e);
-                    return Future.succeededFuture(new JsonObject()
-                            .put("timestamp", now)
-                            .put("uptime", ManagementFactory.getRuntimeMXBean().getUptime())
-                            .put("cpuCores", runtime.availableProcessors())
-                            .put("memoryUsed", runtime.totalMemory() - runtime.freeMemory())
-                            .put("memoryTotal", runtime.totalMemory())
-                            .put("memoryMax", runtime.maxMemory())
-                            .put("error", "Could not collect full metrics: " + e.getMessage()));
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        log.error("Error collecting metrics from services", ar.cause());
+                        return Future.succeededFuture(new JsonObject()
+                                .put("timestamp", now)
+                                .put("uptime", ManagementFactory.getRuntimeMXBean().getUptime())
+                                .put("cpuCores", runtime.availableProcessors())
+                                .put("memoryUsed", runtime.totalMemory() - runtime.freeMemory())
+                                .put("memoryTotal", runtime.totalMemory())
+                                .put("memoryMax", runtime.maxMemory())
+                                .put("error", "Could not collect full metrics: " + ar.cause().getMessage()));
+                    }
+                    return Future.succeededFuture(ar.result());
                 });
     }
 
@@ -564,9 +570,12 @@ public class SystemMonitoringHandler {
                     }
                     return topicAccumulator;
                 })
-                .recover(e -> {
-                    log.debug("Could not process setup {}", setupId, e);
-                    return Future.succeededFuture(agg);
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        log.debug("Could not process setup {}", setupId, ar.cause());
+                        return Future.succeededFuture(agg);
+                    }
+                    return Future.succeededFuture(ar.result());
                 });
     }
 
@@ -620,9 +629,12 @@ public class SystemMonitoringHandler {
                     agg.put("activeBackfills", activeBackfills);
                     return agg;
                 })
-                .recover(e -> {
-                    log.debug("Could not list subscriptions for topic {}", topic, e);
-                    return Future.succeededFuture(agg);
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        log.debug("Could not list subscriptions for topic {}", topic, ar.cause());
+                        return Future.succeededFuture(agg);
+                    }
+                    return Future.succeededFuture(ar.result());
                 });
     }
 

@@ -252,12 +252,12 @@ class OutboxSchemaQuotingTest {
         producer.send("hello")
             .compose(v -> factory.getStatsAsync("stats-topic"))
             .onSuccess(stats -> testContext.verify(() -> {
-                // With the bug: recover() swallows the SQL error and returns 0.
+                // With the old bug: recover() used to swallow the SQL error and return 0.
                 // With the fix: query succeeds and returns 1.
                 // Either way, getting 0 when we inserted 1 is evidence of the bug.
                 assertEquals(1, stats.getPendingMessages(),
                     "getStatsAsync with reserved-word schema 'order' should return 1 pending message. " +
-                    "Got 0 because unquoted 'FROM order.outbox' is a SQL syntax error and .recover() silently swallowed it.");
+                    "Got 0 because unquoted 'FROM order.outbox' is a SQL syntax error — the query fails instead of returning 1.");
                 producer.close();
                 testContext.completeNow();
             }))

@@ -86,7 +86,7 @@ public class SimpleConsumerGroupTestTest {
             // Fire and forget — closeReactive() kills the manager's owned Vertx,
             // so callbacks cannot dispatch after close. Resource cleanup completes asynchronously.
             manager.closeReactive()
-                .recover(t -> Future.succeededFuture());
+                .onFailure(t -> logger.warn("Error closing manager during tearDown: {}", t.getMessage()));
         }
 
         logger.info("Simple Consumer Group Test teardown completed");

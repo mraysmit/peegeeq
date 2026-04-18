@@ -365,9 +365,12 @@ public class PgConnectionManager {
 
         return withConnection(resolvedId, conn ->
             conn.query("SELECT 1").execute().map(rs -> true)
-        ).recover(err -> {
-            logger.warn("Health check failed for {}: {}", resolvedId, err.getMessage());
-            return Future.succeededFuture(false);
+        ).transform(ar -> {
+            if (ar.failed()) {
+                logger.warn("Health check failed for {}: {}", resolvedId, ar.cause().getMessage());
+                return Future.succeededFuture(false);
+            }
+            return Future.succeededFuture(ar.result());
         });
     }
 
@@ -474,10 +477,9 @@ public class PgConnectionManager {
                 logger.info("PgConnectionManager@{}: Closed successfully ({} pool(s))", instanceId, closeFutures.size());
                 return Future.<Void>succeededFuture();
             })
-            .recover(throwable -> {
-                logger.error("PgConnectionManager@{}: Some pools failed to close cleanly: {}", instanceId, throwable.getMessage(), throwable);
-                return Future.<Void>succeededFuture(); // Don't fail the overall close operation
-            });
+            .onFailure(throwable ->
+                logger.error("PgConnectionManager@{}: Some pools failed to close cleanly: {}", instanceId, throwable.getMessage(), throwable))
+            .mapEmpty();
     }
 
     /**

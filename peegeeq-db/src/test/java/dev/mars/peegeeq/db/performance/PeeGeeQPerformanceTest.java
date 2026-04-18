@@ -69,6 +69,8 @@ import org.slf4j.LoggerFactory;
 @Execution(ExecutionMode.SAME_THREAD)
 class PeeGeeQPerformanceTest {
 
+    private static final Logger logger = LoggerFactory.getLogger(PeeGeeQPerformanceTest.class);
+
     private PeeGeeQManager manager;
 
     @BeforeAll

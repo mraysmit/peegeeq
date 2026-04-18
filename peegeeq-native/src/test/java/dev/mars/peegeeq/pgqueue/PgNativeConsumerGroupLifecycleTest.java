@@ -1011,7 +1011,7 @@ class PgNativeConsumerGroupLifecycleTest {
     // 5.x — Partitioned Path with connectionManager (no pool → fallback)
     //
     // When connectionManager is non-null, startInternal() calls
-    // isOffsetWatermarkTopic() which fails (no pool) → .recover() catches it
+    // isOffsetWatermarkTopic() which fails (no pool) → .transform() catches it
     // → falls back to reference-counting mode. This exercises the branching
     // in startInternal() that the null-connectionManager tests never reach.
     // ========================================================================
@@ -1026,7 +1026,7 @@ class PgNativeConsumerGroupLifecycleTest {
             group = createGroupWithConnectionManager("pf-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
             group.start();
-            // The recover path in startInternal catches the "no pool" error
+            // The transform path in startInternal catches the "no pool" error
             // and falls back to reference counting, which succeeds
             assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState(),
                     "Should reach ACTIVE via reference-counting fallback");
@@ -1057,7 +1057,7 @@ class PgNativeConsumerGroupLifecycleTest {
             group.addConsumer("c1", msg -> Future.succeededFuture());
 
             group.start();
-            // Even though start is async, the recover → reference-counting path
+            // Even though start is async, the transform → reference-counting path
             // completes synchronously on the fallback branch
             group.close();
             assertEquals(PgNativeConsumerGroup.State.CLOSED, group.getState());
@@ -1084,7 +1084,7 @@ class PgNativeConsumerGroupLifecycleTest {
     /**
      * Creates a PgNativeConsumerGroup with a non-null connectionManager (but no pool registered).
      * This exercises the partitioned-detection path in startInternal():
-     * isOffsetWatermarkTopic() fails (no pool) → .recover() → falls back to reference counting.
+     * isOffsetWatermarkTopic() fails (no pool) → .transform() → falls back to reference counting.
      */
     private PgNativeConsumerGroup<String> createGroupWithConnectionManager(String groupName, String topic) {
         Vertx vtx = Vertx.vertx();

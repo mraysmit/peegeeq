@@ -153,8 +153,8 @@ public class TransactionalBiTemporalExampleTest {
         }
 
         closeChain
-            .recover(err -> {
-                logger.warn("Cleanup encountered an error: {}", err.getMessage());
+            .transform(ar -> {
+                if (ar.failed()) logger.warn("Cleanup encountered an error: {}", ar.cause().getMessage());
                 return Future.<Void>succeededFuture();
             })
             .onSuccess(v -> {
@@ -197,8 +197,8 @@ public class TransactionalBiTemporalExampleTest {
             .execute()
             .map(rows -> (Void) null)
             .onSuccess(v -> logger.debug("Database tables cleaned up successfully"))
-            .recover(err -> {
-                logger.debug("Could not truncate tables (they may not exist yet): {}", err.getMessage());
+            .transform(ar -> {
+                if (ar.failed()) logger.debug("Could not truncate tables (they may not exist yet): {}", ar.cause().getMessage());
                 return Future.succeededFuture((Void) null);
             });
     }

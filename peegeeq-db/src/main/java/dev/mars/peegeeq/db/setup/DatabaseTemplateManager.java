@@ -87,14 +87,17 @@ public class DatabaseTemplateManager {
                     return connection.query(sql).execute()
                         .map(rowSet -> (Void) null)
                         .onSuccess(v2 -> logger.info("[{}] Database {} created successfully", PeeGeeQInfoCodes.DATABASE_CREATED, newDatabaseName))
-                        .recover(error -> {
-                            if (isDatabaseConflictError(error)) {
-                                logger.debug("🚫 EXPECTED: Database creation conflict - {}", error.getMessage());
-                                return Future.succeededFuture();
-                            } else {
-                                logger.error("Failed to execute SQL: {} - Error: {}", sql, error.getMessage());
-                                return Future.failedFuture(error);
+                        .transform(ar -> {
+                            if (ar.failed()) {
+                                if (isDatabaseConflictError(ar.cause())) {
+                                    logger.debug("\uD83D\uDEAB EXPECTED: Database creation conflict - {}", ar.cause().getMessage());
+                                    return Future.succeededFuture();
+                                } else {
+                                    logger.error("Failed to execute SQL: {} - Error: {}", sql, ar.cause().getMessage());
+                                    return Future.failedFuture(ar.cause());
+                                }
                             }
+                            return Future.succeededFuture();
                         });
                 });
         })

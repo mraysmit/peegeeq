@@ -162,7 +162,11 @@ public class HealthMonitor {
                     
                     return new HealthCheckResult(instance, ServiceHealth.HEALTHY, checkTime, null, healthData);
                 })
-                .recover(throwable -> {
+                .transform(ar -> {
+                    if (ar.succeeded()) {
+                        return Future.succeededFuture(ar.result());
+                    }
+                    Throwable throwable = ar.cause();
                     // Health check failed
                     logger.warn("Health check failed for instance {}: {}", instanceId, throwable.getMessage());
                     

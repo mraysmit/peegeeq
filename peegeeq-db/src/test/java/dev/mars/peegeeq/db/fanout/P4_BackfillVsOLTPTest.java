@@ -270,22 +270,13 @@ public class P4_BackfillVsOLTPTest extends BaseIntegrationTest {
                 long testEnd = testStart + runDurationMs;
 
                 Future<Void> backfillLoop = runRegularBackfillUntil(testEnd, topic, backfillGroup, backfillIntervalMs, backfillRuns)
-                    .recover(err -> {
-                        backfillError.compareAndSet(null, err);
-                        return Future.failedFuture(err);
-                    });
+                    .onFailure(err -> backfillError.compareAndSet(null, err));
 
                 Future<Void> publisherLoop = publishUntil(testEnd, topic, oltpPayloadSizeBytes, published)
-                    .recover(err -> {
-                        publisherError.compareAndSet(null, err);
-                        return Future.failedFuture(err);
-                    });
+                    .onFailure(err -> publisherError.compareAndSet(null, err));
 
                 Future<Void> consumerLoop = consumeUntilDrained(testEnd, topic, oltpGroup, 50, published, consumed, oltpLatencies, 0)
-                    .recover(err -> {
-                        consumerError.compareAndSet(null, err);
-                        return Future.failedFuture(err);
-                    });
+                    .onFailure(err -> consumerError.compareAndSet(null, err));
 
                 return Future.all(backfillLoop, publisherLoop, consumerLoop).mapEmpty();
             })

@@ -441,7 +441,9 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message1")))
                 .compose(messageId -> tracker.markCompleted(messageId, invalidGroup, topic)
                         .compose(v -> Future.failedFuture(new AssertionError("Expected markCompleted to reject unknown group")))
-                        .recover(throwable -> {
+                        .transform(ar -> {
+                            if (ar.succeeded()) return Future.<Void>succeededFuture();
+                            Throwable throwable = ar.cause();
                             if (throwable instanceof IllegalArgumentException) {
                                 return Future.succeededFuture();
                             }
@@ -657,7 +659,9 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message1")))
                 .compose(messageId -> tracker.markFailed(messageId, invalidGroup, topic, "should reject")
                         .compose(v -> Future.failedFuture(new AssertionError("Expected markFailed to reject unknown group")))
-                        .recover(throwable -> {
+                        .transform(ar -> {
+                            if (ar.succeeded()) return Future.<Void>succeededFuture();
+                            Throwable throwable = ar.cause();
                             if (throwable instanceof IllegalArgumentException) {
                                 return Future.succeededFuture();
                             }
@@ -696,7 +700,9 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message1")))
                 .compose(messageId -> tracker.markCompleted(messageId, groupName, topic)
                         .compose(v2 -> Future.<Void>failedFuture(new AssertionError("Expected markCompleted to reject paused subscription")))
-                        .recover(throwable -> {
+                        .transform(ar -> {
+                            if (ar.succeeded()) return Future.<Void>succeededFuture();
+                            Throwable throwable = ar.cause();
                             if (throwable instanceof IllegalArgumentException) {
                                 return Future.succeededFuture();
                             }
@@ -734,7 +740,9 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                 .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
                 .compose(v -> tracker.markCompleted(nonExistentMessageId, groupName, topic)
                         .compose(v2 -> Future.<Void>failedFuture(new AssertionError("Expected markCompleted to reject non-existent message")))
-                        .recover(throwable -> {
+                        .transform(ar -> {
+                            if (ar.succeeded()) return Future.<Void>succeededFuture();
+                            Throwable throwable = ar.cause();
                             if (throwable instanceof IllegalArgumentException) {
                                 return Future.succeededFuture();
                             }

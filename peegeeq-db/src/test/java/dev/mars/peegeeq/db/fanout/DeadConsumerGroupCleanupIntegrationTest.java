@@ -725,9 +725,9 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
      * {@code cleanupDeadGroup()} is already public, so no production code
      * changes are required.</p>
      *
-     * <p>Validates the {@code .recover()} block in {@code cleanupAllDeadGroups()}
-     * which catches per-group failures, logs them, and adds a zero-result
-     * {@code CleanupResult} so the batch can continue.</p>
+     * <p>Validates the {@code .transform()} block in {@code cleanupAllDeadGroups()}
+     * which catches per-group failures, logs them, and skips the failed group
+     * so the batch can continue.</p>
      */
     @Test
     void testCleanupContinuesAfterOneGroupFails(VertxTestContext testContext) throws InterruptedException {
@@ -778,16 +778,8 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
                                         assertTrue(okResult.get().hadWork(), "Good group should have been cleaned");
                                         assertEquals(2, okResult.get().messagesDecremented(),
                                                 "Good group should have decremented 2 messages");
-                                        assertTrue(failResult.isPresent(),
-                                                "Failed group should still have a result (from .recover() block)");
-                                        assertFalse(failResult.get().hadWork(),
-                                                ".recover() should produce a zero-work CleanupResult");
-                                        assertEquals(0, failResult.get().messagesDecremented(),
-                                                "Failed group should have 0 decremented");
-                                        assertEquals(0, failResult.get().orphanRowsRemoved(),
-                                                "Failed group should have 0 orphans removed");
-                                        assertEquals(0, failResult.get().messagesAutoCompleted(),
-                                                "Failed group should have 0 auto-completed");
+                                        assertFalse(failResult.isPresent(),
+                                                "Failed group should be skipped — no fabricated result added");
                                     });
 
                                     // Verify messages on the good topic were cleaned up

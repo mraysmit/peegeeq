@@ -149,9 +149,12 @@ public class PgConnectionProvider implements dev.mars.peegeeq.api.database.Conne
                     .map(rowSet -> true)
                     .eventually(connection::close); // Always close the connection
             })
-            .recover(error -> {
-                logger.warn("Health check failed for client: {}: {}", clientId, error.getMessage());
-                return Future.succeededFuture(false);
+            .transform(ar -> {
+                if (ar.failed()) {
+                    logger.warn("Health check failed for client: {}: {}", clientId, ar.cause().getMessage());
+                    return Future.succeededFuture(false);
+                }
+                return Future.succeededFuture(ar.result());
             });
     }
 

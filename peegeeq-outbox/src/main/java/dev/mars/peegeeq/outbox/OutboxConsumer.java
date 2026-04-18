@@ -433,10 +433,13 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             // Process message reactively — handler and all downstream operations
             // return Future<Void>, so no worker thread is needed.
             return processMessageWithCompletion(message, messageId)
-                    .recover(e -> {
-                        logger.error("Failed to process message {} for topic {}: {}", messageId, topic,
-                                e.getMessage(), e);
-                        return markMessageFailed(messageId, e.getMessage());
+                    .transform(ar -> {
+                        if (ar.failed()) {
+                            logger.error("Failed to process message {} for topic {}: {}", messageId, topic,
+                                    ar.cause().getMessage(), ar.cause());
+                            return markMessageFailed(messageId, ar.cause().getMessage());
+                        }
+                        return Future.succeededFuture();
                     })
                     .eventually(() -> {
                         TraceContextUtil.clearTraceMDC();
@@ -507,7 +510,11 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                     // Mark message as completed
                 return markMessageCompleted(messageId);
             })
-            .recover(error -> {
+            .transform(ar -> {
+                if (ar.succeeded()) {
+                    return Future.succeededFuture(ar.result());
+                }
+                Throwable error = ar.cause();
                 Throwable rootCause = error;
                 if (error instanceof CompletionException && error.getCause() != null) {
                     rootCause = error.getCause();
@@ -868,11 +875,10 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
         // returned before pool.close() is called. Without this, pool.close() hangs
         // waiting for connections that are still held by in-flight query chains.
         Future<Void> awaitInflight = inflightProcessing
-            .recover(e -> {
+            .onFailure(e ->
                 logger.debug("In-flight processing completed with error during close for topic {}: {}",
-                    topic, e.getMessage());
-                return Future.succeededFuture();
-            });
+                    topic, e.getMessage()))
+            .transform(ar -> Future.<Void>succeededFuture());
 
         return awaitInflight.compose(v -> {
             // Close reactive pool — this is the resource that matters for callers

@@ -93,11 +93,11 @@ class WildcardPatternComprehensiveTest {
     @AfterAll
     static void tearDown(VertxTestContext testContext) throws Exception {
         Future<Void> closeStore = (eventStore != null)
-            ? eventStore.close().recover(err -> Future.succeededFuture())
+            ? eventStore.close().transform(ar -> Future.succeededFuture())
             : Future.succeededFuture();
         closeStore
             .compose(v -> (peeGeeQManager != null)
-                ? peeGeeQManager.closeReactive().recover(err -> Future.succeededFuture())
+                ? peeGeeQManager.closeReactive().transform(ar -> Future.succeededFuture())
                 : Future.succeededFuture())
             .onSuccess(v -> {
                 PgBiTemporalEventStore.clearCachedPools();

@@ -486,7 +486,7 @@ class ConsumerGroupFaultIntegrationTest {
     //
     // Start partitioned consumer, then kill all DB connections immediately
     // before calling close(). The leaveGroup() call will fail but the
-    // engine .recover() swallows the error and stop completes.
+    // engine .transform() swallows the error and stop completes.
     // ========================================================================
 
     @Test
@@ -537,7 +537,7 @@ class ConsumerGroupFaultIntegrationTest {
                             .map(killed -> {
                                 // close() calls engine.stop() which calls leaveGroup()
                                 // leaveGroup may fail due to terminated connections,
-                                // but the .recover() in engine.stop() swallows the error
+                                // but the .transform() in engine.stop() swallows the error
                                 group.close();
 
                                 assertEquals(PgNativeConsumerGroup.State.CLOSED, group.getState(),

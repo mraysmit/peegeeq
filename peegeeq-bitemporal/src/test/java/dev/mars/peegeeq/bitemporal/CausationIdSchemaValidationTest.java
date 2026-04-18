@@ -127,8 +127,8 @@ public class CausationIdSchemaValidationTest {
         Future<Void> closeManagerFuture = peeGeeQManager != null ? peeGeeQManager.closeReactive() : Future.succeededFuture();
 
         closeStoreFuture
-                .recover(error -> Future.<Void>succeededFuture())
-                .compose(v -> closeManagerFuture.recover(error -> Future.<Void>succeededFuture()))
+                .transform(ar -> Future.<Void>succeededFuture())
+                .compose(v -> closeManagerFuture.transform(ar -> Future.<Void>succeededFuture()))
                 .onSuccess(v -> {
                     System.clearProperty("peegeeq.database.host");
                     System.clearProperty("peegeeq.database.port");

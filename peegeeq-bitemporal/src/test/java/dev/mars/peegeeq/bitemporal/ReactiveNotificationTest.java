@@ -163,9 +163,7 @@ class ReactiveNotificationTest {
             eventStore.close();
         }
         Future<Void> closeFuture = (manager != null)
-            ? manager.closeReactive().recover(err -> {
-                return Future.succeededFuture();
-            })
+            ? manager.closeReactive().transform(ar -> Future.succeededFuture())
             : Future.succeededFuture();
         closeFuture.onSuccess(v -> {
             restoreTestProperties();

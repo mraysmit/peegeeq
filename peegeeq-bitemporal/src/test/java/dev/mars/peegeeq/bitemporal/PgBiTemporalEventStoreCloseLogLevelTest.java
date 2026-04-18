@@ -118,11 +118,11 @@ class PgBiTemporalEventStoreCloseLogLevelTest {
 
         if (eventStore != null) {
             closeChain = closeChain.compose(v -> eventStore.close()
-                    .recover(t -> Future.succeededFuture()));
+                    .transform(ar -> Future.succeededFuture()));
         }
         if (manager != null) {
             closeChain = closeChain.compose(v -> manager.closeReactive()
-                    .recover(t -> Future.succeededFuture()));
+                    .transform(ar -> Future.succeededFuture()));
         }
 
         closeChain.onComplete(v -> {
@@ -187,7 +187,7 @@ class PgBiTemporalEventStoreCloseLogLevelTest {
                     ownCapture.clear();
 
                     return ownStore.close()
-                            .compose(v2 -> ownManager.closeReactive().recover(t -> Future.succeededFuture()));
+                            .compose(v2 -> ownManager.closeReactive().transform(ar -> Future.succeededFuture()));
                 })
                 .onComplete(ar -> testContext.verify(() -> {
                     List<ILoggingEvent> warns = ownCapture.eventsAtLevel(Level.WARN);

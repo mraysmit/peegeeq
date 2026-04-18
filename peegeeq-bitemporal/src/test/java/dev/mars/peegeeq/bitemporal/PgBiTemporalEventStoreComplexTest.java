@@ -173,7 +173,7 @@ class PgBiTemporalEventStoreComplexTest {
         Pool setupPool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
 
         setupPool.query("TRUNCATE TABLE " + schema + ".bitemporal_event_log CASCADE").execute()
-            .recover(err -> Future.succeededFuture(null))
+            .transform(ar -> Future.succeededFuture(null))
             .compose(v -> setupPool.close())
             .compose(v -> manager.start())
             .onSuccess(v -> {
@@ -377,7 +377,10 @@ class PgBiTemporalEventStoreComplexTest {
                         Map.of("in-tx", "true"), "corr-in-tx", null, "agg-in-tx", conn
                     )
                     .compose(event -> tx.commit().map(event))
-                    .recover(err -> tx.rollback().compose(v -> Future.failedFuture(err)))
+                    .transform(ar -> {
+                        if (ar.failed()) return tx.rollback().compose(v -> Future.failedFuture(ar.cause()));
+                        return Future.succeededFuture(ar.result());
+                    })
                     .eventually(() -> conn.close());
                 })
             )
@@ -434,7 +437,7 @@ class PgBiTemporalEventStoreComplexTest {
                             );
                             return (Void) null;
                         })
-                        .recover(e -> Future.succeededFuture());
+                        .transform(ar -> Future.succeededFuture());
                 }
                 return Future.succeededFuture();
             })

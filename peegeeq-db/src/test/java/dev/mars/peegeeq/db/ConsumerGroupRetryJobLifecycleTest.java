@@ -81,10 +81,7 @@ public class ConsumerGroupRetryJobLifecycleTest {
         if (manager != null) {
             try {
                 manager.closeReactive()
-                    .recover(t -> {
-                        System.err.println("Error during manager teardown: " + t.getMessage());
-                        return Future.succeededFuture();
-                    });
+                    .onFailure(t -> System.err.println("Error during manager teardown: " + t.getMessage()));
             } catch (Exception e) {
                 System.err.println("Exception during tearDown: " + e.getMessage());
             }
@@ -149,7 +146,6 @@ public class ConsumerGroupRetryJobLifecycleTest {
 
         // Close the manager from setUp and create a new one with retry disabled
         manager.closeReactive()
-            .recover(t -> Future.succeededFuture())
             .compose(v -> {
                 manager = new PeeGeeQManager(disabledConfig, new SimpleMeterRegistry());
                 return manager.start();

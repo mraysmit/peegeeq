@@ -126,13 +126,13 @@ class BiTemporalQueryEdgeCasesTest {
         Future<Void> closeManagerFuture = manager != null ? manager.closeReactive() : Future.succeededFuture();
 
         closeStoreFuture
-                .recover(error -> {
-                    logger.warn("Error closing event store: {}", error.getMessage());
-                    return Future.succeededFuture();
+                .transform(ar -> {
+                    if (ar.failed()) logger.warn("Error closing event store: {}", ar.cause().getMessage());
+                    return Future.<Void>succeededFuture();
                 })
-                .compose(v -> closeManagerFuture.recover(error -> {
-                    logger.warn("Error closing manager: {}", error.getMessage());
-                    return Future.succeededFuture();
+                .compose(v -> closeManagerFuture.transform(ar -> {
+                    if (ar.failed()) logger.warn("Error closing manager: {}", ar.cause().getMessage());
+                    return Future.<Void>succeededFuture();
                 }))
                 .onSuccess(v -> {
                     System.clearProperty("peegeeq.database.host");

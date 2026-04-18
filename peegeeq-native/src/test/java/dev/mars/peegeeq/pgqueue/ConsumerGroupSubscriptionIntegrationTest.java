@@ -136,7 +136,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
     void tearDown() throws Exception {
         logger.info("Tearing down: closing resources and manager");
         if (connectionManager != null) {
-            cleanupTestData().recover(err -> Future.succeededFuture()).await();
+            cleanupTestData().transform(ar -> Future.<Void>succeededFuture()).await();
             connectionManager.close();
         }
         if (manager != null) {
@@ -310,15 +310,15 @@ class ConsumerGroupSubscriptionIntegrationTest {
         group.setMessageHandler(msg -> Future.succeededFuture());
 
         group.start(SubscriptionOptions.defaults())
-                .map(v -> {
-                    assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState(),
-                            "If subscription succeeds, group should be ACTIVE");
-                    return (Void) null;
-                })
-                .recover(err -> {
-                    assertEquals(PgNativeConsumerGroup.State.NEW, group.getState(),
-                            "State should reset to NEW after subscription failure");
-                    return Future.succeededFuture();
+                .transform(ar -> {
+                    if (ar.failed()) {
+                        assertEquals(PgNativeConsumerGroup.State.NEW, group.getState(),
+                                "State should reset to NEW after subscription failure");
+                    } else {
+                        assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState(),
+                                "If subscription succeeds, group should be ACTIVE");
+                    }
+                    return Future.<Void>succeededFuture();
                 })
                 .eventually(() -> { group.close(); return Future.succeededFuture(); })
                 .onSuccess(v -> testContext.completeNow())

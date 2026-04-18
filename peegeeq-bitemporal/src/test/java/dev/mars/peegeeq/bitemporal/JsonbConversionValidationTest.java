@@ -109,8 +109,8 @@ class JsonbConversionValidationTest {
         Future<Void> closeManagerFuture = manager != null ? manager.closeReactive() : Future.succeededFuture();
 
         closeStoreFuture
-                .recover(error -> Future.<Void>succeededFuture())
-                .compose(v -> closeManagerFuture.recover(error -> Future.<Void>succeededFuture()))
+                .transform(ar -> Future.<Void>succeededFuture())
+                .compose(v -> closeManagerFuture.transform(ar -> Future.<Void>succeededFuture()))
                 .onSuccess(v -> {
                     restoreTestProperties();
                     logger.info("Test cleanup complete");

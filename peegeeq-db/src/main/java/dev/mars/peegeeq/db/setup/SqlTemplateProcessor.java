@@ -62,12 +62,16 @@ public class SqlTemplateProcessor {
                                 currentFileNum, sqlFiles.size());
                             return (Void) null;
                         })
-                        .recover(throwable -> {
+                        .onFailure(throwable ->
                             logger.error("Failed to execute SQL file {}/{} for template: {} - Error: {}",
-                                currentFileNum, sqlFiles.size(), templateDir, throwable.getMessage());
-                            return Future.failedFuture(new RuntimeException(
-                                "Failed to execute SQL file " + currentFileNum + " of template: " + templateDir,
-                                throwable));
+                                currentFileNum, sqlFiles.size(), templateDir, throwable.getMessage()))
+                        .transform(ar -> {
+                            if (ar.failed()) {
+                                return Future.failedFuture(new RuntimeException(
+                                    "Failed to execute SQL file " + currentFileNum + " of template: " + templateDir,
+                                    ar.cause()));
+                            }
+                            return Future.succeededFuture(ar.result());
                         });
                 });
             }

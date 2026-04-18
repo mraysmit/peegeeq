@@ -214,15 +214,16 @@ public class DeadConsumerGroupCleanup {
                                     results.add(result);
                                     return results;
                                 })
-                                .recover(error -> {
-                                    // Log but don't fail the whole batch
-                                    try (var scope = TraceContextUtil.mdcScope(trace)) {
-                                        logger.error("Cleanup failed for group='{}' on topic='{}': {}",
-                                                tg.groupName(), tg.topic(), error.getMessage(), error);
+                                .transform(ar -> {
+                                    if (ar.failed()) {
+                                        // Log but don't fail the whole batch; skip fabricated result
+                                        try (var scope = TraceContextUtil.mdcScope(trace)) {
+                                            logger.error("Cleanup failed for group='{}' on topic='{}': {}",
+                                                    tg.groupName(), tg.topic(), ar.cause().getMessage(), ar.cause());
+                                        }
+                                        return Future.succeededFuture(results);
                                     }
-                                    results.add(new CleanupResult(
-                                            tg.topic(), tg.groupName(), 0, 0, 0));
-                                    return Future.succeededFuture(results);
+                                    return Future.succeededFuture(ar.result());
                                 })
                 );
             }

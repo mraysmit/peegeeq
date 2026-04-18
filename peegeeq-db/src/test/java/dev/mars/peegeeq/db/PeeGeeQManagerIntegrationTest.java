@@ -98,10 +98,7 @@ public class PeeGeeQManagerIntegrationTest {
         if (manager != null) {
             try {
                 manager.closeReactive()
-                    .recover(t -> {
-                        System.err.println("Error during manager teardown: " + t.getMessage());
-                        return Future.succeededFuture();
-                    });
+                    .onFailure(t -> System.err.println("Error during manager teardown: " + t.getMessage()));
             } catch (Exception e) {
                 System.err.println("Exception during tearDown: " + e.getMessage());
             }

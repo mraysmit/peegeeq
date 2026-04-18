@@ -48,7 +48,7 @@ class BiTemporalPoolFactoryTest {
         }
 
         Future<Void> closeFuture = peeGeeQManager != null
-                ? peeGeeQManager.closeReactive().recover(error -> Future.<Void>succeededFuture())
+                ? peeGeeQManager.closeReactive().transform(ar -> Future.<Void>succeededFuture())
                 : Future.succeededFuture();
         
         closeFuture

@@ -102,7 +102,6 @@ public class PeeGeeQMetricsLogLevelTest {
 
         if (connectionManager != null) {
             connectionManager.close()
-                    .recover(t -> Future.succeededFuture())
                     .onComplete(v -> testContext.completeNow());
         } else {
             testContext.completeNow();
@@ -150,7 +149,7 @@ public class PeeGeeQMetricsLogLevelTest {
 
         logCapture.clear();
         metrics.persistMetrics(registry)
-                .onSuccess(v -> testContext.verify(() -> {
+                .onFailure(err -> testContext.verify(() -> {
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
 
                     boolean hasErrorForPersist = errors.stream()
@@ -163,7 +162,7 @@ public class PeeGeeQMetricsLogLevelTest {
                                     errors.stream().map(ILoggingEvent::getFormattedMessage).toList());
                     testContext.completeNow();
                 }))
-                .onFailure(testContext::failNow);
+                .onSuccess(v -> testContext.failNow("Expected failed future from persistMetrics with missing table"));
 
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
@@ -193,7 +192,8 @@ public class PeeGeeQMetricsLogLevelTest {
         logCapture.clear();
 
         ownMetrics.persistMetrics(registry)
-                .compose(v -> ownConnMgr.close().recover(t -> Future.succeededFuture()))
+                .eventually(() -> ownConnMgr.close()
+                    .onFailure(t -> { /* expected: container already stopped */ }))
                 .onComplete(ar -> testContext.verify(() -> {
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
                     boolean hasErrorForPersist = errors.stream()

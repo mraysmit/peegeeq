@@ -236,13 +236,16 @@ public class QueueHandler {
                     // Send all messages (propagate same trace context to all messages in batch)
                     List<Future<String>> futures = batchRequest.getMessages().stream()
                         .map(msgReq -> sendMessageWithProducer(producer, msgReq, ctx)
-                            .recover(throwable -> {
-                                if (batchRequest.isFailOnError()) {
-                                    return Future.failedFuture(new RuntimeException("Batch failed at message: " + throwable.getMessage(), throwable));
-                                } else {
-                                    logger.warn("Failed to send message in batch: {}", throwable.getMessage());
-                                    return Future.succeededFuture("FAILED:" + throwable.getMessage());
+                            .transform(ar -> {
+                                if (ar.failed()) {
+                                    if (batchRequest.isFailOnError()) {
+                                        return Future.<String>failedFuture(new RuntimeException("Batch failed at message: " + ar.cause().getMessage(), ar.cause()));
+                                    } else {
+                                        logger.warn("Failed to send message in batch: {}", ar.cause().getMessage());
+                                        return Future.succeededFuture("FAILED:" + ar.cause().getMessage());
+                                    }
                                 }
+                                return Future.succeededFuture(ar.result());
                             }))
                         .collect(Collectors.toList());
 
