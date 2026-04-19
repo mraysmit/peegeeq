@@ -27,6 +27,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
@@ -50,6 +52,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag(TestCategories.CORE)
 @ExtendWith(VertxExtension.class)
 class CircuitBreakerManagerTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(CircuitBreakerManagerTest.class);
 
     /**
      * Custom exception for intentional test failures that doesn't generate stack traces.
@@ -129,11 +133,11 @@ class CircuitBreakerManagerTest {
      */
     @Test
     void testFailedExecution() {
-        System.out.println("🧪 ===== RUNNING INTENTIONAL CIRCUIT BREAKER FAILURE TEST ===== 🧪");
-        System.out.println("🔥 **INTENTIONAL TEST** 🔥 This test deliberately throws an exception to test circuit breaker failure tracking");
+        logger.info("===== RUNNING INTENTIONAL CIRCUIT BREAKER FAILURE TEST =====");
+        logger.info("INTENTIONAL TEST: This test deliberately throws an exception to test circuit breaker failure tracking");
 
         assertThrows(IntentionalTestFailureException.class, () -> {
-            System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Throwing exception to test circuit breaker");
+            logger.info("INTENTIONAL TEST FAILURE: Throwing exception to test circuit breaker");
             circuitBreakerManager.executeSupplier("test-operation", () -> {
                 throw new IntentionalTestFailureException("INTENTIONAL TEST FAILURE: Test failure");
             });
@@ -145,8 +149,8 @@ class CircuitBreakerManagerTest {
         assertEquals(0, metrics.getSuccessfulCalls());
         assertEquals(1, metrics.getFailedCalls());
 
-        System.out.println("**SUCCESS** Circuit breaker properly tracked the intentional failure");
-        System.out.println("🧪 ===== INTENTIONAL FAILURE TEST COMPLETED ===== 🧪");
+        logger.info("SUCCESS: Circuit breaker properly tracked the intentional failure");
+        logger.info("===== INTENTIONAL FAILURE TEST COMPLETED =====");
     }
 
     /**
@@ -159,18 +163,17 @@ class CircuitBreakerManagerTest {
      */
     @Test
     void testCircuitBreakerOpening() {
-        System.out.println("🧪 ===== RUNNING INTENTIONAL CIRCUIT BREAKER OPENING TEST ===== 🧪");
-        System.out.println("🔥 **INTENTIONAL TEST** 🔥 This test deliberately executes multiple failures to open the circuit breaker");
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Circuit breaker failure rate exceeded') is EXPECTED — this test deliberately executes multiple failures to trigger the circuit breaker opening mechanism");
 
         String operationName = "failing-operation";
 
         // Execute enough failures to open the circuit breaker
-        System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Executing multiple failures to trigger circuit breaker opening");
+        logger.info("INTENTIONAL TEST FAILURE: Executing multiple failures to trigger circuit breaker opening");
         for (int i = 0; i < 5; i++) {
             final int failureIndex = i;
             try {
                 circuitBreakerManager.executeSupplier(operationName, () -> {
-                    System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Simulated failure #" + failureIndex);
+                    logger.info("INTENTIONAL TEST FAILURE: Simulated failure #{}", failureIndex);
                     throw new IntentionalTestFailureException("INTENTIONAL TEST FAILURE: Failure " + failureIndex);
                 });
             } catch (RuntimeException e) {
@@ -184,8 +187,8 @@ class CircuitBreakerManagerTest {
         // Circuit breaker should be open after enough failures
         assertTrue(metrics.getState().equals("OPEN") || metrics.getFailedCalls() >= config.getFailureThreshold());
 
-        System.out.println("**SUCCESS** Circuit breaker properly opened after multiple failures");
-        System.out.println("🧪 ===== INTENTIONAL FAILURE TEST COMPLETED ===== 🧪");
+        logger.info("SUCCESS: Circuit breaker properly opened after multiple failures");
+        logger.info("===== INTENTIONAL FAILURE TEST COMPLETED =====");
     }
 
     @Test
@@ -285,7 +288,7 @@ class CircuitBreakerManagerTest {
                     }
                 } catch (Exception e) {
                     // Log any unexpected exceptions
-                    System.err.println("Thread " + threadId + " failed: " + e.getMessage());
+                    logger.warn("Thread {} failed: {}", threadId, e.getMessage());
                 } finally {
                     finishLatch.flag();
                 }

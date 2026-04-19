@@ -263,8 +263,11 @@ public class PerformanceTuningExampleTest {
         System.setProperty("peegeeq.database.ssl.enabled", "false");
         
         // Performance optimization properties
-        System.setProperty("peegeeq.database.pool.min-size", "10");
-        System.setProperty("peegeeq.database.pool.max-size", "50");
+        System.setProperty("peegeeq.database.pool.min-size", "1");
+        System.setProperty("peegeeq.database.pool.max-size", "3");
+        System.setProperty("peegeeq.database.pool.shared", "false");
+        System.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
+        System.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
         System.setProperty("peegeeq.database.pool.max-wait-queue-size", "1000");
         System.setProperty("peegeeq.consumer.threads", "8");
         System.setProperty("peegeeq.queue.batch-size", "100");

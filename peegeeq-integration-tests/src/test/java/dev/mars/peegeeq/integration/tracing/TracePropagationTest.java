@@ -28,6 +28,8 @@ import java.util.concurrent.TimeUnit;
 @Tag("tracing-verification")
 public class TracePropagationTest {
 
+    private static final org.slf4j.Logger logger = LoggerFactory.getLogger(TracePropagationTest.class);
+
     private TraceCapturingAppender traceAppender;
     private Logger rootLogger;
     private WorkerExecutor workerExecutor;
@@ -119,9 +121,9 @@ public class TracePropagationTest {
                                 if (line.contains("Phase 3") && line.contains("captured-trace=" + expectedTraceId)) foundPhase3 = true;
                             }
                             
-                            if (!foundPhase1) System.err.println("FAILED: Phase 1 trace missing. Logs: " + logs);
-                            if (!foundPhase2) System.err.println("FAILED: Phase 2 trace missing. Logs: " + logs);
-                            if (!foundPhase3) System.err.println("FAILED: Phase 3 trace missing. Logs: " + logs);
+                            if (!foundPhase1) logger.warn("FAILED: Phase 1 trace missing. Logs: {}", logs);
+                            if (!foundPhase2) logger.warn("FAILED: Phase 2 trace missing. Logs: {}", logs);
+                            if (!foundPhase3) logger.warn("FAILED: Phase 3 trace missing. Logs: {}", logs);
                             
                             if (foundPhase1 && foundPhase2 && foundPhase3) {
                                 testContext.completeNow();

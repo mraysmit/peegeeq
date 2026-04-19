@@ -7,6 +7,8 @@ import io.vertx.core.json.JsonObject;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Arrays;
 import java.util.List;
@@ -18,6 +20,8 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.CORE)
 class ConsumerGroupHandlerTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(ConsumerGroupHandlerTest.class);
 
     @BeforeEach
     void setUp() {
@@ -294,51 +298,51 @@ class ConsumerGroupHandlerTest {
     void testConsumerGroupApiDocumentation() {
         // This test documents the Consumer Group API usage
         
-        System.out.println("📚 Phase 4 Consumer Group Management API Documentation:");
-        System.out.println();
+        logger.info("Phase 4 Consumer Group Management API Documentation:");
+        logger.info("");
         
-        System.out.println("🔹 Consumer Group Operations:");
-        System.out.println("POST /api/v1/queues/{setupId}/{queueName}/consumer-groups");
-        System.out.println("- Create a new consumer group");
-        System.out.println("- Configure max members, load balancing strategy, session timeout");
-        System.out.println();
+        logger.info("Consumer Group Operations:");
+        logger.info("POST /api/v1/queues/{setupId}/{queueName}/consumer-groups");
+        logger.info("- Create a new consumer group");
+        logger.info("- Configure max members, load balancing strategy, session timeout");
+        logger.info("");
         
-        System.out.println("GET /api/v1/queues/{setupId}/{queueName}/consumer-groups");
-        System.out.println("- List all consumer groups for a queue");
-        System.out.println("- Shows member counts and configuration");
-        System.out.println();
+        logger.info("GET /api/v1/queues/{setupId}/{queueName}/consumer-groups");
+        logger.info("- List all consumer groups for a queue");
+        logger.info("- Shows member counts and configuration");
+        logger.info("");
         
-        System.out.println("GET /api/v1/queues/{setupId}/{queueName}/consumer-groups/{groupName}");
-        System.out.println("- Get detailed information about a consumer group");
-        System.out.println("- Includes member details and partition assignments");
-        System.out.println();
+        logger.info("GET /api/v1/queues/{setupId}/{queueName}/consumer-groups/{groupName}");
+        logger.info("- Get detailed information about a consumer group");
+        logger.info("- Includes member details and partition assignments");
+        logger.info("");
         
-        System.out.println("DELETE /api/v1/queues/{setupId}/{queueName}/consumer-groups/{groupName}");
-        System.out.println("- Delete a consumer group and clean up resources");
-        System.out.println();
+        logger.info("DELETE /api/v1/queues/{setupId}/{queueName}/consumer-groups/{groupName}");
+        logger.info("- Delete a consumer group and clean up resources");
+        logger.info("");
         
-        System.out.println("🔹 Member Operations:");
-        System.out.println("POST /api/v1/queues/{setupId}/{queueName}/consumer-groups/{groupName}/members");
-        System.out.println("- Join a consumer group as a new member");
-        System.out.println("- Triggers automatic partition rebalancing");
-        System.out.println();
+        logger.info("Member Operations:");
+        logger.info("POST /api/v1/queues/{setupId}/{queueName}/consumer-groups/{groupName}/members");
+        logger.info("- Join a consumer group as a new member");
+        logger.info("- Triggers automatic partition rebalancing");
+        logger.info("");
         
-        System.out.println("DELETE /api/v1/queues/{setupId}/{queueName}/consumer-groups/{groupName}/members/{memberId}");
-        System.out.println("- Leave a consumer group");
-        System.out.println("- Triggers automatic partition rebalancing");
-        System.out.println();
+        logger.info("DELETE /api/v1/queues/{setupId}/{queueName}/consumer-groups/{groupName}/members/{memberId}");
+        logger.info("- Leave a consumer group");
+        logger.info("- Triggers automatic partition rebalancing");
+        logger.info("");
         
-        System.out.println("🔹 Load Balancing Strategies:");
-        System.out.println("- ROUND_ROBIN: Distribute partitions evenly in round-robin fashion");
-        System.out.println("- RANGE: Assign contiguous ranges of partitions to members");
-        System.out.println("- STICKY: Minimize partition reassignment during rebalancing");
-        System.out.println("- RANDOM: Randomly distribute partitions to members");
-        System.out.println();
+        logger.info("Load Balancing Strategies:");
+        logger.info("- ROUND_ROBIN: Distribute partitions evenly in round-robin fashion");
+        logger.info("- RANGE: Assign contiguous ranges of partitions to members");
+        logger.info("- STICKY: Minimize partition reassignment during rebalancing");
+        logger.info("- RANDOM: Randomly distribute partitions to members");
+        logger.info("");
         
-        System.out.println("🔹 Configuration Options:");
-        System.out.println("- maxMembers: Maximum number of members (1-100)");
-        System.out.println("- sessionTimeout: Member heartbeat timeout (5s-5min)");
-        System.out.println("- loadBalancingStrategy: Partition assignment strategy");
+        logger.info("Configuration Options:");
+        logger.info("- maxMembers: Maximum number of members (1-100)");
+        logger.info("- sessionTimeout: Member heartbeat timeout (5s-5min)");
+        logger.info("- loadBalancingStrategy: Partition assignment strategy");
         
         assertTrue(true, "Consumer Group API documentation complete");
     }

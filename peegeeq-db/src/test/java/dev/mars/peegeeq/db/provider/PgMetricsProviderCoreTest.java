@@ -53,7 +53,7 @@ public class PgMetricsProviderCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
         pool = connectionManager.getOrCreateReactivePool("test-metrics-provider", connectionConfig, poolConfig);
         
         metrics = new PeeGeeQMetrics(pool, "test-instance");

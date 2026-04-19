@@ -161,8 +161,7 @@ public class PerformanceTestResultsExampleTest {
         report.append("- **Database:** PostgreSQL 16 with TestContainers\n");
         
         String reportContent = report.toString();
-        System.out.println("\n=== SIMPLE REPORT ===");
-        System.out.println(reportContent);
+        logger.info("\n=== SIMPLE REPORT ===\n{}", reportContent);
         
         return reportContent;
     }
@@ -202,8 +201,7 @@ public class PerformanceTestResultsExampleTest {
         report.append("- **Test Configuration:** High-performance configuration with pipelining\n");
         
         String reportContent = report.toString();
-        System.out.println("\n=== DETAILED REPORT ===");
-        System.out.println(reportContent);
+        logger.info("\n=== DETAILED REPORT ===\n{}", reportContent);
         
         return reportContent;
     }
@@ -222,16 +220,16 @@ public class PerformanceTestResultsExampleTest {
         systemInfo.put("available_processors", Runtime.getRuntime().availableProcessors());
         systemInfo.put("max_memory", Runtime.getRuntime().maxMemory());
         
-        System.out.println("\n=== SYSTEM INFORMATION ===");
-        System.out.println("Timestamp: " + systemInfo.get("timestamp"));
-        System.out.println("OS: " + systemInfo.get("os"));
-        System.out.println("Java Version: " + systemInfo.get("java_version"));
+        logger.info("\n=== SYSTEM INFORMATION ===");
+        logger.info("Timestamp: {}", systemInfo.get("timestamp"));
+        logger.info("OS: {}", systemInfo.get("os"));
+        logger.info("Java Version: {}", systemInfo.get("java_version"));
         
         // Display as markdown format
-        System.out.println("\n=== MARKDOWN FORMAT ===");
-        System.out.println("## System Information");
+        logger.info("\n=== MARKDOWN FORMAT ===");
+        logger.info("## System Information");
         systemInfo.forEach((key, value) -> 
-            System.out.println("- **" + key + ":** " + value));
+            logger.info("- **{}:** {}", key, value));
         
         return systemInfo;
     }

@@ -138,16 +138,16 @@ public class OutboxErrorHandlingTest {
         consumer.subscribe(message -> {
         logger.info("Test: message processing failure and retry");
             int attempt = attemptCount.incrementAndGet();
-            System.out.println("Processing attempt " + attempt + " for message: " + message.getPayload());
+            logger.info("Processing attempt {} for message: {}", attempt, message.getPayload());
             
             if (attempt < 3) {
                 // Fail the first 2 attempts
-                System.out.println("INTENTIONAL FAILURE: Simulating processing failure on attempt " + attempt);
+                logger.info("INTENTIONAL FAILURE: Simulating processing failure on attempt {}", attempt);
                 return Future.failedFuture(
                     new RuntimeException("Simulated processing failure, attempt " + attempt));
             } else {
                 // Succeed on the 3rd attempt
-                System.out.println("SUCCESS: Processing succeeded on attempt " + attempt);
+                logger.info("SUCCESS: Processing succeeded on attempt {}", attempt);
                 successCheckpoint.flag();
                 return Future.succeededFuture();
             }
@@ -173,7 +173,7 @@ public class OutboxErrorHandlingTest {
         consumer.subscribe(message -> {
         logger.info("Test: consumer exception handling");
             int count = exceptionCount.incrementAndGet();
-            System.out.println("INTENTIONAL FAILURE: Processing attempt " + count + ", throwing exception");
+            logger.info("INTENTIONAL FAILURE: Processing attempt {}, throwing exception", count);
             exceptionCheckpoint.flag();
             throw new RuntimeException("Intentional exception for testing");
         });
@@ -190,9 +190,9 @@ public class OutboxErrorHandlingTest {
 
     @Test
     void testProducerWithClosedConnection(VertxTestContext testContext) throws Exception {
-        System.out.println("🔌 ===== RUNNING INTENTIONAL CLOSED CONNECTION TEST =====");
-        System.out.println("🔌 **INTENTIONAL TEST** - This test deliberately closes the producer and attempts to send a message");
-        System.out.println("🔌 **INTENTIONAL TEST FAILURE** - Expected exception when sending with closed producer");
+        logger.info("===== RUNNING INTENTIONAL CLOSED CONNECTION TEST =====");
+        logger.info("**INTENTIONAL TEST** - This test deliberately closes the producer and attempts to send a message");
+        logger.info("**INTENTIONAL TEST FAILURE** - Expected exception when sending with closed producer");
 
         String testMessage = "Message after close";
 
@@ -203,8 +203,8 @@ public class OutboxErrorHandlingTest {
         producer.send(testMessage).onComplete(ar -> testContext.verify(() -> {
         logger.info("Test: producer with closed connection");
             assertTrue(ar.failed(), "Sending with closed producer should fail");
-            System.out.println("🔌 **SUCCESS** - Closed producer properly threw exception");
-            System.out.println("🔌 ===== INTENTIONAL TEST COMPLETED =====");
+            logger.info("**SUCCESS** - Closed producer properly threw exception");
+            logger.info("===== INTENTIONAL TEST COMPLETED =====");
             testContext.completeNow();
         }));
 
@@ -220,7 +220,7 @@ public class OutboxErrorHandlingTest {
         consumer.subscribe(message -> {
         logger.info("Test: consumer unsubscribe");
             int count = receivedCount.incrementAndGet();
-            System.out.println("Received message " + count + ": " + message.getPayload());
+            logger.info("Received message {}: {}", count, message.getPayload());
             firstMessageReceived.tryComplete();
             return Future.succeededFuture();
         });
@@ -254,7 +254,7 @@ public class OutboxErrorHandlingTest {
         consumer.subscribe(message -> {
         logger.info("Test: consumer close");
             int count = receivedCount.incrementAndGet();
-            System.out.println("Received message " + count + ": " + message.getPayload());
+            logger.info("Received message {}: {}", count, message.getPayload());
             firstMessageReceived.tryComplete();
             return Future.succeededFuture();
         });
@@ -281,9 +281,9 @@ public class OutboxErrorHandlingTest {
 
     @Test
     void testNullMessageHandling(VertxTestContext testContext) throws Exception {
-        System.out.println("❌ ===== RUNNING INTENTIONAL NULL MESSAGE TEST =====");
-        System.out.println("❌ **INTENTIONAL TEST** - This test deliberately sends a null payload");
-        System.out.println("❌ **INTENTIONAL TEST FAILURE** - Expected exception when sending null payload");
+        logger.info("===== RUNNING INTENTIONAL NULL MESSAGE TEST =====");
+        logger.info("**INTENTIONAL TEST** - This test deliberately sends a null payload");
+        logger.info("**INTENTIONAL TEST FAILURE** - Expected exception when sending null payload");
 
         // producer.send(null) returns a failed Future (does not throw synchronously)
         producer.send(null).onComplete(ar -> testContext.verify(() -> {
@@ -291,8 +291,8 @@ public class OutboxErrorHandlingTest {
             assertTrue(ar.failed(), "Sending null payload should return a failed Future");
             assertTrue(ar.cause() instanceof IllegalArgumentException,
                 "Cause should be IllegalArgumentException, got: " + ar.cause().getClass().getSimpleName());
-            System.out.println("❌ **SUCCESS** - Null payload properly returned failed Future");
-            System.out.println("❌ ===== INTENTIONAL TEST COMPLETED =====");
+            logger.info("**SUCCESS** - Null payload properly returned failed Future");
+            logger.info("===== INTENTIONAL TEST COMPLETED =====");
             testContext.completeNow();
         }));
 

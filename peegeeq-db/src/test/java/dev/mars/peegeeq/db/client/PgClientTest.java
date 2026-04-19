@@ -34,6 +34,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 
+import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
 import io.vertx.junit5.VertxTestContext;
@@ -75,7 +76,10 @@ public class PgClientTest {
 
         // Create pool config
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-                .maxSize(5)
+                .maxSize(3)
+                .shared(false)
+                .idleTimeout(Duration.ofSeconds(2))
+                .connectionTimeout(Duration.ofSeconds(5))
                 .build();
 
         // Create client and ensure DataSource is set up for JDBC operations

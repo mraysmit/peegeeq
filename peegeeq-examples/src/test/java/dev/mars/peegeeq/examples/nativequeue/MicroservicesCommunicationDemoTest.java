@@ -299,15 +299,15 @@ class MicroservicesCommunicationDemoTest {
     @BeforeEach
     void setUp() {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        System.out.println("\n🔗 Setting up Microservices Communication Demo Test");
+        logger.info("Setting up Microservices Communication Demo Test");
 
         // Configure system properties for TestContainers
         configureSystemPropertiesForContainer();
 
         // Initialize database schema for microservices communication test
-        System.out.println("🔧 Initializing database schema for microservices communication test");
+        logger.info("Initializing database schema for microservices communication test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
-        System.out.println("Database schema initialized successfully using centralized schema initializer (ALL components)");
+        logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
         // Initialize PeeGeeQ with microservices configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
@@ -323,19 +323,19 @@ class MicroservicesCommunicationDemoTest {
 
         queueFactory = provider.createFactory("native", databaseService);
 
-        System.out.println("Setup complete - Ready for microservices communication pattern testing");
+        logger.info("Setup complete - Ready for microservices communication pattern testing");
     }
 
     @AfterEach
     void tearDown() {
         logger.info("Tearing down: closing resources and manager");
-        System.out.println("🧹 Cleaning up Microservices Communication Demo Test");
+        logger.info("Cleaning up Microservices Communication Demo Test");
 
         if (manager != null) {
             try {
                 manager.closeReactive().await();
             } catch (Exception e) {
-                System.err.println("⚠️ Error during manager cleanup: " + e.getMessage());
+                logger.warn("Error during manager cleanup: {}", e.getMessage());
             }
         }
 
@@ -344,7 +344,7 @@ class MicroservicesCommunicationDemoTest {
         System.clearProperty("peegeeq.database.username");
         System.clearProperty("peegeeq.database.password");
 
-        System.out.println("Cleanup complete");
+        logger.info("Cleanup complete");
     }
 
     @Test
@@ -352,7 +352,7 @@ class MicroservicesCommunicationDemoTest {
     @DisplayName("Request-Response Pattern - Synchronous-style Communication Over Async Messaging")
     void testRequestResponsePattern() throws Exception {
         logger.info("Test: request response pattern");
-        System.out.println("\n🔄 Testing Request-Response Pattern");
+        logger.info("Testing Request-Response Pattern");
 
         String requestQueue = "microservices-request-queue";
         String responseQueue = "microservices-response-queue";
@@ -379,8 +379,7 @@ class MicroservicesCommunicationDemoTest {
         requestConsumer.subscribe(message -> {
             ServiceMessage request = message.getPayload();
 
-            System.out.println("🔄 Processing request: " + request.messageType +
-                             " for service: " + request.targetService);
+            logger.info("Processing request: {} for service: {}", request.messageType, request.targetService);
 
             // Get service simulator
             MicroserviceSimulator service = services.get(request.targetService);
@@ -402,8 +401,7 @@ class MicroservicesCommunicationDemoTest {
         responseConsumer.subscribe(message -> {
             ServiceMessage response = message.getPayload();
 
-            System.out.println("🔄 Received response: " + response.messageType +
-                             " from service: " + response.sourceService);
+            logger.info("Received response: {} from service: {}", response.messageType, response.sourceService);
 
             responses.put(response.correlationId, response);
             responsesReceived.incrementAndGet();
@@ -412,7 +410,7 @@ class MicroservicesCommunicationDemoTest {
         });
 
         // Send requests to different services
-        System.out.println("📤 Sending requests to microservices...");
+        logger.info("Sending requests to microservices...");
 
         String correlationId1 = "corr-001";
         String correlationId2 = "corr-002";
@@ -474,18 +472,18 @@ class MicroservicesCommunicationDemoTest {
         assertEquals("ShippingScheduleResponse", shippingResponse.messageType, "Should be shipping response");
         assertEquals(true, shippingResponse.payload.get("scheduled"), "Shipping should be scheduled");
 
-        System.out.println("📊 Request-Response Results:");
-        System.out.println("  Requests processed: " + requestsProcessed.get());
-        System.out.println("  Responses received: " + responsesReceived.get());
+        logger.info("Request-Response Results:");
+        logger.info("  Requests processed: {}", requestsProcessed.get());
+        logger.info("  Responses received: {}", responsesReceived.get());
         for (MicroserviceSimulator service : services.values()) {
-            System.out.println("  " + service.serviceName + " processed: " + service.messagesProcessed.get() + " messages");
+            logger.info("  {} processed: {} messages", service.serviceName, service.messagesProcessed.get());
         }
 
         // Cleanup
         requestConsumer.close();
         responseConsumer.close();
 
-        System.out.println("Request-Response Pattern test completed successfully");
+        logger.info("Request-Response Pattern test completed successfully");
     }
 }
 

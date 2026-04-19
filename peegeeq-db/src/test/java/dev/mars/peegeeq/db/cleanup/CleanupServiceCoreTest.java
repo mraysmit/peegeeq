@@ -17,6 +17,8 @@ import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.time.Duration;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -46,7 +48,7 @@ public class CleanupServiceCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
         connectionManager.getOrCreateReactivePool("test-cleanup", connectionConfig, poolConfig);
         
         cleanupService = new CleanupService(connectionManager, "test-cleanup");

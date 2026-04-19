@@ -193,8 +193,7 @@ public class OutboxConsumerLifecycleBugReproducerTest {
                                         || e.getFormattedMessage().contains("Connection provider unavailable"))
                                 .count();
                         // Log for visibility in test output
-                        System.out.println("=== BUG REPRODUCED === " + errorCount
-                                + " shutdown-related error(s) captured from a single consumer");
+                        logger.info("=== BUG REPRODUCED === {} shutdown-related error(s) captured from a single consumer", errorCount);
                     }
 
                     // The test PASSES if the bug IS reproduced — we are proving the bug exists.

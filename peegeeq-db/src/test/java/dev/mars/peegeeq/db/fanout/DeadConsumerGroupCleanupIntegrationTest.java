@@ -17,6 +17,7 @@ import io.vertx.core.json.JsonObject;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.Tuple;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -26,6 +27,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -74,7 +76,10 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
                 .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-                .maxSize(10)
+                .maxSize(3)
+                .shared(false)
+                .idleTimeout(Duration.ofSeconds(2))
+                .connectionTimeout(Duration.ofSeconds(5))
                 .build();
 
         connectionManager.getOrCreateReactivePool(SERVICE_ID, connectionConfig, poolConfig);
@@ -84,6 +89,13 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
         cleanup = new DeadConsumerGroupCleanup(connectionManager, SERVICE_ID);
 
         logger.info("Test setup complete");
+    }
+
+    @AfterEach
+    void tearDown() throws Exception {
+        if (connectionManager != null) {
+            connectionManager.close();
+        }
     }
 
     /**
@@ -731,6 +743,7 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
      */
     @Test
     void testCleanupContinuesAfterOneGroupFails(VertxTestContext testContext) throws InterruptedException {
+        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Cleanup failed for group=...') is EXPECTED — this test deliberately injects a RuntimeException to verify cleanup resilience");
         String topicOk = uniqueTopic("resilience-ok");
         String topicFail = uniqueTopic("resilience-fail");
 

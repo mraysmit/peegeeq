@@ -256,6 +256,10 @@ public class PerformanceComparisonExampleTest {
         System.setProperty("peegeeq.database.ssl.enabled", "false");
         System.setProperty("peegeeq.metrics.enabled", "true");
         System.setProperty("peegeeq.health.enabled", "true");
+        System.setProperty("peegeeq.database.pool.max-size", "3");
+        System.setProperty("peegeeq.database.pool.shared", "false");
+        System.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
+        System.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
         // Disable auto-migration since schema is already initialized by SharedPostgresTestExtension
         System.setProperty("peegeeq.migration.enabled", "false");
         System.setProperty("peegeeq.migration.auto-migrate", "false");

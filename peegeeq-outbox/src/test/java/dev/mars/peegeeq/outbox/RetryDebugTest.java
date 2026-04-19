@@ -105,7 +105,7 @@ public class RetryDebugTest {
         logger.info("Producer created: {}", producer.getClass().getSimpleName());
 
         consumer = outboxFactory.createConsumer("debug-retry", String.class);
-        System.out.println("Consumer created: " + consumer.getClass().getName());
+        logger.info("Consumer created: {}", consumer.getClass().getName());
         logger.info("Consumer created: {}", consumer.getClass().getSimpleName());
     }
 
@@ -163,32 +163,32 @@ public class RetryDebugTest {
 
     @Test
     void debugRetryMechanism(Vertx vertx, VertxTestContext testContext) throws Exception {
-        System.out.println("🔍 === DEBUGGING RETRY MECHANISM ===");
-        logger.info("🔍 === DEBUGGING RETRY MECHANISM ===");
+        logger.info("=== DEBUGGING RETRY MECHANISM ===");
+        logger.info("=== DEBUGGING RETRY MECHANISM ===");
 
         String testMessage = "Debug retry message";
         AtomicInteger attemptCount = new AtomicInteger(0);
         Promise<Void> firstAttemptPromise = Promise.promise();
 
-        System.out.println("📤 Sending message: " + testMessage);
-        logger.info("📤 Sending message: {}", testMessage);
+        logger.info("Sending message: {}", testMessage);
+        logger.info("Sending message: {}", testMessage);
 
         // Send message, wait for commit, check DB, subscribe, wait for attempts
         producer.send(testMessage)
             .compose(v -> {
-                System.out.println("📤 Message sent successfully: " + testMessage);
-                logger.info("📤 Message sent successfully: {}", testMessage);
+                logger.info("Message sent successfully: {}", testMessage);
+                logger.info("Message sent successfully: {}", testMessage);
                 return vertx.timer(500);
             })
             .compose(timerId -> checkDatabaseState("After message sent"))
             .compose(v -> {
-                System.out.println("🔧 Setting up consumer subscription AFTER message is sent...");
-                logger.info("🔧 Setting up consumer subscription...");
+                logger.info("Setting up consumer subscription AFTER message is sent...");
+                logger.info("Setting up consumer subscription...");
 
                 consumer.subscribe(message -> {
                     int attempt = attemptCount.incrementAndGet();
-                    System.out.println("🔥 ATTEMPT " + attempt + ": Processing message: " + message.getPayload());
-                    logger.info("🔥 ATTEMPT {}: Processing message: {}", attempt, message.getPayload());
+                    logger.info("ATTEMPT {}: Processing message: {}", attempt, message.getPayload());
+                    logger.info("ATTEMPT {}: Processing message: {}", attempt, message.getPayload());
 
                     firstAttemptPromise.tryComplete();
 
@@ -198,28 +198,28 @@ public class RetryDebugTest {
 
                     throw new RuntimeException("INTENTIONAL FAILURE: Debug retry, attempt " + attempt);
                 });
-                System.out.println("Consumer subscribed successfully");
+                logger.info("Consumer subscribed successfully");
                 logger.info("Consumer subscribed successfully");
                 return Future.<Void>succeededFuture();
             })
             .compose(v -> firstAttemptPromise.future())
             .compose(v -> {
-                System.out.println("First attempt completed");
+                logger.info("First attempt completed");
                 logger.info("First attempt completed");
                 return vertx.timer(1000);
             })
             .compose(timerId -> checkDatabaseState("After first failure"))
             .compose(v -> {
-                System.out.println("⏳ Waiting 5 seconds for potential retries...");
-                logger.info("⏳ Waiting 5 seconds for potential retries...");
+                logger.info("Waiting 5 seconds for potential retries...");
+                logger.info("Waiting 5 seconds for potential retries...");
                 return vertx.timer(5000);
             })
             .compose(timerId -> checkDatabaseState("After waiting 5 seconds"))
             .onSuccess(v -> {
-                System.out.println("🔍 Total attempts made: " + attemptCount.get());
-                logger.info("🔍 Total attempts made: {}", attemptCount.get());
-                System.out.println("🔍 Debug test completed");
-                logger.info("🔍 Debug test completed");
+                logger.info("Total attempts made: {}", attemptCount.get());
+                logger.info("Total attempts made: {}", attemptCount.get());
+                logger.info("Debug test completed");
+                logger.info("Debug test completed");
                 testContext.completeNow();
             })
             .onFailure(testContext::failNow);

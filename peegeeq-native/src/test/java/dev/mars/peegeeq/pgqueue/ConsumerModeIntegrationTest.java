@@ -111,9 +111,8 @@ public class ConsumerModeIntegrationTest {
 
     @Test
     void testListenNotifyOnlyMode(Vertx vertx, VertxTestContext testContext) throws Exception {
-        System.out.println("🧪 TEST METHOD CALLED: testListenNotifyOnlyMode");
-        System.err.println("🧪 TEST METHOD CALLED: testListenNotifyOnlyMode");
-        logger.info("🧪 STARTING LISTEN_NOTIFY_ONLY MODE TEST");
+        logger.info("TEST METHOD CALLED: testListenNotifyOnlyMode");
+        logger.info("STARTING LISTEN_NOTIFY_ONLY MODE TEST");
 
         // Create consumer with LISTEN_NOTIFY_ONLY mode - but don't subscribe yet
         ConsumerConfig config = ConsumerConfig.builder()
@@ -126,10 +125,9 @@ public class ConsumerModeIntegrationTest {
         AtomicReference<String> receivedMessage = new AtomicReference<>();
 
         // Subscribe to messages
-        System.out.println("📝 About to call consumer.subscribe()");
+        logger.info("About to call consumer.subscribe()");
         consumer.subscribe(message -> {
-            System.out.println("🎯 LISTEN_NOTIFY_ONLY: Message received: " + message.getPayload());
-            logger.info("🎯 LISTEN_NOTIFY_ONLY: Message received: {}", message.getPayload());
+            logger.info("LISTEN_NOTIFY_ONLY: Message received: {}", message.getPayload());
             receivedMessage.set(message.getPayload());
             testContext.verify(() -> {
                 assertEquals("Hello LISTEN_NOTIFY_ONLY!", receivedMessage.get());
@@ -137,15 +135,13 @@ public class ConsumerModeIntegrationTest {
             testContext.completeNow();
             return Future.succeededFuture();
         });
-        System.out.println("consumer.subscribe() completed");
+        logger.info("consumer.subscribe() completed");
 
         // Wait for LISTEN setup, then send
-        System.out.println("⏳ Waiting for LISTEN setup via timer");
+        logger.info("Waiting for LISTEN setup via timer");
         vertx.setTimer(1000, id -> {
-            System.out.println("🔔 About to send message");
-            logger.info("🔔 LISTEN_NOTIFY_ONLY: Sending test message...");
+            logger.info("LISTEN_NOTIFY_ONLY: Sending test message...");
             producer.send("Hello LISTEN_NOTIFY_ONLY!");
-            System.out.println("Message sent successfully");
             logger.info("LISTEN_NOTIFY_ONLY: Message sent");
         });
 
@@ -159,7 +155,7 @@ public class ConsumerModeIntegrationTest {
 
     @Test
     void testPollingOnlyMode() throws Exception {
-        logger.info("🧪 Testing POLLING_ONLY mode");
+        logger.info("Testing POLLING_ONLY mode");
 
         // Create consumer with POLLING_ONLY mode and fast polling
         ConsumerConfig config = ConsumerConfig.builder()
@@ -194,7 +190,7 @@ public class ConsumerModeIntegrationTest {
 
     @Test
     void testHybridMode() throws Exception {
-        logger.info("🧪 Testing HYBRID mode (default behavior)");
+        logger.info("Testing HYBRID mode (default behavior)");
 
         // Create consumer with HYBRID mode (should work like before)
         ConsumerConfig config = ConsumerConfig.builder()
@@ -229,7 +225,7 @@ public class ConsumerModeIntegrationTest {
 
     @Test
     void testBackwardCompatibility() throws Exception {
-        logger.info("🧪 Testing backward compatibility (no ConsumerConfig)");
+        logger.info("Testing backward compatibility (no ConsumerConfig)");
 
         // Create consumer without ConsumerConfig (should default to HYBRID)
         MessageConsumer<String> consumer = factory.createConsumer("test-backward-compat", String.class);

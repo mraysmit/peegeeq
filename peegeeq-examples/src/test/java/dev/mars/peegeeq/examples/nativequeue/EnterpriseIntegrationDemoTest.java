@@ -270,15 +270,15 @@ class EnterpriseIntegrationDemoTest {
     @BeforeEach
     void setUp() {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        System.out.println("\n🔗 Setting up Enterprise Integration Demo Test");
+        logger.info("Setting up Enterprise Integration Demo Test");
 
         // Configure system properties for TestContainers
         configureSystemPropertiesForContainer();
 
         // Initialize database schema for enterprise integration test
-        System.out.println("🔧 Initializing database schema for enterprise integration test");
+        logger.info("Initializing database schema for enterprise integration test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
-        System.out.println("Database schema initialized successfully using centralized schema initializer (ALL components)");
+        logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
         // Initialize PeeGeeQ with integration configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
@@ -294,19 +294,19 @@ class EnterpriseIntegrationDemoTest {
 
         queueFactory = provider.createFactory("native", databaseService);
 
-        System.out.println("Setup complete - Ready for enterprise integration pattern testing");
+        logger.info("Setup complete - Ready for enterprise integration pattern testing");
     }
 
     @AfterEach
     void tearDown() {
         logger.info("Tearing down: closing resources and manager");
-        System.out.println("🧹 Cleaning up Enterprise Integration Demo Test");
+        logger.info("Cleaning up Enterprise Integration Demo Test");
         
         if (manager != null) {
             try {
                 manager.closeReactive().await();
             } catch (Exception e) {
-                System.err.println("⚠️ Error during manager cleanup: " + e.getMessage());
+                logger.warn("Error during manager cleanup: {}", e.getMessage());
             }
         }
 
@@ -315,7 +315,7 @@ class EnterpriseIntegrationDemoTest {
         System.clearProperty("peegeeq.database.username");
         System.clearProperty("peegeeq.database.password");
         
-        System.out.println("Cleanup complete");
+        logger.info("Cleanup complete");
     }
 
     @Test
@@ -323,7 +323,7 @@ class EnterpriseIntegrationDemoTest {
     @DisplayName("Message Transformation - Converting Between Different Message Formats")
     void testMessageTransformation() throws Exception {
         logger.info("Test: message transformation");
-        System.out.println("\n🔄 Testing Message Transformation");
+        logger.info("Testing Message Transformation");
 
         String inputQueue = "integration-input-queue";
         String outputQueue = "integration-output-queue";
@@ -343,7 +343,7 @@ class EnterpriseIntegrationDemoTest {
         inputConsumer.subscribe(message -> {
             OrderMessage order = message.getPayload();
             
-            System.out.println("🔄 Transforming order: " + order.getOrderId() + " for system integration");
+            logger.info("Transforming order: {} for system integration", order.getOrderId());
 
             // Transform for different target systems based on region
             JsonObject transformedData;
@@ -413,7 +413,7 @@ class EnterpriseIntegrationDemoTest {
         outputConsumer.subscribe(message -> {
             TransformedMessage transformed = message.getPayload();
             
-            System.out.println("📤 Received transformed message for: " + transformed.targetSystem);
+            logger.info("Received transformed message for: {}", transformed.targetSystem);
             transformedMessages.add(transformed);
             
             outputLatch.countDown();
@@ -421,7 +421,7 @@ class EnterpriseIntegrationDemoTest {
         });
 
         // Send orders from different regions
-        System.out.println("📤 Sending orders from different regions for transformation...");
+        logger.info("Sending orders from different regions for transformation...");
         
         // US Order
         OrderMessage usOrder = new OrderMessage(
@@ -452,10 +452,9 @@ class EnterpriseIntegrationDemoTest {
         assertEquals(3, transformedMessages.size(), "Should have 3 transformed messages");
         assertEquals(3, messagesProcessed.get(), "Should have processed 3 messages");
 
-        System.out.println("📊 Message Transformation Results:");
+        logger.info("Message Transformation Results:");
         for (TransformedMessage msg : transformedMessages) {
-            System.out.println("  " + msg.sourceSystem + " -> " + msg.targetSystem + 
-                             " (Message ID: " + msg.messageId + ")");
+            logger.info("  {} -> {} (Message ID: {})", msg.sourceSystem, msg.targetSystem, msg.messageId);
         }
 
         // Verify different target systems
@@ -467,8 +466,8 @@ class EnterpriseIntegrationDemoTest {
         inputConsumer.close();
         outputConsumer.close();
 
-        System.out.println("Message Transformation test completed successfully");
-        System.out.println("📊 Total messages transformed: " + messagesProcessed.get());
+        logger.info("Message Transformation test completed successfully");
+        logger.info("Total messages transformed: {}", messagesProcessed.get());
     }
 
     @Test
@@ -476,7 +475,7 @@ class EnterpriseIntegrationDemoTest {
     @DisplayName("Content-Based Routing - Routing Messages Based on Content")
     void testContentBasedRouting() throws Exception {
         logger.info("Test: content based routing");
-        System.out.println("\n🎯 Testing Content-Based Routing");
+        logger.info("Testing Content-Based Routing");
 
         String inputQueue = "routing-input-queue";
         String highPriorityQueue = "routing-high-priority-queue";
@@ -504,7 +503,7 @@ class EnterpriseIntegrationDemoTest {
         inputConsumer.subscribe(message -> {
             OrderMessage order = message.getPayload();
 
-            System.out.println("🎯 Routing order: " + order.getOrderId() + " based on content analysis");
+            logger.info("Routing order: {} based on content analysis", order.getOrderId());
 
             // Content-based routing logic
             String routingDecision = determineRoute(order);
@@ -512,15 +511,15 @@ class EnterpriseIntegrationDemoTest {
             switch (routingDecision) {
                 case "HIGH_PRIORITY":
                     highPriorityProducer.send(order);
-                    System.out.println("  -> Routed to HIGH PRIORITY queue: " + getRoutingReason(order));
+                    logger.info("  -> Routed to HIGH PRIORITY queue: {}", getRoutingReason(order));
                     break;
                 case "NORMAL_PRIORITY":
                     normalPriorityProducer.send(order);
-                    System.out.println("  -> Routed to NORMAL PRIORITY queue: " + getRoutingReason(order));
+                    logger.info("  -> Routed to NORMAL PRIORITY queue: {}", getRoutingReason(order));
                     break;
                 case "LOW_PRIORITY":
                     lowPriorityProducer.send(order);
-                    System.out.println("  -> Routed to LOW PRIORITY queue: " + getRoutingReason(order));
+                    logger.info("  -> Routed to LOW PRIORITY queue: {}", getRoutingReason(order));
                     break;
             }
 
@@ -533,7 +532,7 @@ class EnterpriseIntegrationDemoTest {
         highPriorityConsumer.subscribe(message -> {
             OrderMessage order = message.getPayload();
             routedMessages.computeIfAbsent("HIGH_PRIORITY", k -> new ArrayList<>()).add(order);
-            System.out.println("🔥 HIGH PRIORITY consumer processed: " + order.getOrderId());
+            logger.info("HIGH PRIORITY consumer processed: {}", order.getOrderId());
             routingLatch.countDown();
             return Future.succeededFuture();
         });
@@ -541,7 +540,7 @@ class EnterpriseIntegrationDemoTest {
         normalPriorityConsumer.subscribe(message -> {
             OrderMessage order = message.getPayload();
             routedMessages.computeIfAbsent("NORMAL_PRIORITY", k -> new ArrayList<>()).add(order);
-            System.out.println("⚡ NORMAL PRIORITY consumer processed: " + order.getOrderId());
+            logger.info("NORMAL PRIORITY consumer processed: {}", order.getOrderId());
             routingLatch.countDown();
             return Future.succeededFuture();
         });
@@ -549,13 +548,13 @@ class EnterpriseIntegrationDemoTest {
         lowPriorityConsumer.subscribe(message -> {
             OrderMessage order = message.getPayload();
             routedMessages.computeIfAbsent("LOW_PRIORITY", k -> new ArrayList<>()).add(order);
-            System.out.println("🐌 LOW PRIORITY consumer processed: " + order.getOrderId());
+            logger.info("LOW PRIORITY consumer processed: {}", order.getOrderId());
             routingLatch.countDown();
             return Future.succeededFuture();
         });
 
         // Send orders with different characteristics for routing
-        System.out.println("📤 Sending orders with different characteristics for content-based routing...");
+        logger.info("Sending orders with different characteristics for content-based routing...");
 
         // High priority: Large order amount + VIP customer
         OrderMessage vipOrder = new OrderMessage(
@@ -606,11 +605,11 @@ class EnterpriseIntegrationDemoTest {
         // Verify routing results
         assertEquals(6, messagesRouted.get(), "Should have routed 6 messages");
 
-        System.out.println("📊 Content-Based Routing Results:");
+        logger.info("Content-Based Routing Results:");
         for (Map.Entry<String, List<OrderMessage>> entry : routedMessages.entrySet()) {
-            System.out.println("  " + entry.getKey() + ": " + entry.getValue().size() + " messages");
+            logger.info("  {}: {} messages", entry.getKey(), entry.getValue().size());
             for (OrderMessage order : entry.getValue()) {
-                System.out.println("    - " + order.getOrderId() + " ($" + order.getTotalAmount() + ")");
+                logger.info("    - {} (${})", order.getOrderId(), order.getTotalAmount());
             }
         }
 
@@ -629,8 +628,8 @@ class EnterpriseIntegrationDemoTest {
         normalPriorityConsumer.close();
         lowPriorityConsumer.close();
 
-        System.out.println("Content-Based Routing test completed successfully");
-        System.out.println("📊 Total messages routed: " + messagesRouted.get());
+        logger.info("Content-Based Routing test completed successfully");
+        logger.info("Total messages routed: {}", messagesRouted.get());
     }
 
     private String determineRoute(OrderMessage order) {

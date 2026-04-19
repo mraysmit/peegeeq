@@ -38,6 +38,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestMethodOrder;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -46,6 +47,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.Statement;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -68,6 +70,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class PeeGeeQMetricsLogLevelTest {
 
+    private static final Logger logger = LoggerFactory.getLogger(PeeGeeQMetricsLogLevelTest.class);
     private static final String POSTGRES_IMAGE = "postgres:15.13-alpine3.20";
 
     @SuppressWarnings("resource")
@@ -141,6 +144,7 @@ public class PeeGeeQMetricsLogLevelTest {
     @Order(1)
     @DisplayName("Positive: persistMetrics without queue_metrics table logs ERROR (non-connection failure)")
     void testPersistWithoutTableLogsError(VertxTestContext testContext) throws InterruptedException {
+        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Failed to persist metrics to database') is EXPECTED — this test deliberately persists without a metrics table to verify error logging");
         // Table does not exist — SQL will fail with relation not found
         Pool pool = createPool();
         metrics = new PeeGeeQMetrics(pool, "test-instance");
@@ -225,6 +229,9 @@ public class PeeGeeQMetricsLogLevelTest {
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
                 .maxSize(2)
+                .shared(false)
+                .idleTimeout(Duration.ofSeconds(2))
+                .connectionTimeout(Duration.ofSeconds(5))
                 .build();
 
         return mgr.getOrCreateReactivePool("metrics-test", config, poolConfig);

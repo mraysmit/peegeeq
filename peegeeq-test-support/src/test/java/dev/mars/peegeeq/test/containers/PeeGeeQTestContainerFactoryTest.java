@@ -32,8 +32,7 @@ class PeeGeeQTestContainerFactoryTest {
     
     @Test
     void testBasicContainerCreation() {
-        System.err.println("=== TEST METHOD STARTED: testBasicContainerCreation ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testBasicContainerCreation ===");
         
         logger.info("Testing basic container creation");
         
@@ -47,15 +46,13 @@ class PeeGeeQTestContainerFactoryTest {
         
         logger.info("Basic container creation test passed");
         
-        System.err.println("=== TEST METHOD COMPLETED: testBasicContainerCreation ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD COMPLETED: testBasicContainerCreation ===");
     }
     
     @ParameterizedTest
     @EnumSource(PeeGeeQTestContainerFactory.PerformanceProfile.class)
     void testAllPerformanceProfiles(PeeGeeQTestContainerFactory.PerformanceProfile profile) {
-        System.err.println("=== TEST METHOD STARTED: testAllPerformanceProfiles(" + profile + ") ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testAllPerformanceProfiles({}) ===", profile);
         
         logger.info("Testing performance profile: {}", profile.getDisplayName());
         
@@ -86,14 +83,12 @@ class PeeGeeQTestContainerFactoryTest {
         
         logger.info("Performance profile test passed for: {}", profile.getDisplayName());
         
-        System.err.println("=== TEST METHOD COMPLETED: testAllPerformanceProfiles(" + profile + ") ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD COMPLETED: testAllPerformanceProfiles({}) ===", profile);
     }
     
     @Test
     void testCustomDatabaseSettings() {
-        System.err.println("=== TEST METHOD STARTED: testCustomDatabaseSettings ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testCustomDatabaseSettings ===");
         
         logger.info("Testing custom database settings");
         
@@ -111,14 +106,12 @@ class PeeGeeQTestContainerFactoryTest {
         
         logger.info("Custom database settings test passed");
         
-        System.err.println("=== TEST METHOD COMPLETED: testCustomDatabaseSettings ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD COMPLETED: testCustomDatabaseSettings ===");
     }
     
     @Test
     void testCustomProfileWithSettings() {
-        System.err.println("=== TEST METHOD STARTED: testCustomProfileWithSettings ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testCustomProfileWithSettings ===");
         
         logger.info("Testing CUSTOM profile with custom settings");
         
@@ -136,14 +129,12 @@ class PeeGeeQTestContainerFactoryTest {
         
         logger.info("Custom profile with settings test passed");
         
-        System.err.println("=== TEST METHOD COMPLETED: testCustomProfileWithSettings ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD COMPLETED: testCustomProfileWithSettings ===");
     }
     
     @Test
     void testCustomProfileWithoutSettings() {
-        System.err.println("=== TEST METHOD STARTED: testCustomProfileWithoutSettings ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testCustomProfileWithoutSettings ===");
         
         logger.info("Testing CUSTOM profile without custom settings (should fallback to STANDARD)");
         
@@ -155,14 +146,12 @@ class PeeGeeQTestContainerFactoryTest {
         
         logger.info("Custom profile without settings test passed (fallback to STANDARD)");
         
-        System.err.println("=== TEST METHOD COMPLETED: testCustomProfileWithoutSettings ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD COMPLETED: testCustomProfileWithoutSettings ===");
     }
     
     @Test
     void testBaseIntegrationTestCompatibility() {
-        System.err.println("=== TEST METHOD STARTED: testBaseIntegrationTestCompatibility ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testBaseIntegrationTestCompatibility ===");
         
         logger.info("Testing BaseIntegrationTest compatibility");
         
@@ -176,14 +165,12 @@ class PeeGeeQTestContainerFactoryTest {
         
         logger.info("BaseIntegrationTest compatibility test passed");
         
-        System.err.println("=== TEST METHOD COMPLETED: testBaseIntegrationTestCompatibility ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD COMPLETED: testBaseIntegrationTestCompatibility ===");
     }
     
     @Test
     void testProfileInfoRetrieval() {
-        System.err.println("=== TEST METHOD STARTED: testProfileInfoRetrieval ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testProfileInfoRetrieval ===");
         
         logger.info("Testing profile information retrieval");
         
@@ -202,7 +189,6 @@ class PeeGeeQTestContainerFactoryTest {
         
         logger.info("Profile information retrieval test passed");
         
-        System.err.println("=== TEST METHOD COMPLETED: testProfileInfoRetrieval ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD COMPLETED: testProfileInfoRetrieval ===");
     }
 }

@@ -360,15 +360,15 @@ class DistributedSystemResilienceDemoTest {
     @BeforeEach
     void setUp() {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        System.out.println("\n🛡️ Setting up Distributed System Resilience Demo Test");
+        logger.info("Setting up Distributed System Resilience Demo Test");
 
         // Configure system properties for TestContainers
         configureSystemPropertiesForContainer();
 
         // Initialize database schema for distributed system resilience test
-        System.out.println("🔧 Initializing database schema for distributed system resilience test");
+        logger.info("Initializing database schema for distributed system resilience test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
-        System.out.println("Database schema initialized successfully using centralized schema initializer (ALL components)");
+        logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
         // Initialize PeeGeeQ with resilience configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
@@ -384,19 +384,19 @@ class DistributedSystemResilienceDemoTest {
 
         queueFactory = provider.createFactory("native", databaseService);
 
-        System.out.println("Setup complete - Ready for distributed system resilience pattern testing");
+        logger.info("Setup complete - Ready for distributed system resilience pattern testing");
     }
 
     @AfterEach
     void tearDown() {
         logger.info("Tearing down: closing resources and manager");
-        System.out.println("🧹 Cleaning up Distributed System Resilience Demo Test");
+        logger.info("Cleaning up Distributed System Resilience Demo Test");
 
         if (manager != null) {
             try {
                 manager.closeReactive().await();
             } catch (Exception e) {
-                System.err.println("⚠️ Error during manager cleanup: " + e.getMessage());
+                logger.warn("Error during manager cleanup: {}", e.getMessage());
             }
         }
 
@@ -407,7 +407,7 @@ class DistributedSystemResilienceDemoTest {
         System.clearProperty("peegeeq.database.username");
         System.clearProperty("peegeeq.database.password");
 
-        System.out.println("Cleanup complete");
+        logger.info("Cleanup complete");
     }
 
     @Test
@@ -415,7 +415,7 @@ class DistributedSystemResilienceDemoTest {
     @DisplayName("Circuit Breaker Pattern - Preventing Cascade Failures")
     void testCircuitBreakerPattern(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Test: circuit breaker pattern");
-        System.out.println("\n🛡️ Testing Circuit Breaker Pattern");
+        logger.info("Testing Circuit Breaker Pattern");
 
         String requestQueue = "resilience-request-queue";
         String responseQueue = "resilience-response-queue";
@@ -441,8 +441,7 @@ class DistributedSystemResilienceDemoTest {
         requestConsumer.subscribe(message -> {
             ServiceRequest request = message.getPayload();
 
-            System.out.println("🛡️ Processing request: " + request.requestId +
-                             " (Circuit state: " + service.circuitBreaker.state + ")");
+            logger.info("Processing request: {} (Circuit state: {})", request.requestId, service.circuitBreaker.state);
 
             ServiceResponse response = service.processRequest(request);
             responseProducer.send(response);
@@ -456,9 +455,7 @@ class DistributedSystemResilienceDemoTest {
         responseConsumer.subscribe(message -> {
             ServiceResponse response = message.getPayload();
 
-            System.out.println("🛡️ Received response: " + response.requestId +
-                             " (Success: " + response.success +
-                             ", Error: " + response.errorMessage + ")");
+            logger.info("Received response: {} (Success: {}, Error: {})", response.requestId, response.success, response.errorMessage);
 
             responses.put(response.requestId, response);
             responsesReceived.incrementAndGet();
@@ -467,7 +464,7 @@ class DistributedSystemResilienceDemoTest {
         });
 
         // Send requests to trigger circuit breaker
-        System.out.println("📤 Sending requests to trigger circuit breaker...");
+        logger.info("Sending requests to trigger circuit breaker...");
 
         List<Future<Void>> sendTasks = new ArrayList<>();
         for (int i = 1; i <= 10; i++) {
@@ -504,13 +501,13 @@ class DistributedSystemResilienceDemoTest {
                 .mapToLong(r -> r.errorMessage != null && r.errorMessage.contains("Circuit breaker") ? 1 : 0)
                 .sum();
 
-        System.out.println("📊 Circuit Breaker Results:");
-        System.out.println("  Total requests: " + requestsProcessed.get());
-        System.out.println("  Successful responses: " + successCount);
-        System.out.println("  Failed responses: " + failureCount);
-        System.out.println("  Circuit breaker rejections: " + circuitBreakerFailures);
-        System.out.println("  Final circuit state: " + service.circuitBreaker.state);
-        System.out.println("  Service metrics: " + service.getMetrics().encodePrettily());
+        logger.info("Circuit Breaker Results:");
+        logger.info("  Total requests: {}", requestsProcessed.get());
+        logger.info("  Successful responses: {}", successCount);
+        logger.info("  Failed responses: {}", failureCount);
+        logger.info("  Circuit breaker rejections: {}", circuitBreakerFailures);
+        logger.info("  Final circuit state: {}", service.circuitBreaker.state);
+        logger.info("  Service metrics: {}", service.getMetrics().encodePrettily());
 
         // Verify circuit breaker opened
         assertTrue(circuitBreakerFailures > 0, "Circuit breaker should have rejected some requests");
@@ -520,7 +517,7 @@ class DistributedSystemResilienceDemoTest {
         requestConsumer.close();
         responseConsumer.close();
 
-        System.out.println("Circuit Breaker Pattern test completed successfully");
+        logger.info("Circuit Breaker Pattern test completed successfully");
     }
 
 

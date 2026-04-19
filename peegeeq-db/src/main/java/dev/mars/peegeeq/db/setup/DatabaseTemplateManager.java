@@ -77,7 +77,7 @@ public class DatabaseTemplateManager {
                         return dropDatabase(connection, newDatabaseName);
                     } else {
                         logger.info("Database {} does not exist, proceeding with creation", newDatabaseName);
-                        return Future.succeededFuture();
+                        return Future.<Void>succeededFuture();
                     }
                 })
                 .compose(v -> {
@@ -91,13 +91,13 @@ public class DatabaseTemplateManager {
                             if (ar.failed()) {
                                 if (isDatabaseConflictError(ar.cause())) {
                                     logger.debug("\uD83D\uDEAB EXPECTED: Database creation conflict - {}", ar.cause().getMessage());
-                                    return Future.succeededFuture();
+                                    return Future.<Void>succeededFuture();
                                 } else {
                                     logger.error("Failed to execute SQL: {} - Error: {}", sql, ar.cause().getMessage());
-                                    return Future.failedFuture(ar.cause());
+                                    return Future.<Void>failedFuture(ar.cause());
                                 }
                             }
-                            return Future.succeededFuture();
+                            return Future.<Void>succeededFuture();
                         });
                 });
         })

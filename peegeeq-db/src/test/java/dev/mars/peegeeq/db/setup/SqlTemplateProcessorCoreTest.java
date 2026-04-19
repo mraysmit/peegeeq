@@ -10,7 +10,14 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import ch.qos.logback.classic.Level;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+
+import java.time.Duration;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -35,6 +42,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag(TestCategories.CORE)
 public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
 
+    private static final Logger logger = LoggerFactory.getLogger(SqlTemplateProcessorCoreTest.class);
+
     private PgConnectionManager connectionManager;
     private Pool reactivePool;
     private SqlTemplateProcessor sqlTemplateProcessor;
@@ -56,7 +65,10 @@ public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
             .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-            .maxSize(10)
+            .maxSize(3)
+            .shared(false)
+            .idleTimeout(Duration.ofSeconds(2))
+            .connectionTimeout(Duration.ofSeconds(5))
             .build();
 
         reactivePool = connectionManager.getOrCreateReactivePool("peegeeq-main", connectionConfig, poolConfig);
@@ -131,18 +143,43 @@ public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
 
     @Test
     void testApplyTemplateWithNonExistentTemplate() {
-        // Try to apply a non-existent template
-        Map<String, String> parameters = new HashMap<>();
+        // Capture log output from SqlTemplateProcessor instead of printing it.
+        // This keeps test output clean while still verifying the error was logged.
+        ch.qos.logback.classic.Logger stpLogger = (ch.qos.logback.classic.Logger)
+            LoggerFactory.getLogger(SqlTemplateProcessor.class);
+        ListAppender<ILoggingEvent> listAppender = new ListAppender<>();
+        listAppender.start();
+        stpLogger.addAppender(listAppender);
+        Level originalLevel = stpLogger.getLevel();
+        stpLogger.setLevel(Level.ERROR);
+        // Detach console appenders so the expected error doesn't pollute test output
+        stpLogger.setAdditive(false);
 
-        assertThrows(Exception.class, () -> {
-            reactivePool.withConnection(connection ->
-                sqlTemplateProcessor.applyTemplate(connection, "non-existent-template.sql", parameters)
-            ).toCompletionStage().toCompletableFuture().get();
-        });
+        try {
+            Map<String, String> parameters = new HashMap<>();
+
+            assertThrows(Exception.class, () -> {
+                reactivePool.withConnection(connection ->
+                    sqlTemplateProcessor.applyTemplate(connection, "non-existent-template.sql", parameters)
+                ).toCompletionStage().toCompletableFuture().get();
+            });
+
+            // Verify the expected error was actually logged
+            assertEquals(1, listAppender.list.size(), "Expected exactly one log event");
+            ILoggingEvent event = listAppender.list.get(0);
+            assertEquals(Level.ERROR, event.getLevel());
+            assertTrue(event.getFormattedMessage().contains("Failed to load template"),
+                "Expected log message to contain 'Failed to load template'");
+        } finally {
+            stpLogger.detachAppender(listAppender);
+            stpLogger.setAdditive(true);
+            stpLogger.setLevel(originalLevel);
+            listAppender.stop();
+        }
     }
 
     // ========================================
-    // H1 remediation: Template parameter injection prevention
+    // Template parameter injection prevention
     // ========================================
 
     @Test

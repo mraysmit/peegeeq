@@ -34,8 +34,11 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.ResourceLock;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
@@ -63,6 +66,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @org.junit.jupiter.api.parallel.Execution(org.junit.jupiter.api.parallel.ExecutionMode.SAME_THREAD)
 class DeadLetterQueueManagerTest {
 
+    private static final Logger logger = LoggerFactory.getLogger(DeadLetterQueueManagerTest.class);
+
     private PgConnectionManager connectionManager;
     private Pool reactivePool;
     private DeadLetterQueueManager dlqManager;
@@ -85,7 +90,10 @@ class DeadLetterQueueManagerTest {
                 .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-                .maxSize(5)
+                .maxSize(3)
+                .shared(false)
+                .idleTimeout(Duration.ofSeconds(2))
+                .connectionTimeout(Duration.ofSeconds(5))
                 .build();
 
         reactivePool = connectionManager.getOrCreateReactivePool("test", connectionConfig, poolConfig);
@@ -102,7 +110,7 @@ class DeadLetterQueueManagerTest {
     void tearDown(VertxTestContext testContext) {
         Future<Void> cleanup = (reactivePool != null)
             ? cleanupTestData().onFailure(e -> {
-                System.err.println("Warning: Failed to cleanup test data in tearDown: " + e.getMessage());
+                logger.warn("Failed to cleanup test data in tearDown: {}", e.getMessage());
             }).transform(ar -> Future.<Void>succeededFuture())
             : Future.succeededFuture();
 
@@ -552,7 +560,10 @@ class DeadLetterQueueManagerTest {
                 .build();
 
         PgPoolConfig reactivePoolConfig = new PgPoolConfig.Builder()
-                .maxSize(5)
+                .maxSize(3)
+                .shared(false)
+                .idleTimeout(Duration.ofSeconds(2))
+                .connectionTimeout(Duration.ofSeconds(5))
                 .build();
 
         Pool reactivePool = connectionManager.getOrCreateReactivePool("test-reactive", reactiveConnectionConfig, reactivePoolConfig);

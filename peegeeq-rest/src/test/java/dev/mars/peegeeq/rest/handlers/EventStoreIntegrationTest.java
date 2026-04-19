@@ -170,8 +170,7 @@ public class EventStoreIntegrationTest {
 
     @Test
     void testEventStoreExists(VertxTestContext testContext) {
-        System.err.println("=== TEST METHOD STARTED: testEventStoreExists ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testEventStoreExists ===");
         logger.info("=== TEST: EVENT STORE EXISTS ===");
 
         // Use the setups details endpoint (not status) to get full setup information including event stores
@@ -200,8 +199,7 @@ public class EventStoreIntegrationTest {
                             "Event store 'test_events' should exist in the array");
 
                     logger.info("Event store exists verification passed");
-                    System.err.println("=== TEST METHOD COMPLETED: testEventStoreExists ===");
-                    System.err.flush();
+                    logger.info("=== TEST METHOD COMPLETED: testEventStoreExists ===");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -209,8 +207,7 @@ public class EventStoreIntegrationTest {
 
     @Test
     void testStoreOneEvent(VertxTestContext testContext) {
-        System.err.println("=== TEST METHOD STARTED: testStoreOneEvent ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testStoreOneEvent ===");
         logger.info("=== TEST: STORE ONE EVENT ===");
 
         JsonObject eventRequest = new JsonObject()
@@ -240,8 +237,7 @@ public class EventStoreIntegrationTest {
                     assertTrue(responseBody.containsKey("eventId"), "Response should contain eventId");
                     
                     logger.info("Event stored successfully with ID: {}", responseBody.getString("eventId"));
-                    System.err.println("=== TEST METHOD COMPLETED: testStoreOneEvent ===");
-                    System.err.flush();
+                    logger.info("=== TEST METHOD COMPLETED: testStoreOneEvent ===");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -249,8 +245,7 @@ public class EventStoreIntegrationTest {
 
     @Test
     void testGetAllVersionsOfEvent(VertxTestContext testContext) {
-        System.err.println("=== TEST METHOD STARTED: testGetAllVersionsOfEvent ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testGetAllVersionsOfEvent ===");
         logger.info("=== TEST: GET ALL VERSIONS OF EVENT ===");
 
         // First, store an initial event
@@ -312,8 +307,7 @@ public class EventStoreIntegrationTest {
                     assertTrue(versions.size() >= 1, "Should have at least one version");
 
                     logger.info("Retrieved {} version(s) of the event", versions.size());
-                    System.err.println("=== TEST METHOD COMPLETED: testGetAllVersionsOfEvent ===");
-                    System.err.flush();
+                    logger.info("=== TEST METHOD COMPLETED: testGetAllVersionsOfEvent ===");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -321,8 +315,7 @@ public class EventStoreIntegrationTest {
 
     @Test
     void testGetEventAsOfTransactionTime(VertxTestContext testContext) {
-        System.err.println("=== TEST METHOD STARTED: testGetEventAsOfTransactionTime ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testGetEventAsOfTransactionTime ===");
         logger.info("=== TEST: GET EVENT AS OF TRANSACTION TIME ===");
 
         // Store an event and capture its transaction time
@@ -389,8 +382,7 @@ public class EventStoreIntegrationTest {
                     assertNotNull(eventData, "Event data should not be null");
 
                     logger.info("Retrieved event as of transaction time: {}", event.encodePrettily());
-                    System.err.println("=== TEST METHOD COMPLETED: testGetEventAsOfTransactionTime ===");
-                    System.err.flush();
+                    logger.info("=== TEST METHOD COMPLETED: testGetEventAsOfTransactionTime ===");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -398,8 +390,7 @@ public class EventStoreIntegrationTest {
 
     @Test
     void testGetEventStoreStats(VertxTestContext testContext) {
-        System.err.println("=== TEST METHOD STARTED: testGetEventStoreStats ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testGetEventStoreStats ===");
         logger.info("=== TEST: GET EVENT STORE STATISTICS ===");
 
         // First, store a few events to populate statistics
@@ -447,8 +438,7 @@ public class EventStoreIntegrationTest {
                     assertTrue(totalEvents >= 2, "Should have at least 2 events (we just stored them). Found: " + totalEvents);
 
                     logger.info("Event store statistics retrieved: {} total events", totalEvents);
-                    System.err.println("=== TEST METHOD COMPLETED: testGetEventStoreStats ===");
-                    System.err.flush();
+                    logger.info("=== TEST METHOD COMPLETED: testGetEventStoreStats ===");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -460,8 +450,7 @@ public class EventStoreIntegrationTest {
 
     @Test
     void testGetEventWithInvalidEventId(VertxTestContext testContext) {
-        System.err.println("=== TEST METHOD STARTED: testGetEventWithInvalidEventId ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testGetEventWithInvalidEventId ===");
         logger.info("=== TEST: GET EVENT WITH INVALID EVENT ID ===");
 
         String invalidEventId = "non-existent-event-12345";
@@ -481,8 +470,7 @@ public class EventStoreIntegrationTest {
                     assertTrue(responseBody.containsKey("error"), "Response should contain error message");
 
                     logger.info("Invalid event ID properly handled with 404");
-                    System.err.println("=== TEST METHOD COMPLETED: testGetEventWithInvalidEventId ===");
-                    System.err.flush();
+                    logger.info("=== TEST METHOD COMPLETED: testGetEventWithInvalidEventId ===");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -490,8 +478,7 @@ public class EventStoreIntegrationTest {
 
     @Test
     void testGetAllVersionsWithInvalidEventId(VertxTestContext testContext) {
-        System.err.println("=== TEST METHOD STARTED: testGetAllVersionsWithInvalidEventId ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testGetAllVersionsWithInvalidEventId ===");
         logger.info("=== TEST: GET ALL VERSIONS WITH INVALID EVENT ID ===");
 
         String invalidEventId = "invalid-event-99999";
@@ -514,8 +501,7 @@ public class EventStoreIntegrationTest {
                     assertEquals(0, versions.size(), "Should have zero versions for non-existent event");
 
                     logger.info("Invalid event ID in getAllVersions returns empty array");
-                    System.err.println("=== TEST METHOD COMPLETED: testGetAllVersionsWithInvalidEventId ===");
-                    System.err.flush();
+                    logger.info("=== TEST METHOD COMPLETED: testGetAllVersionsWithInvalidEventId ===");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -523,8 +509,7 @@ public class EventStoreIntegrationTest {
 
     @Test
     void testGetAsOfTransactionTimeWithInvalidFormat(VertxTestContext testContext) {
-        System.err.println("=== TEST METHOD STARTED: testGetAsOfTransactionTimeWithInvalidFormat ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testGetAsOfTransactionTimeWithInvalidFormat ===");
         logger.info("=== TEST: GET AS OF TRANSACTION TIME WITH INVALID FORMAT ===");
 
         // First store an event to get a valid event ID
@@ -564,8 +549,7 @@ public class EventStoreIntegrationTest {
                             "Error message should indicate invalid format");
 
                     logger.info("Invalid timestamp format properly rejected with 400");
-                    System.err.println("=== TEST METHOD COMPLETED: testGetAsOfTransactionTimeWithInvalidFormat ===");
-                    System.err.flush();
+                    logger.info("=== TEST METHOD COMPLETED: testGetAsOfTransactionTimeWithInvalidFormat ===");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -573,8 +557,7 @@ public class EventStoreIntegrationTest {
 
     @Test
     void testGetAsOfTransactionTimeWithMissingParameter(VertxTestContext testContext) {
-        System.err.println("=== TEST METHOD STARTED: testGetAsOfTransactionTimeWithMissingParameter ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testGetAsOfTransactionTimeWithMissingParameter ===");
         logger.info("=== TEST: GET AS OF TRANSACTION TIME WITH MISSING PARAMETER ===");
 
         // Store an event first
@@ -613,8 +596,7 @@ public class EventStoreIntegrationTest {
                             "Error message should indicate missing parameter");
 
                     logger.info("Missing transactionTime parameter properly rejected with 400");
-                    System.err.println("=== TEST METHOD COMPLETED: testGetAsOfTransactionTimeWithMissingParameter ===");
-                    System.err.flush();
+                    logger.info("=== TEST METHOD COMPLETED: testGetAsOfTransactionTimeWithMissingParameter ===");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -622,8 +604,7 @@ public class EventStoreIntegrationTest {
 
     @Test
     void testQueryNonExistentEventStore(VertxTestContext testContext) {
-        System.err.println("=== TEST METHOD STARTED: testQueryNonExistentEventStore ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testQueryNonExistentEventStore ===");
         logger.info("=== TEST: QUERY NON-EXISTENT EVENT STORE ===");
 
         String nonExistentStore = "non_existent_store";
@@ -645,8 +626,7 @@ public class EventStoreIntegrationTest {
                             "Error message should indicate store not found");
 
                     logger.info("Non-existent event store properly rejected");
-                    System.err.println("=== TEST METHOD COMPLETED: testQueryNonExistentEventStore ===");
-                    System.err.flush();
+                    logger.info("=== TEST METHOD COMPLETED: testQueryNonExistentEventStore ===");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -654,8 +634,7 @@ public class EventStoreIntegrationTest {
 
     @Test
     void testStoreEventWithInvalidJsonPayload(VertxTestContext testContext) {
-        System.err.println("=== TEST METHOD STARTED: testStoreEventWithInvalidJsonPayload ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testStoreEventWithInvalidJsonPayload ===");
         logger.info("=== TEST: STORE EVENT WITH INVALID JSON PAYLOAD ===");
 
         String invalidJson = "{this is not valid json";
@@ -675,8 +654,7 @@ public class EventStoreIntegrationTest {
                     assertTrue(responseBody.containsKey("error"), "Response should contain error message");
 
                     logger.info("Invalid JSON payload properly rejected with 400");
-                    System.err.println("=== TEST METHOD COMPLETED: testStoreEventWithInvalidJsonPayload ===");
-                    System.err.flush();
+                    logger.info("=== TEST METHOD COMPLETED: testStoreEventWithInvalidJsonPayload ===");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -684,8 +662,7 @@ public class EventStoreIntegrationTest {
 
     @Test
     void testStoreEventWithMissingRequiredFields(VertxTestContext testContext) {
-        System.err.println("=== TEST METHOD STARTED: testStoreEventWithMissingRequiredFields ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testStoreEventWithMissingRequiredFields ===");
         logger.info("=== TEST: STORE EVENT WITH MISSING REQUIRED FIELDS ===");
 
         // Missing eventType and eventData
@@ -708,8 +685,7 @@ public class EventStoreIntegrationTest {
                     assertTrue(responseBody.containsKey("error"), "Response should contain error message");
 
                     logger.info("Missing required fields properly rejected");
-                    System.err.println("=== TEST METHOD COMPLETED: testStoreEventWithMissingRequiredFields ===");
-                    System.err.flush();
+                    logger.info("=== TEST METHOD COMPLETED: testStoreEventWithMissingRequiredFields ===");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -717,8 +693,7 @@ public class EventStoreIntegrationTest {
 
     @Test
     void testGetStatsForNonExistentEventStore(VertxTestContext testContext) {
-        System.err.println("=== TEST METHOD STARTED: testGetStatsForNonExistentEventStore ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testGetStatsForNonExistentEventStore ===");
         logger.info("=== TEST: GET STATS FOR NON-EXISTENT EVENT STORE ===");
 
         String nonExistentStore = "non_existent_stats_store";
@@ -740,8 +715,7 @@ public class EventStoreIntegrationTest {
                             "Error message should indicate store not found");
 
                     logger.info("Stats request for non-existent store properly rejected");
-                    System.err.println("=== TEST METHOD COMPLETED: testGetStatsForNonExistentEventStore ===");
-                    System.err.flush();
+                    logger.info("=== TEST METHOD COMPLETED: testGetStatsForNonExistentEventStore ===");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -749,8 +723,7 @@ public class EventStoreIntegrationTest {
 
     @Test
     void testQueryWithInvalidSetupId(VertxTestContext testContext) {
-        System.err.println("=== TEST METHOD STARTED: testQueryWithInvalidSetupId ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testQueryWithInvalidSetupId ===");
         logger.info("=== TEST: QUERY WITH INVALID SETUP ID ===");
 
         String invalidSetupId = "invalid_setup_12345";
@@ -770,8 +743,7 @@ public class EventStoreIntegrationTest {
                     assertTrue(responseBody.containsKey("error"), "Response should contain error message");
 
                     logger.info("Invalid setup ID properly rejected");
-                    System.err.println("=== TEST METHOD COMPLETED: testQueryWithInvalidSetupId ===");
-                    System.err.flush();
+                    logger.info("=== TEST METHOD COMPLETED: testQueryWithInvalidSetupId ===");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -779,8 +751,7 @@ public class EventStoreIntegrationTest {
 
     @Test
     void testConcurrentEventStores(VertxTestContext testContext) {
-        System.err.println("=== TEST METHOD STARTED: testConcurrentEventStores ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testConcurrentEventStores ===");
         logger.info("=== TEST: CONCURRENT EVENT STORES ===");
 
         // Store events concurrently to test thread safety
@@ -830,8 +801,7 @@ public class EventStoreIntegrationTest {
                     assertEquals(201, future3.result().statusCode(), "Event 3 should be stored (201 Created)");
 
                     logger.info("Concurrent event storage successful - thread safety validated");
-                    System.err.println("=== TEST METHOD COMPLETED: testConcurrentEventStores ===");
-                    System.err.flush();
+                    logger.info("=== TEST METHOD COMPLETED: testConcurrentEventStores ===");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -843,8 +813,7 @@ public class EventStoreIntegrationTest {
 
     @Test
     void testAppendCorrectionToEvent(VertxTestContext testContext) {
-        System.err.println("=== TEST METHOD STARTED: testAppendCorrectionToEvent ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testAppendCorrectionToEvent ===");
         logger.info("=== TEST: APPEND CORRECTION TO EVENT ===");
 
         // First, store an initial event with incorrect data
@@ -902,8 +871,7 @@ public class EventStoreIntegrationTest {
 
                     logger.info("Correction appended successfully with new event ID: {}",
                             responseBody.getString("correctionEventId"));
-                    System.err.println("=== TEST METHOD COMPLETED: testAppendCorrectionToEvent ===");
-                    System.err.flush();
+                    logger.info("=== TEST METHOD COMPLETED: testAppendCorrectionToEvent ===");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -911,8 +879,7 @@ public class EventStoreIntegrationTest {
 
     @Test
     void testAppendCorrectionWithMissingReason(VertxTestContext testContext) {
-        System.err.println("=== TEST METHOD STARTED: testAppendCorrectionWithMissingReason ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testAppendCorrectionWithMissingReason ===");
         logger.info("=== TEST: APPEND CORRECTION WITH MISSING REASON ===");
 
         // First, store an event
@@ -955,8 +922,7 @@ public class EventStoreIntegrationTest {
                             "Error message should indicate missing correctionReason");
 
                     logger.info("Missing correctionReason properly rejected with 400");
-                    System.err.println("=== TEST METHOD COMPLETED: testAppendCorrectionWithMissingReason ===");
-                    System.err.flush();
+                    logger.info("=== TEST METHOD COMPLETED: testAppendCorrectionWithMissingReason ===");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -964,8 +930,7 @@ public class EventStoreIntegrationTest {
 
     @Test
     void testAppendCorrectionWithMissingEventData(VertxTestContext testContext) {
-        System.err.println("=== TEST METHOD STARTED: testAppendCorrectionWithMissingEventData ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testAppendCorrectionWithMissingEventData ===");
         logger.info("=== TEST: APPEND CORRECTION WITH MISSING EVENT DATA ===");
 
         // First, store an event
@@ -1008,8 +973,7 @@ public class EventStoreIntegrationTest {
                             "Error message should indicate missing eventData");
 
                     logger.info("Missing eventData properly rejected with 400");
-                    System.err.println("=== TEST METHOD COMPLETED: testAppendCorrectionWithMissingEventData ===");
-                    System.err.flush();
+                    logger.info("=== TEST METHOD COMPLETED: testAppendCorrectionWithMissingEventData ===");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -1017,8 +981,7 @@ public class EventStoreIntegrationTest {
 
     @Test
     void testAppendCorrectionToNonExistentEvent(VertxTestContext testContext) {
-        System.err.println("=== TEST METHOD STARTED: testAppendCorrectionToNonExistentEvent ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testAppendCorrectionToNonExistentEvent ===");
         logger.info("=== TEST: APPEND CORRECTION TO NON-EXISTENT EVENT ===");
 
         String nonExistentEventId = "non-existent-event-99999";
@@ -1044,8 +1007,7 @@ public class EventStoreIntegrationTest {
                             "Error message should indicate event not found");
 
                     logger.info("Correction to non-existent event properly rejected with 404");
-                    System.err.println("=== TEST METHOD COMPLETED: testAppendCorrectionToNonExistentEvent ===");
-                    System.err.flush();
+                    logger.info("=== TEST METHOD COMPLETED: testAppendCorrectionToNonExistentEvent ===");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -1053,8 +1015,7 @@ public class EventStoreIntegrationTest {
 
     @Test
     void testCorrectionPreservesAuditTrail(VertxTestContext testContext) {
-        System.err.println("=== TEST METHOD STARTED: testCorrectionPreservesAuditTrail ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testCorrectionPreservesAuditTrail ===");
         logger.info("=== TEST: CORRECTION PRESERVES AUDIT TRAIL ===");
 
         // Store original event
@@ -1116,8 +1077,7 @@ public class EventStoreIntegrationTest {
                             "Should have at least 2 versions (original + correction). Found: " + versions.size());
 
                     logger.info("Audit trail preserved with {} versions", versions.size());
-                    System.err.println("=== TEST METHOD COMPLETED: testCorrectionPreservesAuditTrail ===");
-                    System.err.flush();
+                    logger.info("=== TEST METHOD COMPLETED: testCorrectionPreservesAuditTrail ===");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -1129,8 +1089,7 @@ public class EventStoreIntegrationTest {
 
     @Test
     void testGetEventVersions(VertxTestContext testContext) {
-        System.err.println("=== TEST METHOD STARTED: testGetEventVersions ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testGetEventVersions ===");
         logger.info("=== TEST: GET EVENT VERSIONS ===");
 
         // Store an event
@@ -1170,8 +1129,7 @@ public class EventStoreIntegrationTest {
                             "Should have at least 1 version");
 
                     logger.info("Event versions retrieved successfully");
-                    System.err.println("=== TEST METHOD COMPLETED: testGetEventVersions ===");
-                    System.err.flush();
+                    logger.info("=== TEST METHOD COMPLETED: testGetEventVersions ===");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -1179,8 +1137,7 @@ public class EventStoreIntegrationTest {
 
     @Test
     void testGetEventVersionsForNonExistentEvent(VertxTestContext testContext) {
-        System.err.println("=== TEST METHOD STARTED: testGetEventVersionsForNonExistentEvent ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testGetEventVersionsForNonExistentEvent ===");
         logger.info("=== TEST: GET VERSIONS FOR NON-EXISTENT EVENT ===");
 
         String nonExistentEventId = "non-existent-event-" + System.currentTimeMillis();
@@ -1204,8 +1161,7 @@ public class EventStoreIntegrationTest {
                     }
 
                     logger.info("Non-existent event versions handled correctly");
-                    System.err.println("=== TEST METHOD COMPLETED: testGetEventVersionsForNonExistentEvent ===");
-                    System.err.flush();
+                    logger.info("=== TEST METHOD COMPLETED: testGetEventVersionsForNonExistentEvent ===");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -1213,8 +1169,7 @@ public class EventStoreIntegrationTest {
 
     @Test
     void testPointInTimeQuery(VertxTestContext testContext) {
-        System.err.println("=== TEST METHOD STARTED: testPointInTimeQuery ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testPointInTimeQuery ===");
         logger.info("=== TEST: POINT-IN-TIME QUERY ===");
 
         // Store an event
@@ -1259,8 +1214,7 @@ public class EventStoreIntegrationTest {
                         logger.info("Point-in-time query returned 404 (event not found at that time)");
                     }
 
-                    System.err.println("=== TEST METHOD COMPLETED: testPointInTimeQuery ===");
-                    System.err.flush();
+                    logger.info("=== TEST METHOD COMPLETED: testPointInTimeQuery ===");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -1268,8 +1222,7 @@ public class EventStoreIntegrationTest {
 
     @Test
     void testEventStoreStats(VertxTestContext testContext) {
-        System.err.println("=== TEST METHOD STARTED: testEventStoreStats ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testEventStoreStats ===");
         logger.info("=== TEST: EVENT STORE STATS ===");
 
         webClient.get(TEST_PORT, "localhost",
@@ -1288,8 +1241,7 @@ public class EventStoreIntegrationTest {
                     // The exact fields depend on the implementation
                     logger.info("Event store stats retrieved: {}", responseBody.encodePrettily());
 
-                    System.err.println("=== TEST METHOD COMPLETED: testEventStoreStats ===");
-                    System.err.flush();
+                    logger.info("=== TEST METHOD COMPLETED: testEventStoreStats ===");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
@@ -1307,8 +1259,7 @@ public class EventStoreIntegrationTest {
     @Test
     @Order(20)
     void testEventStoreSSEStreamConnection(Vertx vertx, VertxTestContext testContext) {
-        System.err.println("=== TEST METHOD STARTED: testEventStoreSSEStreamConnection ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testEventStoreSSEStreamConnection ===");
         logger.info("Testing SSE stream connection for event store");
 
         // Use raw HTTP client for SSE since WebClient doesn't handle streaming well
@@ -1348,8 +1299,7 @@ public class EventStoreIntegrationTest {
 
                                         // Close the connection and complete the test
                                         response.request().connection().close();
-                                        System.err.println("=== TEST METHOD COMPLETED: testEventStoreSSEStreamConnection ===");
-                                        System.err.flush();
+                                        logger.info("=== TEST METHOD COMPLETED: testEventStoreSSEStreamConnection ===");
                                         testContext.completeNow();
                                     }
                                 });
@@ -1374,8 +1324,7 @@ public class EventStoreIntegrationTest {
     @Test
     @Order(21)
     void testEventStoreSSEStreamWithEventTypeFilter(Vertx vertx, VertxTestContext testContext) {
-        System.err.println("=== TEST METHOD STARTED: testEventStoreSSEStreamWithEventTypeFilter ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testEventStoreSSEStreamWithEventTypeFilter ===");
         logger.info("Testing SSE stream with eventType filter");
 
         String eventTypeFilter = "order_created";
@@ -1403,8 +1352,7 @@ public class EventStoreIntegrationTest {
                                                 "Connection event should contain eventTypeFilter");
 
                                         response.request().connection().close();
-                                        System.err.println("=== TEST METHOD COMPLETED: testEventStoreSSEStreamWithEventTypeFilter ===");
-                                        System.err.flush();
+                                        logger.info("=== TEST METHOD COMPLETED: testEventStoreSSEStreamWithEventTypeFilter ===");
                                         testContext.completeNow();
                                     }
                                 });
@@ -1427,8 +1375,7 @@ public class EventStoreIntegrationTest {
     @Test
     @Order(22)
     void testEventStoreSSEStreamWithAggregateIdFilter(Vertx vertx, VertxTestContext testContext) {
-        System.err.println("=== TEST METHOD STARTED: testEventStoreSSEStreamWithAggregateIdFilter ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testEventStoreSSEStreamWithAggregateIdFilter ===");
         logger.info("Testing SSE stream with aggregateId filter");
 
         String aggregateIdFilter = "ORDER-12345";
@@ -1454,8 +1401,7 @@ public class EventStoreIntegrationTest {
                                                 "Connection event should contain aggregateIdFilter");
 
                                         response.request().connection().close();
-                                        System.err.println("=== TEST METHOD COMPLETED: testEventStoreSSEStreamWithAggregateIdFilter ===");
-                                        System.err.flush();
+                                        logger.info("=== TEST METHOD COMPLETED: testEventStoreSSEStreamWithAggregateIdFilter ===");
                                         testContext.completeNow();
                                     }
                                 });
@@ -1478,8 +1424,7 @@ public class EventStoreIntegrationTest {
     @Test
     @Order(23)
     void testEventStoreSSEStreamNonExistentStore(Vertx vertx, VertxTestContext testContext) {
-        System.err.println("=== TEST METHOD STARTED: testEventStoreSSEStreamNonExistentStore ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testEventStoreSSEStreamNonExistentStore ===");
         logger.info("Testing SSE stream for non-existent event store");
 
         vertx.createHttpClient()
@@ -1507,8 +1452,7 @@ public class EventStoreIntegrationTest {
                                                 "Error should indicate store not found");
 
                                         response.request().connection().close();
-                                        System.err.println("=== TEST METHOD COMPLETED: testEventStoreSSEStreamNonExistentStore ===");
-                                        System.err.flush();
+                                        logger.info("=== TEST METHOD COMPLETED: testEventStoreSSEStreamNonExistentStore ===");
                                         testContext.completeNow();
                                     }
                                 });

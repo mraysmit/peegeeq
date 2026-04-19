@@ -27,6 +27,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -73,7 +74,10 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
                 .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-                .maxSize(10)
+                .maxSize(3)
+                .shared(false)
+                .idleTimeout(Duration.ofSeconds(2))
+                .connectionTimeout(Duration.ofSeconds(5))
                 .build();
 
         connectionManager.getOrCreateReactivePool("peegeeq-main", connectionConfig, poolConfig);
@@ -91,6 +95,9 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
         if (job != null && job.isRunning()) {
             job.stop();
         }
+        if (connectionManager != null) {
+            connectionManager.close();
+        }
     }
 
     /**
@@ -98,6 +105,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
      */
     @Test
     void testDetectsExpiredHeartbeat() throws Exception {
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN logs ('Marked N subscriptions as DEAD', detection run summary) are EXPECTED — this test deliberately expires a heartbeat to verify dead consumer detection job");
         String topic = "test-dead-detect-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "dead-group-1";
 
@@ -182,6 +190,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
      */
     @Test
     void testDetectAllDeadAcrossTopics() throws Exception {
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN logs ('Marked N subscriptions as DEAD') are EXPECTED — this test deliberately expires heartbeats across multiple topics");
         String topic1 = "test-dead-all-1-" + UUID.randomUUID().toString().substring(0, 8);
         String topic2 = "test-dead-all-2-" + UUID.randomUUID().toString().substring(0, 8);
 
@@ -268,6 +277,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
      */
     @Test
     void testRunDetectionOnce() throws Exception {
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Marked N subscriptions as DEAD') is EXPECTED — this test deliberately runs manual dead detection");
         String topic = "test-manual-detect-" + UUID.randomUUID().toString().substring(0, 8);
 
         topicConfigService.createTopic(TopicConfig.builder()

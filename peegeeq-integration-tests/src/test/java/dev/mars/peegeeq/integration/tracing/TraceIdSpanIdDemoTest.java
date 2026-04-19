@@ -136,10 +136,10 @@ public class TraceIdSpanIdDemoTest {
                             List<String> logs = traceAppender.getCapturedLogs();
                             
                             // Print logs for demonstration
-                            System.out.println("\n========== TRACE ID vs SPAN ID DEMONSTRATION ==========");
-                            System.out.println("Expected TraceId: " + expectedTraceId);
-                            System.out.println("Root SpanId: " + rootSpanId);
-                            System.out.println();
+                            log.info("\n========== TRACE ID vs SPAN ID DEMONSTRATION ==========");
+                            log.info("Expected TraceId: {}", expectedTraceId);
+                            log.info("Root SpanId: {}", rootSpanId);
+                            log.info("");
                             
                             String step1SpanId = null;
                             String step2SpanId = null;
@@ -147,7 +147,7 @@ public class TraceIdSpanIdDemoTest {
                             
                             for (String logLine : logs) {
                                 if (logLine.contains("STEP")) {
-                                    System.out.println(logLine);
+                                    log.info("{}", logLine);
                                     
                                     Matcher m = TRACE_SPAN_PATTERN.matcher(logLine);
                                     if (m.find()) {
@@ -165,13 +165,13 @@ public class TraceIdSpanIdDemoTest {
                                 }
                             }
                             
-                            System.out.println();
-                            System.out.println("Analysis:");
-                            System.out.println("  - STEP 1 (event loop): spanId = " + step1SpanId);
-                            System.out.println("  - STEP 2 (worker):     spanId = " + step2SpanId + " <-- DIFFERENT (child span)");
-                            System.out.println("  - STEP 3 (event loop): spanId = " + step3SpanId + " <-- SAME as STEP 1 (root span)");
-                            System.out.println("  - TraceId: SAME across all steps ✓");
-                            System.out.println("=======================================================\n");
+                            log.info("");
+                            log.info("Analysis:");
+                            log.info("  - STEP 1 (event loop): spanId = {}", step1SpanId);
+                            log.info("  - STEP 2 (worker):     spanId = {} <-- DIFFERENT (child span)", step2SpanId);
+                            log.info("  - STEP 3 (event loop): spanId = {} <-- SAME as STEP 1 (root span)", step3SpanId);
+                            log.info("  - TraceId: SAME across all steps");
+                            log.info("=======================================================\n");
                             
                             // Verify step 1 and step 3 have the same spanId (root span)
                             assertEquals(step1SpanId, step3SpanId, 
@@ -249,18 +249,16 @@ public class TraceIdSpanIdDemoTest {
                         }
                         
                         // Print demonstration
-                        System.out.println("\n========== EVENT BUS TRACE PROPAGATION ==========");
-                        System.out.println("Publisher TraceId: " + expectedTraceId);
-                        System.out.println("Publisher SpanId:  " + rootSpanId);
-                        System.out.println("Consumer TraceId:  " + consumerTraceId.get());
-                        System.out.println("Consumer SpanId:   " + consumerSpanId.get());
-                        System.out.println();
-                        System.out.println("Analysis:");
-                        System.out.println("  - TraceId: " + 
-                            (expectedTraceId.equals(consumerTraceId.get()) ? "SAME ✓" : "DIFFERENT ✗"));
-                        System.out.println("  - SpanId:  " + 
-                            (rootSpanId.equals(consumerSpanId.get()) ? "SAME" : "DIFFERENT ✓ (child span)"));
-                        System.out.println("=================================================\n");
+                        log.info("\n========== EVENT BUS TRACE PROPAGATION ==========");
+                        log.info("Publisher TraceId: {}", expectedTraceId);
+                        log.info("Publisher SpanId:  {}", rootSpanId);
+                        log.info("Consumer TraceId:  {}", consumerTraceId.get());
+                        log.info("Consumer SpanId:   {}", consumerSpanId.get());
+                        log.info("");
+                        log.info("Analysis:");
+                        log.info("  - TraceId: {}", expectedTraceId.equals(consumerTraceId.get()) ? "SAME" : "DIFFERENT");
+                        log.info("  - SpanId:  {}", rootSpanId.equals(consumerSpanId.get()) ? "SAME" : "DIFFERENT (child span)");
+                        log.info("=================================================\n");
                         
                         // Verify traceId is propagated
                         assertEquals(expectedTraceId, consumerTraceId.get(), 
@@ -307,23 +305,20 @@ public class TraceIdSpanIdDemoTest {
             }
             
             // Print demonstration
-            System.out.println("\n========== NESTED SPAN HIERARCHY ==========");
-            System.out.println("TraceId (same for all): " + traceId);
-            System.out.println();
-            System.out.println("Span Hierarchy:");
-            System.out.println("  ROOT:    spanId=" + rootSpan.spanId() + " parentSpanId=" + rootSpan.parentSpanId());
-            System.out.println("  CHILD1:  spanId=" + child1.spanId() + " parentSpanId=" + child1.parentSpanId());
-            System.out.println("  CHILD2:  spanId=" + child2.spanId() + " parentSpanId=" + child2.parentSpanId());
-            System.out.println("  CHILD3:  spanId=" + child3.spanId() + " parentSpanId=" + child3.parentSpanId());
-            System.out.println();
-            System.out.println("Parent-Child Verification:");
-            System.out.println("  child1.parentSpanId == root.spanId:   " + 
-                (child1.parentSpanId() != null && child1.parentSpanId().equals(rootSpan.spanId()) ? "✓" : "✗"));
-            System.out.println("  child2.parentSpanId == child1.spanId: " + 
-                (child2.parentSpanId() != null && child2.parentSpanId().equals(child1.spanId()) ? "✓" : "✗"));
-            System.out.println("  child3.parentSpanId == child2.spanId: " + 
-                (child3.parentSpanId() != null && child3.parentSpanId().equals(child2.spanId()) ? "✓" : "✗"));
-            System.out.println("============================================\n");
+            log.info("\n========== NESTED SPAN HIERARCHY ==========");
+            log.info("TraceId (same for all): {}", traceId);
+            log.info("");
+            log.info("Span Hierarchy:");
+            log.info("  ROOT:    spanId={} parentSpanId={}", rootSpan.spanId(), rootSpan.parentSpanId());
+            log.info("  CHILD1:  spanId={} parentSpanId={}", child1.spanId(), child1.parentSpanId());
+            log.info("  CHILD2:  spanId={} parentSpanId={}", child2.spanId(), child2.parentSpanId());
+            log.info("  CHILD3:  spanId={} parentSpanId={}", child3.spanId(), child3.parentSpanId());
+            log.info("");
+            log.info("Parent-Child Verification:");
+            log.info("  child1.parentSpanId == root.spanId:   {}", child1.parentSpanId() != null && child1.parentSpanId().equals(rootSpan.spanId()) ? "PASS" : "FAIL");
+            log.info("  child2.parentSpanId == child1.spanId: {}", child2.parentSpanId() != null && child2.parentSpanId().equals(child1.spanId()) ? "PASS" : "FAIL");
+            log.info("  child3.parentSpanId == child2.spanId: {}", child3.parentSpanId() != null && child3.parentSpanId().equals(child2.spanId()) ? "PASS" : "FAIL");
+            log.info("============================================\n");
             
             // All should have the same traceId
             assertEquals(traceId, rootSpan.traceId());

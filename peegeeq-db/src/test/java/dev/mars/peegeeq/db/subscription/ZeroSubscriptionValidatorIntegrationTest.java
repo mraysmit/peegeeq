@@ -6,12 +6,15 @@ import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
+
+import java.time.Duration;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -58,7 +61,10 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
             .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-            .maxSize(10)
+            .maxSize(3)
+            .shared(false)
+            .idleTimeout(Duration.ofSeconds(2))
+            .connectionTimeout(Duration.ofSeconds(5))
             .build();
 
         connectionManager.getOrCreateReactivePool("peegeeq-main", connectionConfig, poolConfig);
@@ -68,6 +74,13 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
         subscriptionManager = new SubscriptionManager(connectionManager, "peegeeq-main");
 
         logger.info("ZeroSubscriptionValidator test setup complete");
+    }
+
+    @AfterEach
+    void tearDown() throws Exception {
+        if (connectionManager != null) {
+            connectionManager.close();
+        }
     }
 
     /**
@@ -211,6 +224,7 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
      */
     @Test
     void testValidateWriteAllowedThrowsExceptionWhenBlocked() throws Exception {
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Blocking write to topic - zero ACTIVE subscriptions') is EXPECTED — this test verifies writes are blocked when block_writes_on_zero_subscriptions = TRUE");
         String topic = "test-validate-blocked";
 
         // Create a PUB_SUB topic with blocking enabled

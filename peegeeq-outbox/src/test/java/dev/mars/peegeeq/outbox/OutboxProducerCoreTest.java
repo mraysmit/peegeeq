@@ -76,8 +76,7 @@ public class OutboxProducerCoreTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        System.err.println("=== OutboxProducerCoreTest SETUP STARTED ===");
-        System.err.flush();
+        logger.info("=== OutboxProducerCoreTest SETUP STARTED ===");
 
         // Initialize schema first
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
@@ -104,15 +103,13 @@ public class OutboxProducerCoreTest {
         outboxFactory = new OutboxFactory(databaseService, config);
         producer = outboxFactory.createProducer(testTopic, String.class);
 
-        System.err.println("=== OutboxProducerCoreTest SETUP COMPLETED ===");
-        System.err.flush();
+        logger.info("=== OutboxProducerCoreTest SETUP COMPLETED ===");
     }
 
     @AfterEach
     void tearDown(VertxTestContext tearDownContext) throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        System.err.println("=== OutboxProducerCoreTest TEARDOWN STARTED ===");
-        System.err.flush();
+        logger.info("=== OutboxProducerCoreTest TEARDOWN STARTED ===");
 
         if (producer != null) {
             producer.close();
@@ -134,26 +131,22 @@ public class OutboxProducerCoreTest {
             System.clearProperty(prop);
         }
 
-        System.err.println("=== OutboxProducerCoreTest TEARDOWN COMPLETED ===");
-        System.err.flush();
+        logger.info("=== OutboxProducerCoreTest TEARDOWN COMPLETED ===");
     }
 
     @Test
     void testProducerCreation() {
-        System.err.println("=== TEST: testProducerCreation STARTED ===");
-        System.err.flush();
+        logger.info("=== TEST: testProducerCreation STARTED ===");
 
         assertNotNull(producer, "Producer should be created");
 
-        System.err.println("=== TEST: testProducerCreation COMPLETED ===");
-        System.err.flush();
+        logger.info("=== TEST: testProducerCreation COMPLETED ===");
     }
 
     @Test
     void testSendBasicMessage() throws Exception {
         logger.info("Test: producer creation");
-        System.err.println("=== TEST: testSendBasicMessage STARTED ===");
-        System.err.flush();
+        logger.info("=== TEST: testSendBasicMessage STARTED ===");
 
         String testMessage = "Hello, OutboxProducer Test!";
 
@@ -163,14 +156,12 @@ public class OutboxProducerCoreTest {
         // Wait for send to complete
         sendFuture.await();
 
-        System.err.println("=== TEST: testSendBasicMessage COMPLETED ===");
-        System.err.flush();
+        logger.info("=== TEST: testSendBasicMessage COMPLETED ===");
     }
 
     @Test
     void testSendMessageWithHeaders() throws Exception {
-        System.err.println("=== TEST: testSendMessageWithHeaders STARTED ===");
-        System.err.flush();
+        logger.info("=== TEST: testSendMessageWithHeaders STARTED ===");
 
         String testMessage = "Message with headers";
         Map<String, String> headers = new HashMap<>();
@@ -183,15 +174,13 @@ public class OutboxProducerCoreTest {
         // Wait for send to complete
         sendFuture.await();
 
-        System.err.println("=== TEST: testSendMessageWithHeaders COMPLETED ===");
-        System.err.flush();
+        logger.info("=== TEST: testSendMessageWithHeaders COMPLETED ===");
     }
 
     @Test
     void testSendMessageWithCorrelationId() throws Exception {
         logger.info("Test: send message with headers");
-        System.err.println("=== TEST: testSendMessageWithCorrelationId STARTED ===");
-        System.err.flush();
+        logger.info("=== TEST: testSendMessageWithCorrelationId STARTED ===");
 
         String testMessage = "Message with correlation ID";
         Map<String, String> headers = new HashMap<>();
@@ -204,14 +193,12 @@ public class OutboxProducerCoreTest {
         // Wait for send to complete
         sendFuture.await();
 
-        System.err.println("=== TEST: testSendMessageWithCorrelationId COMPLETED ===");
-        System.err.flush();
+        logger.info("=== TEST: testSendMessageWithCorrelationId COMPLETED ===");
     }
 
     @Test
     void testSendMessageWithAllParameters() throws Exception {
-        System.err.println("=== TEST: testSendMessageWithAllParameters STARTED ===");
-        System.err.flush();
+        logger.info("=== TEST: testSendMessageWithAllParameters STARTED ===");
 
         String testMessage = "Message with all parameters";
         Map<String, String> headers = new HashMap<>();
@@ -225,15 +212,13 @@ public class OutboxProducerCoreTest {
         // Wait for send to complete
         sendFuture.await();
 
-        System.err.println("=== TEST: testSendMessageWithAllParameters COMPLETED ===");
-        System.err.flush();
+        logger.info("=== TEST: testSendMessageWithAllParameters COMPLETED ===");
     }
 
     @Test
     void testSendMultipleMessages() throws Exception {
         logger.info("Test: send message with all parameters");
-        System.err.println("=== TEST: testSendMultipleMessages STARTED ===");
-        System.err.flush();
+        logger.info("=== TEST: testSendMultipleMessages STARTED ===");
 
         int messageCount = 10;
         for (int i = 0; i < messageCount; i++) {
@@ -241,14 +226,12 @@ public class OutboxProducerCoreTest {
             producer.send(message).await();
         }
 
-        System.err.println("=== TEST: testSendMultipleMessages COMPLETED ===");
-        System.err.flush();
+        logger.info("=== TEST: testSendMultipleMessages COMPLETED ===");
     }
 
     @Test
     void testProducerClose() throws Exception {
-        System.err.println("=== TEST: testProducerClose STARTED ===");
-        System.err.flush();
+        logger.info("=== TEST: testProducerClose STARTED ===");
 
         // Send a message first
         producer.send("test message").await();
@@ -256,8 +239,7 @@ public class OutboxProducerCoreTest {
         // Close producer
         producer.close();
 
-        System.err.println("=== TEST: testProducerClose COMPLETED ===");
-        System.err.flush();
+        logger.info("=== TEST: testProducerClose COMPLETED ===");
     }
 }
 

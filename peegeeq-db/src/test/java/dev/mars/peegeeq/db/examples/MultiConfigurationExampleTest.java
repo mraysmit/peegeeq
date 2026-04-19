@@ -69,7 +69,10 @@ public class MultiConfigurationExampleTest {
 
         // Set valid pool configuration
         System.setProperty("peegeeq.database.pool.min-size", "2");
-        System.setProperty("peegeeq.database.pool.max-size", "10");
+        System.setProperty("peegeeq.database.pool.max-size", "3");
+        System.setProperty("peegeeq.database.pool.shared", "false");
+        System.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
+        System.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
 
         // Initialize multi-configuration manager
         configManager = new MultiConfigurationManager(new SimpleMeterRegistry());

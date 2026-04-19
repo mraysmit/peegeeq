@@ -32,6 +32,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.time.Duration;
 
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
@@ -86,7 +87,10 @@ public class PgConnectionManagerTest {
 
         // Create pool config
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-                .maxSize(5)
+                .maxSize(3)
+                .shared(false)
+                .idleTimeout(Duration.ofSeconds(2))
+                .connectionTimeout(Duration.ofSeconds(5))
                 .build();
 
         // Get reactive pool
@@ -115,7 +119,10 @@ public class PgConnectionManagerTest {
 
         // Create pool config
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-                .maxSize(5)
+                .maxSize(3)
+                .shared(false)
+                .idleTimeout(Duration.ofSeconds(2))
+                .connectionTimeout(Duration.ofSeconds(5))
                 .build();
 
         // Create reactive pool
@@ -166,7 +173,10 @@ public class PgConnectionManagerTest {
 
         // Create pool config
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-                .maxSize(5)
+                .maxSize(3)
+                .shared(false)
+                .idleTimeout(Duration.ofSeconds(2))
+                .connectionTimeout(Duration.ofSeconds(5))
                 .build();
 
         // Create a pool

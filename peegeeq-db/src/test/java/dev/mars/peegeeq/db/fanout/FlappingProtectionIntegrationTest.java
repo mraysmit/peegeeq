@@ -14,6 +14,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Tuple;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -23,6 +24,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.time.Duration;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -65,7 +67,10 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
                 .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-                .maxSize(10)
+                .maxSize(3)
+                .shared(false)
+                .idleTimeout(Duration.ofSeconds(2))
+                .connectionTimeout(Duration.ofSeconds(5))
                 .build();
 
         connectionManager.getOrCreateReactivePool(SERVICE_ID, connectionConfig, poolConfig);
@@ -75,6 +80,13 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
         detector = new DeadConsumerDetector(connectionManager, SERVICE_ID);
 
         logger.info("FlappingProtectionIntegrationTest setup complete");
+    }
+
+    @AfterEach
+    void tearDown() throws Exception {
+        if (connectionManager != null) {
+            connectionManager.close();
+        }
     }
 
     /**
@@ -175,6 +187,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
      */
     @Test
     void testMarkedDeadOnlyAfterConsecutiveMissThreshold(VertxTestContext testContext) throws InterruptedException {
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Marked N subscriptions as DEAD') is EXPECTED — this test deliberately exceeds the consecutive miss threshold to trigger DEAD marking");
         String topic = uniqueTopic("flap-threshold");
         String groupName = "threshold-consumer";
         int expectedThreshold = 3; // default consecutive miss threshold
@@ -359,6 +372,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
      */
     @Test
     void testResubscribeAfterDeadResetsMissCount(VertxTestContext testContext) throws InterruptedException {
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN logs ('Marked N subscriptions as DEAD') are EXPECTED — this test marks a subscription DEAD then resubscribes to verify miss count reset");
         String topic = uniqueTopic("flap-resub");
         String groupName = "resub-consumer";
 

@@ -16,6 +16,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Tuple;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -25,6 +26,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.time.Duration;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -67,7 +69,10 @@ public class ConsumerGroupMetricsIntegrationTest extends BaseIntegrationTest {
                 .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-                .maxSize(10)
+                .maxSize(3)
+                .shared(false)
+                .idleTimeout(Duration.ofSeconds(2))
+                .connectionTimeout(Duration.ofSeconds(5))
                 .build();
 
         connectionManager.getOrCreateReactivePool(SERVICE_ID, connectionConfig, poolConfig);
@@ -81,6 +86,13 @@ public class ConsumerGroupMetricsIntegrationTest extends BaseIntegrationTest {
         consumerGroupMetrics.bindTo(meterRegistry);
 
         logger.info("ConsumerGroupMetricsIntegrationTest setup complete");
+    }
+
+    @AfterEach
+    void tearDown() throws Exception {
+        if (connectionManager != null) {
+            connectionManager.close();
+        }
     }
 
     /**
@@ -133,6 +145,7 @@ public class ConsumerGroupMetricsIntegrationTest extends BaseIntegrationTest {
      */
     @Test
     void testDeadSubscriptionGaugeAfterDetection() throws Exception {
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN logs ('Marked N subscriptions as DEAD') are EXPECTED — this test marks a subscription DEAD to verify the dead subscription gauge increments");
         String topic = uniqueTopic("metrics-dead");
         int threshold = 3; // default dead_after_misses
 
