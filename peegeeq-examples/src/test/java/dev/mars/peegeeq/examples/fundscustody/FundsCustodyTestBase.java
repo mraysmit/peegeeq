@@ -57,6 +57,8 @@ import org.slf4j.LoggerFactory;
 @Execution(ExecutionMode.SAME_THREAD)
 public abstract class FundsCustodyTestBase {
 
+    private static final Logger logger = LoggerFactory.getLogger(FundsCustodyTestBase.class);
+
     protected Vertx vertx;
 
     // Get fresh container reference in setUp() instead of static initialization
@@ -100,15 +102,14 @@ public abstract class FundsCustodyTestBase {
                     .map(countResult -> {
                         int remainingRows = countResult.iterator().next().getInteger("count");
                         if (remainingRows > 0) {
-                            System.out.println("WARNING: Database cleanup incomplete - " + 
-                                remainingRows + " rows remaining");
+                            logger.warn("Database cleanup incomplete - {} rows remaining", remainingRows);
                         }
                         return null;
                     })
                     .onFailure(throwable -> {
                         // Table might not exist yet, which is fine
                         if (!throwable.getMessage().contains("does not exist")) {
-                            System.out.println("Cleanup operation warning: " + throwable.getMessage());
+                            logger.warn("Cleanup operation warning: {}", throwable.getMessage());
                         }
                     })
             ).await();
@@ -126,8 +127,8 @@ public abstract class FundsCustodyTestBase {
             // Cleanup failures are often expected (table doesn't exist yet)
             String message = e.getMessage();
             if (message == null || !message.contains("does not exist")) {
-                System.out.println("Database cleanup info: " + e.getClass().getSimpleName() + 
-                    " - " + (message != null ? message : "No message available"));
+                logger.info("Database cleanup info: {} - {}", e.getClass().getSimpleName(),
+                    (message != null ? message : "No message available"));
             }
         }
     }
@@ -198,7 +199,7 @@ public abstract class FundsCustodyTestBase {
             try {
                 tradeEventStore.close();
             } catch (Exception e) {
-                System.err.println("Error closing trade event store: " + e.getMessage());
+                logger.warn("Error closing trade event store: {}", e.getMessage());
             }
         }
 
@@ -206,7 +207,7 @@ public abstract class FundsCustodyTestBase {
             try {
                 cancellationEventStore.close();
             } catch (Exception e) {
-                System.err.println("Error closing cancellation event store: " + e.getMessage());
+                logger.warn("Error closing cancellation event store: {}", e.getMessage());
             }
         }
 
@@ -214,7 +215,7 @@ public abstract class FundsCustodyTestBase {
             try {
                 navEventStore.close();
             } catch (Exception e) {
-                System.err.println("Error closing NAV event store: " + e.getMessage());
+                logger.warn("Error closing NAV event store: {}", e.getMessage());
             }
         }
 
@@ -224,7 +225,7 @@ public abstract class FundsCustodyTestBase {
             try {
                 manager.closeReactive().await();
             } catch (Exception e) {
-                System.err.println("Error closing PeeGeeQ manager: " + e.getMessage());
+                logger.warn("Error closing PeeGeeQ manager: {}", e.getMessage());
             }
         }
 

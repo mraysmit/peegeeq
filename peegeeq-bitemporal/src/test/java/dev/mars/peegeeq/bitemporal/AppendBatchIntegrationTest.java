@@ -38,6 +38,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.pgclient.PgBuilder;
 import io.vertx.pgclient.PgConnectOptions;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import io.vertx.sqlclient.Pool;
 
 import java.time.Instant;
@@ -58,6 +60,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 class AppendBatchIntegrationTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(AppendBatchIntegrationTest.class);
 
     @Container
     @SuppressWarnings("resource") // Managed by Testcontainers framework
@@ -321,7 +325,7 @@ class AppendBatchIntegrationTest {
                 long duration = System.currentTimeMillis() - startTime;
                 assertNotNull(results);
                 assertEquals(batchSize, results.size());
-                System.out.println("Batch of " + batchSize + " events inserted in " + duration + "ms");
+                logger.info("Batch of {} events inserted in {}ms", batchSize, duration);
                 long uniqueIds = results.stream()
                     .map(BiTemporalEvent::getEventId)
                     .distinct()

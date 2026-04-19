@@ -33,6 +33,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.time.Duration;
 import java.util.Optional;
 
 import java.util.concurrent.TimeUnit;
@@ -76,7 +77,10 @@ public class PgClientFactoryTest {
             .build();
 
         poolConfig = new PgPoolConfig.Builder()
-            .maxSize(5)
+            .maxSize(3)
+            .shared(false)
+            .idleTimeout(Duration.ofSeconds(2))
+            .connectionTimeout(Duration.ofSeconds(5))
             .build();
     }
 

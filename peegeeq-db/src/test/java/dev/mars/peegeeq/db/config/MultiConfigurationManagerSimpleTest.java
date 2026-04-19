@@ -40,7 +40,10 @@ class MultiConfigurationManagerSimpleTest {
         System.setProperty("peegeeq.database.username", "test_user");
         System.setProperty("peegeeq.database.password", "test_pass");
         System.setProperty("peegeeq.database.pool.min-size", "2");
-        System.setProperty("peegeeq.database.pool.max-size", "10");
+        System.setProperty("peegeeq.database.pool.max-size", "3");
+        System.setProperty("peegeeq.database.pool.shared", "false");
+        System.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
+        System.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
     }
 
     @AfterEach

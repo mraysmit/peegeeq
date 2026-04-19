@@ -14,6 +14,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.time.Instant;
 import java.util.UUID;
 
@@ -25,6 +28,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 @Execution(ExecutionMode.SAME_THREAD)
 @DisplayName("Event Visualization Integration Tests")
 public class EventVisualizationIntegrationTest extends SmokeTestBase {
+
+    private static final Logger logger = LoggerFactory.getLogger(EventVisualizationIntegrationTest.class);
 
     private static final String STORE_NAME = "visualization_store";
 
@@ -190,6 +195,6 @@ public class EventVisualizationIntegrationTest extends SmokeTestBase {
     private void cleanupSetup(String setupId) {
         webClient.delete( "/api/v1/setups/" + setupId)
             .send()
-            .onFailure(err -> System.err.println("Failed to cleanup setup: " + setupId));
+            .onFailure(err -> logger.warn("Failed to cleanup setup: {}", setupId));
     }
 }

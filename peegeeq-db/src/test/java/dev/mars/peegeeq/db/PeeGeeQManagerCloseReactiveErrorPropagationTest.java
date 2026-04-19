@@ -87,6 +87,7 @@ class PeeGeeQManagerCloseReactiveErrorPropagationTest {
         // Fire-and-forget start() — replicates the pattern in 95 test setUp methods.
         // start() will fail asynchronously: validateRequiredTables() finds no tables.
         logger.info("[propagates_startup_failure] Step 3: Fire-and-forget start() — will fail asynchronously (no schema tables)");
+        logger.warn("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Failed to start PeeGeeQ Manager') is EXPECTED — this test deliberately uses an empty database with no schema tables");
         manager.start();
 
         // Call closeReactive() while start is still in-flight.
@@ -122,6 +123,7 @@ class PeeGeeQManagerCloseReactiveErrorPropagationTest {
 
         // Fire-and-forget start — will fail (no tables)
         logger.info("[cleanup_despite_failure] Step 3: Fire-and-forget start() — will fail asynchronously (no schema tables)");
+        logger.warn("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Failed to start PeeGeeQ Manager') is EXPECTED — this test deliberately uses an empty database with no schema tables");
         manager.start();
 
         // closeReactive must: (1) run all cleanup, (2) propagate the failure.
@@ -162,7 +164,10 @@ class PeeGeeQManagerCloseReactiveErrorPropagationTest {
         props.setProperty("peegeeq.database.ssl.enabled", "false");
         props.setProperty("peegeeq.database.schema", "public");
         props.setProperty("peegeeq.database.pool.min-size", "1");
-        props.setProperty("peegeeq.database.pool.max-size", "5");
+        props.setProperty("peegeeq.database.pool.max-size", "3");
+        props.setProperty("peegeeq.database.pool.shared", "false");
+        props.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
+        props.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
         props.setProperty("peegeeq.health.check-interval", "PT5S");
         props.setProperty("peegeeq.metrics.reporting-interval", "PT10S");
         props.setProperty("peegeeq.migration.enabled", "false");

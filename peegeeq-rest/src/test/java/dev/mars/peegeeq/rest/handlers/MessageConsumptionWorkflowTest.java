@@ -1,5 +1,8 @@
 package dev.mars.peegeeq.rest.handlers;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 /**
  * Tests for message consumption workflow validation.
  *
@@ -9,6 +12,8 @@ package dev.mars.peegeeq.rest.handlers;
 /*
 @Tag(TestCategories.CORE)
 class MessageConsumptionWorkflowTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(MessageConsumptionWorkflowTest.class);
 
     @Test
     void testCompletePhase3Workflow() throws Exception {
@@ -25,7 +30,7 @@ class MessageConsumptionWorkflowTest {
     }
     
     private void testMessageConsumptionApiStructure(ObjectMapper objectMapper) throws Exception {
-        System.out.println("🧪 Testing Phase 3 Message Consumption API Structure");
+        logger.info("Testing Phase 3 Message Consumption API Structure");
         
         // Test MessageResponse with various payload types
         
@@ -81,19 +86,19 @@ class MessageConsumptionWorkflowTest {
         assertEquals("Numeric", numericResponse.getMessageType());
         assertEquals(Integer.valueOf(3), numericResponse.getPriority());
         
-        System.out.println("Message consumption API structure test passed");
+        logger.info("Message consumption API structure test passed");
     }
     
     private void testConsumptionWorkflowValidation(ObjectMapper objectMapper) throws Exception {
-        System.out.println("🧪 Testing Phase 3 Consumption Workflow Validation");
+        logger.info("Testing Phase 3 Consumption Workflow Validation");
         
         // Test the expected workflow patterns
         
         // 1. Single message polling workflow
-        System.out.println("📋 Single Message Polling Workflow:");
-        System.out.println("   1. GET /api/v1/queues/{setupId}/{queueName}/messages/next");
-        System.out.println("   2. Process message payload");
-        System.out.println("   3. DELETE /api/v1/queues/{setupId}/{queueName}/messages/{messageId}");
+        logger.info("Single Message Polling Workflow:");
+        logger.info("   1. GET /api/v1/queues/{setupId}/{queueName}/messages/next");
+        logger.info("   2. Process message payload");
+        logger.info("   3. DELETE /api/v1/queues/{setupId}/{queueName}/messages/{messageId}");
         
         // Simulate expected response structure for single message
         JsonObject singleMessageResponse = new JsonObject()
@@ -117,10 +122,10 @@ class MessageConsumptionWorkflowTest {
         assertEquals("OrderCreated", singleMessageResponse.getString("messageType"));
         
         // 2. Batch message polling workflow
-        System.out.println("📋 Batch Message Polling Workflow:");
-        System.out.println("   1. GET /api/v1/queues/{setupId}/{queueName}/messages?limit=10");
-        System.out.println("   2. Process each message in the batch");
-        System.out.println("   3. Acknowledge each message individually");
+        logger.info("Batch Message Polling Workflow:");
+        logger.info("   1. GET /api/v1/queues/{setupId}/{queueName}/messages?limit=10");
+        logger.info("   2. Process each message in the batch");
+        logger.info("   3. Acknowledge each message individually");
         
         // Simulate expected response structure for batch messages
         JsonArray messages = new JsonArray()
@@ -163,34 +168,34 @@ class MessageConsumptionWorkflowTest {
         
         assertEquals("No messages available", noMessagesResponse.getString("message"));
         
-        System.out.println("Consumption workflow validation test passed");
+        logger.info("Consumption workflow validation test passed");
     }
     
     private void testConsumptionErrorHandling(ObjectMapper objectMapper) throws Exception {
-        System.out.println("🧪 Testing Phase 3 Consumption Error Handling");
+        logger.info("Testing Phase 3 Consumption Error Handling");
         
         // Test various error scenarios that should be handled
         
         // 1. Invalid limit parameter (should be 1-100)
-        System.out.println("📋 Testing Invalid Limit Parameter:");
-        System.out.println("   - Limit < 1: Should return 400 Bad Request");
-        System.out.println("   - Limit > 100: Should return 400 Bad Request");
+        logger.info("Testing Invalid Limit Parameter:");
+        logger.info("   - Limit < 1: Should return 400 Bad Request");
+        logger.info("   - Limit > 100: Should return 400 Bad Request");
         
         // 2. Non-existent setup
-        System.out.println("📋 Testing Non-existent Setup:");
-        System.out.println("   - Should return 404 Not Found");
+        logger.info("Testing Non-existent Setup:");
+        logger.info("   - Should return 404 Not Found");
         
         // 3. Non-existent queue
-        System.out.println("📋 Testing Non-existent Queue:");
-        System.out.println("   - Should return 404 Not Found");
+        logger.info("Testing Non-existent Queue:");
+        logger.info("   - Should return 404 Not Found");
         
         // 4. Invalid message ID for acknowledgment
-        System.out.println("📋 Testing Invalid Message ID:");
-        System.out.println("   - Should return 404 Not Found");
+        logger.info("Testing Invalid Message ID:");
+        logger.info("   - Should return 404 Not Found");
         
         // 5. Consumer creation failure
-        System.out.println("📋 Testing Consumer Creation Failure:");
-        System.out.println("   - Should return 500 Internal Server Error");
+        logger.info("Testing Consumer Creation Failure:");
+        logger.info("   - Should return 500 Internal Server Error");
         
         // Simulate error response structures
         JsonObject badRequestResponse = new JsonObject()
@@ -210,50 +215,50 @@ class MessageConsumptionWorkflowTest {
         assertTrue(notFoundResponse.getString("error").contains("not found"));
         assertTrue(serverErrorResponse.getString("error").contains("Failed to"));
         
-        System.out.println("Consumption error handling test passed");
+        logger.info("Consumption error handling test passed");
     }
     
     @Test
     void testPhase3ApiDocumentation() {
         // This test documents the complete Phase 3 API usage
         
-        System.out.println("📚 Phase 3 Message Consumption API Documentation:");
-        System.out.println();
+        logger.info("Phase 3 Message Consumption API Documentation:");
+        logger.info("");
         
-        System.out.println("🔹 Single Message Consumption:");
-        System.out.println("GET /api/v1/queues/{setupId}/{queueName}/messages/next");
-        System.out.println("- Long polling for next available message");
-        System.out.println("- Configurable timeout and maxWait parameters");
-        System.out.println("- Returns 200 with message or 204 No Content");
-        System.out.println();
+        logger.info("Single Message Consumption:");
+        logger.info("GET /api/v1/queues/{setupId}/{queueName}/messages/next");
+        logger.info("- Long polling for next available message");
+        logger.info("- Configurable timeout and maxWait parameters");
+        logger.info("- Returns 200 with message or 204 No Content");
+        logger.info("");
         
-        System.out.println("🔹 Batch Message Consumption:");
-        System.out.println("GET /api/v1/queues/{setupId}/{queueName}/messages");
-        System.out.println("- Retrieve multiple messages in one request");
-        System.out.println("- Configurable limit (1-100 messages)");
-        System.out.println("- Efficient for high-throughput scenarios");
-        System.out.println();
+        logger.info("Batch Message Consumption:");
+        logger.info("GET /api/v1/queues/{setupId}/{queueName}/messages");
+        logger.info("- Retrieve multiple messages in one request");
+        logger.info("- Configurable limit (1-100 messages)");
+        logger.info("- Efficient for high-throughput scenarios");
+        logger.info("");
         
-        System.out.println("🔹 Message Acknowledgment:");
-        System.out.println("DELETE /api/v1/queues/{setupId}/{queueName}/messages/{messageId}");
-        System.out.println("- Confirms successful message processing");
-        System.out.println("- Removes message from queue");
-        System.out.println("- Returns 200 on success, 404 if not found");
-        System.out.println();
+        logger.info("Message Acknowledgment:");
+        logger.info("DELETE /api/v1/queues/{setupId}/{queueName}/messages/{messageId}");
+        logger.info("- Confirms successful message processing");
+        logger.info("- Removes message from queue");
+        logger.info("- Returns 200 on success, 404 if not found");
+        logger.info("");
         
-        System.out.println("🔹 Query Parameters:");
-        System.out.println("- timeout: Maximum wait time (milliseconds)");
-        System.out.println("- maxWait: Polling interval (milliseconds)");
-        System.out.println("- limit: Number of messages to retrieve (1-100)");
-        System.out.println("- consumerGroup: Consumer group name (future feature)");
-        System.out.println();
+        logger.info("Query Parameters:");
+        logger.info("- timeout: Maximum wait time (milliseconds)");
+        logger.info("- maxWait: Polling interval (milliseconds)");
+        logger.info("- limit: Number of messages to retrieve (1-100)");
+        logger.info("- consumerGroup: Consumer group name (future feature)");
+        logger.info("");
         
-        System.out.println("🔹 HTTP Status Codes:");
-        System.out.println("- 200: Success with message(s)");
-        System.out.println("- 204: No Content (no messages available)");
-        System.out.println("- 400: Bad Request (invalid parameters)");
-        System.out.println("- 404: Not Found (setup/queue/message not found)");
-        System.out.println("- 500: Internal Server Error");
+        logger.info("HTTP Status Codes:");
+        logger.info("- 200: Success with message(s)");
+        logger.info("- 204: No Content (no messages available)");
+        logger.info("- 400: Bad Request (invalid parameters)");
+        logger.info("- 404: Not Found (setup/queue/message not found)");
+        logger.info("- 500: Internal Server Error");
         
         assertTrue(true, "Phase 3 API documentation complete");
     }

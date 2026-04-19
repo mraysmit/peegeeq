@@ -58,7 +58,10 @@ public class DeadConsumerDetectionJobLifecycleTest {
         testProps.setProperty("peegeeq.database.ssl.enabled", "false");
         testProps.setProperty("peegeeq.database.schema", "public");
         testProps.setProperty("peegeeq.database.pool.min-size", "2");
-        testProps.setProperty("peegeeq.database.pool.max-size", "10");
+        testProps.setProperty("peegeeq.database.pool.max-size", "3");
+        testProps.setProperty("peegeeq.database.pool.shared", "false");
+        testProps.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
+        testProps.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
         testProps.setProperty("peegeeq.health.check-interval", "PT5S");
         testProps.setProperty("peegeeq.metrics.reporting-interval", "PT10S");
         testProps.setProperty("peegeeq.migration.enabled", "false");
@@ -81,9 +84,9 @@ public class DeadConsumerDetectionJobLifecycleTest {
         if (manager != null) {
             try {
                 manager.closeReactive()
-                    .onFailure(t -> System.err.println("Error during manager teardown: " + t.getMessage()));
+                    .onFailure(t -> logger.warn("Error during manager teardown: {}", t.getMessage()));
             } catch (Exception e) {
-                System.err.println("Exception during tearDown: " + e.getMessage());
+                logger.warn("Exception during tearDown: {}", e.getMessage());
             }
         }
         System.getProperties().entrySet().removeIf(entry ->
@@ -150,7 +153,7 @@ public class DeadConsumerDetectionJobLifecycleTest {
         manager.closeReactive()
             .transform(ar -> {
                 if (ar.failed()) {
-                    System.err.println("Error closing manager: " + ar.cause().getMessage());
+                    logger.warn("Error closing manager: {}", ar.cause().getMessage());
                 }
                 return Future.<Void>succeededFuture();
             })

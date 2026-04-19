@@ -138,16 +138,16 @@ public class OutboxMetricsTest {
         double initialReceived = initialMetrics.getMessagesReceived();
         double initialProcessed = initialMetrics.getMessagesProcessed();
 
-        System.out.println("Initial metrics:");
-        System.out.println("  - Messages sent: " + initialSent);
-        System.out.println("  - Messages received: " + initialReceived);
-        System.out.println("  - Messages processed: " + initialProcessed);
+        logger.info("Initial metrics:");
+        logger.info("  - Messages sent: {}", initialSent);
+        logger.info("  - Messages received: {}", initialReceived);
+        logger.info("  - Messages processed: {}", initialProcessed);
 
         // Set up consumer
         Promise<Void> messageProcessed = Promise.promise();
         consumer.subscribe(message -> {
         logger.info("Test: metrics integration");
-            System.out.println("Processing message for metrics test: " + message.getPayload());
+            logger.info("Processing message for metrics test: {}", message.getPayload());
             messageProcessed.tryComplete();
             return Future.succeededFuture();
         });
@@ -155,7 +155,7 @@ public class OutboxMetricsTest {
         // Send a message, wait for processing, then poll metrics in executeBlocking
         producer.send(testMessage)
             .compose(v -> {
-                System.out.println("Message sent, waiting for processing...");
+                logger.info("Message sent, waiting for processing...");
                 return messageProcessed.future();
             })
             .compose(v -> vertx.executeBlocking(() -> {
@@ -177,10 +177,10 @@ public class OutboxMetricsTest {
                 double finalReceived = finalMetrics.getMessagesReceived();
                 double finalProcessed = finalMetrics.getMessagesProcessed();
 
-                System.out.println("Final metrics:");
-                System.out.println("  - Messages sent: " + finalSent);
-                System.out.println("  - Messages received: " + finalReceived);
-                System.out.println("  - Messages processed: " + finalProcessed);
+                logger.info("Final metrics:");
+                logger.info("  - Messages sent: {}", finalSent);
+                logger.info("  - Messages received: {}", finalReceived);
+                logger.info("  - Messages processed: {}", finalProcessed);
 
                 assertTrue(finalSent > initialSent, 
                     "Messages sent count should increase (was " + initialSent + ", now " + finalSent + ")");
@@ -211,8 +211,8 @@ public class OutboxMetricsTest {
 
         assertNotNull(healthStatus, "Health status should be available");
 
-        System.out.println("Health check status: " + healthStatus.status());
-        System.out.println("Health check components: " + healthStatus.components());
+        logger.info("Health check status: {}", healthStatus.status());
+        logger.info("Health check components: {}", healthStatus.components());
 
         // Health should be UP for a properly functioning system
         assertTrue(healthStatus.isHealthy(),
@@ -238,7 +238,7 @@ public class OutboxMetricsTest {
 
         // Now we should have a circuit breaker for the database operation
         var circuitBreakerNames = cbManager.getCircuitBreakerNames();
-        System.out.println("Available circuit breakers after manual operation: " + circuitBreakerNames);
+        logger.info("Available circuit breakers after manual operation: {}", circuitBreakerNames);
 
         // Should have the circuit breaker we just created
         assertFalse(circuitBreakerNames.isEmpty(),
@@ -269,7 +269,7 @@ public class OutboxMetricsTest {
         Promise<Void> allProcessed = Promise.promise();
         AtomicInteger processedCount = new AtomicInteger(0);
         consumer.subscribe(message -> {
-            System.out.println("Processing message: " + message.getPayload());
+            logger.info("Processing message: {}", message.getPayload());
             if (processedCount.incrementAndGet() >= messageCount) {
                 allProcessed.tryComplete();
             }
@@ -305,10 +305,10 @@ public class OutboxMetricsTest {
                 double finalReceived = finalMetrics.getMessagesReceived();
                 double finalProcessed = finalMetrics.getMessagesProcessed();
 
-                System.out.println("Multiple message metrics:");
-                System.out.println("  - Initial sent: " + initialSent + ", Final sent: " + finalSent);
-                System.out.println("  - Initial received: " + initialReceived + ", Final received: " + finalReceived);
-                System.out.println("  - Initial processed: " + initialProcessed + ", Final processed: " + finalProcessed);
+                logger.info("Multiple message metrics:");
+                logger.info("  - Initial sent: {}, Final sent: {}", initialSent, finalSent);
+                logger.info("  - Initial received: {}, Final received: {}", initialReceived, finalReceived);
+                logger.info("  - Initial processed: {}, Final processed: {}", initialProcessed, finalProcessed);
 
                 assertTrue(finalSent >= initialSent + messageCount, 
                     "Messages sent should increase by at least " + messageCount);
@@ -331,13 +331,13 @@ public class OutboxMetricsTest {
         var initialMetrics = manager.getMetrics().getSummary();
         double initialErrors = initialMetrics.getMessagesFailed();
 
-        System.out.println("Initial error count: " + initialErrors);
+        logger.info("Initial error count: {}", initialErrors);
 
         // Set up consumer that always fails
         Promise<Void> errorOccurred = Promise.promise();
         consumer.subscribe(message -> {
         logger.info("Test: error metrics");
-            System.out.println("INTENTIONAL FAILURE: Processing message that will fail");
+            logger.info("INTENTIONAL FAILURE: Processing message that will fail");
             errorOccurred.tryComplete();
             throw new RuntimeException("Intentional error for metrics testing");
         });
@@ -359,7 +359,7 @@ public class OutboxMetricsTest {
                 var finalMetrics = manager.getMetrics().getSummary();
                 double finalErrors = finalMetrics.getMessagesFailed();
 
-                System.out.println("Final error count: " + finalErrors);
+                logger.info("Final error count: {}", finalErrors);
 
                 assertTrue(finalErrors > initialErrors, 
                     "Error count should increase (was " + initialErrors + ", now " + finalErrors + ")");

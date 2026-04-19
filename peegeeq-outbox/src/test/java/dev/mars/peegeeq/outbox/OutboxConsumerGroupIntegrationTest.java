@@ -142,8 +142,8 @@ public class OutboxConsumerGroupIntegrationTest {
 
         assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Did not receive all messages");
 
-        System.out.println("Member 1 received: " + member1Messages.size());
-        System.out.println("Member 2 received: " + member2Messages.size());
+        logger.info("Member 1 received: {}", member1Messages.size());
+        logger.info("Member 2 received: {}", member2Messages.size());
 
         assertFalse(member1Messages.isEmpty(), "Member 1 should have received messages");
         assertFalse(member2Messages.isEmpty(), "Member 2 should have received messages");

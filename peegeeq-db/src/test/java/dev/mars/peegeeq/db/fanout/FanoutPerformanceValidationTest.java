@@ -18,6 +18,7 @@ import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
 import io.vertx.sqlclient.Row;
 import io.vertx.sqlclient.Tuple;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -25,6 +26,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -63,8 +65,7 @@ public class FanoutPerformanceValidationTest extends BaseIntegrationTest {
 
     @BeforeEach
     void setUp() throws Exception {
-        System.err.println("=== PERFORMANCE TEST SETUP STARTED ===");
-        System.err.flush();
+        logger.info("=== PERFORMANCE TEST SETUP STARTED ===");
 
         // Create connection manager using the shared Vertx instance
         connectionManager = new PgConnectionManager(manager.getVertx(), null);
@@ -81,7 +82,10 @@ public class FanoutPerformanceValidationTest extends BaseIntegrationTest {
             .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-            .maxSize(20)  // Increased pool size for performance testing
+            .maxSize(3)
+            .shared(false)
+            .idleTimeout(Duration.ofSeconds(2))
+            .connectionTimeout(Duration.ofSeconds(5))
             .build();
 
         connectionManager.getOrCreateReactivePool("peegeeq-main", connectionConfig, poolConfig);
@@ -93,9 +97,15 @@ public class FanoutPerformanceValidationTest extends BaseIntegrationTest {
         completionTracker = new CompletionTracker(connectionManager, "peegeeq-main");
         cleanupService = new CleanupService(connectionManager, "peegeeq-main");
 
-        System.err.println("=== PERFORMANCE TEST SETUP COMPLETE ===");
-        System.err.flush();
+        logger.info("=== PERFORMANCE TEST SETUP COMPLETE ===");
         logger.info("Performance test setup complete");
+    }
+
+    @AfterEach
+    void tearDown() throws Exception {
+        if (connectionManager != null) {
+            connectionManager.close();
+        }
     }
 
     /**
@@ -104,7 +114,7 @@ public class FanoutPerformanceValidationTest extends BaseIntegrationTest {
      */
     @Test
     void testBasicThroughputValidation() throws Exception {
-        System.err.println("=== TEST METHOD: testBasicThroughputValidation STARTED ===");
+        logger.info("=== TEST METHOD: testBasicThroughputValidation STARTED ===");
         System.err.flush();
 
         // Use unique topic name to avoid conflicts in parallel test execution
@@ -222,7 +232,7 @@ public class FanoutPerformanceValidationTest extends BaseIntegrationTest {
         logger.info("Total Duration: {} ms", (cleanupEndTime - publishStartTime));
         logger.info("========================");
 
-        System.err.println("=== TEST METHOD: testBasicThroughputValidation COMPLETED ===");
+        logger.info("=== TEST METHOD: testBasicThroughputValidation COMPLETED ===");
         System.err.flush();
     }
 

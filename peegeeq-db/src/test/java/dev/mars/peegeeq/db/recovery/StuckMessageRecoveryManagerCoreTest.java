@@ -51,7 +51,7 @@ public class StuckMessageRecoveryManagerCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
         pool = connectionManager.getOrCreateReactivePool("test-recovery", connectionConfig, poolConfig);
         
         recoveryManager = new StuckMessageRecoveryManager(pool, Duration.ofMinutes(5), true);

@@ -19,6 +19,8 @@ import org.junit.jupiter.api.parallel.ResourceAccessMode;
 import org.junit.jupiter.api.parallel.ResourceLock;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.time.Duration;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -49,7 +51,7 @@ public class DeadConsumerDetectorCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
         connectionManager.getOrCreateReactivePool("test-detector", connectionConfig, poolConfig);
         
         detector = new DeadConsumerDetector(connectionManager, "test-detector");

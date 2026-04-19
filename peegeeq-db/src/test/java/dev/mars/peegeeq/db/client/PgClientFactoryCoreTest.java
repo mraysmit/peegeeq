@@ -19,6 +19,7 @@ import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.time.Duration;
 import java.util.Optional;
 import java.util.Set;
 
@@ -92,7 +93,7 @@ public class PgClientFactoryCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
 
         PgClient client = factory.createClient("test-client", connectionConfig, poolConfig);
         assertNotNull(client);
@@ -128,7 +129,7 @@ public class PgClientFactoryCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
 
         assertThrows(IllegalArgumentException.class, () ->
             factory.createClient(null, connectionConfig, poolConfig)
@@ -146,7 +147,7 @@ public class PgClientFactoryCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
 
         assertThrows(IllegalArgumentException.class, () ->
             factory.createClient("", connectionConfig, poolConfig)
@@ -155,7 +156,7 @@ public class PgClientFactoryCoreTest extends BaseIntegrationTest {
 
     @Test
     void testCreateClientWithNullConnectionConfig() {
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
 
         assertThrows(NullPointerException.class, () ->
             factory.createClient("test-client", null, poolConfig)
@@ -197,7 +198,7 @@ public class PgClientFactoryCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
 
         factory.createClient("test-client", connectionConfig1, poolConfig);
 
@@ -217,7 +218,7 @@ public class PgClientFactoryCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig1 = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig1 = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
         PgPoolConfig poolConfig2 = new PgPoolConfig.Builder().maxSize(20).build();
 
         factory.createClient("test-client", connectionConfig, poolConfig1);
@@ -238,7 +239,7 @@ public class PgClientFactoryCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
 
         factory.createClient("test-client", connectionConfig, poolConfig);
 
@@ -265,7 +266,7 @@ public class PgClientFactoryCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
 
         factory.createClient("test-client", connectionConfig, poolConfig);
 
@@ -290,7 +291,7 @@ public class PgClientFactoryCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
 
         factory.createClient("test-client", connectionConfig, poolConfig);
 
@@ -315,7 +316,7 @@ public class PgClientFactoryCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
 
         factory.createClient("test-client", connectionConfig, poolConfig);
 
@@ -341,7 +342,7 @@ public class PgClientFactoryCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
 
         factory.createClient("test-client", connectionConfig, poolConfig);
 
@@ -372,7 +373,7 @@ public class PgClientFactoryCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
 
         factory.createClient("client1", connectionConfig, poolConfig);
         factory.createClient("client2", connectionConfig, poolConfig);
@@ -394,7 +395,7 @@ public class PgClientFactoryCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
 
         factory.createClient("test-client", connectionConfig, poolConfig);
 
@@ -421,7 +422,7 @@ public class PgClientFactoryCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
 
         factory.createClient("test-client", connectionConfig, poolConfig);
 

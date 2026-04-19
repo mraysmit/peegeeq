@@ -33,6 +33,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -100,7 +101,10 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
             .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-            .maxSize(5)
+            .maxSize(3)
+            .shared(false)
+            .idleTimeout(Duration.ofSeconds(2))
+            .connectionTimeout(Duration.ofSeconds(5))
             .build();
 
         var setupPool = connectionManager.getOrCreateReactivePool("setup", config, poolConfig);
@@ -157,7 +161,10 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
             .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-            .maxSize(5)
+            .maxSize(3)
+            .shared(false)
+            .idleTimeout(Duration.ofSeconds(2))
+            .connectionTimeout(Duration.ofSeconds(5))
             .build();
 
         connectionManager.getOrCreateReactivePool("test-schema-a", config, poolConfig);
@@ -197,7 +204,10 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
             .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-            .maxSize(5)
+            .maxSize(3)
+            .shared(false)
+            .idleTimeout(Duration.ofSeconds(2))
+            .connectionTimeout(Duration.ofSeconds(5))
             .build();
 
         connectionManager.getOrCreateReactivePool("test-schema-b", config, poolConfig);
@@ -232,7 +242,10 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
             .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-            .maxSize(5)
+            .maxSize(3)
+            .shared(false)
+            .idleTimeout(Duration.ofSeconds(2))
+            .connectionTimeout(Duration.ofSeconds(5))
             .build();
 
         connectionManager.getOrCreateReactivePool("test-txn-schema-a", config, poolConfig);
@@ -268,7 +281,10 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
             .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-            .maxSize(5)
+            .maxSize(3)
+            .shared(false)
+            .idleTimeout(Duration.ofSeconds(2))
+            .connectionTimeout(Duration.ofSeconds(5))
             .build();
 
         connectionManager.getOrCreateReactivePool("test-propagation", config, poolConfig);
@@ -302,7 +318,10 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
             .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-            .maxSize(5)
+            .maxSize(3)
+            .shared(false)
+            .idleTimeout(Duration.ofSeconds(2))
+            .connectionTimeout(Duration.ofSeconds(5))
             .build();
 
         connectionManager.getOrCreateReactivePool("test-health", config, poolConfig);
@@ -348,7 +367,10 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
             .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-            .maxSize(5)
+            .maxSize(3)
+            .shared(false)
+            .idleTimeout(Duration.ofSeconds(2))
+            .connectionTimeout(Duration.ofSeconds(5))
             .build();
 
         connectionManager.getOrCreateReactivePool("service-a", configA, poolConfig);
@@ -398,7 +420,10 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
                 .build();
 
             PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-                .maxSize(5)
+                .maxSize(3)
+                .shared(false)
+                .idleTimeout(Duration.ofSeconds(2))
+                .connectionTimeout(Duration.ofSeconds(5))
                 .build();
 
             connectionManager.getOrCreateReactivePool("test-invalid", config, poolConfig);
@@ -446,7 +471,10 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
             .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-            .maxSize(5)
+            .maxSize(3)
+            .shared(false)
+            .idleTimeout(Duration.ofSeconds(2))
+            .connectionTimeout(Duration.ofSeconds(5))
             .build();
 
         connectionManager.getOrCreateReactivePool("test-no-schema", config, poolConfig);
@@ -481,7 +509,10 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
             .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-            .maxSize(5)
+            .maxSize(3)
+            .shared(false)
+            .idleTimeout(Duration.ofSeconds(2))
+            .connectionTimeout(Duration.ofSeconds(5))
             .build();
 
         connectionManager.getOrCreateReactivePool("test-cleanup", config, poolConfig);

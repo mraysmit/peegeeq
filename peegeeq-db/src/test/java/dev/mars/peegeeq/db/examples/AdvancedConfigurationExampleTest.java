@@ -66,6 +66,10 @@ public class AdvancedConfigurationExampleTest {
         System.setProperty("peegeeq.database.password", postgres.getPassword());
         System.setProperty("peegeeq.database.ssl.enabled", "false");
         System.setProperty("peegeeq.database.schema", "public");
+        System.setProperty("peegeeq.database.pool.max-size", "3");
+        System.setProperty("peegeeq.database.pool.shared", "false");
+        System.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
+        System.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
 
         logger.info("✓ Advanced Configuration Example Test setup completed");
     }

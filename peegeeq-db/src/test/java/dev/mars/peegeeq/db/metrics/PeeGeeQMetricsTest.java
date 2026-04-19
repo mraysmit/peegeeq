@@ -32,6 +32,8 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.ResourceLock;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.sql.SQLException;
@@ -54,6 +56,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @ResourceLock(value = "dead-letter-queue-database", mode = org.junit.jupiter.api.parallel.ResourceAccessMode.READ_WRITE)
 class PeeGeeQMetricsTest {
 
+    private static final Logger logger = LoggerFactory.getLogger(PeeGeeQMetricsTest.class);
+
     private PgConnectionManager connectionManager;
     private io.vertx.sqlclient.Pool reactivePool;
     private MeterRegistry meterRegistry;
@@ -73,7 +77,10 @@ class PeeGeeQMetricsTest {
                 .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-                .maxSize(5)
+                .maxSize(3)
+                .shared(false)
+                .idleTimeout(Duration.ofSeconds(2))
+                .connectionTimeout(Duration.ofSeconds(5))
                 .build();
 
         reactivePool = connectionManager.getOrCreateReactivePool("test", connectionConfig, poolConfig);
@@ -95,7 +102,7 @@ class PeeGeeQMetricsTest {
                 cleanupTestData();
             }
         } catch (Exception e) {
-            System.err.println("Warning: Failed to cleanup test data in tearDown: " + e.getMessage());
+            logger.warn("Failed to cleanup test data in tearDown: {}", e.getMessage());
         }
 
         if (connectionManager != null) {
@@ -118,9 +125,9 @@ class PeeGeeQMetricsTest {
                     .compose(result -> connection.query("DELETE FROM queue_metrics").execute());
             }).toCompletionStage().toCompletableFuture().get(5, java.util.concurrent.TimeUnit.SECONDS);
 
-            System.out.println("DEBUG: Cleaned up test data for PeeGeeQMetrics test isolation");
+            logger.debug("Cleaned up test data for PeeGeeQMetrics test isolation");
         } catch (Exception e) {
-            System.err.println("Warning: Failed to cleanup test data: " + e.getMessage());
+            logger.warn("Failed to cleanup test data: {}", e.getMessage());
             // Don't throw - allow test to proceed
         }
     }
@@ -186,20 +193,20 @@ class PeeGeeQMetricsTest {
      */
     @Test
     void testMessageFailedMetrics() {
-        System.out.println("🧪 ===== RUNNING INTENTIONAL MESSAGE FAILURE METRICS TEST ===== 🧪");
-        System.out.println("🔥 **INTENTIONAL TEST** 🔥 This test deliberately records message failures to verify metrics tracking");
+        logger.info("===== RUNNING INTENTIONAL MESSAGE FAILURE METRICS TEST =====");
+        logger.info("INTENTIONAL TEST: This test deliberately records message failures to verify metrics tracking");
 
         metrics.bindTo(meterRegistry);
 
-        System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Recording simulated message failures for metrics testing");
+        logger.info("INTENTIONAL TEST FAILURE: Recording simulated message failures for metrics testing");
         metrics.recordMessageFailed("topic1", "timeout");
         metrics.recordMessageFailed("topic1", "validation");
         metrics.recordMessageFailed("topic2", "timeout");
 
         assertEquals(3.0, meterRegistry.get("peegeeq.messages.failed").tag("instance", "test-instance").counter().count());
 
-        System.out.println("**SUCCESS** Message failure metrics were properly recorded and tracked");
-        System.out.println("🧪 ===== INTENTIONAL FAILURE TEST COMPLETED ===== 🧪");
+        logger.info("SUCCESS: Message failure metrics were properly recorded and tracked");
+        logger.info("===== INTENTIONAL FAILURE TEST COMPLETED =====");
     }
 
     @Test
@@ -417,17 +424,16 @@ class PeeGeeQMetricsTest {
      */
     @Test
     void testMetricsWithDatabaseFailure() throws Exception {
-        System.out.println("🧪 ===== RUNNING INTENTIONAL DATABASE FAILURE METRICS TEST ===== 🧪");
-        System.out.println("🔥 **INTENTIONAL TEST** 🔥 This test deliberately closes the database connection to test metrics resilience");
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Reactive health check failed') is EXPECTED — this test deliberately closes the DB connection to verify metrics resilience");
 
         metrics.bindTo(meterRegistry);
 
         // Close the connection manager to simulate database failure
-        System.out.println("🔥 **INTENTIONAL TEST FAILURE** 🔥 Closing database connection to simulate failure");
+        logger.info("INTENTIONAL TEST FAILURE: Closing database connection to simulate failure");
         connectionManager.close();
 
         // Metrics recording should still work (not throw exceptions)
-        System.out.println("Testing that metrics recording continues to work despite database failure");
+        logger.info("Testing that metrics recording continues to work despite database failure");
         assertDoesNotThrow(() -> {
             metrics.recordMessageSent("topic1");
             metrics.recordMessageReceived("topic1");
@@ -440,8 +446,8 @@ class PeeGeeQMetricsTest {
         // Queue depth gauges should return 0 on database failure
         assertEquals(0.0, meterRegistry.get("peegeeq.queue.depth.outbox").gauge().value());
 
-        System.out.println("**SUCCESS** Metrics system properly handled database failure");
-        System.out.println("🧪 ===== INTENTIONAL FAILURE TEST COMPLETED ===== 🧪");
+        logger.info("SUCCESS: Metrics system properly handled database failure");
+        logger.info("===== INTENTIONAL FAILURE TEST COMPLETED =====");
     }
 
     private void insertTestOutboxMessage() {
@@ -495,7 +501,10 @@ class PeeGeeQMetricsTest {
                 .build();
 
         PgPoolConfig reactivePoolConfig = new PgPoolConfig.Builder()
-                .maxSize(5)
+                .maxSize(3)
+                .shared(false)
+                .idleTimeout(Duration.ofSeconds(2))
+                .connectionTimeout(Duration.ofSeconds(5))
                 .build();
 
         // Create reactive pool

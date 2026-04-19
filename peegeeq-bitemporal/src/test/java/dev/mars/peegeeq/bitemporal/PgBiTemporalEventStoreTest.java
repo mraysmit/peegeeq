@@ -210,14 +210,14 @@ class PgBiTemporalEventStoreTest {
                     .map(countResult -> {
                         int remainingRows = countResult.iterator().next().getInteger("count");
                         if (remainingRows > 0) {
-                            System.out.println("WARNING: Database cleanup incomplete - " + remainingRows + " rows remaining");
+                            logger.warn("Database cleanup incomplete - {} rows remaining", remainingRows);
                         }
                         return null;
                     })
                     .onFailure(throwable -> {
                         // Table might not exist yet, which is fine for new test runs
                         if (!throwable.getMessage().contains("does not exist")) {
-                            System.out.println("Cleanup operation warning: " + throwable.getMessage());
+                            logger.warn("Cleanup operation warning: {}", throwable.getMessage());
                         }
                     });
             }).toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
@@ -231,7 +231,7 @@ class PgBiTemporalEventStoreTest {
             // Cleanup failures are often expected (table doesn't exist yet)
             String message = e.getMessage();
             if (message == null || !message.contains("does not exist")) {
-                System.out.println("Database cleanup info: " + e.getClass().getSimpleName() + " - " +
+                logger.warn("Database cleanup info: {} - {}", e.getClass().getSimpleName(),
                     (message != null ? message : "No message available"));
             }
         }
@@ -283,7 +283,7 @@ class PgBiTemporalEventStoreTest {
                 // Wait a bit for connections to close
                 awaitAsyncDelay(100);
             } catch (Exception e) {
-                System.out.println("Event store cleanup warning: " + e.getMessage());
+                logger.warn("Event store cleanup warning: {}", e.getMessage());
             }
             eventStore = null;
         }
@@ -295,7 +295,7 @@ class PgBiTemporalEventStoreTest {
                 // Wait for manager to fully stop
                 awaitAsyncDelay(200);
             } catch (Exception e) {
-                System.out.println("Manager stop warning: " + e.getMessage());
+                logger.warn("Manager stop warning: {}", e.getMessage());
             }
             manager = null;
         }

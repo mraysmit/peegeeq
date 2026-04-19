@@ -224,7 +224,10 @@ public class PeeGeeQExampleTest {
 
         // Configure for test environment
         System.setProperty("peegeeq.database.pool.min-size", "2");
-        System.setProperty("peegeeq.database.pool.max-size", "10");
+        System.setProperty("peegeeq.database.pool.max-size", "3");
+        System.setProperty("peegeeq.database.pool.shared", "false");
+        System.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
+        System.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
         System.setProperty("peegeeq.metrics.enabled", "true");
         System.setProperty("peegeeq.health.enabled", "true");
         System.setProperty("peegeeq.circuit-breaker.enabled", "true");

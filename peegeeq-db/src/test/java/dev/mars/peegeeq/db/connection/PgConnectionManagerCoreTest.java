@@ -19,6 +19,8 @@ import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.time.Duration;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -85,7 +87,10 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
             .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-            .maxSize(10)
+            .maxSize(3)
+            .shared(false)
+            .idleTimeout(Duration.ofSeconds(2))
+            .connectionTimeout(Duration.ofSeconds(5))
             .build();
 
         Pool pool = connectionManager.getOrCreateReactivePool("test-service", connectionConfig, poolConfig);
@@ -98,7 +103,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
 
     @Test
     void testGetOrCreateReactivePoolWithNullConnectionConfig() {
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
         assertThrows(NullPointerException.class, () ->
             connectionManager.getOrCreateReactivePool("test-service", null, poolConfig)
         );
@@ -131,7 +136,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
 
         // Initially no pool exists
         assertNull(connectionManager.getExistingPool("test-service"));
@@ -157,7 +162,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
             .schema("public")
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
         connectionManager.getOrCreateReactivePool("test-service", connectionConfig, poolConfig);
 
         // Get a connection
@@ -202,7 +207,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
             .schema("public")
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
         connectionManager.getOrCreateReactivePool("test-service", connectionConfig, poolConfig);
 
         // Execute operation with connection
@@ -239,7 +244,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
         connectionManager.getOrCreateReactivePool("test-service", connectionConfig, poolConfig);
 
         // Execute operation within transaction
@@ -276,7 +281,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
         connectionManager.getOrCreateReactivePool("test-service", connectionConfig, poolConfig);
 
         // Check health
@@ -306,7 +311,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
 
         // Initially true (no pools)
         assertTrue(connectionManager.hasPoolsConfigured());
@@ -329,7 +334,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
         connectionManager.getOrCreateReactivePool("test-service", connectionConfig, poolConfig);
 
         // Verify pool exists
@@ -361,7 +366,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
         connectionManager.getOrCreateReactivePool("test-service-1", connectionConfig, poolConfig);
         connectionManager.getOrCreateReactivePool("test-service-2", connectionConfig, poolConfig);
 
@@ -396,7 +401,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
         connectionManager.getOrCreateReactivePool("test-service", connectionConfig, poolConfig);
 
         // Verify pool exists
@@ -422,7 +427,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
             .schema("public, pg_catalog")
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
 
         // Create pool with schema configuration
         Pool pool = connectionManager.getOrCreateReactivePool("test-service", connectionConfig, poolConfig);

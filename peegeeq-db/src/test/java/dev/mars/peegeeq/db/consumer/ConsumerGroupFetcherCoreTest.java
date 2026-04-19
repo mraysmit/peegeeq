@@ -19,6 +19,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.util.List;
 
+import java.time.Duration;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -48,7 +50,7 @@ public class ConsumerGroupFetcherCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
         connectionManager.getOrCreateReactivePool("test-fetcher", connectionConfig, poolConfig);
         
         fetcher = new ConsumerGroupFetcher(connectionManager, "test-fetcher");

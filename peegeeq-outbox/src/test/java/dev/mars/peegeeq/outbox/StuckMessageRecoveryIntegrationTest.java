@@ -267,7 +267,7 @@ public class StuckMessageRecoveryIntegrationTest {
      */
     @Test
     void testStuckMessageRecoveryWithThreadCrash(Vertx vertx) throws Exception {
-        System.out.println("TEST STARTED: testStuckMessageRecoveryWithThreadCrash");
+        logger.info("TEST STARTED: testStuckMessageRecoveryWithThreadCrash");
         logger.info("=== Testing Stuck Message Recovery with Direct Database Insertion ===");
 
         // Create recovery manager with short timeout for testing

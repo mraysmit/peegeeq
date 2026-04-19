@@ -12,6 +12,7 @@ import dev.mars.peegeeq.db.subscription.TopicConfigService;
 import dev.mars.peegeeq.db.subscription.TopicSemantics;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.sqlclient.Tuple;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -22,6 +23,7 @@ import org.junit.jupiter.api.parallel.ResourceLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
@@ -78,7 +80,10 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                 .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-                .maxSize(10)
+                .maxSize(3)
+                .shared(false)
+                .idleTimeout(Duration.ofSeconds(2))
+                .connectionTimeout(Duration.ofSeconds(5))
                 .build();
 
         connectionManager.getOrCreateReactivePool("peegeeq-main", connectionConfig, poolConfig);
@@ -90,8 +95,16 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
         logger.info("DeadConsumerDetector test setup complete");
     }
 
+    @AfterEach
+    void tearDown() throws Exception {
+        if (connectionManager != null) {
+            connectionManager.close();
+        }
+    }
+
     @Test
     public void testDetectDeadSubscription(VertxTestContext testContext) throws Exception {
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Marked N subscriptions as DEAD') is EXPECTED — this test deliberately expires a heartbeat to verify dead subscription detection");
         logger.info("=== TEST: testDetectDeadSubscription STARTED ===");
 
         String topic = "test-dead-detection-" + UUID.randomUUID().toString().substring(0, 8);
@@ -201,6 +214,7 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
 
     @Test
     public void testDetectAllDeadSubscriptions(VertxTestContext testContext) throws Exception {
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN logs ('Marked N subscriptions as DEAD') are EXPECTED — this test deliberately expires heartbeats across multiple topics to verify bulk dead detection");
         logger.info("=== TEST: testDetectAllDeadSubscriptions STARTED ===");
 
         String suffix = UUID.randomUUID().toString().substring(0, 8);
@@ -282,6 +296,7 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
 
     @Test
     public void testCountDeadSubscriptions(VertxTestContext testContext) throws Exception {
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Marked N subscriptions as DEAD') is EXPECTED — this test deliberately expires heartbeats to verify dead subscription counting");
         logger.info("=== TEST: testCountDeadSubscriptions STARTED ===");
 
         String topic = "test-count-dead-" + UUID.randomUUID().toString().substring(0, 8);

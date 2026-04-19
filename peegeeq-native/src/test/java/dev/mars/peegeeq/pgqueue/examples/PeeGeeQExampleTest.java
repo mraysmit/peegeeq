@@ -100,16 +100,16 @@ class PeeGeeQExampleTest {
         logger.info("=== Setting up PeeGeeQ Example Test ===");
         
         // Display PeeGeeQ logo
-        System.out.println();
-        System.out.println("    ____            ______            ____");
-        System.out.println("   / __ \\___  ___  / ____/__  ___    / __ \\");
-        System.out.println("  / /_/ / _ \\/ _ \\/ / __/ _ \\/ _ \\  / / / /");
-        System.out.println(" / ____/  __/  __/ /_/ /  __/ / /_/ /");
-        System.out.println("/_/    \\___/\\___/\\____/\\___/\\___/  \\___\\_\\");
-        System.out.println();
-        System.out.println("PostgreSQL Event-Driven Queue System");
-        System.out.println("JUnit Test - TestContainers PostgreSQL");
-        System.out.println();
+        logger.info("");
+        logger.info("    ____            ______            ____");
+        logger.info("   / __ \\___  ___  / ____/__  ___    / __ \\");
+        logger.info("  / /_/ / _ \\/ _ \\/ / __/ _ \\/ _ \\  / / / /");
+        logger.info(" / ____/  __/  __/ /_/ /  __/ / /_/ /");
+        logger.info("/_/    \\___/\\___/\\____/\\___/\\___/  \\___\\_\\");
+        logger.info("");
+        logger.info("PostgreSQL Event-Driven Queue System");
+        logger.info("JUnit Test - TestContainers PostgreSQL");
+        logger.info("");
 
         // Configure PeeGeeQ to use the container
         configureSystemPropertiesForContainer(postgres);
@@ -132,7 +132,7 @@ class PeeGeeQExampleTest {
     @AfterEach
     void tearDown() throws Exception {
         logger.info("Tearing down: closing resources and manager");
-        logger.info("🧹 Cleaning up PeeGeeQ Example Test");
+        logger.info("Cleaning up PeeGeeQ Example Test");
         
         if (manager != null) {
             manager.closeReactive().await();
@@ -291,9 +291,9 @@ class PeeGeeQExampleTest {
         logger.info("\n === Configuration Demo ===");
 
         PeeGeeQConfiguration config = manager.getConfiguration();
-        logger.info("🏷Profile: {}", config.getProfile());
+        logger.info("Profile: {}", config.getProfile());
 
-        logger.info("📊 Database Configuration:");
+        logger.info("Database Configuration:");
         logger.info("> Host: {}", config.getString("peegeeq.database.host", "localhost"));
         logger.info("> Port: {}", config.getInt("peegeeq.database.port", 5432));
         logger.info("> Database: {}", config.getString("peegeeq.database.name", "peegeeq"));
@@ -301,7 +301,7 @@ class PeeGeeQExampleTest {
         logger.info("> Pool Min Size: {}", config.getInt("peegeeq.database.pool.min-size", 5));
         logger.info("> Pool Max Size: {}", config.getInt("peegeeq.database.pool.max-size", 20));
 
-        logger.info("⚙️ Feature Configuration:");
+        logger.info("Feature Configuration:");
         logger.info("> Metrics Enabled: {}", config.getBoolean("peegeeq.metrics.enabled", true));
         logger.info("> Health Checks Enabled: {}", config.getBoolean("peegeeq.health.enabled", true));
         logger.info("> Circuit Breaker Enabled: {}", config.getCircuitBreakerConfig().isEnabled());
@@ -345,7 +345,7 @@ class PeeGeeQExampleTest {
         }
 
         var summary = metrics.getSummary();
-        logger.info("📊 Metrics Summary:");
+        logger.info("Metrics Summary:");
         logger.info("Messages Sent: {}", summary.getMessagesSent());
         logger.info("Messages Processed: {}", summary.getMessagesProcessed());
         logger.info("Messages Failed: {}", summary.getMessagesFailed());
@@ -384,7 +384,7 @@ class PeeGeeQExampleTest {
         }
 
         var metrics = circuitBreakerManager.getMetrics("test-operation");
-        logger.info("🔌 Circuit Breaker Metrics:");
+        logger.info("Circuit Breaker Metrics:");
         logger.info("State: {}", metrics.getState());
         logger.info("Successful Calls: {}", metrics.getSuccessfulCalls());
         logger.info("Failed Calls: {}", metrics.getFailedCalls());
@@ -425,7 +425,7 @@ class PeeGeeQExampleTest {
             // Wait for operations to complete using Vert.x timer
             vertx.setTimer(2000, id -> {
                 var metrics = backpressureManager.getMetrics();
-                logger.info("🚦 Backpressure Metrics:");
+                logger.info("Backpressure Metrics:");
                 logger.info("Max Concurrent Operations: {}", metrics.getMaxConcurrentOperations());
                 logger.info("Available Permits: {}", metrics.getAvailablePermits());
                 logger.info("Active Operations: {}", metrics.getActiveOperations());

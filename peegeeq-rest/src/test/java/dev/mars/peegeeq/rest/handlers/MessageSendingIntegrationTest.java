@@ -5,6 +5,8 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.json.JsonObject;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -14,6 +16,8 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.CORE)
 class MessageSendingIntegrationTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(MessageSendingIntegrationTest.class);
 
     @Test
     void testMessageRequestJsonSerialization() throws Exception {
@@ -82,9 +86,9 @@ class MessageSendingIntegrationTest {
 
     @Test
     void testMessageRequestWithInvalidPriority() throws Exception {
-        System.out.println("🚫 ===== RUNNING INTENTIONAL INVALID PRIORITY TEST =====");
-        System.out.println("🚫 **INTENTIONAL TEST** - This test deliberately uses an invalid priority value (15)");
-        System.out.println("🚫 **INTENTIONAL TEST FAILURE** - Expected validation exception for priority > 10");
+        logger.info("===== RUNNING INTENTIONAL INVALID PRIORITY TEST =====");
+        logger.info("**INTENTIONAL TEST** - This test deliberately uses an invalid priority value (15)");
+        logger.info("**INTENTIONAL TEST FAILURE** - Expected validation exception for priority > 10");
 
         ObjectMapper objectMapper = new ObjectMapper();
 
@@ -105,8 +109,8 @@ class MessageSendingIntegrationTest {
 
         assertTrue(exception.getMessage().contains("Priority must be between 1 and 10"));
 
-        System.out.println("🚫 **SUCCESS** - Invalid priority properly threw validation exception");
-        System.out.println("🚫 ===== INTENTIONAL TEST COMPLETED =====");
+        logger.info("**SUCCESS** - Invalid priority properly threw validation exception");
+        logger.info("===== INTENTIONAL TEST COMPLETED =====");
     }
 
     @Test

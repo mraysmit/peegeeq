@@ -84,24 +84,24 @@ class MultiTenantSchemaIsolationTest {
 
     @BeforeEach
     void setUp() {
-        System.out.println("========== SETUP STARTING ==========");
-        logger.info("🧪 Setting up multi-tenant schema isolation test");
+        logger.info("========== SETUP STARTING ==========");
+        logger.info("Setting up multi-tenant schema isolation test");
 
         // Initialize two separate tenant schemas
         String schemaTenantA = "tenant_a";
         String schemaTenantB = "tenant_b";
 
-        System.out.println("About to initialize schema for Tenant A: " + schemaTenantA);
+        logger.info("About to initialize schema for Tenant A: {}", schemaTenantA);
         logger.info("Initializing schema for Tenant A: {}", schemaTenantA);
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, schemaTenantA,
             SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
-        System.out.println("Finished initializing schema for Tenant A");
+        logger.info("Finished initializing schema for Tenant A");
 
-        System.out.println("About to initialize schema for Tenant B: " + schemaTenantB);
+        logger.info("About to initialize schema for Tenant B: {}", schemaTenantB);
         logger.info("Initializing schema for Tenant B: {}", schemaTenantB);
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, schemaTenantB,
             SchemaComponent.NATIVE_QUEUE, SchemaComponent.OUTBOX, SchemaComponent.DEAD_LETTER_QUEUE);
-        System.out.println("Finished initializing schema for Tenant B");
+        logger.info("Finished initializing schema for Tenant B");
 
         // Verify tables were created in the correct schemas (removed - will verify after factory creation)
 
@@ -145,8 +145,7 @@ class MultiTenantSchemaIsolationTest {
         factoryTenantB = providerTenantB.createFactory("native", dbServiceTenantB);
 
         logger.info("Multi-tenant setup complete");
-        System.out.println("========== SETUP COMPLETE ==========");
-        System.out.flush();
+        logger.info("========== SETUP COMPLETE ==========");
     }
 
     @AfterEach
@@ -165,7 +164,7 @@ class MultiTenantSchemaIsolationTest {
      */
     @Test
     void testMessageIsolationBetweenTenants(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Test 1: Testing message isolation between tenants");
+        logger.info("Test 1: Testing message isolation between tenants");
 
         // Tenant A sends a message
         MessageProducer<String> producerA = factoryTenantA.createProducer("test-queue", String.class);
@@ -197,15 +196,15 @@ class MultiTenantSchemaIsolationTest {
         List<String> receivedA = new ArrayList<>();
 
         consumerA.subscribe(msg -> {
-            logger.info("🔔 Tenant A consumer received message: {}", msg.getPayload());
+            logger.info("Tenant A consumer received message: {}", msg.getPayload());
             receivedA.add(msg.getPayload());
             testContext.completeNow();
             return Future.succeededFuture();
         });
 
-        logger.info("⏳ Waiting for Tenant A to receive message...");
+        logger.info("Waiting for Tenant A to receive message...");
         boolean receivedByA = testContext.awaitCompletion(10, TimeUnit.SECONDS);
-        logger.info("⏱️ Tenant A wait result: {}, received count: {}", receivedByA, receivedA.size());
+        logger.info("Tenant A wait result: {}, received count: {}", receivedByA, receivedA.size());
 
         assertTrue(receivedByA, "Tenant A should receive its own message");
         assertEquals(1, receivedA.size(), "Tenant A should have 1 message");
@@ -219,7 +218,7 @@ class MultiTenantSchemaIsolationTest {
      */
     @Test
     void testStatsIsolationBetweenTenants() throws Exception {
-        logger.info("🧪 Test 2: Testing stats isolation between tenants");
+        logger.info("Test 2: Testing stats isolation between tenants");
 
         // Tenant A sends 5 messages
         MessageProducer<String> producerA = factoryTenantA.createProducer("stats-queue", String.class);
@@ -253,7 +252,7 @@ class MultiTenantSchemaIsolationTest {
      */
     @Test
     void testSameQueueNameAcrossTenants(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("🧪 Test 3: Testing same queue name across tenants");
+        logger.info("Test 3: Testing same queue name across tenants");
 
         String queueName = "shared-queue-name";
 

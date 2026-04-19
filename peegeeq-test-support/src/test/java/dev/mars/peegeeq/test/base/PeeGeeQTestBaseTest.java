@@ -47,8 +47,7 @@ class PeeGeeQTestBaseTest extends PeeGeeQTestBase {
     
     @Test
     void testBasicSetup() {
-        System.err.println("=== TEST METHOD STARTED: testBasicSetup ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testBasicSetup ===");
         
         logger.info("Testing basic PeeGeeQTestBase setup");
         
@@ -74,14 +73,12 @@ class PeeGeeQTestBaseTest extends PeeGeeQTestBase {
         
         logger.info("Basic setup test passed");
         
-        System.err.println("=== TEST METHOD COMPLETED: testBasicSetup ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD COMPLETED: testBasicSetup ===");
     }
     
     @Test
     void testDatabaseConnectivity() throws Exception {
-        System.err.println("=== TEST METHOD STARTED: testDatabaseConnectivity ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testDatabaseConnectivity ===");
         
         logger.info("Testing database connectivity");
         
@@ -105,14 +102,12 @@ class PeeGeeQTestBaseTest extends PeeGeeQTestBase {
         
         logger.info("Database connectivity test passed");
         
-        System.err.println("=== TEST METHOD COMPLETED: testDatabaseConnectivity ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD COMPLETED: testDatabaseConnectivity ===");
     }
     
     @Test
     void testMetricsRecording() {
-        System.err.println("=== TEST METHOD STARTED: testMetricsRecording ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testMetricsRecording ===");
         
         logger.info("Testing metrics recording");
         
@@ -125,14 +120,12 @@ class PeeGeeQTestBaseTest extends PeeGeeQTestBase {
         
         logger.info("Metrics recording test passed");
         
-        System.err.println("=== TEST METHOD COMPLETED: testMetricsRecording ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD COMPLETED: testMetricsRecording ===");
     }
     
     @Test
     void testSystemProperties() {
-        System.err.println("=== TEST METHOD STARTED: testSystemProperties ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testSystemProperties ===");
         
         logger.info("Testing system properties setup");
         
@@ -151,8 +144,7 @@ class PeeGeeQTestBaseTest extends PeeGeeQTestBase {
         
         logger.info("System properties test passed");
         
-        System.err.println("=== TEST METHOD COMPLETED: testSystemProperties ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD COMPLETED: testSystemProperties ===");
     }
 }
 
@@ -169,8 +161,7 @@ class ParameterizedPerformanceTestBaseTest extends ParameterizedPerformanceTestB
     @ParameterizedTest
     @EnumSource(value = PerformanceProfile.class, names = {"BASIC", "STANDARD", "HIGH_PERFORMANCE"})
     void testPerformanceAcrossProfiles(PerformanceProfile profile, Vertx vertx) {
-        System.err.println("=== TEST METHOD STARTED: testPerformanceAcrossProfiles(" + profile + ") ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testPerformanceAcrossProfiles({}) ===", profile);
         
         logger.info("Testing performance with profile: {}", profile.getDisplayName());
         
@@ -200,14 +191,12 @@ class ParameterizedPerformanceTestBaseTest extends ParameterizedPerformanceTestB
         logger.info("Performance test passed for profile: {} (duration: {}ms, throughput: {} ops/sec)", 
                    profile.getDisplayName(), result.getDurationMs(), result.getThroughput());
         
-        System.err.println("=== TEST METHOD COMPLETED: testPerformanceAcrossProfiles(" + profile + ") ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD COMPLETED: testPerformanceAcrossProfiles({}) ===", profile);
     }
     
     @Test
     void testPerformanceMetricsCreation() {
-        System.err.println("=== TEST METHOD STARTED: testPerformanceMetricsCreation ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: testPerformanceMetricsCreation ===");
         
         logger.info("Testing performance metrics creation");
         
@@ -221,7 +210,6 @@ class ParameterizedPerformanceTestBaseTest extends ParameterizedPerformanceTestB
         
         logger.info("Performance metrics creation test passed");
         
-        System.err.println("=== TEST METHOD COMPLETED: testPerformanceMetricsCreation ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD COMPLETED: testPerformanceMetricsCreation ===");
     }
 }

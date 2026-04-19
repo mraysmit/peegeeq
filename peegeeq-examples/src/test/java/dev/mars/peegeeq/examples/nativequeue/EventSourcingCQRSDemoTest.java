@@ -484,15 +484,15 @@ class EventSourcingCQRSDemoTest {
     @BeforeEach
     void setUp() {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        System.out.println("\n🏗️ Setting up Event Sourcing & CQRS Demo Test");
+        logger.info("Setting up Event Sourcing & CQRS Demo Test");
 
         // Configure system properties for TestContainers
         configureSystemPropertiesForContainer();
 
         // Initialize database schema for event sourcing CQRS test
-        System.out.println("🔧 Initializing database schema for event sourcing CQRS test");
+        logger.info("Initializing database schema for event sourcing CQRS test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
-        System.out.println("Database schema initialized successfully using centralized schema initializer (ALL components)");
+        logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
         // Initialize PeeGeeQ with event sourcing configuration
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
@@ -508,28 +508,28 @@ class EventSourcingCQRSDemoTest {
 
         queueFactory = provider.createFactory("native", databaseService);
 
-        System.out.println("Setup complete - Ready for event sourcing & CQRS pattern testing");
+        logger.info("Setup complete - Ready for event sourcing & CQRS pattern testing");
     }
 
     @AfterEach
     void tearDown(Vertx vertx) {
         logger.info("Tearing down: closing resources and manager");
-        System.out.println("🧹 Cleaning up Event Sourcing & CQRS Demo Test");
+        logger.info("Cleaning up Event Sourcing & CQRS Demo Test");
 
         if (manager != null) {
             try {
-                System.out.println("🔄 Closing PeeGeeQ manager...");
+                logger.info("Closing PeeGeeQ manager...");
                 manager.closeReactive().await();
-                System.out.println("PeeGeeQ manager closed successfully");
+                logger.info("PeeGeeQ manager closed successfully");
 
                 // CRITICAL: Wait for all resources to be fully released
                 // This prevents connection pool exhaustion between tests
                 Promise<Void> delay = Promise.promise();
                 vertx.setTimer(3000, id -> delay.complete());
                 delay.future().await();
-                System.out.println("⏱️ Resource cleanup wait completed");
+                logger.info("Resource cleanup wait completed");
             } catch (Exception e) {
-                System.err.println("⚠️ Error during manager cleanup: " + e.getMessage());
+                logger.warn("Error during manager cleanup: {}", e.getMessage());
             }
         }
 
@@ -538,7 +538,7 @@ class EventSourcingCQRSDemoTest {
         System.clearProperty("peegeeq.database.username");
         System.clearProperty("peegeeq.database.password");
 
-        System.out.println("Cleanup complete");
+        logger.info("Cleanup complete");
     }
 
     /**
@@ -567,9 +567,9 @@ class EventSourcingCQRSDemoTest {
     @DisplayName("Event Sourcing - Storing State Changes as Events")
     void testEventSourcing(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Test: event sourcing");
-        System.err.println("=== TEST METHOD STARTED: testEventSourcing ===");
+        logger.info("=== TEST METHOD STARTED: testEventSourcing ===");
         System.err.flush();
-        System.out.println("\n📚 Testing Event Sourcing");
+        logger.info("Testing Event Sourcing");
 
         // Queue names for command and event streams
         String commandQueue = "eventsourcing-commands-queue";
@@ -598,7 +598,7 @@ class EventSourcingCQRSDemoTest {
         commandConsumer.subscribe(message -> {
             Command command = message.getPayload();
 
-            System.out.println("📚 Processing command: " + command.commandType + " for aggregate: " + command.aggregateId);
+            logger.info("Processing command: {} for aggregate: {}", command.commandType, command.aggregateId);
 
             try {
                 BankAccountAggregate aggregate;
@@ -660,7 +660,7 @@ class EventSourcingCQRSDemoTest {
                 commandsProcessed.incrementAndGet();
 
             } catch (Exception e) {
-                System.err.println("❌ Error processing command " + command.commandId + ": " + e.getMessage());
+                logger.warn("Error processing command {}: {}", command.commandId, e.getMessage());
                 // 🚨 PRODUCTION NOTE: Real systems would have proper error handling,
                 // dead letter queues, and retry mechanisms
             }
@@ -675,8 +675,7 @@ class EventSourcingCQRSDemoTest {
         eventConsumer.subscribe(message -> {
             DomainEvent event = message.getPayload();
 
-            System.out.println("📚 Storing event: " + event.eventType.eventName +
-                             " v" + event.version + " for aggregate: " + event.aggregateId);
+            logger.info("Storing event: {} v{} for aggregate: {}", event.eventType.eventName, event.version, event.aggregateId);
 
             // Store event in event store
             // 🚨 PRODUCTION NOTE: Real event stores would:
@@ -693,7 +692,7 @@ class EventSourcingCQRSDemoTest {
         });
 
         // Send commands to demonstrate event sourcing
-        System.out.println("📤 Sending commands for event sourcing demonstration...");
+        logger.info("Sending commands for event sourcing demonstration...");
 
         String accountId = "account-es-001";
 
@@ -769,7 +768,7 @@ class EventSourcingCQRSDemoTest {
 
         // Test event replay - the core benefit of event sourcing
         // This demonstrates how we can reconstruct aggregate state from events
-        System.out.println("🔄 Testing event replay...");
+        logger.info("Testing event replay...");
         BankAccountAggregate replayedAggregate = BankAccountAggregate.fromEvents(accountId, accountEvents);
 
         // Verify that replaying events produces the same final state
@@ -779,17 +778,17 @@ class EventSourcingCQRSDemoTest {
         assertEquals(5, replayedAggregate.version, "Replayed version should be 5");
 
         // Display results to show the complete event sourcing flow
-        System.out.println("📊 Event Sourcing Results:");
-        System.out.println("  Commands processed: " + commandsProcessed.get());
-        System.out.println("  Events stored: " + eventsStored.get());
-        System.out.println("  Final balance: $" + replayedAggregate.balance);
-        System.out.println("  Account frozen: " + replayedAggregate.isFrozen);
+        logger.info("Event Sourcing Results:");
+        logger.info("  Commands processed: {}", commandsProcessed.get());
+        logger.info("  Events stored: {}", eventsStored.get());
+        logger.info("  Final balance: ${}", replayedAggregate.balance);
+        logger.info("  Account frozen: {}", replayedAggregate.isFrozen);
 
         // Cleanup resources
         commandConsumer.close();
         eventConsumer.close();
 
-        System.out.println("Event Sourcing test completed successfully");
+        logger.info("Event Sourcing test completed successfully");
 
         // 🎯 KEY BENEFITS DEMONSTRATED:
         // 1. Complete audit trail - every state change is recorded as an event
@@ -821,7 +820,7 @@ class EventSourcingCQRSDemoTest {
     @DisplayName("CQRS - Command Query Responsibility Segregation")
     void testCQRS(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Test: c q r s");
-        System.out.println("\n🔍 Testing CQRS");
+        logger.info("Testing CQRS");
 
         // Queue names for command and event streams
         String commandQueue = "cqrs-commands-queue";
@@ -850,7 +849,7 @@ class EventSourcingCQRSDemoTest {
         commandConsumer.subscribe(message -> {
             Command command = message.getPayload();
 
-            System.out.println("🔍 WRITE SIDE - Processing command: " + command.getCommandType());
+            logger.info("WRITE SIDE - Processing command: {}", command.getCommandType());
 
             try {
                 BankAccountAggregate aggregate;
@@ -899,7 +898,7 @@ class EventSourcingCQRSDemoTest {
                 commandsProcessed.incrementAndGet();
 
             } catch (Exception e) {
-                System.err.println("❌ Command processing error: " + e.getMessage());
+                logger.warn("Command processing error: {}", e.getMessage());
             }
 
             commandCheckpoint.flag();
@@ -911,8 +910,7 @@ class EventSourcingCQRSDemoTest {
         eventConsumer.subscribe(message -> {
             DomainEvent event = message.getPayload();
 
-            System.out.println("🔍 READ SIDE - Processing event: " + event.eventType.eventName +
-                             " for read model update");
+            logger.info("READ SIDE - Processing event: {} for read model update", event.eventType.eventName);
 
             // Update read model based on event
             // 🎯 KEY CONCEPT: Read models are denormalized and optimized for specific queries
@@ -941,7 +939,7 @@ class EventSourcingCQRSDemoTest {
         // Send commands for CQRS demonstration
         // Note: No Thread.sleep() needed here as CQRS focuses on separation of concerns,
         // not strict event ordering like the Event Sourcing test
-        System.out.println("📤 Sending commands for CQRS demonstration...");
+        logger.info("Sending commands for CQRS demonstration...");
 
         String accountId = "account-cqrs-001";
 
@@ -1005,18 +1003,18 @@ class EventSourcingCQRSDemoTest {
         assertEquals(400.0, readAggregate.totalWithdrawals, 0.01, "Read model should track total withdrawals");
 
         // Display results showing the separation between write and read models
-        System.out.println("📊 CQRS Results:");
-        System.out.println("  Write Model Balance: $" + writeAggregate.balance);
-        System.out.println("  Read Model Balance: $" + readAggregate.currentBalance);
-        System.out.println("  Read Model Transactions: " + readAggregate.totalTransactions);
-        System.out.println("  Read Model Total Deposits: $" + readAggregate.totalDeposits);
-        System.out.println("  Read Model Total Withdrawals: $" + readAggregate.totalWithdrawals);
+        logger.info("CQRS Results:");
+        logger.info("  Write Model Balance: ${}", writeAggregate.balance);
+        logger.info("  Read Model Balance: ${}", readAggregate.currentBalance);
+        logger.info("  Read Model Transactions: {}", readAggregate.totalTransactions);
+        logger.info("  Read Model Total Deposits: ${}", readAggregate.totalDeposits);
+        logger.info("  Read Model Total Withdrawals: ${}", readAggregate.totalWithdrawals);
 
         // Cleanup resources
         commandConsumer.close();
         eventConsumer.close();
 
-        System.out.println("CQRS test completed successfully");
+        logger.info("CQRS test completed successfully");
     }
 
 

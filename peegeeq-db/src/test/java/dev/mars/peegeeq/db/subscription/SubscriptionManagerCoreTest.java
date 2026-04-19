@@ -17,6 +17,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
@@ -67,7 +68,10 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
             .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-            .maxSize(10)
+            .maxSize(3)
+            .shared(false)
+            .idleTimeout(Duration.ofSeconds(2))
+            .connectionTimeout(Duration.ofSeconds(5))
             .build();
 
         connectionManager.getOrCreateReactivePool("peegeeq-main", connectionConfig, poolConfig);
@@ -391,6 +395,7 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
 
     @Test
     void testResumeCancelledSubscriptionFails() throws Exception {
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Cannot resume cancelled subscription') is EXPECTED — this test deliberately attempts to resume a cancelled subscription to verify rejection");
         String topic = "test-topic-cancel-resume";
         String groupName = "test-group-cancel-resume";
 

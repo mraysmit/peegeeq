@@ -31,6 +31,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -68,6 +69,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 public class PeeGeeQManagerCloseLogLevelTest {
 
+    private static final Logger logger = LoggerFactory.getLogger(PeeGeeQManagerCloseLogLevelTest.class);
     private static final String POSTGRES_IMAGE = "postgres:15.13-alpine3.20";
 
     @SuppressWarnings("resource")
@@ -157,6 +159,7 @@ public class PeeGeeQManagerCloseLogLevelTest {
     @Test
     @DisplayName("Positive: close after DB shutdown logs ERROR for client factory close failure")
     void testCloseAfterDbShutdownLogsErrorForClientFactoryFailure(VertxTestContext testContext) throws InterruptedException {
+        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR logs ('Error closing client factory', 'Error closing PeeGeeQManager') are EXPECTED — this test deliberately stops the DB container to verify error-level close failure logging");
         // Use a separate container that we can stop
         @SuppressWarnings("resource")
         PostgreSQLContainer ownContainer = new PostgreSQLContainer(POSTGRES_IMAGE)
@@ -270,7 +273,10 @@ public class PeeGeeQManagerCloseLogLevelTest {
         props.setProperty("peegeeq.database.ssl.enabled", "false");
         props.setProperty("peegeeq.database.schema", "public");
         props.setProperty("peegeeq.database.pool.min-size", "1");
-        props.setProperty("peegeeq.database.pool.max-size", "5");
+        props.setProperty("peegeeq.database.pool.max-size", "3");
+        props.setProperty("peegeeq.database.pool.shared", "false");
+        props.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
+        props.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
         props.setProperty("peegeeq.health.check-interval", "PT5S");
         props.setProperty("peegeeq.metrics.reporting-interval", "PT10S");
         props.setProperty("peegeeq.migration.enabled", "false");

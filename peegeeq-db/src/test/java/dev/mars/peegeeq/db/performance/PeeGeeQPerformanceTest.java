@@ -75,10 +75,10 @@ class PeeGeeQPerformanceTest {
 
     @BeforeAll
     static void logSystemInfo() {
-        System.out.println("=== PEEGEEQ PERFORMANCE TEST SUITE ===");
-        System.out.println("System Information:");
-        System.out.println(SystemInfoCollector.formatAsSummary());
-        System.out.println("=== Starting Performance Tests ===");
+        logger.info("=== PEEGEEQ PERFORMANCE TEST SUITE ===");
+        logger.info("System Information:");
+        logger.info(SystemInfoCollector.formatAsSummary());
+        logger.info("=== Starting Performance Tests ===");
     }
 
     @BeforeEach
@@ -96,7 +96,10 @@ class PeeGeeQPerformanceTest {
         
         // Performance optimized settings
         testProps.setProperty("peegeeq.database.pool.min-size", "10");
-        testProps.setProperty("peegeeq.database.pool.max-size", "50");
+        testProps.setProperty("peegeeq.database.pool.max-size", "3");
+        testProps.setProperty("peegeeq.database.pool.shared", "false");
+        testProps.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
+        testProps.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
         testProps.setProperty("peegeeq.queue.batch-size", "100");
         testProps.setProperty("peegeeq.queue.polling-interval", "PT100MS");
         testProps.setProperty("peegeeq.metrics.enabled", "true");

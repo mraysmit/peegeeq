@@ -32,6 +32,8 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.ResourceLock;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.sql.SQLException;
@@ -63,6 +65,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith({SharedPostgresTestExtension.class, VertxExtension.class})
 @ResourceLock(value = "dead-letter-queue-database", mode = org.junit.jupiter.api.parallel.ResourceAccessMode.READ_WRITE)
 class HealthCheckManagerTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(HealthCheckManagerTest.class);
 
     /**
      * Custom exception for intentional test failures that doesn't generate stack traces.
@@ -100,7 +104,10 @@ class HealthCheckManagerTest {
                 .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-                .maxSize(5)
+                .maxSize(3)
+                .shared(false)
+                .idleTimeout(Duration.ofSeconds(2))
+                .connectionTimeout(Duration.ofSeconds(5))
                 .build();
 
         // Create reactive pool for HealthCheckManager
@@ -127,7 +134,7 @@ class HealthCheckManagerTest {
                 cleanupTestData();
             }
         } catch (Exception e) {
-            System.err.println("Warning: Failed to cleanup test data in tearDown: " + e.getMessage());
+            logger.warn("Failed to cleanup test data in tearDown: {}", e.getMessage());
         }
 
         if (connectionManager != null) {
@@ -148,9 +155,9 @@ class HealthCheckManagerTest {
                     .compose(result -> connection.query("DELETE FROM queue_messages").execute());
             }));
 
-            System.out.println("DEBUG: Cleaned up test data for HealthCheckManager test isolation");
+            logger.debug("Cleaned up test data for HealthCheckManager test isolation");
         } catch (Exception e) {
-            System.err.println("Warning: Failed to cleanup test data: " + e.getMessage());
+            logger.warn("Failed to cleanup test data: {}", e.getMessage());
             // Don't throw - allow test to proceed
         }
     }
@@ -313,11 +320,9 @@ class HealthCheckManagerTest {
      */
     @Test
     void testFailingHealthCheck() {
-        System.out.println("===== RUNNING INTENTIONAL HEALTH CHECK FAILURE TEST ===== ");
-        System.out.println("**INTENTIONAL TEST** This test deliberately simulates a health check throwing an exception");
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN logs ('Health check failed: failing') are EXPECTED — this test deliberately throws an exception from a health check to verify failure handling");
 
         HealthCheck failingCheck = () -> {
-            System.out.println("**INTENTIONAL TEST FAILURE** Health check throwing simulated exception");
             // Create a custom exception that clearly indicates it's intentional
             throw new IntentionalTestFailureException("INTENTIONAL TEST FAILURE: Simulated failure");
         };
@@ -335,13 +340,11 @@ class HealthCheckManagerTest {
         assertTrue(failingHealth.isUnhealthy());
         assertNotNull(failingHealth.getMessage());
         assertTrue(failingHealth.getMessage().contains("Health check threw exception"));
-
-        System.out.println("**SUCCESS** Health check failure was properly handled and reported");
-        System.out.println("===== INTENTIONAL FAILURE TEST COMPLETED ===== ");
     }
 
     @Test
     void testHealthCheckTimeout() {
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Health check timed out: slow') is EXPECTED — this test deliberately creates a slow health check to verify timeout handling");
         HealthCheck slowCheck = () -> {
             awaitTimer(5000); // Longer than timeout
 
@@ -376,8 +379,7 @@ class HealthCheckManagerTest {
      */
     @Test
     void testHealthCheckWithDatabaseFailure() throws Exception {
-        System.out.println("===== RUNNING INTENTIONAL DATABASE FAILURE TEST ===== ");
-        System.out.println("**INTENTIONAL TEST** This test deliberately closes the database connection to simulate failure");
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN/ERROR logs ('Health check failed: database', 'Database connection pool validation failed') are EXPECTED — this test deliberately closes the DB connection to verify failure detection");
 
         startManager(healthCheckManager);
 
@@ -386,10 +388,10 @@ class HealthCheckManagerTest {
 
 
         assertTrue(healthCheckManager.isHealthy());
-        System.out.println("Initial state: Health checks are healthy");
+        logger.info("Initial state: Health checks are healthy");
 
         // Close database connection to simulate failure
-        System.out.println("**INTENTIONAL TEST FAILURE** Closing database connection to simulate failure");
+        logger.info("INTENTIONAL TEST FAILURE: Closing database connection to simulate failure");
         connectionManager.close()
             .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
 
@@ -403,8 +405,8 @@ class HealthCheckManagerTest {
         assertNotNull(dbHealth);
         assertFalse(dbHealth.isHealthy());
 
-        System.out.println("**SUCCESS** Database failure was properly detected and reported");
-        System.out.println("===== INTENTIONAL FAILURE TEST COMPLETED ===== ");
+        logger.info("SUCCESS: Database failure was properly detected and reported");
+        logger.info("===== INTENTIONAL FAILURE TEST COMPLETED =====");
     }
 
     @Test
@@ -556,7 +558,10 @@ class HealthCheckManagerTest {
                 .build();
 
         PgPoolConfig reactivePoolConfig = new PgPoolConfig.Builder()
-                .maxSize(5)
+                .maxSize(3)
+                .shared(false)
+                .idleTimeout(Duration.ofSeconds(2))
+                .connectionTimeout(Duration.ofSeconds(5))
                 .build();
 
         // Create reactive pool

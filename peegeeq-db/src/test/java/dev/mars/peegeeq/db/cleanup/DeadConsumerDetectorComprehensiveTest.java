@@ -31,6 +31,7 @@ import dev.mars.peegeeq.db.subscription.TopicSemantics;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.json.JsonObject;
 import io.vertx.sqlclient.Tuple;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -42,6 +43,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.ArrayList;
@@ -99,7 +101,10 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
                 .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-                .maxSize(10)
+                .maxSize(3)
+                .shared(false)
+                .idleTimeout(Duration.ofSeconds(2))
+                .connectionTimeout(Duration.ofSeconds(5))
                 .build();
 
         connectionManager.getOrCreateReactivePool(SERVICE_ID, connectionConfig, poolConfig);
@@ -109,6 +114,13 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
         subscriptionManager = new SubscriptionManager(connectionManager, SERVICE_ID);
 
         logger.info("Comprehensive test setup complete");
+    }
+
+    @AfterEach
+    void tearDown() throws Exception {
+        if (connectionManager != null) {
+            connectionManager.close();
+        }
     }
 
     // ========================================================================
@@ -121,6 +133,7 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
      */
     @Test
     void testAllDeadConsumersFoundNoFalseNegatives() throws Exception {
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Marked N subscriptions as DEAD') is EXPECTED — this test creates 5 consumers with expired heartbeats to verify zero false negatives in dead detection");
         String topic = uniqueTopic("all-dead-found");
         createTopic(topic);
 
@@ -208,6 +221,7 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
      */
     @Test
     void testAlreadyDeadNotReDetected() throws Exception {
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Marked N subscriptions as DEAD') is EXPECTED — this test verifies that already-DEAD consumers are not re-detected");
         String topic = uniqueTopic("already-dead");
         createTopic(topic);
 

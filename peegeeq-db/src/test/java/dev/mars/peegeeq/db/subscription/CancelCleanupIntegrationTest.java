@@ -12,6 +12,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
 import io.vertx.core.json.JsonObject;
 import io.vertx.sqlclient.Tuple;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -21,6 +22,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
@@ -62,7 +64,10 @@ public class CancelCleanupIntegrationTest extends BaseIntegrationTest {
             .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-            .maxSize(10)
+            .maxSize(3)
+            .shared(false)
+            .idleTimeout(Duration.ofSeconds(2))
+            .connectionTimeout(Duration.ofSeconds(5))
             .build();
 
         connectionManager.getOrCreateReactivePool("peegeeq-main", connectionConfig, poolConfig);
@@ -71,6 +76,13 @@ public class CancelCleanupIntegrationTest extends BaseIntegrationTest {
         topicConfigService = new TopicConfigService(connectionManager, "peegeeq-main");
 
         logger.info("CancelCleanupIntegrationTest setup complete");
+    }
+
+    @AfterEach
+    void tearDown() throws Exception {
+        if (connectionManager != null) {
+            connectionManager.close();
+        }
     }
 
     @Test
@@ -181,6 +193,7 @@ public class CancelCleanupIntegrationTest extends BaseIntegrationTest {
 
     @Test
     void testCancelCleanupFailureDoesNotFailCancel() throws Exception {
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Cancel cleanup failed') is EXPECTED — this test deliberately uses a broken connection manager to verify cleanup failure does not fail cancel");
         logger.info("=== Testing cancel cleanup failure doesn't fail cancel ===");
 
         String topic = "test-cancel-fail-" + UUID.randomUUID().toString().substring(0, 8);

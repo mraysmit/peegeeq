@@ -31,6 +31,8 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.ResourceLock;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import dev.mars.peegeeq.test.categories.TestCategories;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -57,6 +59,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @ResourceLock(value = "system-properties")
 public class PeeGeeQManagerIntegrationTest {
 
+    private static final Logger logger = LoggerFactory.getLogger(PeeGeeQManagerIntegrationTest.class);
+
     private PeeGeeQManager manager;
     private PeeGeeQConfiguration configuration;
 
@@ -76,7 +80,10 @@ public class PeeGeeQManagerIntegrationTest {
 
         // Set valid pool configuration
         testProps.setProperty("peegeeq.database.pool.min-size", "2");
-        testProps.setProperty("peegeeq.database.pool.max-size", "10");
+        testProps.setProperty("peegeeq.database.pool.max-size", "3");
+        testProps.setProperty("peegeeq.database.pool.shared", "false");
+        testProps.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
+        testProps.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
 
         // Reduce timeouts for faster tests
         testProps.setProperty("peegeeq.health.check-interval", "PT5S");
@@ -98,9 +105,9 @@ public class PeeGeeQManagerIntegrationTest {
         if (manager != null) {
             try {
                 manager.closeReactive()
-                    .onFailure(t -> System.err.println("Error during manager teardown: " + t.getMessage()));
+                    .onFailure(t -> logger.warn("Error during manager teardown: {}", t.getMessage()));
             } catch (Exception e) {
-                System.err.println("Exception during tearDown: " + e.getMessage());
+                logger.warn("Exception during tearDown: {}", e.getMessage());
             }
         }
         System.getProperties().entrySet().removeIf(entry ->

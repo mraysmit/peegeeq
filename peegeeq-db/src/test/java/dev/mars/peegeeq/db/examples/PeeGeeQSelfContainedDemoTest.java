@@ -55,19 +55,28 @@ public class PeeGeeQSelfContainedDemoTest {
     private PeeGeeQManager manager;
 
     @AfterEach
-    void tearDown() {
+    void tearDown(VertxTestContext testContext) throws InterruptedException {
         if (manager != null) {
-            try {
-                manager.closeReactive()
-                    .onFailure(t -> logger.warn("Error closing manager during tearDown: {}", t.getMessage()));
-            } catch (Exception e) {
-                logger.warn("Error closing manager during tearDown: {}", e.getMessage());
-            }
+            manager.closeReactive()
+                .onComplete(v -> {
+                    System.getProperties().entrySet().removeIf(e ->
+                        e.getKey().toString().startsWith("peegeeq."));
+                    testContext.completeNow();
+                });
+        } else {
+            System.getProperties().entrySet().removeIf(e ->
+                e.getKey().toString().startsWith("peegeeq."));
+            testContext.completeNow();
         }
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     private PeeGeeQManager createManager() {
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
+        System.setProperty("peegeeq.database.pool.max-size", "3");
+        System.setProperty("peegeeq.database.pool.shared", "false");
+        System.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
+        System.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("demo",
             postgres.getHost(),
             postgres.getFirstMappedPort(),

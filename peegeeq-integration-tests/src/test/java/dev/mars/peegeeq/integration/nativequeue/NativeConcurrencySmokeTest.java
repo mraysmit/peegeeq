@@ -42,6 +42,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag("integration")
 public class NativeConcurrencySmokeTest extends SmokeTestBase {
 
+    private static final org.slf4j.Logger logger = LoggerFactory.getLogger(NativeConcurrencySmokeTest.class);
+
     private final List<MessageConsumer<?>> activeConsumers = Collections.synchronizedList(new ArrayList<>());
 
     @AfterEach
@@ -109,15 +111,15 @@ public class NativeConcurrencySmokeTest extends SmokeTestBase {
                                     .sendJsonObject(msg)
                                     .onComplete(r -> {
                                         if (r.failed()) {
-                                            System.err.println("Failed to publish message " + index + ": " + r.cause().getMessage());
+                                            logger.warn("Failed to publish message {}: {}", index, r.cause().getMessage());
                                         } else if (r.result().statusCode() != 200) {
-                                            System.err.println("Failed to publish message " + index + ": Status " + r.result().statusCode());
+                                            logger.warn("Failed to publish message {}: Status {}", index, r.result().statusCode());
                                         }
                                         latch.countDown();
                                     });
                                 // Wait a bit for each message to ensure order/delivery, but not too long
                                 if (!latch.await(2, TimeUnit.SECONDS)) {
-                                    System.err.println("Timeout publishing message " + index);
+                                    logger.warn("Timeout publishing message {}", index);
                                 }
                             }
                         } catch (Exception e) {

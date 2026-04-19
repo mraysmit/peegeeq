@@ -136,10 +136,9 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
     @MethodSource("getConsumerModeTestMatrix")
     @Timeout(30) // 30 second timeout per test scenario
     void testStandardizedThroughputComparison(ConsumerModeTestScenario scenario) throws Exception {
-        System.err.println("=== TEST METHOD STARTED: " + scenario.getScenarioName() + " ===");
-        System.err.flush();
+        logger.info("=== TEST METHOD STARTED: {} ===", scenario.getScenarioName());
 
-        logger.info("🧪 Testing standardized throughput for scenario: {}", scenario.getDescription());
+        logger.info("Testing standardized throughput for scenario: {}", scenario.getDescription());
 
         String topicName = "standardized-throughput-" + scenario.getConsumerMode().name().toLowerCase();
         // Use smaller message counts for faster test execution following PGQ principles
@@ -157,23 +156,19 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
             // Debug logging to verify result metrics
             logger.info("Test result: {}", result);
             logger.info("Test result metrics: {}", result.getMetrics());
-            System.err.println("=== RESULT METRICS: " + result.getMetrics() + " ===");
-            System.err.flush();
 
             // Validate results using scenario-specific expectations
             validateThroughputResult(result, scenario);
 
-            logger.info("📈 {} - Throughput: {:.2f} msg/sec, Avg Latency: {:.2f}ms",
+            logger.info("{} - Throughput: {:.2f} msg/sec, Avg Latency: {:.2f}ms",
                 scenario.getConsumerMode(),
                 result.getMetrics().get("messages_per_second"),
                 result.getMetrics().get("average_processing_time"));
 
-            System.err.println("=== TEST METHOD COMPLETED: " + scenario.getScenarioName() + " ===");
-            System.err.flush();
+            logger.info("=== TEST METHOD COMPLETED: {} ===", scenario.getScenarioName());
 
         } catch (Exception e) {
-            System.err.println("=== TEST METHOD FAILED: " + scenario.getScenarioName() + " - " + e.getMessage() + " ===");
-            System.err.flush();
+            logger.warn("=== TEST METHOD FAILED: {} - {} ===", scenario.getScenarioName(), e.getMessage());
             throw e;
         }
     }
@@ -185,7 +180,7 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
     @ParameterizedTest(name = "Latency Test: {0}")
     @MethodSource("getConsumerModeTestMatrix")
     void testStandardizedLatencyComparison(ConsumerModeTestScenario scenario) throws Exception {
-        logger.info("🧪 Testing standardized latency for scenario: {}", scenario.getDescription());
+        logger.info("Testing standardized latency for scenario: {}", scenario.getDescription());
 
         String topicName = "standardized-latency-" + scenario.getConsumerMode().name().toLowerCase();
         int messageCount = Math.min(50, scenario.getMessageCount()); // Smaller count for latency precision
@@ -198,7 +193,7 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
         // Validate results using scenario-specific expectations
         validateLatencyResult(result, scenario);
         
-        logger.info("📊 {} - Avg: {:.2f}ms, P95: {:.2f}ms", 
+        logger.info("{} - Avg: {:.2f}ms, P95: {:.2f}ms", 
             scenario.getConsumerMode(),
             result.getMetrics().get("average_processing_time"),
             result.getMetrics().getOrDefault("p95_latency", 0.0));
@@ -211,8 +206,7 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
                                                         ConsumerModeTestScenario scenario,
                                                         int messageCount,
                                                         int warmupMessages) throws Exception {
-        System.err.println("=== STARTING THROUGHPUT MEASUREMENT ===");
-        System.err.flush();
+        logger.info("=== STARTING THROUGHPUT MEASUREMENT ===");
 
         logger.info("Starting throughput measurement: topic={}, messages={}, warmup={}, mode={}",
             topicName, messageCount, warmupMessages, scenario.getConsumerMode());
@@ -321,16 +315,14 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
             logger.info("Throughput test completed: {:.2f} msg/sec, avg latency: {:.2f}ms",
                 throughput, averageLatency);
 
-            System.err.println("=== THROUGHPUT MEASUREMENT COMPLETED ===");
-            System.err.flush();
+            logger.info("=== THROUGHPUT MEASUREMENT COMPLETED ===");
 
             // Return standardized metrics
             Map<String, Object> metrics = createConsumerModeMetrics(throughput, averageLatency, 0.0, 0.8, 0.0);
 
             // Debug logging to verify metrics creation
             logger.info("Created metrics: {}", metrics);
-            System.err.println("=== METRICS CREATED: " + metrics + " ===");
-            System.err.flush();
+            logger.info("=== METRICS CREATED: {} ===", metrics);
 
             return metrics;
 

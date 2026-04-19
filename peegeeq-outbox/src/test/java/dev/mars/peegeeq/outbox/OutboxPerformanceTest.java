@@ -164,7 +164,7 @@ public class OutboxPerformanceTest {
             
             int count = processedCount.incrementAndGet();
             if (count % 100 == 0) {
-                System.out.println("Processed " + count + " messages...");
+                logger.info("Processed {} messages...", count);
             }
             
             long endTime = System.nanoTime();
@@ -174,7 +174,7 @@ public class OutboxPerformanceTest {
             return Future.succeededFuture();
         });
 
-        System.out.println("Starting throughput test with " + messageCount + " messages...");
+        logger.info("Starting throughput test with {} messages...", messageCount);
         Instant startTime = Instant.now();
 
         // Send all messages as fast as possible
@@ -201,14 +201,14 @@ public class OutboxPerformanceTest {
         double totalThroughput = messageCount / (totalDuration.toMillis() / 1000.0);
         double avgProcessingTimeNs = totalProcessingTime.get() / (double) messageCount;
 
-        System.out.println("\n=== THROUGHPUT PERFORMANCE RESULTS ===");
-        System.out.println("Messages: " + messageCount);
-        System.out.println("Send duration: " + sendDuration.toMillis() + "ms");
-        System.out.println("Processing duration: " + processingDuration.toMillis() + "ms");
-        System.out.println("Total duration: " + totalDuration.toMillis() + "ms");
-        System.out.println("Send throughput: " + String.format("%.2f", sendThroughput) + " msg/sec");
-        System.out.println("Total throughput: " + String.format("%.2f", totalThroughput) + " msg/sec");
-        System.out.println("Avg processing time: " + String.format("%.2f", avgProcessingTimeNs / 1_000_000) + "ms");
+        logger.info("=== THROUGHPUT PERFORMANCE RESULTS ===");
+        logger.info("Messages: {}", messageCount);
+        logger.info("Send duration: {}ms", sendDuration.toMillis());
+        logger.info("Processing duration: {}ms", processingDuration.toMillis());
+        logger.info("Total duration: {}ms", totalDuration.toMillis());
+        logger.info("Send throughput: {} msg/sec", String.format("%.2f", sendThroughput));
+        logger.info("Total throughput: {} msg/sec", String.format("%.2f", totalThroughput));
+        logger.info("Avg processing time: {}ms", String.format("%.2f", avgProcessingTimeNs / 1_000_000));
 
         // Verify all messages were processed
         assertEquals(messageCount, processedCount.get(), "Should process all messages");
@@ -241,7 +241,7 @@ public class OutboxPerformanceTest {
             return Future.succeededFuture();
         });
 
-        System.out.println("Starting latency test with " + messageCount + " messages...");
+        logger.info("Starting latency test with {} messages...", messageCount);
 
         // Send messages with timestamps (with small delays between sends)
         vertx.executeBlocking(() -> {
@@ -265,11 +265,11 @@ public class OutboxPerformanceTest {
         double minLatencyMs = minLatency.get() / 1_000_000.0;
         double maxLatencyMs = maxLatency.get() / 1_000_000.0;
 
-        System.out.println("\n=== LATENCY PERFORMANCE RESULTS ===");
-        System.out.println("Messages: " + messageCount);
-        System.out.println("Average latency: " + String.format("%.2f", avgLatencyMs) + "ms");
-        System.out.println("Min latency: " + String.format("%.2f", minLatencyMs) + "ms");
-        System.out.println("Max latency: " + String.format("%.2f", maxLatencyMs) + "ms");
+        logger.info("=== LATENCY PERFORMANCE RESULTS ===");
+        logger.info("Messages: {}", messageCount);
+        logger.info("Average latency: {}ms", String.format("%.2f", avgLatencyMs));
+        logger.info("Min latency: {}ms", String.format("%.2f", minLatencyMs));
+        logger.info("Max latency: {}ms", String.format("%.2f", maxLatencyMs));
 
         // Performance assertions (adjust based on expected performance)
         assertTrue(avgLatencyMs < 1000, "Average latency should be < 1000ms, was: " + avgLatencyMs);
@@ -290,14 +290,13 @@ public class OutboxPerformanceTest {
         logger.info("Test: concurrent producer performance");
             int count = processedCount.incrementAndGet();
             if (count % 100 == 0) {
-                System.out.println("Processed " + count + " concurrent messages...");
+                logger.info("Processed {} concurrent messages...", count);
             }
             allProcessed.flag();
             return Future.succeededFuture();
         });
 
-        System.out.println("Starting concurrent producer test: " + producerCount + 
-            " producers, " + messagesPerProducer + " messages each...");
+        logger.info("Starting concurrent producer test: {} producers, {} messages each...", producerCount, messagesPerProducer);
         
         Instant startTime = Instant.now();
 
@@ -317,7 +316,7 @@ public class OutboxPerformanceTest {
                     
                     concurrentProducer.close();
                 } catch (Exception e) {
-                    System.err.println("Producer " + producerId + " failed: " + e.getMessage());
+                    logger.warn("Producer {} failed: {}", producerId, e.getMessage());
                 }
             });
         }
@@ -339,14 +338,14 @@ public class OutboxPerformanceTest {
         double sendThroughput = totalMessages / (sendDuration.toMillis() / 1000.0);
         double totalThroughput = totalMessages / (totalDuration.toMillis() / 1000.0);
 
-        System.out.println("\n=== CONCURRENT PRODUCER PERFORMANCE RESULTS ===");
-        System.out.println("Producers: " + producerCount);
-        System.out.println("Messages per producer: " + messagesPerProducer);
-        System.out.println("Total messages: " + totalMessages);
-        System.out.println("Send duration: " + sendDuration.toMillis() + "ms");
-        System.out.println("Total duration: " + totalDuration.toMillis() + "ms");
-        System.out.println("Send throughput: " + String.format("%.2f", sendThroughput) + " msg/sec");
-        System.out.println("Total throughput: " + String.format("%.2f", totalThroughput) + " msg/sec");
+        logger.info("=== CONCURRENT PRODUCER PERFORMANCE RESULTS ===");
+        logger.info("Producers: {}", producerCount);
+        logger.info("Messages per producer: {}", messagesPerProducer);
+        logger.info("Total messages: {}", totalMessages);
+        logger.info("Send duration: {}ms", sendDuration.toMillis());
+        logger.info("Total duration: {}ms", totalDuration.toMillis());
+        logger.info("Send throughput: {} msg/sec", String.format("%.2f", sendThroughput));
+        logger.info("Total throughput: {} msg/sec", String.format("%.2f", totalThroughput));
 
         // Verify all messages were processed
         assertEquals(totalMessages, processedCount.get(), "Should process all concurrent messages");

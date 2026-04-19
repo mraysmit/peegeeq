@@ -18,6 +18,7 @@ package dev.mars.peegeeq.db;
 
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import io.vertx.core.Future;
+import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxTestContext;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
@@ -118,29 +119,37 @@ public abstract class BaseIntegrationTest {
     void tearDownBaseIntegration() throws Exception {
         logger.info("Tearing down integration test for profile: {}", testProfile);
         
-        // Close manager with proper error handling and timeout
+        // Capture Vertx reference before nulling manager — we need it for the
+        // belt-and-suspenders close below (Tier 2 fix for connection exhaustion).
+        Vertx vertxRef = (manager != null) ? manager.getVertx() : null;
+        
         if (manager != null) {
             try {
-                // Give manager time to complete any ongoing operations
-                awaitFuture(manager.getVertx().timer(100).mapEmpty());
-                
-                // Close manager (this should close all HikariCP pools)
+                // closeReactive() handles dead Vertx internally (step 7 catch).
+                // No grace timer needed — it serves no documented purpose and
+                // throws RejectedExecutionException when the event loop is dead.
                 awaitFuture(manager.closeReactive());
                 logger.info("PeeGeeQ Manager closed successfully for profile: {}", testProfile);
-                
             } catch (Exception e) {
                 logger.error("Error closing PeeGeeQ Manager for profile: {}", testProfile, e);
-                // Don't rethrow - we want other cleanup to continue
             } finally {
                 manager = null;
             }
         }
         
-        // DO NOT clear test system properties in @AfterEach - causes race conditions in parallel execution
-        // Each test's @BeforeEach will overwrite them anyway
-        
-        // Force garbage collection to help with cleanup
-        System.gc();
+        // Tier 2: Eagerly close Vert.x to guarantee TCP socket release before the
+        // next test starts. closeReactive() step 7 attempts this, but .eventually()
+        // swallows failures (e.g. RejectedExecutionException when the event loop is
+        // already dead). A second vertx.close() call is idempotent and ensures
+        // all Netty channels are torn down.
+        if (vertxRef != null) {
+            try {
+                awaitFuture(vertxRef.close());
+                logger.info("Vert.x instance closed explicitly for profile: {}", testProfile);
+            } catch (Exception e) {
+                logger.debug("Vert.x close after manager shutdown (expected if already closed): {}", e.getMessage());
+            }
+        }
         
         logger.info("Integration test teardown completed for profile: {}", testProfile);
     }
@@ -172,14 +181,17 @@ public abstract class BaseIntegrationTest {
      * connection usage can spike quickly.</p>
      */
     private void setupTestConfiguration() {
-        // Database pool settings - very conservative for parallel tests
-        // With 4 parallel threads and max 3 connections per pool, we use at most 12 connections per wave
-        // PostgreSQL container is configured with max_connections=200
-        System.setProperty("peegeeq.database.pool.min-size", "1");
+        // Use the keys the loader actually reads (millisecond longs, not Duration strings).
+        // NOTE: PgConnectionManager truncates these to whole seconds via Duration.toSeconds(),
+        // so values must be >= 1000 ms. A value < 1000 ms truncates to 0 = "no timeout".
+        System.setProperty("peegeeq.database.pool.min-size", "1");  // needed for validation (max >= min)
         System.setProperty("peegeeq.database.pool.max-size", "3");
-        System.setProperty("peegeeq.database.pool.connection-timeout", "PT10S");
-        System.setProperty("peegeeq.database.pool.idle-timeout", "PT10S");  // Shorter idle timeout for faster cleanup
-        System.setProperty("peegeeq.database.pool.max-lifetime", "PT2M");   // Shorter lifetime for faster recycling
+        System.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");   // 5 s
+        System.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");         // 2 s
+
+        // Force non-shared pools in tests so pool.close() drops the underlying connections
+        // deterministically, without reference-counting deferral (see §3b).
+        System.setProperty("peegeeq.database.pool.shared", "false");
 
         // Health check settings - faster for tests
         System.setProperty("peegeeq.health.check-interval", "PT10S");

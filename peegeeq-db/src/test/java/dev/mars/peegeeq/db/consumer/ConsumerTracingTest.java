@@ -17,6 +17,7 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.slf4j.MDC;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
@@ -49,7 +50,7 @@ public class ConsumerTracingTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
         connectionManager.getOrCreateReactivePool("test-tracing", connectionConfig, poolConfig);
 
         fetcher = new ConsumerGroupFetcher(connectionManager, "test-tracing");

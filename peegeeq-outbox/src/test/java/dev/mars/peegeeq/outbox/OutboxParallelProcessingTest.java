@@ -98,19 +98,19 @@ public class OutboxParallelProcessingTest {
         System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
 
         // Verify system properties are set correctly
-        System.out.println("🔧 System Properties Debug:");
-        System.out.println("   - peegeeq.consumer.threads = " + System.getProperty("peegeeq.consumer.threads"));
-        System.out.println("   - peegeeq.queue.batch-size = " + System.getProperty("peegeeq.queue.batch-size"));
-        System.out.println("   - peegeeq.queue.polling-interval = " + System.getProperty("peegeeq.queue.polling-interval"));
+        logger.info("System Properties Debug:");
+        logger.info("   - peegeeq.consumer.threads = {}", System.getProperty("peegeeq.consumer.threads"));
+        logger.info("   - peegeeq.queue.batch-size = {}", System.getProperty("peegeeq.queue.batch-size"));
+        logger.info("   - peegeeq.queue.polling-interval = {}", System.getProperty("peegeeq.queue.polling-interval"));
 
         // Create and start manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("parallel-test");
 
         // Debug: Verify configuration is loaded correctly
-        System.out.println("🔍 Configuration Debug:");
-        System.out.println("   - Consumer threads configured: " + config.getQueueConfig().getConsumerThreads());
-        System.out.println("   - Batch size configured: " + config.getQueueConfig().getBatchSize());
-        System.out.println("   - Polling interval configured: " + config.getQueueConfig().getPollingInterval());
+        logger.info("Configuration Debug:");
+        logger.info("   - Consumer threads configured: {}", config.getQueueConfig().getConsumerThreads());
+        logger.info("   - Batch size configured: {}", config.getQueueConfig().getBatchSize());
+        logger.info("   - Polling interval configured: {}", config.getQueueConfig().getPollingInterval());
 
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
@@ -130,7 +130,7 @@ public class OutboxParallelProcessingTest {
         System.getProperties().stringPropertyNames().stream()
             .filter(name -> name.startsWith("peegeeq."))
             .forEach(System::clearProperty);
-        System.out.println("🧹 Cleared all PeeGeeQ system properties for test isolation");
+        logger.info("Cleared all PeeGeeQ system properties for test isolation");
     }
 
     @AfterEach
@@ -180,12 +180,12 @@ public class OutboxParallelProcessingTest {
             processingThreads.add(threadName);
 
             int count = processedCount.incrementAndGet();
-            System.out.println("🔄 Processing message " + count + " on thread: " + threadName + " - " + message.getPayload());
+            logger.info("Processing message {} on thread: {} - {}", count, threadName, message.getPayload());
 
             // Longer processing time to ensure parallel execution opportunity
             io.vertx.core.Promise<Void> delay = io.vertx.core.Promise.promise();
             vertx.setTimer(2000, id -> {
-                System.out.println("Completed message " + count + " on thread: " + threadName);
+                logger.info("Completed message {} on thread: {}", count, threadName);
                 completionCheckpoint.flag();
                 delay.complete(null);
             });
@@ -193,14 +193,14 @@ public class OutboxParallelProcessingTest {
         });
 
         // Send all messages quickly to create backlog for parallel processing
-        System.out.println("Sending " + messageCount + " messages quickly to create processing backlog...");
+        logger.info("Sending {} messages quickly to create processing backlog...", messageCount);
         for (int i = 0; i < messageCount; i++) {
             producer.send("Parallel message " + i).onFailure(testContext::failNow);
-            System.out.println("Sent message " + i);
+            logger.info("Sent message {}", i);
             // Small delay to ensure messages are persisted but create backlog
             vertx.timer(10).await();
         }
-        System.out.println("All messages sent, waiting for parallel processing...");
+        logger.info("All messages sent, waiting for parallel processing...");
 
         // Wait for all messages to be processed (longer timeout due to longer processing time)
         assertTrue(testContext.awaitCompletion(90, TimeUnit.SECONDS),  // Increased timeout
@@ -208,10 +208,10 @@ public class OutboxParallelProcessingTest {
         assertEquals(messageCount, processedCount.get(),
             "Should process all messages");
 
-        System.out.println("Final thread usage summary:");
-        System.out.println("   - Messages processed: " + processedCount.get());
-        System.out.println("   - Processing threads used: " + processingThreads.size());
-        System.out.println("   - Thread names: " + processingThreads);
+        logger.info("Final thread usage summary:");
+        logger.info("   - Messages processed: {}", processedCount.get());
+        logger.info("   - Processing threads used: {}", processingThreads.size());
+        logger.info("   - Thread names: {}", processingThreads);
 
         // In reactive mode, message handlers run on Vert.x event loop threads,
         // not on the outbox-processor executor threads. Verify threads were captured.
@@ -224,12 +224,12 @@ public class OutboxParallelProcessingTest {
         // - Test environment characteristics
         // The important thing is that the parallel processing infrastructure is configured correctly
         if (processingThreads.size() > 1) {
-            System.out.println("Multiple threads were used for processing (optimal)");
+            logger.info("Multiple threads were used for processing (optimal)");
         } else {
-            System.out.println("ℹ️  Single thread was used (acceptable in test environment)");
+            logger.info("Single thread was used (acceptable in test environment)");
         }
 
-        System.out.println("Parallel processing test completed successfully!");
+        logger.info("Parallel processing test completed successfully!");
     }
 
     @Test
@@ -245,14 +245,14 @@ public class OutboxParallelProcessingTest {
             processingThreads.add(threadName);
             
             int count = processedCount.incrementAndGet();
-            System.out.println("Batch processing message " + count + " on thread: " + threadName);
+            logger.info("Batch processing message {} on thread: {}", count, threadName);
             
             completionCheckpoint.flag();
             return Future.succeededFuture();
         });
 
         // Send messages in rapid succession to test batch processing
-        System.out.println("Sending " + messageCount + " messages for batch processing...");
+        logger.info("Sending {} messages for batch processing...", messageCount);
         for (int i = 0; i < messageCount; i++) {
             producer.send("Batch message " + i).onFailure(testContext::failNow);
         }
@@ -263,9 +263,9 @@ public class OutboxParallelProcessingTest {
         assertEquals(messageCount, processedCount.get(), 
             "Should process all batch messages");
 
-        System.out.println("Batch processing completed:");
-        System.out.println("   - Messages processed: " + processedCount.get());
-        System.out.println("   - Processing threads used: " + processingThreads.size());
+        logger.info("Batch processing completed:");
+        logger.info("   - Messages processed: {}", processedCount.get());
+        logger.info("   - Processing threads used: {}", processingThreads.size());
     }
 
     @Test
@@ -284,7 +284,7 @@ public class OutboxParallelProcessingTest {
             processingThreads.add(threadName);
             
             int count = processedCount.incrementAndGet();
-            System.out.println("Concurrent processing message " + count + " on thread: " + threadName);
+            logger.info("Concurrent processing message {} on thread: {}", count, threadName);
             
             completionCheckpoint.flag();
             return Future.succeededFuture();
@@ -301,7 +301,7 @@ public class OutboxParallelProcessingTest {
                     for (int m = 0; m < messagesPerProducer; m++) {
                         String message = "Producer-" + producerId + "-Message-" + m;
                         concurrentProducer.send(message).await();
-                        System.out.println("Producer " + producerId + " sent message " + m);
+                        logger.info("Producer {} sent message {}", producerId, m);
                     }
                     concurrentProducer.close();
                 } catch (Exception e) {
@@ -313,7 +313,7 @@ public class OutboxParallelProcessingTest {
         // Wait for all producers to complete
         executor.shutdown();
         assertTrue(executor.awaitTermination(30, TimeUnit.SECONDS), "All producers should complete");
-        System.out.println("All concurrent producers completed");
+        logger.info("All concurrent producers completed");
 
         // Wait for all messages to be processed
         assertTrue(testContext.awaitCompletion(45, TimeUnit.SECONDS), 
@@ -321,9 +321,9 @@ public class OutboxParallelProcessingTest {
         assertEquals(totalMessages, processedCount.get(), 
             "Should process all concurrent messages");
 
-        System.out.println("Concurrent producer test completed:");
-        System.out.println("   - Total messages processed: " + processedCount.get());
-        System.out.println("   - Processing threads used: " + processingThreads.size());
+        logger.info("Concurrent producer test completed:");
+        logger.info("   - Total messages processed: {}", processedCount.get());
+        logger.info("   - Processing threads used: {}", processingThreads.size());
     }
 }
 

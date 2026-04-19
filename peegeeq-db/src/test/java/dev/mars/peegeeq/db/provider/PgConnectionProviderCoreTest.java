@@ -20,6 +20,8 @@ import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.time.Duration;
+
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -51,7 +53,7 @@ public class PgConnectionProviderCoreTest extends BaseIntegrationTest {
             .password(postgres.getPassword())
             .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(10).build();
+        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
         clientFactory.createClient("test-client", connectionConfig, poolConfig);
         
         connectionProvider = new PgConnectionProvider(clientFactory);
@@ -59,8 +61,8 @@ public class PgConnectionProviderCoreTest extends BaseIntegrationTest {
 
     @AfterEach
     void tearDown() throws Exception {
-        if (clientFactory != null) {
-            clientFactory.closeAsync().toCompletionStage().toCompletableFuture().get();
+        if (connectionManager != null) {
+            connectionManager.close().toCompletionStage().toCompletableFuture().get();
         }
     }
 

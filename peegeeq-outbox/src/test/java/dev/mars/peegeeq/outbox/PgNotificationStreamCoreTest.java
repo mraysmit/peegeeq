@@ -28,6 +28,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -46,36 +48,38 @@ import static org.junit.jupiter.api.Assertions.*;
 @ExtendWith(VertxExtension.class)
 public class PgNotificationStreamCoreTest {
 
+    private static final Logger logger = LoggerFactory.getLogger(PgNotificationStreamCoreTest.class);
+
     private Vertx vertx;
     private ObjectMapper objectMapper;
 
     @BeforeEach
     void setUp(Vertx vertx) {
-        System.err.println("=== PgNotificationStreamCoreTest SETUP STARTED ===");
+        logger.info("=== PgNotificationStreamCoreTest SETUP STARTED ===");
         this.vertx = vertx;
         objectMapper = new ObjectMapper();
-        System.err.println("=== PgNotificationStreamCoreTest SETUP COMPLETED ===");
+        logger.info("=== PgNotificationStreamCoreTest SETUP COMPLETED ===");
     }
 
     @AfterEach
     void tearDown() {
-        System.err.println("=== PgNotificationStreamCoreTest TEARDOWN STARTED ===");
-        System.err.println("=== PgNotificationStreamCoreTest TEARDOWN COMPLETED ===");
+        logger.info("=== PgNotificationStreamCoreTest TEARDOWN STARTED ===");
+        logger.info("=== PgNotificationStreamCoreTest TEARDOWN COMPLETED ===");
     }
 
     @Test
     void testStreamCreation() {
-        System.err.println("=== TEST: testStreamCreation STARTED ===");
+        logger.info("=== TEST: testStreamCreation STARTED ===");
         
         PgNotificationStream<String> stream = new PgNotificationStream<>(vertx, String.class, objectMapper);
         assertNotNull(stream, "Stream should be created");
         
-        System.err.println("=== TEST: testStreamCreation COMPLETED ===");
+        logger.info("=== TEST: testStreamCreation COMPLETED ===");
     }
 
     @Test
     void testSetDataHandler() {
-        System.err.println("=== TEST: testSetDataHandler STARTED ===");
+        logger.info("=== TEST: testSetDataHandler STARTED ===");
         
         PgNotificationStream<String> stream = new PgNotificationStream<>(vertx, String.class, objectMapper);
         
@@ -85,12 +89,12 @@ public class PgNotificationStreamCoreTest {
         
         assertNotNull(stream.handler(handler), "Setting handler should return stream");
         
-        System.err.println("=== TEST: testSetDataHandler COMPLETED ===");
+        logger.info("=== TEST: testSetDataHandler COMPLETED ===");
     }
 
     @Test
     void testSetExceptionHandler() {
-        System.err.println("=== TEST: testSetExceptionHandler STARTED ===");
+        logger.info("=== TEST: testSetExceptionHandler STARTED ===");
         
         PgNotificationStream<String> stream = new PgNotificationStream<>(vertx, String.class, objectMapper);
         
@@ -100,12 +104,12 @@ public class PgNotificationStreamCoreTest {
         
         assertNotNull(stream.exceptionHandler(exceptionHandler), "Setting exception handler should return stream");
         
-        System.err.println("=== TEST: testSetExceptionHandler COMPLETED ===");
+        logger.info("=== TEST: testSetExceptionHandler COMPLETED ===");
     }
 
     @Test
     void testSetEndHandler() {
-        System.err.println("=== TEST: testSetEndHandler STARTED ===");
+        logger.info("=== TEST: testSetEndHandler STARTED ===");
         
         PgNotificationStream<String> stream = new PgNotificationStream<>(vertx, String.class, objectMapper);
         
@@ -115,42 +119,42 @@ public class PgNotificationStreamCoreTest {
         
         assertNotNull(stream.endHandler(endHandler), "Setting end handler should return stream");
         
-        System.err.println("=== TEST: testSetEndHandler COMPLETED ===");
+        logger.info("=== TEST: testSetEndHandler COMPLETED ===");
     }
 
     @Test
     void testPauseStream() {
-        System.err.println("=== TEST: testPauseStream STARTED ===");
+        logger.info("=== TEST: testPauseStream STARTED ===");
         
         PgNotificationStream<String> stream = new PgNotificationStream<>(vertx, String.class, objectMapper);
         assertNotNull(stream.pause(), "Pause should return stream");
         
-        System.err.println("=== TEST: testPauseStream COMPLETED ===");
+        logger.info("=== TEST: testPauseStream COMPLETED ===");
     }
 
     @Test
     void testResumeStream() {
-        System.err.println("=== TEST: testResumeStream STARTED ===");
+        logger.info("=== TEST: testResumeStream STARTED ===");
         
         PgNotificationStream<String> stream = new PgNotificationStream<>(vertx, String.class, objectMapper);
         assertNotNull(stream.resume(), "Resume should return stream");
         
-        System.err.println("=== TEST: testResumeStream COMPLETED ===");
+        logger.info("=== TEST: testResumeStream COMPLETED ===");
     }
 
     @Test
     void testFetch() {
-        System.err.println("=== TEST: testFetch STARTED ===");
+        logger.info("=== TEST: testFetch STARTED ===");
         
         PgNotificationStream<String> stream = new PgNotificationStream<>(vertx, String.class, objectMapper);
         assertNotNull(stream.fetch(10), "Fetch should return stream");
         
-        System.err.println("=== TEST: testFetch COMPLETED ===");
+        logger.info("=== TEST: testFetch COMPLETED ===");
     }
 
     @Test
     void testHandleNotification(VertxTestContext testContext) throws Exception {
-        System.err.println("=== TEST: testHandleNotification STARTED ===");
+        logger.info("=== TEST: testHandleNotification STARTED ===");
         
         PgNotificationStream<String> stream = new PgNotificationStream<>(vertx, String.class, objectMapper);
         
@@ -168,12 +172,12 @@ public class PgNotificationStreamCoreTest {
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should receive notification");
         assertEquals(testMessage, receivedMessage.get(), "Should receive correct message");
         
-        System.err.println("=== TEST: testHandleNotification COMPLETED ===");
+        logger.info("=== TEST: testHandleNotification COMPLETED ===");
     }
 
     @Test
     void testHandleNotificationWhenPaused() throws Exception {
-        System.err.println("=== TEST: testHandleNotificationWhenPaused STARTED ===");
+        logger.info("=== TEST: testHandleNotificationWhenPaused STARTED ===");
         
         PgNotificationStream<String> stream = new PgNotificationStream<>(vertx, String.class, objectMapper);
         
@@ -195,12 +199,12 @@ public class PgNotificationStreamCoreTest {
         // Should not have received the message
         assertEquals(0, messageCount.get(), "Should not receive messages while paused");
         
-        System.err.println("=== TEST: testHandleNotificationWhenPaused COMPLETED ===");
+        logger.info("=== TEST: testHandleNotificationWhenPaused COMPLETED ===");
     }
 
     @Test
     void testHandleNotificationAfterResume(VertxTestContext testContext) throws Exception {
-        System.err.println("=== TEST: testHandleNotificationAfterResume STARTED ===");
+        logger.info("=== TEST: testHandleNotificationAfterResume STARTED ===");
         
         PgNotificationStream<String> stream = new PgNotificationStream<>(vertx, String.class, objectMapper);
         
@@ -223,12 +227,12 @@ public class PgNotificationStreamCoreTest {
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should receive notification after resume");
         assertEquals(testMessage, receivedMessage.get(), "Should receive correct message");
         
-        System.err.println("=== TEST: testHandleNotificationAfterResume COMPLETED ===");
+        logger.info("=== TEST: testHandleNotificationAfterResume COMPLETED ===");
     }
 
     @Test
     void testHandleMultipleNotifications(VertxTestContext testContext) throws Exception {
-        System.err.println("=== TEST: testHandleMultipleNotifications STARTED ===");
+        logger.info("=== TEST: testHandleMultipleNotifications STARTED ===");
         
         PgNotificationStream<String> stream = new PgNotificationStream<>(vertx, String.class, objectMapper);
         
@@ -249,12 +253,12 @@ public class PgNotificationStreamCoreTest {
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should receive all notifications");
         assertEquals(notificationCount, receivedCount.get(), "Should receive correct number of notifications");
         
-        System.err.println("=== TEST: testHandleMultipleNotifications COMPLETED ===");
+        logger.info("=== TEST: testHandleMultipleNotifications COMPLETED ===");
     }
 
     @Test
     void testHandleError(VertxTestContext testContext) throws Exception {
-        System.err.println("=== TEST: testHandleError STARTED ===");
+        logger.info("=== TEST: testHandleError STARTED ===");
         
         PgNotificationStream<String> stream = new PgNotificationStream<>(vertx, String.class, objectMapper);
         
@@ -272,12 +276,12 @@ public class PgNotificationStreamCoreTest {
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should receive error");
         assertEquals(testError, receivedError.get(), "Should receive correct error");
         
-        System.err.println("=== TEST: testHandleError COMPLETED ===");
+        logger.info("=== TEST: testHandleError COMPLETED ===");
     }
 
     @Test
     void testHandleEnd(VertxTestContext testContext) throws Exception {
-        System.err.println("=== TEST: testHandleEnd STARTED ===");
+        logger.info("=== TEST: testHandleEnd STARTED ===");
         
         PgNotificationStream<String> stream = new PgNotificationStream<>(vertx, String.class, objectMapper);
         
@@ -291,12 +295,12 @@ public class PgNotificationStreamCoreTest {
         
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "Should receive end signal");
         
-        System.err.println("=== TEST: testHandleEnd COMPLETED ===");
+        logger.info("=== TEST: testHandleEnd COMPLETED ===");
     }
 
     @Test
     void testHandleNotificationWithoutHandler() {
-        System.err.println("=== TEST: testHandleNotificationWithoutHandler STARTED ===");
+        logger.info("=== TEST: testHandleNotificationWithoutHandler STARTED ===");
         
         PgNotificationStream<String> stream = new PgNotificationStream<>(vertx, String.class, objectMapper);
         
@@ -304,12 +308,12 @@ public class PgNotificationStreamCoreTest {
         assertDoesNotThrow(() -> stream.handleNotification("Test message"),
             "Should not throw when handling notification without handler");
         
-        System.err.println("=== TEST: testHandleNotificationWithoutHandler COMPLETED ===");
+        logger.info("=== TEST: testHandleNotificationWithoutHandler COMPLETED ===");
     }
 
     @Test
     void testHandleErrorWithoutHandler() {
-        System.err.println("=== TEST: testHandleErrorWithoutHandler STARTED ===");
+        logger.info("=== TEST: testHandleErrorWithoutHandler STARTED ===");
         
         PgNotificationStream<String> stream = new PgNotificationStream<>(vertx, String.class, objectMapper);
         
@@ -317,12 +321,12 @@ public class PgNotificationStreamCoreTest {
         assertDoesNotThrow(() -> stream.handleError(new RuntimeException("Test error")),
             "Should not throw when handling error without exception handler");
         
-        System.err.println("=== TEST: testHandleErrorWithoutHandler COMPLETED ===");
+        logger.info("=== TEST: testHandleErrorWithoutHandler COMPLETED ===");
     }
 
     @Test
     void testHandleEndWithoutHandler() {
-        System.err.println("=== TEST: testHandleEndWithoutHandler STARTED ===");
+        logger.info("=== TEST: testHandleEndWithoutHandler STARTED ===");
         
         PgNotificationStream<String> stream = new PgNotificationStream<>(vertx, String.class, objectMapper);
         
@@ -330,12 +334,12 @@ public class PgNotificationStreamCoreTest {
         assertDoesNotThrow(() -> stream.handleEnd(),
             "Should not throw when handling end without end handler");
         
-        System.err.println("=== TEST: testHandleEndWithoutHandler COMPLETED ===");
+        logger.info("=== TEST: testHandleEndWithoutHandler COMPLETED ===");
     }
 
     @Test
     void testFluentApi() {
-        System.err.println("=== TEST: testFluentApi STARTED ===");
+        logger.info("=== TEST: testFluentApi STARTED ===");
         
         PgNotificationStream<String> stream = new PgNotificationStream<>(vertx, String.class, objectMapper);
         
@@ -350,6 +354,6 @@ public class PgNotificationStreamCoreTest {
             "Fluent API chaining should work"
         );
         
-        System.err.println("=== TEST: testFluentApi COMPLETED ===");
+        logger.info("=== TEST: testFluentApi COMPLETED ===");
     }
 }
