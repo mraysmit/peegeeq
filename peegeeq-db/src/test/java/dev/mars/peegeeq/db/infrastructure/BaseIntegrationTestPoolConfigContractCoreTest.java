@@ -9,6 +9,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
 
 import java.time.Duration;
 import java.util.UUID;
@@ -29,11 +30,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>Tagged CORE — no database, no TestContainers. Runs in every
  * {@code mvn test} invocation. Cannot be blocked by connection exhaustion.</p>
- *
- * <p>Expected status after Tier 1 fix: all 4 tests GREEN.</p>
  */
 @Tag(TestCategories.CORE)
 @Execution(ExecutionMode.SAME_THREAD)
+@ResourceLock("system-properties")
 class BaseIntegrationTestPoolConfigContractCoreTest {
 
     /**

@@ -55,7 +55,8 @@ class BackpressureManagerTest {
     @BeforeEach
     void setUp(Vertx vertx) {
         this.vertx = vertx;
-        backpressureManager = new BackpressureManager(3, Duration.ofSeconds(1));
+        // Enable debugFailures (true) to prevent intentional test failures from polluting the test logs
+        backpressureManager = new BackpressureManager(3, Duration.ofSeconds(1), true);
     }
 
     @Test
@@ -101,6 +102,7 @@ class BackpressureManagerTest {
 
         logger.info("SUCCESS: Backpressure manager correctly handled the intentional failure");
         logger.info("===== INTENTIONAL FAILURE TEST COMPLETED =====");
+    }
 
     @Test
     void testVoidOperation() throws Exception {
@@ -158,7 +160,7 @@ class BackpressureManagerTest {
 
     @Test
     void testOperationTimeout() {
-        BackpressureManager shortTimeoutManager = new BackpressureManager(1, Duration.ofMillis(100));
+        BackpressureManager shortTimeoutManager = new BackpressureManager(1, Duration.ofMillis(100), true);
         
         // Start a long-running operation to consume the permit
         CompletableFuture<Void> longOperation = CompletableFuture.runAsync(() -> {
@@ -194,7 +196,7 @@ class BackpressureManagerTest {
         logger.info("INTENTIONAL TEST FAILURE: Generating 5 failing operations to trigger adaptive limiting");
 
         // Create a manager that will trigger adaptive limiting
-        BackpressureManager adaptiveManager = new BackpressureManager(10, Duration.ofSeconds(1));
+        BackpressureManager adaptiveManager = new BackpressureManager(10, Duration.ofSeconds(1), true);
 
         // Generate some failures to lower success rate
         for (int i = 0; i < 5; i++) {
@@ -304,7 +306,7 @@ class BackpressureManagerTest {
     @Test
     void testRejectionRate() throws Exception {
         // Create a manager with very short timeout for this test
-        BackpressureManager quickTimeoutManager = new BackpressureManager(3, Duration.ofMillis(10));
+        BackpressureManager quickTimeoutManager = new BackpressureManager(3, Duration.ofMillis(10), true);
 
         // Fill up all permits with long-running operations
         int maxOperations = 3;
@@ -386,7 +388,7 @@ class BackpressureManagerTest {
         logger.info("INTENTIONAL TEST FAILURE: Generating 8 failing operations to test success rate adaptation");
 
         // Test that success rate affects adaptive limiting
-        BackpressureManager adaptiveManager = new BackpressureManager(10, Duration.ofSeconds(1));
+        BackpressureManager adaptiveManager = new BackpressureManager(10, Duration.ofSeconds(1), true);
 
         // Start with high failure rate
         for (int i = 0; i < 8; i++) {
@@ -414,7 +416,7 @@ class BackpressureManagerTest {
 
     @Test
     void testCounterReset() throws Exception {
-        BackpressureManager resetTestManager = new BackpressureManager(10, Duration.ofSeconds(1));
+        BackpressureManager resetTestManager = new BackpressureManager(10, Duration.ofSeconds(1), true);
         
         // Generate many operations to trigger counter reset
         for (int i = 0; i < 1001; i++) {
