@@ -105,10 +105,10 @@ class JsonbConversionValidationTest {
     @AfterEach
     void tearDown() throws Exception {
         if (connectionManager != null) {
-            connectionManager.close();
+            connectionManager.close().toCompletionStage().toCompletableFuture().get(30, java.util.concurrent.TimeUnit.SECONDS);
         }
         if (vertx != null) {
-            vertx.close();
+            vertx.close().toCompletionStage().toCompletableFuture().get(30, java.util.concurrent.TimeUnit.SECONDS);
         }
         logger.info("Test cleanup complete");
     }

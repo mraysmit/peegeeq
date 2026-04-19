@@ -99,7 +99,7 @@ public class P2_FanoutScalingTest extends BaseIntegrationTest {
     @AfterEach
     void tearDown() throws Exception {
         if (connectionManager != null) {
-            connectionManager.close();
+            awaitFuture(connectionManager.close());
         }
     }
 

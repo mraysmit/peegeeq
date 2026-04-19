@@ -106,7 +106,7 @@ class PeeGeeQMetricsTest {
         }
 
         if (connectionManager != null) {
-            connectionManager.close();
+            connectionManager.close().toCompletionStage().toCompletableFuture().get(30, java.util.concurrent.TimeUnit.SECONDS);
         }
     }
 

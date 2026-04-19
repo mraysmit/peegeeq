@@ -87,7 +87,7 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
             awaitFuture(healthCheckManager.stop());
         }
         if (connectionManager != null) {
-            connectionManager.close();
+            awaitFuture(connectionManager.close());
         }
     }
 
