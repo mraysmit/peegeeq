@@ -59,7 +59,7 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
 
     @BeforeEach
     public void setUp() throws Exception {
-        super.setUpBaseIntegration();
+        // super.setUpBaseIntegration(); // Removed: JUnit 5 automatically executes @BeforeEach from superclasses
 
         connectionManager = new PgConnectionManager(manager.getVertx(), null);
 

@@ -38,7 +38,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
     @BeforeEach
     void setUp() throws Exception {
         // Call parent setup first to initialize manager
-        super.setUpBaseIntegration();
+        // super.setUpBaseIntegration(); // Removed: JUnit 5 automatically executes @BeforeEach from superclasses
 
         setupService = new TestPeeGeeQDatabaseSetupService();
         testSetupId = "enhanced-test-setup-" + System.currentTimeMillis();

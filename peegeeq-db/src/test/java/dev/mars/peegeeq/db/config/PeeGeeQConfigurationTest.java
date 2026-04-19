@@ -126,7 +126,7 @@ public class PeeGeeQConfigurationTest {
         PeeGeeQConfiguration config = new PeeGeeQConfiguration(TEST_PROFILE);
 
         // Test with existing property
-        assertEquals(20000L, config.getLong("peegeeq.database.pool.connection-timeout-ms", 30000L));
+        assertEquals(5000L, config.getLong("peegeeq.database.pool.connection-timeout-ms", 30000L));
 
         // Test with default value
         assertEquals(9999L, config.getLong("non.existent.property", 9999L));
@@ -208,9 +208,9 @@ public class PeeGeeQConfigurationTest {
         PgPoolConfig poolConfig = config.getPoolConfig();
 
         assertNotNull(poolConfig);
-        assertEquals(8, poolConfig.getMaxSize());
-        assertEquals(java.time.Duration.ofMillis(20000), poolConfig.getConnectionTimeout());
-        assertEquals(java.time.Duration.ofMillis(300000), poolConfig.getIdleTimeout());
+        assertEquals(3, poolConfig.getMaxSize());
+        assertEquals(java.time.Duration.ofMillis(5000), poolConfig.getConnectionTimeout());
+        assertEquals(java.time.Duration.ofMillis(2000), poolConfig.getIdleTimeout());
     }
 
     @Test

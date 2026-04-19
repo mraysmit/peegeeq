@@ -61,7 +61,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
 
     @BeforeEach
     public void setUp() throws Exception {
-        super.setUpBaseIntegration();
+        // super.setUpBaseIntegration(); // Removed: JUnit 5 automatically executes @BeforeEach from superclasses
 
         // Create connection manager using the shared Vertx instance
         connectionManager = new PgConnectionManager(manager.getVertx(), null);
