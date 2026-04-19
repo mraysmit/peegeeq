@@ -96,7 +96,7 @@ public class DeadConsumerDetectionJobIntegrationTest extends BaseIntegrationTest
             job.stop();
         }
         if (connectionManager != null) {
-            connectionManager.close();
+            awaitFuture(connectionManager.close());
         }
     }
 

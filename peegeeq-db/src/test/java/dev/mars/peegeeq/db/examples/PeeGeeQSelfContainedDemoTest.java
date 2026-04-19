@@ -73,6 +73,7 @@ public class PeeGeeQSelfContainedDemoTest {
 
     private PeeGeeQManager createManager() {
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
+        System.setProperty("peegeeq.database.pool.min-size", "1");
         System.setProperty("peegeeq.database.pool.max-size", "3");
         System.setProperty("peegeeq.database.pool.shared", "false");
         System.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");

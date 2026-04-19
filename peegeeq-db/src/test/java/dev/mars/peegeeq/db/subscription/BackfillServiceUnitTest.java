@@ -35,9 +35,9 @@ class BackfillServiceUnitTest {
     }
 
     @AfterEach
-    void tearDown() {
-        if (connectionManager != null) connectionManager.close();
-        if (vertx != null) vertx.close();
+    void tearDown() throws Exception {
+        if (connectionManager != null) connectionManager.close().toCompletionStage().toCompletableFuture().get(30, java.util.concurrent.TimeUnit.SECONDS);
+        if (vertx != null) vertx.close().toCompletionStage().toCompletableFuture().get(30, java.util.concurrent.TimeUnit.SECONDS);
     }
 
     // =========================================================================

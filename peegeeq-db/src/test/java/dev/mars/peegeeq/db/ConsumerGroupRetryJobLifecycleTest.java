@@ -80,11 +80,11 @@ public class ConsumerGroupRetryJobLifecycleTest {
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown() throws Exception {
         if (manager != null) {
             try {
                 manager.closeReactive()
-                    .onFailure(t -> logger.warn("Error during manager teardown: {}", t.getMessage()));
+                    .toCompletionStage().toCompletableFuture().get(30, java.util.concurrent.TimeUnit.SECONDS);
             } catch (Exception e) {
                 logger.warn("Exception during tearDown: {}", e.getMessage());
             }

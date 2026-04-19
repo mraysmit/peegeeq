@@ -17,6 +17,9 @@ package dev.mars.peegeeq.outbox;
  */
 
 import dev.mars.peegeeq.api.messaging.MessageProducer;
+import dev.mars.peegeeq.api.messaging.QueueBrowser;
+import dev.mars.peegeeq.api.messaging.QueueFactory;
+import dev.mars.peegeeq.api.messaging.QueueStats;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.ConsumerGroup;
 import dev.mars.peegeeq.api.database.DatabaseService;
@@ -32,6 +35,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Factory for creating outbox pattern message producers and consumers.
@@ -50,7 +54,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * @since 2025-07-13
  * @version 1.0
  */
-public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactory {
+public class OutboxFactory implements QueueFactory {
     private static final Logger logger = LoggerFactory.getLogger(OutboxFactory.class);
 
     // DatabaseService interface support
@@ -64,7 +68,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
 
     // Common fields
     private final ObjectMapper objectMapper;
-    private final java.util.concurrent.atomic.AtomicBoolean closed = new java.util.concurrent.atomic.AtomicBoolean(false);
+    private final AtomicBoolean closed = new AtomicBoolean(false);
 
     // Track created consumers and producers for proper cleanup
     private final Set<AutoCloseable> createdResources = ConcurrentHashMap.newKeySet();
@@ -268,7 +272,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
     }
 
     @Override
-    public synchronized <T> dev.mars.peegeeq.api.messaging.QueueBrowser<T> createBrowser(String topic, Class<T> payloadType) {
+    public synchronized <T> QueueBrowser<T> createBrowser(String topic, Class<T> payloadType) {
         checkNotClosed();
         assertNotEventLoopForBlocking("createBrowser()", "use a worker thread for browser creation");
         logger.debug("Creating browser for topic: {}", topic);
@@ -334,7 +338,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
     }
 
     @Override
-    public dev.mars.peegeeq.api.messaging.QueueStats getStats(String topic) {
+    public QueueStats getStats(String topic) {
         checkNotClosed();
         assertNotEventLoopForBlocking("getStats()", "use getStatsAsync() on Vert.x contexts");
         logger.debug("Getting stats for topic: {}", topic);
@@ -357,7 +361,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
             io.vertx.sqlclient.Pool pool = getPoolBlocking();
             if (pool == null) {
                 logger.warn("Pool not available for stats query");
-                return dev.mars.peegeeq.api.messaging.QueueStats.basic(topic, 0, 0, 0);
+                return QueueStats.basic(topic, 0, 0, 0);
             }
 
             var result = pool.preparedQuery(sql)
@@ -367,7 +371,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
                     .get(5, java.util.concurrent.TimeUnit.SECONDS);
 
             if (result.rowCount() == 0) {
-                return dev.mars.peegeeq.api.messaging.QueueStats.basic(topic, 0, 0, 0);
+                return QueueStats.basic(topic, 0, 0, 0);
             }
 
             var row = result.iterator().next();
@@ -402,7 +406,7 @@ public class OutboxFactory implements dev.mars.peegeeq.api.messaging.QueueFactor
     }
 
     @Override
-    public io.vertx.core.Future<dev.mars.peegeeq.api.messaging.QueueStats> getStatsAsync(String topic) {
+    public io.vertx.core.Future<QueueStats> getStatsAsync(String topic) {
         if (closed.get()) {
             return io.vertx.core.Future.failedFuture(new IllegalStateException("Factory is closed"));
         }
