@@ -328,7 +328,9 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
         }
 
         // Subscribe to messages and distribute them to group members
-        underlyingConsumer.subscribe(this::distributeMessage);
+        underlyingConsumer.subscribe(this::distributeMessage)
+                .onFailure(err -> logger.error("Failed to subscribe consumer group '{}' for topic '{}': {}",
+                        groupName, topic, err.getMessage(), err));
 
         // Start all existing members
         members.values().forEach(PgNativeConsumerGroupMember::start);

@@ -24,6 +24,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Vertx;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -138,7 +139,7 @@ public class ConsumerModePerformanceTest {
     }
 
     @Test
-    void testThroughputComparison() throws Exception {
+    void testThroughputComparison(Vertx vertx) throws Exception {
         logger.info("🧪 Testing throughput comparison across consumer modes");
 
         String topicName = "test-throughput-comparison";
@@ -155,7 +156,7 @@ public class ConsumerModePerformanceTest {
             logger.info("📊 Testing throughput for mode: {}", mode);
             
             PerformanceResult result = measureThroughput(topicName + "-" + mode.name().toLowerCase(), 
-                mode, messageCount, warmupMessages);
+                mode, messageCount, warmupMessages, vertx);
             results.add(result);
             
             logger.info("📈 {} - Throughput: {:.2f} msg/sec, Avg Latency: {:.2f}ms", 
@@ -188,7 +189,7 @@ public class ConsumerModePerformanceTest {
     }
 
     @Test
-    void testLatencyComparison() throws Exception {
+    void testLatencyComparison(Vertx vertx) throws Exception {
         logger.info("🧪 Testing latency comparison across consumer modes");
 
         String topicName = "test-latency-comparison";
@@ -200,7 +201,7 @@ public class ConsumerModePerformanceTest {
         for (ConsumerMode mode : modes) {
             logger.info("⏱️ Testing latency for mode: {}", mode);
             
-            LatencyResult result = measureLatency(topicName + "-" + mode.name().toLowerCase(), mode, messageCount);
+            LatencyResult result = measureLatency(topicName + "-" + mode.name().toLowerCase(), mode, messageCount, vertx);
             results.add(result);
             
             logger.info("📊 {} - Min: {:.2f}ms, Max: {:.2f}ms, Avg: {:.2f}ms, P95: {:.2f}ms", 
@@ -223,8 +224,9 @@ public class ConsumerModePerformanceTest {
         logger.info("Latency comparison test completed successfully");
     }
 
-    private PerformanceResult measureThroughput(String topicName, ConsumerMode mode, 
-                                              int messageCount, int warmupMessages) throws Exception {
+    private PerformanceResult measureThroughput(String topicName, ConsumerMode mode,
+                                              int messageCount, int warmupMessages,
+                                              Vertx vertx) throws Exception {
         AtomicInteger processedCount = new AtomicInteger(0);
         AtomicLong totalLatency = new AtomicLong(0);
         VertxTestContext measureCtx = new VertxTestContext();
@@ -239,7 +241,8 @@ public class ConsumerModePerformanceTest {
 
         long[] messageSentTimes = new long[messageCount + warmupMessages];
         
-        // Subscribe to messages
+        // Subscribe and wait for LISTEN to be established before sending.
+        VertxTestContext listenReady = new VertxTestContext();
         consumer.subscribe(message -> {
             long receiveTime = System.currentTimeMillis();
             int index = processedCount.incrementAndGet();
@@ -253,17 +256,20 @@ public class ConsumerModePerformanceTest {
             }
             
             return Future.succeededFuture();
-        });
+        })
+        .onSuccess(v -> listenReady.completeNow())
+        .onFailure(listenReady::failNow);
+        listenReady.awaitCompletion(5, TimeUnit.SECONDS);
 
         // Send messages
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
         
         long startTime = System.currentTimeMillis();
         
-        // Send warmup + test messages
+        // Send warmup + test messages; await each send to avoid overwhelming the connection pool
         for (int i = 0; i < messageCount + warmupMessages; i++) {
             messageSentTimes[i] = System.currentTimeMillis();
-            producer.send("Performance test message " + i);
+            producer.send("Performance test message " + i).await();
         }
         
         // Wait for all test messages to be processed (excluding warmup)
@@ -282,7 +288,8 @@ public class ConsumerModePerformanceTest {
         return new PerformanceResult(mode, throughput, averageLatency, messageCount);
     }
 
-    private LatencyResult measureLatency(String topicName, ConsumerMode mode, int messageCount) throws Exception {
+    private LatencyResult measureLatency(String topicName, ConsumerMode mode, int messageCount,
+                                         Vertx vertx) throws Exception {
         List<Long> latencies = new ArrayList<>();
         VertxTestContext latencyCtx = new VertxTestContext();
         Checkpoint allProcessed = latencyCtx.checkpoint(messageCount);
@@ -296,6 +303,7 @@ public class ConsumerModePerformanceTest {
         long[] messageSentTimes = new long[messageCount];
         AtomicInteger processedCount = new AtomicInteger(0);
         
+        VertxTestContext listenReady = new VertxTestContext();
         consumer.subscribe(message -> {
             long receiveTime = System.currentTimeMillis();
             int index = processedCount.getAndIncrement();
@@ -310,13 +318,18 @@ public class ConsumerModePerformanceTest {
             }
             
             return Future.succeededFuture();
-        });
+        })
+            .onSuccess(v -> listenReady.completeNow())
+            .onFailure(listenReady::failNow);
+
+        // Wait for the LISTEN channel to establish before sending.
+        listenReady.awaitCompletion(5, TimeUnit.SECONDS);
 
         MessageProducer<String> producer = factory.createProducer(topicName, String.class);
         
         for (int i = 0; i < messageCount; i++) {
             messageSentTimes[i] = System.currentTimeMillis();
-            producer.send("Latency test message " + i);
+            producer.send("Latency test message " + i).await();
         }
         
         boolean completed = latencyCtx.awaitCompletion(20, TimeUnit.SECONDS);

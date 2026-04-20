@@ -91,7 +91,8 @@ public class TransactionProcessorService {
     @EventListener(ApplicationReadyEvent.class)
     public void startProcessing() {
         log.info("Starting transaction processing with max retries: {}", properties.getMaxRetries());
-        consumer.subscribe(this::processTransaction);
+        consumer.subscribe(this::processTransaction)
+                .onFailure(err -> log.error("Consumer subscription failed for topic", err));
         log.info("Transaction processor started successfully");
     }
     

@@ -30,6 +30,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -260,17 +262,20 @@ class ListenNotifyOnlyEdgeCaseTest {
             return Future.succeededFuture();
         });
 
-        // Wait for LISTEN setup, then launch concurrent producers
+        // Create producers up front so they share the manager's Vert.x context
+        List<MessageProducer<String>> producers = new ArrayList<>();
+        for (int i = 0; i < 5; i++) {
+            producers.add(factory.createProducer(topicName, String.class));
+        }
+
+        // Wait for LISTEN setup, then fire sends reactively on the event loop
         vertx.setTimer(1000, id -> {
             for (int i = 0; i < 5; i++) {
                 final int producerId = i;
-                vertx.executeBlocking(() -> {
-                    MessageProducer<String> producer = factory.createProducer(topicName, String.class);
-                    producer.send("Message from producer " + producerId + " - msg 1").await();
-                    producer.send("Message from producer " + producerId + " - msg 2").await();
-                    producer.close();
-                    return null;
-                }).onFailure(testContext::failNow);
+                MessageProducer<String> producer = producers.get(producerId);
+                producer.send("Message from producer " + producerId + " - msg 1")
+                    .compose(v -> producer.send("Message from producer " + producerId + " - msg 2"))
+                    .onFailure(testContext::failNow);
             }
         });
 
@@ -279,6 +284,9 @@ class ListenNotifyOnlyEdgeCaseTest {
         assertEquals(10, messageCount.get(), "Should have processed exactly 10 messages");
 
         consumer.close();
+        for (MessageProducer<String> p : producers) {
+            p.close();
+        }
         logger.info("LISTEN_NOTIFY_ONLY handles concurrent producers correctly");
     }
 

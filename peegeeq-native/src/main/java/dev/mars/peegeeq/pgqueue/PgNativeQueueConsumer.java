@@ -130,49 +130,43 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
     }
 
     @Override
-    public void subscribe(MessageHandler<T> handler) {
+    public Future<Void> subscribe(MessageHandler<T> handler) {
         logger.info("Subscribe called for topic: {}, closed: {}, subscribed: {}", topic, closed.get(),
                 subscribed.get());
 
         if (closed.get()) {
             logger.error("Cannot subscribe - consumer is closed for topic: {}", topic);
-            throw new IllegalStateException("Consumer is closed");
+            return Future.failedFuture(new IllegalStateException("Consumer is closed"));
         }
 
         if (subscribed.compareAndSet(false, true)) {
             logger.info("Starting subscription for topic: {}", topic);
             this.messageHandler = handler;
 
-            try {
-                // Determine consumer mode - use ConsumerConfig if available, otherwise default
-                // to HYBRID
-                ConsumerMode mode = consumerConfig != null ? consumerConfig.getMode() : ConsumerMode.HYBRID;
-                logger.info("Using consumer mode: {} for topic: {}", mode, topic);
+            // Determine consumer mode - use ConsumerConfig if available, otherwise default to HYBRID
+            ConsumerMode mode = consumerConfig != null ? consumerConfig.getMode() : ConsumerMode.HYBRID;
+            logger.info("Using consumer mode: {} for topic: {}", mode, topic);
 
-                // Start LISTEN/NOTIFY based on mode
-                if (mode == ConsumerMode.LISTEN_NOTIFY_ONLY || mode == ConsumerMode.HYBRID) {
-                    startListening();
-                    logger.info("Started listening for topic: {}", topic);
-                } else {
-                    logger.info("Skipping LISTEN/NOTIFY setup for POLLING_ONLY mode on topic: {}", topic);
-                }
+            // Start polling based on mode (sync timer setup — completes immediately)
+            if (mode == ConsumerMode.POLLING_ONLY || mode == ConsumerMode.HYBRID) {
+                startPolling();
+                logger.info("Started polling for topic: {}", topic);
+            } else {
+                logger.info("Skipping polling setup for LISTEN_NOTIFY_ONLY mode on topic: {}", topic);
+            }
 
-                // Start polling based on mode
-                if (mode == ConsumerMode.POLLING_ONLY || mode == ConsumerMode.HYBRID) {
-                    startPolling();
-                    logger.info("Started polling for topic: {}", topic);
-                } else {
-                    logger.info("Skipping polling setup for LISTEN_NOTIFY_ONLY mode on topic: {}", topic);
-                }
-
+            // Start LISTEN/NOTIFY based on mode — returns Future that completes when LISTEN is established
+            if (mode == ConsumerMode.LISTEN_NOTIFY_ONLY || mode == ConsumerMode.HYBRID) {
+                return startListening()
+                        .onSuccess(v -> logger.info("Subscribed to topic: {} with mode: {}", topic, mode))
+                        .onFailure(err -> logger.error("Error during subscription for topic: {}", topic, err));
+            } else {
                 logger.info("Subscribed to topic: {} with mode: {}", topic, mode);
-            } catch (Exception e) {
-                logger.error("Error during subscription for topic: {}", topic, e);
-                throw e;
+                return Future.succeededFuture();
             }
         } else {
             logger.error("Cannot subscribe - consumer is already subscribed for topic: {}", topic);
-            throw new IllegalStateException("Already subscribed");
+            return Future.failedFuture(new IllegalStateException("Already subscribed"));
         }
     }
 
@@ -185,27 +179,27 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
         }
     }
 
-    private void startListening() {
+    private Future<Void> startListening() {
         logger.debug("startListening() called for topic: {}, notifyChannel: {}", topic, notifyChannel);
         if (!shouldMaintainListenSubscription()) {
             logger.debug("Consumer is closed, skipping LISTEN setup for topic: {}", topic);
-            return;
+            return Future.succeededFuture();
         }
 
         Vertx vertx = poolAdapter.getVertx();
         if (vertx == null) {
             logger.error("No Vert.x instance available from pool adapter; cannot start LISTEN for topic: {}", topic);
-            return;
+            return Future.failedFuture("No Vert.x instance available from pool adapter for topic: " + topic);
         }
 
-        poolAdapter.connectDedicated()
+        return poolAdapter.connectDedicated()
                 .compose(conn -> conn.query("LISTEN \"" + notifyChannel + "\"")
                         .execute()
                         .map(conn))
-                .onSuccess(conn -> {
+                .compose(conn -> {
                     if (!shouldMaintainListenSubscription()) {
                         conn.close();
-                        return;
+                        return Future.<Void>succeededFuture();
                     }
                     // Reset backoff on successful connect
                     listenBackoffMs = 1000;
@@ -244,6 +238,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                     if (mode == ConsumerMode.LISTEN_NOTIFY_ONLY) {
                         processAvailableMessages();
                     }
+                    return Future.<Void>succeededFuture();
                 })
                 .onFailure(err -> {
                     if (!shouldMaintainListenSubscription()) {
