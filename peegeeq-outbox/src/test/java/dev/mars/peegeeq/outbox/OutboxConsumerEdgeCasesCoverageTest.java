@@ -333,15 +333,11 @@ class OutboxConsumerEdgeCasesCoverageTest {
         Checkpoint done = testContext.checkpoint();
         AtomicInteger messagesProcessed = new AtomicInteger(0);
 
-        // Cancel the periodic polling timer so it cannot overwrite inflightProcessing
-        // between our injection and the closeAsync() CAS that sets closed=true.
-        // With a 100ms poll interval, the second poll fires while the slow handler is
-        // still running and unconditionally sets inflightProcessing to a quickly-completing
-        // "no pending messages" future — making closeAsync() return before the handler ends.
-        Long timerId = getPrivateField(typedConsumer, "pollingTimerId", Long.class);
-        if (timerId != null && timerId != -1L) {
-            vertx.cancelTimer(timerId);
-        }
+        // Unsubscribing causes scheduledProcessMessages() to short-circuit on
+        // !subscribed.get() without touching inflightProcessing, so subsequent
+        // 100ms timer ticks cannot overwrite the future we are about to inject.
+        // closeAsync() will re-cancel the timer via its own non-reflection path.
+        typedConsumer.unsubscribe();
 
         // Inject a slow future that simulates an in-flight message handler (200ms).
         // messagesProcessed is incremented before the promise completes, so if
@@ -441,10 +437,12 @@ class OutboxConsumerEdgeCasesCoverageTest {
         typedConsumer.closeInflightTimeoutMs = 1_000L;
         Checkpoint done = testContext.checkpoint();
 
-        // Directly inject a never-completing future into inflightProcessing.
-        // This is more reliable than starting a message handler: with a 100ms poll
-        // interval, subsequent timer ticks overwrite inflightProcessing before
-        // closeAsync() reads it, causing a race condition in the handler-based approach.
+        // Unsubscribing causes scheduledProcessMessages() to short-circuit on
+        // !subscribed.get(), preventing the 100ms timer from overwriting the
+        // never-completing future we are about to inject.
+        typedConsumer.unsubscribe();
+
+        // Inject a never-completing future to simulate a stalled message handler.
         Promise<Void> neverCompletes = Promise.promise();
         setPrivateField(typedConsumer, "inflightProcessing", neverCompletes.future());
 
