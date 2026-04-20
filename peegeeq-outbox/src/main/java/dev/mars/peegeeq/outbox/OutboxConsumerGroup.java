@@ -463,19 +463,26 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
         try {
             logger.info("Stopping outbox consumer group '{}' for topic '{}'", groupName, topic);
 
-            // Stop all members
-            members.values().forEach(OutboxConsumerGroupMember::stop);
+            // Await all in-flight member processing before closing the underlying consumer pool.
+            // Using stopAsync() ensures no message handler is abandoned mid-execution.
+            java.util.List<Future<Void>> memberStops = members.values().stream()
+                .map(m -> m.stopAsync().transform(ar -> Future.<Void>succeededFuture()))
+                .collect(java.util.stream.Collectors.toList());
 
-            Future<Void> consumerClose = closeUnderlyingConsumerAsync(
-                    "Error closing outbox consumer for group '{}' during stop: {}", groupName);
+            Future<Void> allMembersStopped = memberStops.isEmpty()
+                ? Future.succeededFuture()
+                : Future.all(memberStops).mapEmpty();
 
             startedWithSubscription = false;
 
-            return consumerClose.eventually(() -> {
-                state.set(State.NEW);
-                logger.info("Outbox consumer group '{}' stopped", groupName);
-                return Future.succeededFuture();
-            });
+            return allMembersStopped
+                .compose(v -> closeUnderlyingConsumerAsync(
+                    "Error closing outbox consumer for group '{}' during stop: {}", groupName))
+                .eventually(() -> {
+                    state.set(State.NEW);
+                    logger.info("Outbox consumer group '{}' stopped", groupName);
+                    return Future.succeededFuture();
+                });
         } catch (Exception e) {
             state.set(State.NEW);
             return Future.failedFuture(e);

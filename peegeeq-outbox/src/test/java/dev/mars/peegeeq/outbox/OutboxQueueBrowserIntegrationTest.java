@@ -61,7 +61,7 @@ public class OutboxQueueBrowserIntegrationTest {
     private static final String[] SYSTEM_PROPERTIES = {
         "peegeeq.database.host", "peegeeq.database.port", "peegeeq.database.name",
         "peegeeq.database.username", "peegeeq.database.password", "peegeeq.database.ssl.enabled",
-        "peegeeq.polling-interval", "peegeeq.database.schema"
+        "peegeeq.queue.polling-interval", "peegeeq.database.schema"
     };
 
     @Container
@@ -101,7 +101,7 @@ public class OutboxQueueBrowserIntegrationTest {
         System.setProperty("peegeeq.database.password", postgres.getPassword());
         System.setProperty("peegeeq.database.ssl.enabled", "false");
         System.setProperty("peegeeq.database.schema", "public");
-        System.setProperty("peegeeq.polling-interval", "PT0.5S");
+        System.setProperty("peegeeq.queue.polling-interval", "PT0.5S");
 
         // Initialize PeeGeeQ manager
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");

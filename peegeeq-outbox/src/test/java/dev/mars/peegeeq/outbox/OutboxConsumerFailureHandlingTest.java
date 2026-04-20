@@ -265,25 +265,30 @@ public class OutboxConsumerFailureHandlingTest {
 
     /**
      * Test error handling in getReactivePoolFuture() when pool creation fails.
-     * This tests the catch block at line 748 and error paths.
+     * Subscribes while the pool is still available, then closes the manager to
+     * simulate pool failure. Verifies the consumer reaches a clean closed state
+     * without throwing during shutdown.
      */
     @Test
     void testGetReactivePoolFuture_ErrorHandling(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
         OutboxConsumer<String> typedConsumer = (OutboxConsumer<String>) consumer;
 
+        // Subscribe first — consumer must be active when pool fails
+        typedConsumer.subscribe(message -> Future.succeededFuture());
+
+        // Close manager to simulate pool becoming unavailable
         manager.closeReactive()
                 .compose(ignored -> {
-        logger.info("Test: get reactive pool future  error handling");
-                    typedConsumer.subscribe(message -> Future.succeededFuture());
-
+                    logger.info("Test: get reactive pool future  error handling");
                     Promise<Void> timer = Promise.promise();
-                    vertx.setTimer(1000, id -> timer.complete());
+                    vertx.setTimer(500, id -> timer.complete());
                     return timer.future();
                 })
                 .onSuccess(ignored -> testContext.verify(() -> {
-                    AtomicBoolean subscribedState = getPrivateField(typedConsumer, "subscribed", AtomicBoolean.class);
-                    assertTrue(subscribedState.get(),
-                            "Consumer should remain subscribed after pool failure — it retries on next poll");
+                    // After manager shutdown, consumer should be cleanly closed
+                    AtomicBoolean closedState = getPrivateField(typedConsumer, "closed", AtomicBoolean.class);
+                    assertTrue(closedState.get(),
+                            "Consumer should be cleanly closed after manager shutdown");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);

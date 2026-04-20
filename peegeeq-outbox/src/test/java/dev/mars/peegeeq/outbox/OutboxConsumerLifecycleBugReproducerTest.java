@@ -49,24 +49,23 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Reproduces the "Client not found: null" and "closed or shutting down" errors
- * that occur when PeeGeeQManager.closeReactive() destroys DB pools while outbox
- * consumers are still polling.
+ * Regression test for consumer lifecycle during manager shutdown.
  *
- * <p>Root cause: OutboxFactory registers a no-op close hook with the manager.
- * During shutdown, step 2 (close hooks) does nothing for outbox consumers, so
- * they keep polling. Step 5 (close client factory) clears the pool maps. The
- * still-running consumer polls then hit "Client not found: null" from
- * PgConnectionProvider.getReactivePool().</p>
+ * <p>Originally reproduced a bug where PeeGeeQManager.closeReactive() destroyed DB pools
+ * while outbox consumers were still polling, producing "Client not found: null" and
+ * "closed or shutting down" errors.</p>
  *
- * <p>This test proves the bug by:</p>
+ * <p>The bug is now fixed: OutboxFactory registers a close hook that calls
+ * {@code consumer.closeAsync()} before the manager destroys pools.
+ * This test is a regression guard — it asserts that no such errors appear.</p>
+ *
+ * <p>Scenario:</p>
  * <ol>
- *   <li>Starting a manager, factory, and subscribed consumer</li>
- *   <li>Calling manager.closeReactive() WITHOUT closing the consumer first
- *       (the close hook is a no-op, so the consumer stays alive)</li>
- *   <li>Waiting for the consumer's scheduler to fire after pools are gone</li>
- *   <li>Asserting that "Client not found" or "closed or shutting down" errors
- *       appear in the captured log output</li>
+ *   <li>Start a manager, factory, and subscribed consumer</li>
+ *   <li>Call manager.closeReactive() without explicitly closing the consumer first</li>
+ *   <li>Wait for pools to be destroyed and any stray polls to fire</li>
+ *   <li>Assert that NO "Client not found" or "closed or shutting down" errors appear
+ *       (the close hook must have cleanly stopped the consumer first)</li>
  * </ol>
  */
 @Tag(TestCategories.INTEGRATION)
@@ -95,6 +94,7 @@ public class OutboxConsumerLifecycleBugReproducerTest {
         System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
         System.setProperty("peegeeq.database.username", postgres.getUsername());
         System.setProperty("peegeeq.database.password", postgres.getPassword());
+        System.setProperty("peegeeq.queue.polling-interval", "PT0.5S");
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("lifecycle-bug-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
@@ -127,6 +127,7 @@ public class OutboxConsumerLifecycleBugReproducerTest {
         System.clearProperty("peegeeq.database.name");
         System.clearProperty("peegeeq.database.username");
         System.clearProperty("peegeeq.database.password");
+        System.clearProperty("peegeeq.queue.polling-interval");
 
         if (logAppender != null) {
             ch.qos.logback.classic.Logger consumerLogger = (ch.qos.logback.classic.Logger) LoggerFactory.getLogger(OutboxConsumer.class);
@@ -149,31 +150,20 @@ public class OutboxConsumerLifecycleBugReproducerTest {
     }
 
     @Test
-    void consumerPollingAfterManagerCloseProducesClientNotFoundErrors(VertxTestContext testContext) throws Exception {
-        // Subscribe the consumer — this starts the ScheduledExecutorService polling loop
-        consumer.subscribe(message -> {
-            // No-op handler; we don't care about message processing
-            return io.vertx.core.Future.succeededFuture();
-        });
+    void consumerPollingAfterManagerCloseProducesClientNotFoundErrors(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+        // Subscribe the consumer — this starts polling
+        consumer.subscribe(message -> io.vertx.core.Future.succeededFuture());
 
         // Give the consumer a moment to start polling and establish the pool
-        Thread.sleep(500);
+        vertx.timer(500).await();
 
-        // Now close the manager WITHOUT closing the consumer/factory first.
-        // The OutboxFactory close hook is a no-op, so the consumer stays alive.
-        // Step 5 of closeReactive() destroys the client factory / pool maps.
-        // The consumer's next poll cycle will hit "Client not found: null".
+        // Close the manager WITHOUT explicitly closing the consumer/factory first.
+        // If the OutboxFactory close hook properly calls consumer.closeAsync(), the consumer
+        // will be cleanly stopped before pools are destroyed — the bug is fixed.
+        // If the hook is a no-op, the consumer keeps polling and hits "Client not found".
         manager.closeReactive()
+                .compose(v -> vertx.timer(2000))
                 .onSuccess(v -> {
-                    // After manager close completes, the pools are gone.
-                    // Wait for the consumer's scheduler to fire a few poll cycles
-                    // against the destroyed infrastructure.
-                    try {
-                        Thread.sleep(2000);
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    }
-
                     // Check captured logs for the bug's signature errors
                     List<ILoggingEvent> events = logAppender.list;
                     boolean hasClientNotFound = events.stream()
@@ -186,22 +176,25 @@ public class OutboxConsumerLifecycleBugReproducerTest {
                     boolean bugReproduced = hasClientNotFound || hasClosedOrShuttingDown
                             || hasConnectionProviderUnavailable;
 
+                    long errorCount = events.stream()
+                            .filter(e -> e.getFormattedMessage().contains("Client not found")
+                                    || e.getFormattedMessage().contains("closed or shutting down")
+                                    || e.getFormattedMessage().contains("Connection provider unavailable"))
+                            .count();
+
                     if (bugReproduced) {
-                        long errorCount = events.stream()
-                                .filter(e -> e.getFormattedMessage().contains("Client not found")
-                                        || e.getFormattedMessage().contains("closed or shutting down")
-                                        || e.getFormattedMessage().contains("Connection provider unavailable"))
-                                .count();
-                        // Log for visibility in test output
-                        logger.info("=== BUG REPRODUCED === {} shutdown-related error(s) captured from a single consumer", errorCount);
+                        logger.info("=== BUG REPRODUCED === {} shutdown-related error(s) captured", errorCount);
+                    } else {
+                        logger.info("=== BUG FIXED === consumer was closed cleanly by OutboxFactory hook. {} log events captured.", events.size());
                     }
 
-                    // The test PASSES if the bug IS reproduced — we are proving the bug exists.
-                    // After the fix, this assertion should be flipped to assertFalse.
-                    assertTrue(bugReproduced,
-                            "Expected 'Client not found' or 'closed or shutting down' errors from "
-                                    + "consumer polling after manager destroyed pools, but none appeared. "
-                                    + "Captured " + events.size() + " log events.");
+                    // The OutboxFactory close hook now properly calls consumer.closeAsync() before
+                    // pools are destroyed, so no "Client not found" errors should appear.
+                    // This test is a regression guard: if the close hook is broken in future,
+                    // error messages will reappear and this assertion will catch it.
+                    testContext.verify(() -> assertFalse(bugReproduced,
+                            "OutboxFactory close hook should have cleanly closed the consumer before pools "
+                                    + "were destroyed, but " + errorCount + " shutdown-related error(s) appeared."));
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);

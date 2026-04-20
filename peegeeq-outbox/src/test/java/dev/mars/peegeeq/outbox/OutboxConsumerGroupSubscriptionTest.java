@@ -80,7 +80,7 @@ class OutboxConsumerGroupSubscriptionTest {
     private static final String[] SYSTEM_PROPERTIES = {
         "peegeeq.database.host", "peegeeq.database.port", "peegeeq.database.name",
         "peegeeq.database.username", "peegeeq.database.password", "peegeeq.database.ssl.enabled",
-        "peegeeq.polling-interval"
+        "peegeeq.queue.polling-interval"
     };
 
     private PeeGeeQManager manager;
@@ -95,7 +95,7 @@ class OutboxConsumerGroupSubscriptionTest {
         System.setProperty("peegeeq.database.username", postgres.getUsername());
         System.setProperty("peegeeq.database.password", postgres.getPassword());
         System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.polling-interval", "PT0.5S");
+        System.setProperty("peegeeq.queue.polling-interval", "PT0.5S");
 
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL, SchemaComponent.CONSUMER_GROUP_FANOUT);
 

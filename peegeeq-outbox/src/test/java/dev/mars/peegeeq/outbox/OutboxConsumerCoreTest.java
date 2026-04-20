@@ -273,6 +273,19 @@ public class OutboxConsumerCoreTest {
     }
 
     @Test
+    void testSubscribeOnClosedConsumerThrowsIllegalStateException(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("Test: subscribe on closed consumer");
+        consumer.close();
+
+        testContext.verify(() -> assertThrows(
+            IllegalStateException.class,
+            () -> consumer.subscribe(message -> Future.succeededFuture()),
+            "Subscribing to a closed consumer should throw IllegalStateException"
+        ));
+        testContext.completeNow();
+    }
+
+    @Test
     void testConsumerGroupNameSetting(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
         MessageConsumer<String> groupConsumer = outboxFactory.createConsumer(testTopic, String.class);
 

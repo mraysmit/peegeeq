@@ -71,6 +71,8 @@ public class CompletionTrackerCoreTest extends BaseIntegrationTest {
     @Test
     void testMarkCompleted() throws Exception {
         String topic = "test-mark-completed-" + UUID.randomUUID().toString().substring(0, 8);
+        // Clean any stale data for this topic from a prior withReuse container run
+        cleanTestTopic(topic);
         // First, insert a test message into the outbox table
         Long messageId = insertTestMessage(topic, 2);
         insertSubscription(topic, "group1");
@@ -92,6 +94,8 @@ public class CompletionTrackerCoreTest extends BaseIntegrationTest {
     @Test
     void testMarkCompletedIdempotent() throws Exception {
         String topic = "test-idempotent-" + UUID.randomUUID().toString().substring(0, 8);
+        // Clean any stale data for this topic from a prior withReuse container run
+        cleanTestTopic(topic);
         // Insert a test message
         Long messageId = insertTestMessage(topic, 2);
         insertSubscription(topic, "group1");
@@ -115,6 +119,8 @@ public class CompletionTrackerCoreTest extends BaseIntegrationTest {
     @Test
     void testMarkCompletedUpdatesCounter() throws Exception {
         String topic = "test-counter-" + UUID.randomUUID().toString().substring(0, 8);
+        // Clean any stale data for this topic from a prior withReuse container run
+        cleanTestTopic(topic);
         // Insert a test message with 2 required groups
         Long messageId = insertTestMessage(topic, 2);
         insertSubscription(topic, "group1");
@@ -136,10 +142,15 @@ public class CompletionTrackerCoreTest extends BaseIntegrationTest {
     @Test
     void testMarkCompletedAllGroupsCompletesMessage() throws Exception {
         String topic = "test-all-groups-" + UUID.randomUUID().toString().substring(0, 8);
-        // Insert a test message with 2 required groups
-        Long messageId = insertTestMessage(topic, 2);
+        // Clean any stale data for this topic from a prior withReuse container run
+        cleanTestTopic(topic);
+        // Register as PUB_SUB so the insert trigger counts active subscriptions
+        insertTestTopic(topic, "PUB_SUB");
+        // Insert subscriptions BEFORE the message so the trigger counts them
         insertSubscription(topic, "group1");
         insertSubscription(topic, "group2");
+        // Insert the message: trigger fires, sees PUB_SUB, counts 2 ACTIVE subs → required_consumer_groups=2
+        Long messageId = insertTestMessage(topic, 2);
 
         // Mark as completed for both groups
         tracker.markCompleted(messageId, "group1", topic)
@@ -166,11 +177,31 @@ public class CompletionTrackerCoreTest extends BaseIntegrationTest {
         ).toCompletionStage().toCompletableFuture().get();
     }
 
+    private void insertTestTopic(String topic, String semantics) throws Exception {
+        connectionManager.withConnection("test-completion", connection ->
+            connection.query("INSERT INTO outbox_topics (topic, semantics) " +
+                "VALUES ('" + topic + "', '" + semantics + "') ON CONFLICT (topic) DO UPDATE SET semantics = EXCLUDED.semantics")
+                .execute()
+        ).toCompletionStage().toCompletableFuture().get();
+    }
+
     private void insertSubscription(String topic, String groupName) throws Exception {
         connectionManager.withConnection("test-completion", connection ->
             connection.query("INSERT INTO outbox_topic_subscriptions (topic, group_name, subscription_status) " +
-                "VALUES ('" + topic + "', '" + groupName + "', 'ACTIVE') ON CONFLICT DO NOTHING")
+                "VALUES ('" + topic + "', '" + groupName + "', 'ACTIVE') " +
+                "ON CONFLICT (topic, group_name) DO UPDATE SET subscription_status = 'ACTIVE', last_heartbeat_at = NOW()")
                 .execute()
+        ).toCompletionStage().toCompletableFuture().get();
+    }
+
+    private void cleanTestTopic(String topic) throws Exception {
+        connectionManager.withConnection("test-completion", connection ->
+            connection.query("DELETE FROM outbox_consumer_groups WHERE message_id IN " +
+                "(SELECT id FROM outbox WHERE topic = '" + topic + "')")
+                .execute()
+                .compose(ignored -> connection.query("DELETE FROM outbox WHERE topic = '" + topic + "'").execute())
+                .compose(ignored -> connection.query("DELETE FROM outbox_topic_subscriptions WHERE topic = '" + topic + "'").execute())
+                .compose(ignored -> connection.query("DELETE FROM outbox_topics WHERE topic = '" + topic + "'").execute())
         ).toCompletionStage().toCompletableFuture().get();
     }
 }
