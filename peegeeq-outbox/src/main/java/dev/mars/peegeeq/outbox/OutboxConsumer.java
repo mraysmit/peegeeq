@@ -90,6 +90,10 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
     // from hanging on borrowed connections held by in-flight queries.
     private volatile Future<Void> inflightProcessing = Future.succeededFuture();
 
+    // Maximum time (ms) to wait for in-flight processing before proceeding with pool close.
+    // Package-private so tests can override with a shorter timeout.
+    long closeInflightTimeoutMs = 30_000L;
+
     // Vert.x 5.x reactive pool for non-blocking database operations
     private volatile Pool reactivePool;
 
@@ -874,11 +878,27 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
         // Wait for any in-flight processing to finish so borrowed connections are
         // returned before pool.close() is called. Without this, pool.close() hangs
         // waiting for connections that are still held by in-flight query chains.
-        Future<Void> awaitInflight = inflightProcessing
+        // A timeout guard ensures closeAsync() never hangs indefinitely if the handler stalls.
+        final long timeoutMs = closeInflightTimeoutMs;
+        io.vertx.core.Promise<Void> timeoutSignal = io.vertx.core.Promise.promise();
+        long timeoutTimerId = vertx.setTimer(timeoutMs, id -> {
+            logger.warn("Timed out ({}ms) waiting for in-flight processing for topic '{}' during close — proceeding with pool close",
+                timeoutMs, topic);
+            timeoutSignal.tryComplete();
+        });
+
+        Future<Void> normalCompletion = inflightProcessing
             .onFailure(e ->
                 logger.debug("In-flight processing completed with error during close for topic {}: {}",
                     topic, e.getMessage()))
             .transform(ar -> Future.<Void>succeededFuture());
+
+        Future<Void> awaitInflight = Future.any(normalCompletion, timeoutSignal.future())
+            .<Void>mapEmpty()
+            .eventually(() -> {
+                vertx.cancelTimer(timeoutTimerId);
+                return Future.succeededFuture();
+            });
 
         return awaitInflight.compose(v -> {
             // Close reactive pool — this is the resource that matters for callers

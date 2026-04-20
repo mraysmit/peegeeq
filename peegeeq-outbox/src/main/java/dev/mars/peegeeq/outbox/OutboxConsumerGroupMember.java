@@ -29,6 +29,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -67,7 +70,10 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
     // Concurrency gate: limits the number of in-flight messages per member
     private final int maxConcurrency;
     private final AtomicInteger inFlightCount = new AtomicInteger(0);
-    
+
+    // Tracks in-flight processMessage() futures so stopAsync() can await them all before returning.
+    private final Set<Future<Void>> inflightFutures = ConcurrentHashMap.newKeySet();
+
     private volatile Predicate<Message<T>> messageFilter;
 
     // Filter error handling
@@ -204,7 +210,24 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
                 consumerId, groupName, topic);
         }
     }
-    
+
+    /**
+     * Stops this member and returns a Future that completes when all in-flight
+     * message processing has finished. Safe to call concurrently.
+     */
+    public Future<Void> stopAsync() {
+        stop();
+        ArrayList<Future<Void>> pending = new ArrayList<>(inflightFutures);
+        if (pending.isEmpty()) {
+            return Future.succeededFuture();
+        }
+        return Future.all(
+            pending.stream()
+                .map(f -> f.transform(ar -> Future.<Void>succeededFuture()))
+                .toList()
+        ).mapEmpty();
+    }
+
     @Override
     public boolean isActive() {
         return active.get() && !closed.get();
@@ -396,7 +419,9 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
             processingFuture = Future.failedFuture(directException);
         }
 
-        return processingFuture
+        // Register this in-flight future so stopAsync() can await it
+        Future<Void>[] trackRef = new Future[1];
+        Future<Void> tracked = processingFuture
             .onSuccess(result -> {
                 inFlightCount.decrementAndGet();
                 long processingTime = System.currentTimeMillis() - startTime;
@@ -416,7 +441,14 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
                 logger.warn("Failed to process message {} with outbox consumer '{}' in group '{}': {}",
                     message.getId(), consumerId, groupName, error.getMessage());
                 lastActiveAt.set(Instant.now());
+            })
+            .eventually(() -> {
+                if (trackRef[0] != null) inflightFutures.remove(trackRef[0]);
+                return Future.succeededFuture();
             });
+        trackRef[0] = tracked;
+        inflightFutures.add(tracked);
+        return tracked;
     }
 
     /**

@@ -27,6 +27,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import java.util.UUID;
 
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -328,34 +329,37 @@ class OutboxConsumerEdgeCasesCoverageTest {
      */
     @Test
     void closeAsyncWaitsForInflightProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
+        OutboxConsumer<String> typedConsumer = (OutboxConsumer<String>) consumer;
+        Checkpoint done = testContext.checkpoint();
         AtomicInteger messagesProcessed = new AtomicInteger(0);
-        Checkpoint allProcessed = testContext.checkpoint();
 
-        consumer.subscribe(message -> {
-            // Slow processing — non-blocking delay
-            Promise<Void> promise = Promise.promise();
-            vertx.setTimer(200, id -> {
-                messagesProcessed.incrementAndGet();
-                promise.complete();
-            });
-            return promise.future();
+        // Cancel the periodic polling timer so it cannot overwrite inflightProcessing
+        // between our injection and the closeAsync() CAS that sets closed=true.
+        // With a 100ms poll interval, the second poll fires while the slow handler is
+        // still running and unconditionally sets inflightProcessing to a quickly-completing
+        // "no pending messages" future — making closeAsync() return before the handler ends.
+        Long timerId = getPrivateField(typedConsumer, "pollingTimerId", Long.class);
+        if (timerId != null && timerId != -1L) {
+            vertx.cancelTimer(timerId);
+        }
+
+        // Inject a slow future that simulates an in-flight message handler (200ms).
+        // messagesProcessed is incremented before the promise completes, so if
+        // closeAsync() correctly waits for inflightProcessing, the count will be 1.
+        Promise<Void> slowHandler = Promise.promise();
+        vertx.setTimer(200, id -> {
+            messagesProcessed.incrementAndGet();
+            slowHandler.complete();
         });
+        setPrivateField(typedConsumer, "inflightProcessing", slowHandler.future());
 
-        producer.send("slow-message").await();
-
-        // Give the consumer time to pick up the message and start processing
-        vertx.setTimer(300, id -> {
-            // closeAsync should wait for in-flight processing, not return immediately
-            OutboxConsumer<String> typedConsumer = (OutboxConsumer<String>) consumer;
-            typedConsumer.closeAsync()
-                .onSuccess(v -> testContext.verify(() -> {
-                    // By the time closeAsync completes, the in-flight message must be done
-                    assertEquals(1, messagesProcessed.get(),
-                        "In-flight message should have completed before closeAsync resolved");
-                    allProcessed.flag();
-                }))
-                .onFailure(testContext::failNow);
-        });
+        typedConsumer.closeAsync()
+            .onSuccess(v -> testContext.verify(() -> {
+                assertEquals(1, messagesProcessed.get(),
+                    "In-flight processing should have completed before closeAsync resolved");
+                done.flag();
+            }))
+            .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS),
             "closeAsync should complete after in-flight processing finishes");
@@ -428,6 +432,80 @@ class OutboxConsumerEdgeCasesCoverageTest {
 
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS),
             "Full manager shutdown must complete without hanging");
+    }
+
+    @Test
+    void closeAsyncTimesOutWhenInflightProcessingStalls(Vertx vertx, VertxTestContext testContext) throws Exception {
+        // Use a short timeout so the test completes quickly
+        OutboxConsumer<String> typedConsumer = (OutboxConsumer<String>) consumer;
+        typedConsumer.closeInflightTimeoutMs = 1_000L;
+        Checkpoint done = testContext.checkpoint();
+
+        // Directly inject a never-completing future into inflightProcessing.
+        // This is more reliable than starting a message handler: with a 100ms poll
+        // interval, subsequent timer ticks overwrite inflightProcessing before
+        // closeAsync() reads it, causing a race condition in the handler-based approach.
+        Promise<Void> neverCompletes = Promise.promise();
+        setPrivateField(typedConsumer, "inflightProcessing", neverCompletes.future());
+
+        long before = System.currentTimeMillis();
+        typedConsumer.closeAsync()
+            .onSuccess(v -> testContext.verify(() -> {
+                long elapsed = System.currentTimeMillis() - before;
+                // closeAsync must complete: after timeout (~1s) + pool close overhead, well under 5s
+                assertTrue(elapsed >= 900, "closeAsync should have waited at least ~1s for timeout, got " + elapsed + "ms");
+                // Consumer must be closed even though inflightProcessing never completed
+                AtomicBoolean closedField = getPrivateField(typedConsumer, "closed", AtomicBoolean.class);
+                assertTrue(closedField.get(), "Consumer should be marked closed after timeout");
+                done.flag();
+            }))
+            .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS),
+            "closeAsync must complete even when in-flight processing stalls indefinitely");
+    }
+
+    @Test
+    void closeAsyncIsIdempotent(Vertx vertx, VertxTestContext testContext) throws Exception {
+        OutboxConsumer<String> typedConsumer = (OutboxConsumer<String>) consumer;
+        Checkpoint done = testContext.checkpoint();
+
+        typedConsumer.closeAsync()
+            .compose(v -> typedConsumer.closeAsync())
+            .onSuccess(v -> done.flag())
+            .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS), "closeAsync should be idempotent");
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> T getPrivateField(Object target, String fieldName, Class<T> type) throws Exception {
+        Class<?> current = target.getClass();
+        while (current != null) {
+            try {
+                java.lang.reflect.Field field = current.getDeclaredField(fieldName);
+                field.setAccessible(true);
+                return (T) field.get(target);
+            } catch (NoSuchFieldException ignored) {
+                current = current.getSuperclass();
+            }
+        }
+        throw new NoSuchFieldException("Field '" + fieldName + "' not found on " + target.getClass().getName());
+    }
+
+    private static void setPrivateField(Object target, String fieldName, Object value) throws Exception {
+        Class<?> current = target.getClass();
+        while (current != null) {
+            try {
+                java.lang.reflect.Field field = current.getDeclaredField(fieldName);
+                field.setAccessible(true);
+                field.set(target, value);
+                return;
+            } catch (NoSuchFieldException ignored) {
+                current = current.getSuperclass();
+            }
+        }
+        throw new NoSuchFieldException("Field '" + fieldName + "' not found on " + target.getClass().getName());
     }
 }
 

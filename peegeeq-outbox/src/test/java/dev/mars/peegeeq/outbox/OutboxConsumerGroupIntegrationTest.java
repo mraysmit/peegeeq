@@ -49,7 +49,7 @@ public class OutboxConsumerGroupIntegrationTest {
     private static final String[] SYSTEM_PROPERTIES = {
         "peegeeq.database.host", "peegeeq.database.port", "peegeeq.database.name",
         "peegeeq.database.username", "peegeeq.database.password", "peegeeq.database.ssl.enabled",
-        "peegeeq.polling-interval"
+        "peegeeq.queue.polling-interval"
     };
 
     @Container
@@ -73,7 +73,7 @@ public class OutboxConsumerGroupIntegrationTest {
         System.setProperty("peegeeq.database.username", postgres.getUsername());
         System.setProperty("peegeeq.database.password", postgres.getPassword());
         System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.polling-interval", "PT0.5S");
+        System.setProperty("peegeeq.queue.polling-interval", "PT0.5S");
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration("group-test");
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
@@ -281,6 +281,60 @@ public class OutboxConsumerGroupIntegrationTest {
         
         producer.send("Msg2").onFailure(testContext::failNow);
         signal2.future().await();
+        testContext.completeNow();
+    }
+
+    @Test
+    void testStopGracefullyAwaitsInflightMemberProcessing(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
+        io.vertx.core.Promise<Void> handlerStarted = io.vertx.core.Promise.promise();
+        io.vertx.core.Promise<Void> handlerGate = io.vertx.core.Promise.promise();
+        java.util.concurrent.atomic.AtomicBoolean handlerCompleted = new java.util.concurrent.atomic.AtomicBoolean(false);
+        logger.info("Test: stopGracefully awaits inflight member processing");
+
+        consumerGroup.addConsumer("member-1", message -> {
+            handlerStarted.tryComplete();
+            // Block until the gate is released — simulates slow in-flight processing
+            return handlerGate.future().map(v -> {
+                handlerCompleted.set(true);
+                return (Void) null;
+            });
+        });
+
+        consumerGroup.start();
+
+        producer.send("slow-message").onFailure(testContext::failNow);
+
+        // Wait until the handler has started and the future is registered in inflightFutures
+        handlerStarted.future().await();
+
+        // stopGracefully() must wait for the in-flight handler future before resolving.
+        // It snapshots inflightFutures immediately on this call (synchronous capture).
+        io.vertx.core.Promise<Void> stopDone = io.vertx.core.Promise.promise();
+        if (consumerGroup instanceof OutboxConsumerGroup<?> og) {
+            og.stopGracefully()
+                .onSuccess(v -> stopDone.tryComplete())
+                .onFailure(stopDone::tryFail);
+        } else {
+            // Fallback: sync stop — group not an OutboxConsumerGroup
+            consumerGroup.stop();
+            stopDone.tryComplete();
+        }
+
+        // Give stopGracefully() a moment to set up its wait on the in-flight future
+        vertx.timer(100).await();
+
+        // Handler is still blocked — stopGracefully() must NOT have resolved yet
+        assertFalse(handlerCompleted.get(), "Handler should not have completed yet");
+        assertFalse(stopDone.future().isComplete(), "stopGracefully should still be waiting");
+
+        // Release the gate — handler completes → stopGracefully() unblocks
+        handlerGate.tryComplete();
+
+        stopDone.future().await();
+
+        testContext.verify(() ->
+            assertTrue(handlerCompleted.get(),
+                "Handler must have completed before stopGracefully() resolved"));
         testContext.completeNow();
     }
 }
