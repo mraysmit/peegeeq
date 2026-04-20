@@ -168,7 +168,7 @@ public class CloudEventsExample {
                 receivedEventPromise.fail(e);
                 return Future.failedFuture(e);
             }
-        });
+        }).onFailure(err -> logger.error("Consumer subscription failed", err));
         
         // Create and send a CloudEvent
         CloudEvent eventToSend = CloudEventBuilder.v1()

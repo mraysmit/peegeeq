@@ -110,7 +110,7 @@ public class FullDistributedTracingExample {
                     });
 
             return promise.future();
-        });
+        }).onFailure(err -> logger.error("Consumer subscription failed", err));
 
         logger.info("================================================================================");
         logger.info("🚀 Full Distributed Tracing Example Started");

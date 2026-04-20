@@ -186,9 +186,9 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
     }
 
     @Override
-    public void subscribe(MessageHandler<T> handler) {
+    public Future<Void> subscribe(MessageHandler<T> handler) {
         if (closed.get()) {
-            throw new IllegalStateException("Consumer is closed");
+            return Future.failedFuture(new IllegalStateException("Consumer is closed"));
         }
 
         logger.info("Subscribing to topic: {} with handler: {}", topic, handler.getClass().getSimpleName());
@@ -198,15 +198,12 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
 
         if (wasSubscribed) {
             logger.info("Starting polling for topic: {}", topic);
-            try {
-                startPolling();
-            } catch (Exception e) {
-                throw e;
-            }
+            startPolling();
             logger.info("Subscribed to topic: {}", topic);
         } else {
             logger.warn("Already subscribed to topic: {}", topic);
         }
+        return Future.succeededFuture();
     }
 
     @Override

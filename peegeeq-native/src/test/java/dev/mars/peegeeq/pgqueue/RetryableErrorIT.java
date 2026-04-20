@@ -49,6 +49,8 @@ public class RetryableErrorIT {
         return container;
     }
 
+    private static final Logger logger = LoggerFactory.getLogger(RetryableErrorIT.class);
+
     private PeeGeeQManager manager;
     private PgNativeQueueFactory factory;
 

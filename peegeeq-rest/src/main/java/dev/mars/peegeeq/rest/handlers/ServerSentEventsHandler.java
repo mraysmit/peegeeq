@@ -614,7 +614,9 @@ public class ServerSentEventsHandler {
                             sendErrorEvent(connection, "Error processing message: " + e.getMessage());
                             return Future.failedFuture(e);
                         }
-                    });
+                    })
+                    .onFailure(err -> logger.error("Failed to subscribe consumer for SSE connection {}: {}",
+                            connection.getConnectionId(), err.getMessage(), err));
     }
     
     /**

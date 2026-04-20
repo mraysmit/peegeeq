@@ -54,6 +54,8 @@ public class ListenReconnectFaultInjectionIT {
         return container;
     }
 
+    private static final Logger logger = LoggerFactory.getLogger(ListenReconnectFaultInjectionIT.class);
+
     private PeeGeeQManager manager;
     private PgNativeQueueFactory factory;
     private MessageProducer<String> producer;

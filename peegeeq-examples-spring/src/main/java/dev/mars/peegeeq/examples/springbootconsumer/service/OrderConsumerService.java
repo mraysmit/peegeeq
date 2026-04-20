@@ -104,7 +104,8 @@ public class OrderConsumerService {
         log.info("Starting message consumption for consumer: {}", consumerInstanceId);
         
         // Subscribe to messages
-        consumer.subscribe(this::processMessage);
+        consumer.subscribe(this::processMessage)
+                .onFailure(err -> log.error("Consumer subscription failed for topic", err));
         
         // Update consumer status in database
         updateConsumerStatus("RUNNING");

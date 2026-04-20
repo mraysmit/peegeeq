@@ -332,7 +332,9 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
             outboxConsumer.setConsumerGroupName(groupName);
 
             // Subscribe to messages and distribute them to group members
-            underlyingConsumer.subscribe(this::distributeMessage);
+            underlyingConsumer.subscribe(this::distributeMessage)
+                    .onFailure(err -> logger.error("Failed to subscribe consumer group '{}' for topic '{}': {}",
+                            groupName, topic, err.getMessage(), err));
 
             // Start all existing members
             members.values().forEach(OutboxConsumerGroupMember::start);
@@ -415,7 +417,9 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
         }
         underlyingConsumer = outboxConsumer;
         outboxConsumer.setConsumerGroupName(groupName);
-        underlyingConsumer.subscribe(this::distributeMessage);
+        underlyingConsumer.subscribe(this::distributeMessage)
+                .onFailure(err -> logger.error("Failed to subscribe consumer group '{}' for topic '{}': {}",
+                        groupName, topic, err.getMessage(), err));
         members.values().forEach(OutboxConsumerGroupMember::start);
         state.set(State.ACTIVE);
         logger.info("Outbox consumer group '{}' started with {} members", groupName, members.size());
