@@ -26,6 +26,7 @@ import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -273,10 +274,25 @@ public class ResurrectionReBackfillIntegrationTest extends BaseIntegrationTest {
         logger.info("✅ Resurrection resets backfill status test passed");
     }
 
+    /**
+     * Verifies that a failure in the resurrection re-backfill propagates out of {@code updateHeartbeat()}.
+     *
+     * <p>When a DEAD subscription is resurrected (DEAD→ACTIVE) and the subsequent re-backfill fails,
+     * the consumer group will miss messages that were cleaned up during the DEAD period. Silently
+     * swallowing the error would leave the consumer in an inconsistent state with no indication that
+     * messages were lost. The caller must be informed so it can retry or alert.</p>
+     *
+     * <p>A broken {@link BackfillService} backed by a {@link PgConnectionManager} with no registered
+     * pool is injected so that {@code startBackfill} fails with
+     * "No reactive pool found for service: no-such-pool". The subscription is manually set to DEAD
+     * before the heartbeat so that the resurrection path is exercised. The test asserts that the
+     * backfill failure propagates as an {@link java.util.concurrent.ExecutionException} rather than
+     * being silently swallowed.</p>
+     */
     @Test
-    void testResurrectionBackfillFailureDoesNotFailHeartbeat() throws Exception {
-        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Resurrection re-backfill failed') is EXPECTED — this test deliberately uses a broken connection manager to verify backfill failure does not fail heartbeat");
-        logger.info("=== Testing resurrection backfill failure doesn't fail heartbeat ===");
+    void testResurrectionBackfillFailurePropagates() throws Exception {
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Resurrection re-backfill failed') is EXPECTED — this test deliberately uses a broken connection manager to verify backfill failure propagates from heartbeat");
+        logger.info("=== Testing resurrection backfill failure propagates ===");
 
         String topic = "test-resurrect-fail-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "backfill-fail-group";
@@ -293,7 +309,6 @@ public class ResurrectionReBackfillIntegrationTest extends BaseIntegrationTest {
 
         // Create a BackfillService with a BROKEN connection manager (no pool registered).
         // When startBackfill tries to use it, withConnection returns failedFuture.
-        // This exercises the .transform() fallback path in updateHeartbeat.
         PgConnectionManager brokenConnectionManager = new PgConnectionManager(manager.getVertx(), null);
         // Intentionally do NOT register any pool on brokenConnectionManager
         BackfillService brokenBackfillService = new BackfillService(brokenConnectionManager, "no-such-pool");
@@ -303,21 +318,13 @@ public class ResurrectionReBackfillIntegrationTest extends BaseIntegrationTest {
         setSubscriptionStatus(topic, groupName, "DEAD");
 
         // Resurrect via heartbeat — backfill will fail ("No reactive pool found"),
-        // but .transform() should catch it and heartbeat still succeeds
-        subscriptionManager.updateHeartbeat(topic, groupName)
-            .toCompletionStage().toCompletableFuture().get();
+        // and failure must propagate from updateHeartbeat (tracker #52: ERASURE fix=REMOVE)
+        assertThrows(ExecutionException.class, () ->
+            subscriptionManager.updateHeartbeat(topic, groupName)
+                .toCompletionStage().toCompletableFuture().get(),
+            "Heartbeat must fail when backfill fails — failure must propagate");
 
-        // Verify resurrected to ACTIVE despite backfill failure
-        SubscriptionInfo resurrected = subscriptionManager.getSubscription(topic, groupName)
-            .toCompletionStage().toCompletableFuture().get();
-        assertEquals(SubscriptionState.ACTIVE, resurrected.state(),
-                    "Heartbeat must succeed even when backfill fails");
-
-        // backfill_status should be NULL (resetBackfillStatus cleared it, but backfill failed before completing)
-        assertNull(resurrected.backfillStatus(),
-                  "Backfill status should be NULL since backfill failed after reset");
-
-        logger.info("✅ Resurrection backfill failure resilience test passed");
+        logger.info("✅ Resurrection backfill failure propagation test passed");
     }
 
     @Test

@@ -26,6 +26,7 @@ import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
+import java.util.concurrent.ExecutionException;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -191,10 +192,22 @@ public class CancelCleanupIntegrationTest extends BaseIntegrationTest {
         logger.info("Cancel without cleanup service test passed");
     }
 
+    /**
+     * Verifies that a failure in {@code DeadConsumerGroupCleanup} propagates out of {@code cancel()}.
+     *
+     * <p>Cleanup failure is data-integrity critical — it means orphan rows were NOT removed and
+     * {@code required_consumer_groups} was NOT decremented. Silently swallowing the error would
+     * leave the topic in a corrupt state. The caller must be informed so it can retry or alert.</p>
+     *
+     * <p>A broken {@link PgConnectionManager} with no registered pool is injected so that
+     * {@code cleanupDeadGroup} fails with "No reactive pool found for service: no-such-pool".
+     * The test asserts that this failure propagates as an {@link java.util.concurrent.ExecutionException}
+     * rather than being silently swallowed.</p>
+     */
     @Test
-    void testCancelCleanupFailureDoesNotFailCancel() throws Exception {
-        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Cancel cleanup failed') is EXPECTED — this test deliberately uses a broken connection manager to verify cleanup failure does not fail cancel");
-        logger.info("=== Testing cancel cleanup failure doesn't fail cancel ===");
+    void testCancelCleanupFailurePropagates() throws Exception {
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Cancel cleanup failed') is EXPECTED — this test deliberately uses a broken connection manager to verify cleanup failure propagates from cancel");
+        logger.info("=== Testing cancel cleanup failure propagates ===");
 
         String topic = "test-cancel-fail-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "cancel-fail-group";
@@ -214,16 +227,13 @@ public class CancelCleanupIntegrationTest extends BaseIntegrationTest {
         DeadConsumerGroupCleanup brokenCleanup = new DeadConsumerGroupCleanup(brokenConnectionManager, "no-such-pool");
         subscriptionManager.setDeadConsumerGroupCleanup(brokenCleanup);
 
-        // Cancel should still succeed even though cleanup fails
-        subscriptionManager.cancel(topic, groupName)
-            .toCompletionStage().toCompletableFuture().get();
+        // Cancel must fail because cleanup failure propagates (tracker #51: ERASURE fix=REMOVE)
+        assertThrows(ExecutionException.class, () ->
+            subscriptionManager.cancel(topic, groupName)
+                .toCompletionStage().toCompletableFuture().get(),
+            "Cancel must fail when cleanup fails — failure must propagate");
 
-        SubscriptionInfo cancelled = subscriptionManager.getSubscription(topic, groupName)
-            .toCompletionStage().toCompletableFuture().get();
-        assertEquals(SubscriptionState.CANCELLED, cancelled.state(),
-                    "Cancel must succeed even when cleanup fails");
-
-        logger.info("Cancel cleanup failure resilience test passed");
+        logger.info("Cancel cleanup failure propagation test passed");
     }
 
     @Test
