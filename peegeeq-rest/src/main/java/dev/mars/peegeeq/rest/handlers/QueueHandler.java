@@ -345,46 +345,51 @@ public class QueueHandler {
                     boolean isHealthy = queueFactory.isHealthy();
                     String implementationType = queueFactory.getImplementationType();
 
-                    // Get real statistics from the database via QueueFactory.getStats()
-                    dev.mars.peegeeq.api.messaging.QueueStats stats = queueFactory.getStats(queueName);
+                    // Get real statistics from the database via QueueFactory.getStatsAsync()
+                    queueFactory.getStatsAsync(queueName)
+                        .onSuccess(stats -> {
+                            try {
+                                // Build response with real statistics
+                                JsonObject response = new JsonObject()
+                                    .put("queueName", queueName)
+                                    .put("setupId", setupId)
+                                    .put("implementationType", implementationType)
+                                    .put("healthy", isHealthy)
+                                    .put("totalMessages", stats.getTotalMessages())
+                                    .put("pendingMessages", stats.getPendingMessages())
+                                    .put("processedMessages", stats.getProcessedMessages())
+                                    .put("inFlightMessages", stats.getInFlightMessages())
+                                    .put("deadLetteredMessages", stats.getDeadLetteredMessages())
+                                    .put("messagesPerSecond", stats.getMessagesPerSecond())
+                                    .put("avgProcessingTimeMs", stats.getAvgProcessingTimeMs())
+                                    .put("successRatePercent", stats.getSuccessRatePercent())
+                                    .put("timestamp", System.currentTimeMillis());
 
-                    try {
-                        // Build response with real statistics
-                        JsonObject response = new JsonObject()
-                            .put("queueName", queueName)
-                            .put("setupId", setupId)
-                            .put("implementationType", implementationType)
-                            .put("healthy", isHealthy)
-                            .put("totalMessages", stats.getTotalMessages())
-                            .put("pendingMessages", stats.getPendingMessages())
-                            .put("processedMessages", stats.getProcessedMessages())
-                            .put("inFlightMessages", stats.getInFlightMessages())
-                            .put("deadLetteredMessages", stats.getDeadLetteredMessages())
-                            .put("messagesPerSecond", stats.getMessagesPerSecond())
-                            .put("avgProcessingTimeMs", stats.getAvgProcessingTimeMs())
-                            .put("successRatePercent", stats.getSuccessRatePercent())
-                            .put("timestamp", System.currentTimeMillis());
+                                // Add optional timing fields if available
+                                if (stats.getCreatedAt() != null) {
+                                    response.put("firstMessageAt", stats.getCreatedAt().toString());
+                                }
+                                if (stats.getLastMessageAt() != null) {
+                                    response.put("lastMessageAt", stats.getLastMessageAt().toString());
+                                }
 
-                        // Add optional timing fields if available
-                        if (stats.getCreatedAt() != null) {
-                            response.put("firstMessageAt", stats.getCreatedAt().toString());
-                        }
-                        if (stats.getLastMessageAt() != null) {
-                            response.put("lastMessageAt", stats.getLastMessageAt().toString());
-                        }
+                                ctx.response()
+                                        .setStatusCode(200)
+                                        .putHeader("content-type", "application/json")
+                                        .end(response.encode());
 
-                        ctx.response()
-                                .setStatusCode(200)
-                                .putHeader("content-type", "application/json")
-                                .end(response.encode());
-
-                        logger.info("Retrieved stats for queue {} (type: {}, healthy: {}, total: {}, pending: {})",
-                                   queueName, implementationType, isHealthy,
-                                   stats.getTotalMessages(), stats.getPendingMessages());
-                    } catch (Exception e) {
-                        logger.error("Error serializing queue stats", e);
-                        sendError(ctx, 500, "Internal server error");
-                    }
+                                logger.info("Retrieved stats for queue {} (type: {}, healthy: {}, total: {}, pending: {})",
+                                           queueName, implementationType, isHealthy,
+                                           stats.getTotalMessages(), stats.getPendingMessages());
+                            } catch (Exception e) {
+                                logger.error("Error serializing queue stats", e);
+                                sendError(ctx, 500, "Internal server error");
+                            }
+                        })
+                        .onFailure(e -> {
+                            logger.error("Error getting async queue stats for {}", queueName, e);
+                            sendError(ctx, 500, "Failed to get queue stats: " + e.getMessage());
+                        });
                 })
                 .onFailure(throwable -> {
                     // Check if this is an expected setup not found error (no stack trace)

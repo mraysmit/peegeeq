@@ -586,10 +586,12 @@ class ManagementApiHandlerTest {
             .put("databaseConfig", new JsonObject()
                 .put("host", postgres.getHost())
                 .put("port", postgres.getFirstMappedPort())
-                .put("databaseName", "404_test_" + System.currentTimeMillis())
+                .put("databaseName", "notfound_test_" + System.currentTimeMillis())
                 .put("username", postgres.getUsername())
                 .put("password", postgres.getPassword())
-                .put("schema", "public"))
+                .put("schema", "public")
+                .put("templateDatabase", "template0")
+                .put("encoding", "UTF8"))
             .put("queues", new JsonArray())
             .put("eventStores", new JsonArray());
 

@@ -171,27 +171,35 @@ public class ManagementApiHandler {
                         String queueName = entry.getKey();
                         QueueFactory factory = entry.getValue();
                         queueFutures.add(
-                                getRealConsumerCount(setupResult, queueName).map(consumerCount -> {
-                                    long messageCount = getRealMessageCount(setupResult, queueName);
-                                    double messageRate = getRealMessageRate(setupResult, queueName);
-                                    double avgProcessingTime = getRealAvgProcessingTime(setupResult, queueName);
-                                    return new JsonObject()
-                                            .put("setupId", setupId)
-                                            .put("setup", setupId)
-                                            .put("queueName", queueName)
-                                            .put("name", queueName)
-                                            .put("type", factory.getImplementationType())
-                                            .put("status", factory.isHealthy() ? "active" : "error")
-                                            .put("messageCount", messageCount)
-                                            .put("messages", messageCount)
-                                            .put("consumerCount", consumerCount)
-                                            .put("consumers", consumerCount)
-                                            .put("messagesPerSecond", messageRate)
-                                            .put("messageRate", messageRate)
-                                            .put("errorRate", 0.0)
-                                            .put("createdAt", setupResult.getCreatedAt())
-                                            .put("updatedAt", Instant.now().toString());
-                                }));
+                                getRealConsumerCount(setupResult, queueName).compose(consumerCount ->
+                                    factory.countMessagesAsync(queueName)
+                                        .otherwise(0L)
+                                        .map(messageCount -> {
+                                            double messageRate = getRealMessageRate(setupResult, queueName);
+                                            double avgProcessingTime = getRealAvgProcessingTime(setupResult, queueName);
+                                            JsonObject statistics = new JsonObject()
+                                                    .put("totalMessages", messageCount)
+                                                    .put("activeConsumers", consumerCount)
+                                                    .put("messagesPerSecond", messageRate)
+                                                    .put("avgProcessingTimeMs", avgProcessingTime);
+                                            return new JsonObject()
+                                                    .put("setupId", setupId)
+                                                    .put("setup", setupId)
+                                                    .put("queueName", queueName)
+                                                    .put("name", queueName)
+                                                    .put("type", factory.getImplementationType())
+                                                    .put("implementationType", factory.getImplementationType())
+                                                    .put("status", factory.isHealthy() ? "active" : "error")
+                                                    .put("messageCount", messageCount)
+                                                    .put("messages", messageCount)
+                                                    .put("consumerCount", consumerCount)
+                                                    .put("consumers", consumerCount)
+                                                    .put("messageRate", messageRate)
+                                                    .put("errorRate", 0.0)
+                                                    .put("statistics", statistics)
+                                                    .put("createdAt", setupResult.getCreatedAt())
+                                                    .put("updatedAt", Instant.now().toString());
+                                        })));
                     }
                     if (queueFutures.isEmpty()) {
                         return Future.succeededFuture(new JsonArray());
@@ -1683,28 +1691,33 @@ public class ManagementApiHandler {
                     }
 
                     getRealConsumerCount(setupResult, queueName)
-                            .onSuccess(consumerCount -> {
-                                long messageCount = getRealMessageCount(setupResult, queueName);
-                                double messageRate = getRealMessageRate(setupResult, queueName);
-                                double avgProcessingTime = getRealAvgProcessingTime(setupResult, queueName);
+                            .compose(consumerCount ->
+                                queueFactory.countMessagesAsync(queueName)
+                                    .otherwise(0L)
+                                    .map(messageCount -> {
+                                        double messageRate = getRealMessageRate(setupResult, queueName);
+                                        double avgProcessingTime = getRealAvgProcessingTime(setupResult, queueName);
 
-                                JsonObject statistics = new JsonObject()
-                                        .put("totalMessages", messageCount)
-                                        .put("activeConsumers", consumerCount)
-                                        .put("messagesPerSecond", messageRate)
-                                        .put("avgProcessingTimeMs", avgProcessingTime);
+                                        JsonObject statistics = new JsonObject()
+                                                .put("totalMessages", messageCount)
+                                                .put("activeConsumers", consumerCount)
+                                                .put("messagesPerSecond", messageRate)
+                                                .put("avgProcessingTimeMs", avgProcessingTime);
 
-                                JsonObject queueDetails = new JsonObject()
-                                        .put("name", queueName)
-                                        .put("setup", setupId)
-                                        .put("implementationType", queueFactory.getImplementationType())
-                                        .put("status", queueFactory.isHealthy() ? "active" : "error")
-                                        .put("statistics", statistics)
-                                        .put("durability", "durable")
-                                        .put("autoDelete", false)
-                                        .put("createdAt", setupResult.getCreatedAt())
-                                        .put("lastActivity", Instant.now().toString());
-
+                                        return new JsonObject()
+                                                .put("name", queueName)
+                                                .put("setup", setupId)
+                                                .put("implementationType", queueFactory.getImplementationType())
+                                                .put("status", queueFactory.isHealthy() ? "active" : "error")
+                                                .put("messages", messageCount)
+                                                .put("consumers", consumerCount)
+                                                .put("statistics", statistics)
+                                                .put("durability", "durable")
+                                                .put("autoDelete", false)
+                                                .put("createdAt", setupResult.getCreatedAt())
+                                                .put("lastActivity", Instant.now().toString());
+                                    }))
+                            .onSuccess(queueDetails -> {
                                 ctx.response()
                                         .setStatusCode(200)
                                         .putHeader("content-type", "application/json")

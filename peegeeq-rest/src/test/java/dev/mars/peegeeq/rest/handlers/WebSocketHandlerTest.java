@@ -297,10 +297,11 @@ class WebSocketHandlerTest {
                     });
                 });
 
-                // Set a timeout to complete if no subscription confirmation
+                // Fail the test if the expected 'subscribed' response never arrives.
                 vertx.setTimer(5000, id -> {
                     ws.close();
-                    testContext.completeNow();
+                    testContext.failNow(new AssertionError(
+                        "WebSocket subscription confirmation not received within 5 s"));
                 });
 
                 ws.exceptionHandler(err -> {
@@ -352,10 +353,11 @@ class WebSocketHandlerTest {
                     });
                 });
 
-                // Set a timeout to complete if no configuration confirmation
+                // Fail the test if the expected 'configured' response never arrives.
                 vertx.setTimer(5000, id -> {
                     ws.close();
-                    testContext.completeNow();
+                    testContext.failNow(new AssertionError(
+                        "WebSocket configuration confirmation not received within 5 s"));
                 });
 
                 ws.exceptionHandler(err -> {

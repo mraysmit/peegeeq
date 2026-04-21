@@ -1119,15 +1119,16 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
             return Future.succeededFuture();
         }
 
-        Set<String> setupIds = new HashSet<>(activeSetups.keySet());
-        List<Future<Void>> destroyFutures = setupIds.stream()
-                .map(setupId -> destroySetup(setupId)
+        // Close each active manager to cancel background timers and release pool connections.
+        // Do NOT call destroySetup() here — that would drop test databases, which must only
+        // happen via an explicit destroySetup() call (e.g. from integration test teardown).
+        List<Future<Void>> closeFutures = new ArrayList<>(activeManagers.values()).stream()
+                .map(manager -> manager.closeReactive()
                         .onFailure(error ->
-                            logger.warn("Failed to destroy setup '{}' during service close: {}", setupId,
-                                    error.getMessage())))
+                            logger.warn("Failed to close manager during service close: {}", error.getMessage())))
                 .toList();
 
-        return Future.join(destroyFutures)
+        return Future.join(closeFutures)
                 .transform(ar -> Future.<Void>succeededFuture())
                 .compose(v -> setupWorkerExecutor.close())
                 .compose(v -> {

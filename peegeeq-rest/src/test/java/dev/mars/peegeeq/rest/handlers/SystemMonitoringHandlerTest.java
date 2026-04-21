@@ -295,7 +295,8 @@ class SystemMonitoringHandlerTest {
                     if (!metricsReceived.get()) {
                         logger.warn("Metrics not received within timeout");
                         ws.close();
-                        testContext.completeNow();
+                        testContext.failNow(new AssertionError(
+                            "WebSocket monitoring: no system_stats message received within 10 s"));
                     }
                 });
 
@@ -505,7 +506,8 @@ class SystemMonitoringHandlerTest {
                     if (!connectedEventReceived.get()) {
                         logger.warn("Connected event not received within timeout");
                         sseClient.close();
-                        testContext.completeNow();
+                        testContext.failNow(new AssertionError(
+                            "SSE metrics: 'connected' event not received within 5 s"));
                     }
                 });
             }))
@@ -554,7 +556,8 @@ class SystemMonitoringHandlerTest {
                     if (!metricsEventReceived.get()) {
                         logger.warn("Metrics event not received within timeout");
                         sseClient.close();
-                        testContext.completeNow();
+                        testContext.failNow(new AssertionError(
+                            "SSE metrics: 'metrics' event not received within 10 s"));
                     }
                 });
             }))

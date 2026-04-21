@@ -609,7 +609,7 @@ public class EventStoreHandler {
         private String id;
         private String eventType;
         private Object eventData;
-        @com.fasterxml.jackson.annotation.JsonProperty("validTime")
+        @com.fasterxml.jackson.annotation.JsonProperty("validFrom")
         private Instant validFrom;
         private Instant validTo;
         private Instant transactionTime;

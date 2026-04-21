@@ -20,8 +20,8 @@
 --     Monitor autovacuum and dead tuples on outbox_topic_subscriptions at higher scale.
 
 ALTER TABLE outbox_topic_subscriptions
-    ADD COLUMN consecutive_misses INTEGER NOT NULL DEFAULT 0,
-    ADD COLUMN dead_after_misses INTEGER NOT NULL DEFAULT 3;
+    ADD COLUMN IF NOT EXISTS consecutive_misses INTEGER NOT NULL DEFAULT 0,
+    ADD COLUMN IF NOT EXISTS dead_after_misses INTEGER NOT NULL DEFAULT 3;
 
 COMMENT ON COLUMN outbox_topic_subscriptions.consecutive_misses IS
     'Number of consecutive detection cycles where the heartbeat was expired. Reset to 0 on heartbeat or resubscription.';
