@@ -141,23 +141,23 @@ class ConsumerModeResourceManagementTest {
             AtomicInteger messageCount = new AtomicInteger(0);
             Checkpoint messagesReceived = testContext.checkpoint(3);
 
+            List<Future<?>> subscribeFutures = new ArrayList<>();
             for (int i = 0; i < consumers.size(); i++) {
-                consumers.get(i).subscribe(message -> {
+                subscribeFutures.add(consumers.get(i).subscribe(message -> {
                     messageCount.incrementAndGet();
                     messagesReceived.flag();
                     return Future.succeededFuture();
-                });
+                }));
             }
 
-            // Wait for consumer setup, then send
-            vertx.setTimer(1000, id -> {
+            Future.all(subscribeFutures).onSuccess(ignored -> {
                 io.vertx.core.Future<Void> chain = Future.succeededFuture();
                 for (int i = 0; i < producers.size(); i++) {
                     final int idx = i;
                     chain = chain.compose(v -> producers.get(idx).send("Test message " + idx));
                 }
                 chain.onFailure(testContext::failNow);
-            });
+            }).onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive all messages across different consumer modes");
             assertEquals(3, messageCount.get(), "Should process exactly 3 messages");
@@ -194,16 +194,16 @@ class ConsumerModeResourceManagementTest {
             AtomicInteger messageCount = new AtomicInteger(0);
             Checkpoint messagesReceived = testContext.checkpoint(3);
 
+            List<Future<?>> subscribeFutures = new ArrayList<>();
             for (int i = 0; i < pollingConsumers.size(); i++) {
-                pollingConsumers.get(i).subscribe(message -> {
+                subscribeFutures.add(pollingConsumers.get(i).subscribe(message -> {
                     messageCount.incrementAndGet();
                     messagesReceived.flag();
                     return Future.succeededFuture();
-                });
+                }));
             }
 
-            // Wait for polling setup, then send
-            vertx.setTimer(1000, id -> {
+            Future.all(subscribeFutures).onSuccess(ignored -> {
                 MessageProducer<String> producer = factory.createProducer(topicName + "-0", String.class);
                 MessageProducer<String> producer2 = factory.createProducer(topicName + "-1", String.class);
                 MessageProducer<String> producer3 = factory.createProducer(topicName + "-2", String.class);
@@ -218,7 +218,7 @@ class ConsumerModeResourceManagementTest {
                         return Future.succeededFuture();
                     })
                     .onFailure(testContext::failNow);
-            });
+            }).onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive messages via polling mechanism");
             assertEquals(3, messageCount.get(), "Should process exactly 3 messages");
@@ -247,17 +247,16 @@ class ConsumerModeResourceManagementTest {
                 processedCount.incrementAndGet();
                 messagesReceived.flag();
                 return Future.succeededFuture();
-            });
-
-            // Wait for consumer setup, then send
-            vertx.setTimer(500, id -> {
+            })
+            .onSuccess(ignored -> {
                 io.vertx.core.Future<Void> chain = Future.succeededFuture();
                 for (int i = 0; i < 10; i++) {
                     final int msgNum = i;
                     chain = chain.compose(v -> producer.send("Memory test message " + msgNum));
                 }
                 chain.onFailure(testContext::failNow);
-            });
+            })
+            .onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should process all messages without memory issues");
             assertEquals(10, processedCount.get(), "Should process exactly 10 messages");
@@ -285,14 +284,11 @@ class ConsumerModeResourceManagementTest {
                 processedCount.incrementAndGet();
                 messagesProcessed.flag();
                 return Future.succeededFuture();
-            });
-
-            // Wait for consumer setup, then send
-            vertx.setTimer(500, id -> {
-                producer.send("Shutdown test message 1")
+            })
+            .onSuccess(ignored -> producer.send("Shutdown test message 1")
                     .compose(v -> producer.send("Shutdown test message 2"))
-                    .onFailure(testContext::failNow);
-            });
+                    .onFailure(testContext::failNow))
+            .onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process messages before shutdown");
             assertEquals(2, processedCount.get(), "Should process exactly 2 messages");

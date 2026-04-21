@@ -146,17 +146,14 @@ class ConsumerModeFailureTest {
                     normalMessages.flag();
                     return Future.succeededFuture();
                 }
-            });
-
-            // Wait for consumer setup, then send
-            vertx.setTimer(500, id -> {
-                producer.send("Normal message 1")
+            })
+            .onSuccess(ignored -> producer.send("Normal message 1")
                     .compose(v -> producer.send("Message with exception"))
                     .compose(v -> producer.send("Normal message 2"))
                     .compose(v -> producer.send("Another exception message"))
                     .compose(v -> producer.send("Normal message 3"))
-                    .onFailure(testContext::failNow);
-            });
+                    .onFailure(testContext::failNow))
+            .onFailure(testContext::failNow);
 
             // Wait for message processing (longer timeout to account for retries)
             assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Should process non-exception messages successfully");
@@ -197,27 +194,24 @@ class ConsumerModeFailureTest {
             AtomicInteger consumer2Count = new AtomicInteger(0);
             Checkpoint messagesProcessed = testContext.checkpoint(2);
 
-            consumer1.subscribe(message -> {
-                consumer1Count.incrementAndGet();
-                logger.info("📨 Consumer 1 received message: {}", message.getPayload());
-                messagesProcessed.flag();
-                return Future.succeededFuture();
-            });
-
-            consumer2.subscribe(message -> {
-                consumer2Count.incrementAndGet();
-                logger.info("📨 Consumer 2 received message: {}", message.getPayload());
-                messagesProcessed.flag();
-                return Future.succeededFuture();
-            });
-
-            // Wait for consumer setup, then send
-            vertx.setTimer(1000, id -> {
-                producer.send("Collision test message 1")
+            Future.all(
+                consumer1.subscribe(message -> {
+                    consumer1Count.incrementAndGet();
+                    logger.info("📨 Consumer 1 received message: {}", message.getPayload());
+                    messagesProcessed.flag();
+                    return Future.succeededFuture();
+                }),
+                consumer2.subscribe(message -> {
+                    consumer2Count.incrementAndGet();
+                    logger.info("📨 Consumer 2 received message: {}", message.getPayload());
+                    messagesProcessed.flag();
+                    return Future.succeededFuture();
+                })
+            ).onSuccess(ignored -> producer.send("Collision test message 1")
                     .compose(v -> producer.send("Collision test message 2"))
                     .compose(v -> producer.send("Collision test message 3"))
-                    .onFailure(testContext::failNow);
-            });
+                    .onFailure(testContext::failNow))
+            .onFailure(testContext::failNow);
 
             // Wait for message processing
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should process messages despite channel name collision");
@@ -256,15 +250,12 @@ class ConsumerModeFailureTest {
                 logger.info("📨 Processed message during partial failure test: {}", message.getPayload());
                 messagesReceived.flag();
                 return Future.succeededFuture();
-            });
-
-            // Wait for consumer setup, then send
-            vertx.setTimer(1000, id -> {
-                producer.send("Recovery test message 1")
+            })
+            .onSuccess(ignored -> producer.send("Recovery test message 1")
                     .compose(v -> producer.send("Recovery test message 2"))
                     .compose(v -> producer.send("Recovery test message 3"))
-                    .onFailure(testContext::failNow);
-            });
+                    .onFailure(testContext::failNow))
+            .onFailure(testContext::failNow);
 
             // Wait for message processing
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should process messages even with potential partial failures");
@@ -300,19 +291,13 @@ class ConsumerModeFailureTest {
                 logger.info("📨 Processed message during recovery test: {}", message.getPayload());
                 messagesReceived.flag();
                 return Future.succeededFuture();
-            });
-
-            // Wait for consumer setup, send first message
-            vertx.setTimer(500, id -> {
-                producer.send("Before failure message")
-                    .onFailure(testContext::failNow);
-
+            })
+            .onSuccess(ignored -> {
+                producer.send("Before failure message").onFailure(testContext::failNow);
                 // Send second message after a delay to simulate recovery
-                vertx.setTimer(2000, id2 -> {
-                    producer.send("After recovery message")
-                        .onFailure(testContext::failNow);
-                });
-            });
+                vertx.setTimer(2000, id2 -> producer.send("After recovery message").onFailure(testContext::failNow));
+            })
+            .onFailure(testContext::failNow);
 
             // Wait for message processing
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Should recover and process messages after temporary failure");
@@ -348,17 +333,16 @@ class ConsumerModeFailureTest {
                 logger.debug("📨 Processed load test message {}: {}", count, message.getPayload());
                 messagesReceived.flag();
                 return Future.succeededFuture();
-            });
-
-            // Wait for consumer setup, then send
-            vertx.setTimer(500, id -> {
+            })
+            .onSuccess(ignored -> {
                 Future<Void> chain = Future.succeededFuture();
                 for (int i = 1; i <= 10; i++) {
                     final int idx = i;
                     chain = chain.compose(v -> producer.send("Load test message " + idx));
                 }
                 chain.onFailure(testContext::failNow);
-            });
+            })
+            .onFailure(testContext::failNow);
 
             // Wait for message processing
             assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Should handle moderate load without failures");
