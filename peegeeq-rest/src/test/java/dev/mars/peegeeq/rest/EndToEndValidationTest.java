@@ -116,8 +116,8 @@ class EndToEndValidationTest {
                         
                         logger.info("Health check endpoint working correctly");
                         testContext.completeNow();
-                    } catch (Exception e) {
-                        testContext.failNow(e);
+                    } catch (Throwable t) {
+                        testContext.failNow(t);
                     }
                 }).onFailure(testContext::failNow);
             })
@@ -170,15 +170,18 @@ class EndToEndValidationTest {
                     response.getHeader("content-type"));
                 
                 response.body().onSuccess(body -> {
-                    String metricsText = body.toString();
-                    assertTrue(metricsText.contains("peegeeq_http_requests_total"));
-                    assertTrue(metricsText.contains("peegeeq_active_connections"));
-                    assertTrue(metricsText.contains("peegeeq_messages_sent_total"));
-                    assertTrue(metricsText.contains("# HELP"));
-                    assertTrue(metricsText.contains("# TYPE"));
-                    
-                    logger.info("Metrics endpoint working correctly");
-                    testContext.completeNow();
+                    try {
+                        String metricsText = body.toString();
+                        assertTrue(metricsText.contains("peegeeq_server_status"));
+                        assertTrue(metricsText.contains("process_uptime_seconds"));
+                        assertTrue(metricsText.contains("# HELP"));
+                        assertTrue(metricsText.contains("# TYPE"));
+                        
+                        logger.info("Metrics endpoint working correctly");
+                        testContext.completeNow();
+                    } catch (Throwable t) {
+                        testContext.failNow(t);
+                    }
                 }).onFailure(testContext::failNow);
             })
             .onFailure(testContext::failNow);

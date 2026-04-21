@@ -1018,9 +1018,9 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                         String events = sseData.toString();
                         logger.warn("No 'configured' event received from SSE stream within 10 seconds");
                         logger.info("SSE data received: {}", events.substring(0, Math.min(500, events.length())));
-                        logger.info("✓ Test completed (SSE stream may not have sent configured event)");
                         if (testCompleted.compareAndSet(false, true)) {
-                            testContext.completeNow();
+                            testContext.failNow(new AssertionError(
+                                "SSE subscription: 'configured' event not received within 10 s"));
                         }
                     }
                 });

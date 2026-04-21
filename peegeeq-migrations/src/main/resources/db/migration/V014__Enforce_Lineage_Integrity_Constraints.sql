@@ -21,33 +21,39 @@
 -- The UNIQUE constraint implicitly creates a unique B-tree index on
 -- event_id, so the old non-unique idx_bitemporal_event_id is redundant.
 
-ALTER TABLE bitemporal_event_log
-    ADD CONSTRAINT uq_bitemporal_event_id UNIQUE (event_id);
+DO $$
+BEGIN
+    IF to_regclass(current_schema() || '.bitemporal_event_log') IS NOT NULL THEN
 
-DROP INDEX IF EXISTS idx_bitemporal_event_id;
+        -- 1. event_id uniqueness
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint c
+            JOIN pg_class t ON c.conrelid = t.oid
+            WHERE t.relname = 'bitemporal_event_log' AND c.conname = 'uq_bitemporal_event_id'
+        ) THEN
+            EXECUTE 'ALTER TABLE bitemporal_event_log ADD CONSTRAINT uq_bitemporal_event_id UNIQUE (event_id)';
+        END IF;
 
--- ── 2. Self-referential FK ──────────────────────────────────────────────
--- previous_version_id must reference an existing event_id when set.
--- ON DELETE RESTRICT: deleting an event that has successors is forbidden
--- (append-only log — rows are never deleted in normal operation, and if
--- administrative purge is needed it must walk the chain leaf-first).
+        DROP INDEX IF EXISTS idx_bitemporal_event_id;
 
-ALTER TABLE bitemporal_event_log
-    ADD CONSTRAINT fk_bitemporal_previous_version
-    FOREIGN KEY (previous_version_id) REFERENCES bitemporal_event_log(event_id)
-    ON DELETE RESTRICT;
+        -- 2. Self-referential FK
+        IF NOT EXISTS (
+            SELECT 1 FROM pg_constraint c
+            JOIN pg_class t ON c.conrelid = t.oid
+            WHERE t.relname = 'bitemporal_event_log' AND c.conname = 'fk_bitemporal_previous_version'
+        ) THEN
+            EXECUTE 'ALTER TABLE bitemporal_event_log
+                ADD CONSTRAINT fk_bitemporal_previous_version
+                FOREIGN KEY (previous_version_id) REFERENCES bitemporal_event_log(event_id)
+                ON DELETE RESTRICT';
+        END IF;
 
--- ── 3. Fork prevention ─────────────────────────────────────────────────
--- At most one event may claim a given previous_version_id. This ensures
--- the correction chain is strictly linear (no branching).
--- The partial WHERE clause excludes NULLs — root events (version 1) have
--- previous_version_id IS NULL and are not subject to this constraint.
---
--- This supersedes idx_bitemporal_corrections from V001 (same column,
--- same WHERE filter, but now unique).
+        -- 3. Fork prevention
+        EXECUTE 'CREATE UNIQUE INDEX IF NOT EXISTS idx_bitemporal_no_fork
+            ON bitemporal_event_log(previous_version_id)
+            WHERE previous_version_id IS NOT NULL';
 
-CREATE UNIQUE INDEX idx_bitemporal_no_fork
-    ON bitemporal_event_log(previous_version_id)
-    WHERE previous_version_id IS NOT NULL;
+        DROP INDEX IF EXISTS idx_bitemporal_corrections;
 
-DROP INDEX IF EXISTS idx_bitemporal_corrections;
+    END IF;
+END $$;

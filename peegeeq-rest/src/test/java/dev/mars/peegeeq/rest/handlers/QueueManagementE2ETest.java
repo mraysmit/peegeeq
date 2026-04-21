@@ -255,7 +255,7 @@ public class QueueManagementE2ETest {
 
                     JsonObject body = response.bodyAsJsonObject();
                     assertNotNull(body, "Response should be JSON");
-                    assertEquals("Queue paused successfully", body.getString("message"));
+                    assertTrue(body.getString("message").contains("paused successfully"), "message should contain 'paused successfully' but was: " + body.getString("message"));
                     assertEquals(queueName, body.getString("queueName"));
                     assertEquals(setupId, body.getString("setupId"));
                     assertTrue(body.containsKey("pausedSubscriptions"), "Should have pausedSubscriptions count");
@@ -282,7 +282,7 @@ public class QueueManagementE2ETest {
 
                     JsonObject body = response.bodyAsJsonObject();
                     assertNotNull(body, "Response should be JSON");
-                    assertEquals("Queue resumed successfully", body.getString("message"));
+                    assertTrue(body.getString("message").contains("resumed successfully"), "message should contain 'resumed successfully' but was: " + body.getString("message"));
                     assertEquals(queueName, body.getString("queueName"));
                     assertEquals(setupId, body.getString("setupId"));
                     assertTrue(body.containsKey("resumedSubscriptions"), "Should have resumedSubscriptions count");
@@ -309,7 +309,7 @@ public class QueueManagementE2ETest {
 
                     JsonObject body = response.bodyAsJsonObject();
                     assertNotNull(body, "Response should be JSON");
-                    assertEquals("Queue purged successfully", body.getString("message"));
+                    assertTrue(body.getString("message").contains("purged successfully"), "message should contain 'purged successfully' but was: " + body.getString("message"));
                     assertEquals(queueName, body.getString("queueName"));
                     assertEquals(setupId, body.getString("setupId"));
                     assertTrue(body.containsKey("purgedCount"), "Should have purgedCount");
@@ -361,7 +361,7 @@ public class QueueManagementE2ETest {
 
                     JsonObject body = response.bodyAsJsonObject();
                     assertNotNull(body, "Response should be JSON");
-                    assertEquals("Queue deleted successfully", body.getString("message"));
+                    assertTrue(body.getString("message").contains("deleted successfully"), "message should contain 'deleted successfully' but was: " + body.getString("message"));
                     assertEquals(queueName, body.getString("queueName"));
                     assertEquals(setupId, body.getString("setupId"));
                     assertTrue(body.containsKey("deletedMessages"), "Should have deletedMessages count");

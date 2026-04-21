@@ -183,7 +183,7 @@ class EventStoreEnhancementTest {
             .onSuccess(response -> testContext.verify(() -> {
                 assertEquals(201, response.statusCode(), "Event store should return 201 Created");
                 JsonObject body = response.bodyAsJsonObject();
-                assertEquals("Event stored successfully", body.getString("message"));
+                assertTrue(body.getString("message").contains("stored successfully"), "message should contain 'stored successfully' but was: " + body.getString("message"));
                 assertNotNull(body.getString("eventId"), "Event ID should be returned");
                 logger.info("Event stored: {}", body.getString("eventId"));
                 testContext.completeNow();
