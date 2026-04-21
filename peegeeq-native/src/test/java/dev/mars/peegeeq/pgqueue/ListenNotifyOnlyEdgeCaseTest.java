@@ -181,12 +181,9 @@ class ListenNotifyOnlyEdgeCaseTest {
             receivedMessage.set(message.getPayload());
             messageReceived.flag();
             return Future.succeededFuture();
-        });
-
-        // Wait for LISTEN setup, then send
-        vertx.setTimer(1000, id -> {
-            producer.send("Special characters test message");
-        });
+        })
+        .onSuccess(ignored -> producer.send("Special characters test message"))
+        .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS),
             "Should receive message even with special characters in topic name");
@@ -224,12 +221,9 @@ class ListenNotifyOnlyEdgeCaseTest {
             receivedMessage.set(message.getPayload());
             messageReceived.flag();
             return Future.succeededFuture();
-        });
-
-        // Wait for LISTEN setup, then send
-        vertx.setTimer(1000, id -> {
-            producer.send(largePayload);
-        });
+        })
+        .onSuccess(ignored -> producer.send(largePayload))
+        .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
             "Should receive large message via LISTEN_NOTIFY_ONLY mode");
@@ -255,21 +249,18 @@ class ListenNotifyOnlyEdgeCaseTest {
         AtomicInteger messageCount = new AtomicInteger(0);
         Checkpoint messagesReceived = testContext.checkpoint(10);
 
-        consumer.subscribe(message -> {
-            int count = messageCount.incrementAndGet();
-            logger.info("📨 Received concurrent message {}: {}", count, message.getPayload());
-            messagesReceived.flag();
-            return Future.succeededFuture();
-        });
-
-        // Create producers up front so they share the manager's Vert.x context
         List<MessageProducer<String>> producers = new ArrayList<>();
         for (int i = 0; i < 5; i++) {
             producers.add(factory.createProducer(topicName, String.class));
         }
 
-        // Wait for LISTEN setup, then fire sends reactively on the event loop
-        vertx.setTimer(1000, id -> {
+        consumer.subscribe(message -> {
+            int count = messageCount.incrementAndGet();
+            logger.info("📨 Received concurrent message {}: {}", count, message.getPayload());
+            messagesReceived.flag();
+            return Future.succeededFuture();
+        })
+        .onSuccess(ignored -> {
             for (int i = 0; i < 5; i++) {
                 final int producerId = i;
                 MessageProducer<String> producer = producers.get(producerId);
@@ -277,7 +268,8 @@ class ListenNotifyOnlyEdgeCaseTest {
                     .compose(v -> producer.send("Message from producer " + producerId + " - msg 2"))
                     .onFailure(testContext::failNow);
             }
-        });
+        })
+        .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS),
             "Should receive all 10 messages from concurrent producers");
@@ -317,24 +309,21 @@ class ListenNotifyOnlyEdgeCaseTest {
                 promise.complete();
             });
             return promise.future();
-        });
-
-        // Wait for LISTEN setup, send message, then close during processing
-        vertx.setTimer(1000, id -> {
+        })
+        .onSuccess(ignored -> {
             producer.send("Message for shutdown test");
-
             // Give time for message to arrive and processing to start
             vertx.setTimer(1000, id2 -> {
                 logger.info("🔄 Closing consumer during message processing");
                 consumer.close();
                 producer.close();
-
                 testContext.verify(() -> {
                     assertTrue(processedCount.get() >= 0, "Should handle shutdown gracefully");
                 });
                 testComplete.flag();
             });
-        });
+        })
+        .onFailure(testContext::failNow);
 
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
         logger.info("LISTEN_NOTIFY_ONLY handles shutdown during processing gracefully");

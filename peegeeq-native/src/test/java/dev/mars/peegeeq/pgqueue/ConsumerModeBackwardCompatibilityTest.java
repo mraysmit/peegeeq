@@ -135,15 +135,12 @@ class ConsumerModeBackwardCompatibilityTest {
                 logger.info("📨 Legacy API processed message: {}", message.getPayload());
                 messagesReceived.flag();
                 return Future.succeededFuture();
-            });
-
-            // Wait for consumer setup, then send
-            vertx.setTimer(1000, id -> {
-                producer.send("Legacy message 1")
+            })
+            .onSuccess(ignored -> producer.send("Legacy message 1")
                     .compose(v -> producer.send("Legacy message 2"))
                     .compose(v -> producer.send("Legacy message 3"))
-                    .onFailure(testContext::failNow);
-            });
+                    .onFailure(testContext::failNow))
+            .onFailure(testContext::failNow);
 
             // Wait for message processing
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Legacy API should process messages successfully");
@@ -181,28 +178,25 @@ class ConsumerModeBackwardCompatibilityTest {
             AtomicInteger newCount = new AtomicInteger(0);
             Checkpoint messagesReceived = testContext.checkpoint(4); // 2 messages each
 
-            legacyConsumer.subscribe(message -> {
-                legacyCount.incrementAndGet();
-                logger.info("📨 Legacy consumer processed: {}", message.getPayload());
-                messagesReceived.flag();
-                return Future.succeededFuture();
-            });
-
-            newConsumer.subscribe(message -> {
-                newCount.incrementAndGet();
-                logger.info("📨 New consumer processed: {}", message.getPayload());
-                messagesReceived.flag();
-                return Future.succeededFuture();
-            });
-
-            // Wait for consumer setup, then send
-            vertx.setTimer(1000, id -> {
-                legacyProducer.send("Mixed legacy message 1")
+            Future.all(
+                legacyConsumer.subscribe(message -> {
+                    legacyCount.incrementAndGet();
+                    logger.info("📨 Legacy consumer processed: {}", message.getPayload());
+                    messagesReceived.flag();
+                    return Future.succeededFuture();
+                }),
+                newConsumer.subscribe(message -> {
+                    newCount.incrementAndGet();
+                    logger.info("📨 New consumer processed: {}", message.getPayload());
+                    messagesReceived.flag();
+                    return Future.succeededFuture();
+                })
+            ).onSuccess(ignored -> legacyProducer.send("Mixed legacy message 1")
                     .compose(v -> newProducer.send("Mixed new message 1"))
                     .compose(v -> legacyProducer.send("Mixed legacy message 2"))
                     .compose(v -> newProducer.send("Mixed new message 2"))
-                    .onFailure(testContext::failNow);
-            });
+                    .onFailure(testContext::failNow))
+            .onFailure(testContext::failNow);
 
             // Wait for message processing
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Mixed API usage should process all messages");
@@ -243,28 +237,25 @@ class ConsumerModeBackwardCompatibilityTest {
             AtomicInteger hybridCount = new AtomicInteger(0);
             Checkpoint messagesReceived = testContext.checkpoint(4); // 2 messages each
 
-            legacyConsumer.subscribe(message -> {
-                legacyCount.incrementAndGet();
-                logger.info("📨 Legacy default processed: {}", message.getPayload());
-                messagesReceived.flag();
-                return Future.succeededFuture();
-            });
-
-            hybridConsumer.subscribe(message -> {
-                hybridCount.incrementAndGet();
-                logger.info("📨 Explicit HYBRID processed: {}", message.getPayload());
-                messagesReceived.flag();
-                return Future.succeededFuture();
-            });
-
-            // Wait for consumer setup, then send
-            vertx.setTimer(1000, id -> {
-                legacyProducer.send("Legacy default message 1")
+            Future.all(
+                legacyConsumer.subscribe(message -> {
+                    legacyCount.incrementAndGet();
+                    logger.info("📨 Legacy default processed: {}", message.getPayload());
+                    messagesReceived.flag();
+                    return Future.succeededFuture();
+                }),
+                hybridConsumer.subscribe(message -> {
+                    hybridCount.incrementAndGet();
+                    logger.info("📨 Explicit HYBRID processed: {}", message.getPayload());
+                    messagesReceived.flag();
+                    return Future.succeededFuture();
+                })
+            ).onSuccess(ignored -> legacyProducer.send("Legacy default message 1")
                     .compose(v -> hybridProducer.send("Explicit hybrid message 1"))
                     .compose(v -> legacyProducer.send("Legacy default message 2"))
                     .compose(v -> hybridProducer.send("Explicit hybrid message 2"))
-                    .onFailure(testContext::failNow);
-            });
+                    .onFailure(testContext::failNow))
+            .onFailure(testContext::failNow);
 
             // Wait for message processing
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Both legacy and explicit HYBRID should process messages");
@@ -304,14 +295,11 @@ class ConsumerModeBackwardCompatibilityTest {
                 logger.info("📨 Legacy migration processed: {}", message.getPayload());
                 legacyMessages.flag();
                 return Future.succeededFuture();
-            });
-
-            // Wait for consumer setup, then send
-            vertx.setTimer(500, id -> {
-                producer.send("Migration message 1")
+            })
+            .onSuccess(ignored -> producer.send("Migration message 1")
                     .compose(v -> producer.send("Migration message 2"))
-                    .onFailure(testContext::failNow);
-            });
+                    .onFailure(testContext::failNow))
+            .onFailure(testContext::failNow);
 
             // Wait for processing
             assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Legacy consumer should process initial messages");
@@ -331,16 +319,11 @@ class ConsumerModeBackwardCompatibilityTest {
                 logger.info("📨 New API migration processed: {}", message.getPayload());
                 newMessages.flag();
                 return Future.succeededFuture();
-            });
-
-            // Wait for new consumer setup, then send
-            vertx.setTimer(500, id -> {
-                producer.send("Migration message 3")
+            })
+            .onSuccess(ignored -> producer.send("Migration message 3")
                     .compose(v -> producer.send("Migration message 4"))
-                    .onFailure(e -> {
-                        // Best effort - phase2 will timeout
-                    });
-            });
+                    .onFailure(e -> { /* Best effort - phase2 will timeout */ }))
+            .onFailure(phase2::failNow);
 
             // Wait for processing
             boolean newReceived = phase2.awaitCompletion(10, TimeUnit.SECONDS);
@@ -380,17 +363,16 @@ class ConsumerModeBackwardCompatibilityTest {
                 logger.debug("📨 Performance test processed: {}", message.getPayload());
                 messagesReceived.flag();
                 return Future.succeededFuture();
-            });
-
-            // Wait for consumer setup, then send
-            vertx.setTimer(500, id -> {
+            })
+            .onSuccess(ignored -> {
                 io.vertx.core.Future<Void> chain = Future.succeededFuture();
                 for (int i = 1; i <= 5; i++) {
                     final int msgNum = i;
                     chain = chain.compose(v -> producer.send("Performance message " + msgNum));
                 }
                 chain.onFailure(testContext::failNow);
-            });
+            })
+            .onFailure(testContext::failNow);
 
             // Wait for message processing
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Legacy API should handle performance test messages");

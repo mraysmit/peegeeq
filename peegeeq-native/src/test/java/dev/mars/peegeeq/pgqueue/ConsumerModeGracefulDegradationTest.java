@@ -168,14 +168,13 @@ class ConsumerModeGracefulDegradationTest {
                 logger.info("Processed message {}: {}", count, message.getPayload());
                 received.flag();
                 return Future.succeededFuture();
-            });
-
-            // Delay for consumer setup using Vert.x timer
-            vertx.setTimer(1000, id -> {
+            })
+            .onSuccess(ignored -> {
                 producer.send("Degradation test message 1");
                 producer.send("Degradation test message 2");
                 producer.send("Degradation test message 3");
-            });
+            })
+            .onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(25, TimeUnit.SECONDS), "Test timed out");
             logger.info("HYBRID mode degradation verified - processed: {} messages via polling fallback",
@@ -227,10 +226,8 @@ class ConsumerModeGracefulDegradationTest {
                 logger.info("Successfully processed message {}: {}", count, message.getPayload());
                 processed.flag();
                 return Future.succeededFuture();
-            });
-
-            // Delay for consumer setup, then send messages with periodic timer
-            vertx.setTimer(1000, setupId -> {
+            })
+            .onSuccess(ignored -> {
                 AtomicInteger sendIndex = new AtomicInteger(0);
                 vertx.setPeriodic(50, periodicId -> {
                     int i = sendIndex.incrementAndGet();
@@ -241,7 +238,8 @@ class ConsumerModeGracefulDegradationTest {
                         vertx.cancelTimer(periodicId);
                     }
                 });
-            });
+            })
+            .onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(35, TimeUnit.SECONDS), "Test timed out");
             assertTrue(processedCount.get() >= 10, "Should process at least 10 messages");
@@ -304,10 +302,8 @@ class ConsumerModeGracefulDegradationTest {
 
                 received.flag();
                 return Future.succeededFuture();
-            });
-
-            // Delay for consumer setup, then send messages in phases using Vert.x timers
-            vertx.setTimer(1000, setupId -> {
+            })
+            .onSuccess(ignored -> {
                 producer.send("Pre-degradation message 1");
                 producer.send("Pre-degradation message 2");
 
@@ -320,7 +316,8 @@ class ConsumerModeGracefulDegradationTest {
                         producer.send("Recovery message 6");
                     });
                 });
-            });
+            })
+            .onFailure(testContext::failNow);
 
             assertTrue(testContext.awaitCompletion(25, TimeUnit.SECONDS), "Test timed out");
             assertEquals(6, processedCount.get(), "Should process exactly 6 messages");

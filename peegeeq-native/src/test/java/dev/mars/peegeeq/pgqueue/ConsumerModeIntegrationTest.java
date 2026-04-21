@@ -124,7 +124,7 @@ public class ConsumerModeIntegrationTest {
 
         AtomicReference<String> receivedMessage = new AtomicReference<>();
 
-        // Subscribe to messages
+        // Subscribe and wait for LISTEN to be established, then send
         logger.info("About to call consumer.subscribe()");
         consumer.subscribe(message -> {
             logger.info("LISTEN_NOTIFY_ONLY: Message received: {}", message.getPayload());
@@ -134,16 +134,13 @@ public class ConsumerModeIntegrationTest {
             });
             testContext.completeNow();
             return Future.succeededFuture();
-        });
-        logger.info("consumer.subscribe() completed");
-
-        // Wait for LISTEN setup, then send
-        logger.info("Waiting for LISTEN setup via timer");
-        vertx.setTimer(1000, id -> {
+        })
+        .onSuccess(v -> {
             logger.info("LISTEN_NOTIFY_ONLY: Sending test message...");
             producer.send("Hello LISTEN_NOTIFY_ONLY!");
             logger.info("LISTEN_NOTIFY_ONLY: Message sent");
-        });
+        })
+        .onFailure(testContext::failNow);
 
         // Wait for message
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS), "Message should be received via LISTEN/NOTIFY");
