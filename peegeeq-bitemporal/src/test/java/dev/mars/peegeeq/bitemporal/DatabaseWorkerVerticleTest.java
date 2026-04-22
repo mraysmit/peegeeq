@@ -201,11 +201,12 @@ class DatabaseWorkerVerticleTest {
             .put("clientKey", "does-not-exist");
 
         logger.info("Sending append with instanceKey='does-not-exist' — expecting rejection");
+        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = append via event bus with unknown instanceKey/clientKey");
         Exception exception = assertThrows(Exception.class, () ->
             vertx.eventBus().<JsonObject>request(PgBiTemporalEventStore.databaseOperationAddress(tableName), message)
                 .map(msg -> msg.body())
                 .toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS));
-        logger.info("Received expected error: {}", exception.getMessage());
+        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected failure = {}", exception.getMessage());
         assertTrue(exception.getMessage().contains("Database pool not initialized"),
             "Expected missing pool error for unknown client key");
     }
@@ -283,11 +284,12 @@ class DatabaseWorkerVerticleTest {
             .put("aggregateId", "agg-ambiguous");
 
         logger.info("Sending append with clientKey='__default__' (ambiguous) — expecting rejection");
+        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = ambiguous legacy clientKey fallback across worker deployments");
         Exception exception = assertThrows(Exception.class, () ->
             vertx.eventBus().<JsonObject>request(PgBiTemporalEventStore.databaseOperationAddress(primaryTable), message)
                 .map(msg -> msg.body())
                 .toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS));
-        logger.info("Received expected error: {}", exception.getMessage());
+        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected failure = {}", exception.getMessage());
         assertTrue(exception.getMessage().contains("Database pool not initialized"),
             "Ambiguous legacy client-key fallback should be rejected");
     }

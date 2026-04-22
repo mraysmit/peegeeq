@@ -36,6 +36,8 @@ import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -70,6 +72,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 class VersionFamilyDefensiveTest {
+
+        private static final Logger logger = LoggerFactory.getLogger(VersionFamilyDefensiveTest.class);
 
     private static final String DATABASE_SCHEMA_PROPERTY = "peegeeq.database.schema";
 
@@ -805,11 +809,13 @@ class VersionFamilyDefensiveTest {
         Instant t = Instant.now();
         String fakeId = UUID.randomUUID().toString();
 
+        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = appendCorrection for non-existent event ID");
         eventStore.appendCorrection(fakeId, "NoSuchEvent",
                         new DefensiveEvent("x", "impossible", 0), t, "correcting nothing")
                 .onSuccess(result -> testContext.failNow(
                         "appendCorrection to non-existent event must fail, but succeeded with: " + result.getEventId()))
                 .onFailure(err -> testContext.verify(() -> {
+                    logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected non-existent event correction failure = {}", err.getMessage());
                     assertInstanceOf(IllegalArgumentException.class, err,
                             "Must fail with IllegalArgumentException, got: " + err.getClass().getName());
                     assertTrue(err.getMessage().contains("non-existent"),
@@ -826,12 +832,14 @@ class VersionFamilyDefensiveTest {
     void appendCorrectionNullReasonThrowsNpe(VertxTestContext testContext) throws Exception {
         Instant t = Instant.now();
 
+        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = appendCorrection invoked with null correctionReason");
         eventStore.appendBuilder()
                 .eventType("NullReasonTest").payload(new DefensiveEvent("r", "root", 1)).validTime(t).execute()
                 .compose(root -> {
                     assertThrows(NullPointerException.class,
                             () -> eventStore.appendCorrection(root.getEventId(), "NullReasonTest",
                                     new DefensiveEvent("c", "corr", 2), t, null));
+                    logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected NullPointerException for null correctionReason");
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
@@ -846,9 +854,11 @@ class VersionFamilyDefensiveTest {
     void appendCorrectionNullOriginalIdThrowsNpe(VertxTestContext testContext) throws Exception {
         Instant t = Instant.now();
 
+        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = appendCorrection invoked with null originalEventId");
         assertThrows(NullPointerException.class,
                 () -> eventStore.appendCorrection(null, "TestType",
                         new DefensiveEvent("c", "corr", 2), t, "some reason"));
+        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected NullPointerException for null originalEventId");
         testContext.completeNow();
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
@@ -858,8 +868,10 @@ class VersionFamilyDefensiveTest {
     @Test
     @DisplayName("getAsOfTransactionTime with null asOfTime throws NullPointerException")
     void getAsOfTransactionTimeWithNullTimeFails(VertxTestContext testContext) throws Exception {
+        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = getAsOfTransactionTime invoked with null asOfTime");
         assertThrows(NullPointerException.class,
                 () -> eventStore.getAsOfTransactionTime("any-id", null));
+        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected NullPointerException for null asOfTime");
         testContext.completeNow();
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));

@@ -36,6 +36,8 @@ import io.vertx.sqlclient.Pool;
 import io.vertx.sqlclient.SqlConnection;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -78,6 +80,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 class PgBiTemporalEventStoreComplexTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(PgBiTemporalEventStoreComplexTest.class);
 
     private static final String DATABASE_SCHEMA_PROPERTY = "peegeeq.database.schema";
     
@@ -2093,15 +2097,18 @@ class PgBiTemporalEventStoreComplexTest {
      */
     @Test
     void testAppendCorrectionNullOriginalEventIdFails(VertxTestContext testContext) throws Exception {
+        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = appendCorrection invoked with null originalEventId");
         try {
             eventStore.appendCorrection(null, "Type",
                     new TestEvent("x", "x", 1), Instant.now(), "reason")
                 .onSuccess(v -> testContext.failNow("Should have failed for null originalEventId"))
                 .onFailure(err -> testContext.verify(() -> {
+                    logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected NullPointerException for null originalEventId = {}", err.getMessage());
                     assertTrue(err instanceof NullPointerException);
                     testContext.completeNow();
                 }));
         } catch (NullPointerException e) {
+            logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected synchronous NullPointerException for null originalEventId = {}", e.getMessage());
             // Thrown synchronously — also acceptable
             testContext.completeNow();
         }
@@ -2120,6 +2127,7 @@ class PgBiTemporalEventStoreComplexTest {
     void testAppendCorrectionNullCorrectionReasonFails(VertxTestContext testContext) throws Exception {
         Instant validTime = Instant.now();
 
+        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = appendCorrection invoked with null correctionReason");
         eventStore.appendBuilder().eventType("NullReason")
             .payload(new TestEvent("x", "data", 1)).validTime(validTime).execute()
             .compose(original -> {
@@ -2132,6 +2140,7 @@ class PgBiTemporalEventStoreComplexTest {
             })
             .onSuccess(v -> testContext.failNow("Should have failed for null correctionReason"))
             .onFailure(err -> testContext.verify(() -> {
+                logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected NullPointerException for null correctionReason = {}", err.getMessage());
                 assertTrue(err instanceof NullPointerException);
                 testContext.completeNow();
             }));
@@ -2148,10 +2157,12 @@ class PgBiTemporalEventStoreComplexTest {
      */
     @Test
     void testAppendCorrectionNonExistentEventFails(VertxTestContext testContext) throws Exception {
+        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = appendCorrection for non-existent event ID");
         eventStore.appendCorrection("does-not-exist", "Type",
                 new TestEvent("x", "x", 1), Instant.now(), "reason")
             .onSuccess(v -> testContext.failNow("Should have failed for non-existent event"))
             .onFailure(err -> testContext.verify(() -> {
+                logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected non-existent event correction failure = {}", err.getMessage());
                 assertTrue(err instanceof IllegalArgumentException,
                     "Expected IllegalArgumentException but got: " + err.getClass().getName());
                 assertTrue(err.getMessage().contains("does-not-exist"));
@@ -2189,14 +2200,17 @@ class PgBiTemporalEventStoreComplexTest {
      */
     @Test
     void testGetAllVersionsNullIdFails(VertxTestContext testContext) throws Exception {
+        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = getAllVersions invoked with null ID");
         try {
             eventStore.getAllVersions(null)
                 .onSuccess(v -> testContext.failNow("Should have failed for null ID"))
                 .onFailure(err -> testContext.verify(() -> {
+                    logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected NullPointerException for null ID = {}", err.getMessage());
                     assertTrue(err instanceof NullPointerException);
                     testContext.completeNow();
                 }));
         } catch (NullPointerException e) {
+            logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected synchronous NullPointerException for null ID = {}", e.getMessage());
             testContext.completeNow();
         }
 
@@ -2244,6 +2258,8 @@ class PgBiTemporalEventStoreComplexTest {
             .onSuccess(events -> testContext.failNow(
                 "query() should have failed but returned " + events.size() + " events"))
             .onFailure(err -> testContext.verify(() -> {
+                logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = forced corrupted payload row for query() mapping");
+                logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected mapping failure from query() = {}", err.getMessage());
                 assertNotNull(err, "Expected a mapping error");
                 testContext.completeNow();
             }));
@@ -2300,6 +2316,8 @@ class PgBiTemporalEventStoreComplexTest {
             .onSuccess(events -> testContext.failNow(
                 "getAllVersions() should have failed but returned " + events.size() + " events"))
             .onFailure(err -> testContext.verify(() -> {
+                logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = forced corrupted correction payload for getAllVersions() mapping");
+                logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected mapping failure from getAllVersions() = {}", err.getMessage());
                 assertNotNull(err, "Expected a mapping error");
                 testContext.completeNow();
             }));

@@ -71,7 +71,7 @@ import static org.junit.jupiter.api.Assertions.*;
 public class PeeGeeQMetricsLogLevelTest {
 
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQMetricsLogLevelTest.class);
-    private static final String POSTGRES_IMAGE = "postgres:15.13-alpine3.20";
+    private static final String POSTGRES_IMAGE = PostgreSQLTestConstants.POSTGRES_IMAGE;
 
     @SuppressWarnings("resource")
     @Container

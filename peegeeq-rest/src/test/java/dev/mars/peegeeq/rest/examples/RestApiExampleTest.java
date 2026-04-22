@@ -1,5 +1,7 @@
 package dev.mars.peegeeq.rest.examples;
 
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
  *
@@ -59,7 +61,7 @@ public class RestApiExampleTest {
     static PostgreSQLContainer postgres = createPostgresContainer();
 
     private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
         container.withDatabaseName("peegeeq_rest_demo");
         container.withUsername("postgres");
         container.withPassword("password");

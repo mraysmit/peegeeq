@@ -1,6 +1,9 @@
 package dev.mars.peegeeq.test.containers;
 
 import org.testcontainers.postgresql.PostgreSQLContainer;
+
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -36,7 +39,7 @@ public class PeeGeeQTestContainerFactory {
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQTestContainerFactory.class);
     
     // Consistent image version across all tests
-    private static final String POSTGRES_IMAGE = "postgres:15.13-alpine3.20";
+    private static final String POSTGRES_IMAGE = PostgreSQLTestConstants.POSTGRES_IMAGE;
     
     // Standard database configuration
     private static final String DEFAULT_DATABASE_NAME = "peegeeq_test";

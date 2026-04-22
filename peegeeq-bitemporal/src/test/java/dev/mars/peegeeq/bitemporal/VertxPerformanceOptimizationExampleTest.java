@@ -123,19 +123,16 @@ public class VertxPerformanceOptimizationExampleTest {
     @Test
     void testOptimalSystemProperties(VertxTestContext testContext) {
         logger.info("=== Testing Optimal System Properties ===");
-        
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start()
-            .onSuccess(v -> testContext.verify(() -> {
-                OptimalPropertiesResult result = testOptimalSystemPropertiesPattern();
-                assertNotNull(result, "Optimal properties result should not be null");
-                assertTrue(result.poolMaxSize >= 100, "Pool max size should be at least 100");
-                assertTrue(result.waitQueueMultiplier >= 10, "Wait queue multiplier should be at least 10");
-                assertTrue(result.propertiesOptimized, "Properties should be optimized");
-                logger.info("Optimal system properties validated successfully");
-                testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+
+        testContext.verify(() -> {
+            OptimalPropertiesResult result = testOptimalSystemPropertiesPattern();
+            assertNotNull(result, "Optimal properties result should not be null");
+            assertTrue(result.poolMaxSize >= 100, "Pool max size should be at least 100");
+            assertTrue(result.waitQueueMultiplier >= 10, "Wait queue multiplier should be at least 10");
+            assertTrue(result.propertiesOptimized, "Properties should be optimized");
+            logger.info("Optimal system properties validated successfully");
+            testContext.completeNow();
+        });
     }
 
     /**
@@ -145,19 +142,16 @@ public class VertxPerformanceOptimizationExampleTest {
     @Test
     void testOptimizedVertxInstance(VertxTestContext testContext) {
         logger.info("=== Testing Optimized Vertx Instance ===");
-        
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start()
-            .onSuccess(v -> testContext.verify(() -> {
-                OptimizedVertxResult result = testOptimizedVertxInstancePattern();
-                assertNotNull(result, "Optimized Vertx result should not be null");
-                assertTrue(result.eventLoopThreads >= 1, "Event loop threads should be at least 1");
-                assertTrue(result.workerPoolSize >= 1, "Worker pool size should be at least 1");
-                assertTrue(result.pipelinedArchitecture, "Pipelined architecture should be enabled");
-                logger.info("Optimized Vertx instance validated successfully");
-                testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+
+        testContext.verify(() -> {
+            OptimizedVertxResult result = testOptimizedVertxInstancePattern();
+            assertNotNull(result, "Optimized Vertx result should not be null");
+            assertTrue(result.eventLoopThreads >= 1, "Event loop threads should be at least 1");
+            assertTrue(result.workerPoolSize >= 1, "Worker pool size should be at least 1");
+            assertTrue(result.pipelinedArchitecture, "Pipelined architecture should be enabled");
+            logger.info("Optimized Vertx instance validated successfully");
+            testContext.completeNow();
+        });
     }
 
     /**
@@ -167,18 +161,15 @@ public class VertxPerformanceOptimizationExampleTest {
     @Test
     void testPerformanceMonitoring(VertxTestContext testContext) {
         logger.info("=== Testing Performance Monitoring ===");
-        
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start()
-            .onSuccess(v -> testContext.verify(() -> {
-                PerformanceMonitoringResult result = testPerformanceMonitoringPattern();
-                assertNotNull(result, "Performance monitoring result should not be null");
-                assertTrue(result.metricsCollected >= 0, "Metrics collected should be non-negative");
-                assertTrue(result.monitoringActive, "Monitoring should be active");
-                logger.info("Performance monitoring validated successfully");
-                testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+
+        testContext.verify(() -> {
+            PerformanceMonitoringResult result = testPerformanceMonitoringPattern();
+            assertNotNull(result, "Performance monitoring result should not be null");
+            assertTrue(result.metricsCollected >= 0, "Metrics collected should be non-negative");
+            assertTrue(result.monitoringActive, "Monitoring should be active");
+            logger.info("Performance monitoring validated successfully");
+            testContext.completeNow();
+        });
     }
 
     /**
@@ -188,19 +179,16 @@ public class VertxPerformanceOptimizationExampleTest {
     @Test
     void testBatchOperations(VertxTestContext testContext) {
         logger.info("=== Testing Batch Operations ===");
-        
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start()
-            .onSuccess(v -> testContext.verify(() -> {
-                BatchOperationsResult result = testBatchOperationsPattern();
-                assertNotNull(result, "Batch operations result should not be null");
-                assertTrue(result.batchSize >= 0, "Batch size should be non-negative");
-                assertTrue(result.throughputImprovement > 0, "Throughput improvement should be positive");
-                assertTrue(result.batchOptimized, "Batch should be optimized");
-                logger.info("Batch operations validated successfully");
-                testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+
+        testContext.verify(() -> {
+            BatchOperationsResult result = testBatchOperationsPattern();
+            assertNotNull(result, "Batch operations result should not be null");
+            assertTrue(result.batchSize >= 0, "Batch size should be non-negative");
+            assertTrue(result.throughputImprovement > 0, "Throughput improvement should be positive");
+            assertTrue(result.batchOptimized, "Batch should be optimized");
+            logger.info("Batch operations validated successfully");
+            testContext.completeNow();
+        });
     }
 
 
@@ -211,19 +199,16 @@ public class VertxPerformanceOptimizationExampleTest {
     @Test
     void testEventLoopOptimization(VertxTestContext testContext) {
         logger.info("=== Testing Event Loop Optimization ===");
-        
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start()
-            .onSuccess(v -> testContext.verify(() -> {
-                EventLoopOptimizationResult result = testEventLoopOptimizationPattern();
-                assertNotNull(result, "Event loop optimization result should not be null");
-                assertTrue(result.eventLoopUtilization >= 0, "Event loop utilization should be non-negative");
-                assertTrue(result.workerPoolUtilization >= 0, "Worker pool utilization should be non-negative");
-                assertTrue(result.eventLoopOptimized, "Event loop should be optimized");
-                logger.info("Event loop optimization validated successfully");
-                testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+
+        testContext.verify(() -> {
+            EventLoopOptimizationResult result = testEventLoopOptimizationPattern();
+            assertNotNull(result, "Event loop optimization result should not be null");
+            assertTrue(result.eventLoopUtilization >= 0, "Event loop utilization should be non-negative");
+            assertTrue(result.workerPoolUtilization >= 0, "Worker pool utilization should be non-negative");
+            assertTrue(result.eventLoopOptimized, "Event loop should be optimized");
+            logger.info("Event loop optimization validated successfully");
+            testContext.completeNow();
+        });
     }
 
     /**
@@ -233,19 +218,16 @@ public class VertxPerformanceOptimizationExampleTest {
     @Test
     void testRealWorldTesting(VertxTestContext testContext) {
         logger.info("=== Testing Real-World Testing Scenarios ===");
-        
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
-        manager.start()
-            .onSuccess(v -> testContext.verify(() -> {
-                RealWorldTestingResult result = testRealWorldTestingPattern();
-                assertNotNull(result, "Real-world testing result should not be null");
-                assertTrue(result.testScenarios >= 0, "Test scenarios should be non-negative");
-                assertTrue(result.successRate >= 0, "Success rate should be non-negative");
-                assertTrue(result.realWorldTested, "Real-world testing should be completed");
-                logger.info("Real-world testing validated successfully");
-                testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+
+        testContext.verify(() -> {
+            RealWorldTestingResult result = testRealWorldTestingPattern();
+            assertNotNull(result, "Real-world testing result should not be null");
+            assertTrue(result.testScenarios >= 0, "Test scenarios should be non-negative");
+            assertTrue(result.successRate >= 0, "Success rate should be non-negative");
+            assertTrue(result.realWorldTested, "Real-world testing should be completed");
+            logger.info("Real-world testing validated successfully");
+            testContext.completeNow();
+        });
     }
 
     // Helper methods that replicate the original example's functionality

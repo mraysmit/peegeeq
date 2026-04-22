@@ -407,6 +407,7 @@ public class TransactionalBiTemporalExampleTest {
                 .execute()
                 .compose(appendedEvent -> {
                     logger.info("Event appended within transaction, now causing deliberate failure");
+                    logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = forced invalid SQL inside transaction to verify rollback");
                     return conn.query("SELECT * FROM non_existent_table_xyz").execute()
                         .<BiTemporalEvent<OrderEvent>>mapEmpty();
                 }))
@@ -415,6 +416,7 @@ public class TransactionalBiTemporalExampleTest {
                     return Future.failedFuture(
                         "Transaction should have failed due to invalid SQL but it succeeded");
                 }
+                logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected transaction SQL failure = {}", ar.cause().getMessage());
                 logger.info("Transaction failed as expected: {}", ar.cause().getMessage());
                 // After rollback, verify the event was NOT committed
                 return orderEventStore.query(EventQuery.forEventType("OrderCreated"))

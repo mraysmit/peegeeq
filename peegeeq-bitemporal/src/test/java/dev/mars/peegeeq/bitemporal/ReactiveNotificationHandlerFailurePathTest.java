@@ -12,6 +12,7 @@ package dev.mars.peegeeq.bitemporal;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.api.messaging.MessageHandler;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
@@ -28,6 +29,8 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
 
@@ -45,11 +48,13 @@ import static org.junit.jupiter.api.Assertions.*;
 @Isolated
 class ReactiveNotificationHandlerFailurePathTest {
 
+    private static final Logger logger = LoggerFactory.getLogger(ReactiveNotificationHandlerFailurePathTest.class);
+
     @Container
     static PostgreSQLContainer postgres = createPostgresContainer();
 
     private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
         container.withDatabaseName("reactive_failure_path_test");
         container.withUsername("test_user");
         container.withPassword("test_password");
@@ -144,6 +149,7 @@ class ReactiveNotificationHandlerFailurePathTest {
     @Test
     void stopShouldFailWhenUnlistenFailsAndStillCleanupState(Vertx vertx, VertxTestContext testContext) {
         AtomicBoolean closeCalled = new AtomicBoolean(false);
+        logger.info("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = stop() must fail when UNLISTEN fails, while still cleaning internal state");
 
         TestableReactiveNotificationHandler handler = new TestableReactiveNotificationHandler(
                 vertx,
@@ -169,6 +175,7 @@ class ReactiveNotificationHandlerFailurePathTest {
                     assertTrue(handler.listeningChannelsView().isEmpty(), "Listening channels should be cleaned up on failed stop");
                     assertTrue(handler.subscriptionsView().isEmpty(), "Subscriptions should be cleaned up on failed stop");
                     assertTrue(closeCalled.get(), "stop() should attempt to close connection even after UNLISTEN failure");
+                    logger.info("THIS IS AN INTENTIONAL TEST ERROR: Confirmed expected UNLISTEN failure path and cleanup behavior");
                     testContext.completeNow();
                 }));
     }
@@ -194,6 +201,7 @@ class ReactiveNotificationHandlerFailurePathTest {
     @Test
     void subscribeShouldRollbackStateWhenListenSetupFails(Vertx vertx, VertxTestContext testContext) {
         String failingChannel = "public_bitemporal_events_bitemporal_event_log_test_event";
+        logger.info("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = subscribe() must fail and rollback state when LISTEN setup fails");
         TestableReactiveNotificationHandler handler = new TestableReactiveNotificationHandler(
                 vertx,
                 connectOptions,
@@ -211,12 +219,13 @@ class ReactiveNotificationHandlerFailurePathTest {
                 .compose(v -> handler.subscribe("test.event", null, message -> Future.<Void>succeededFuture())
                         .compose(ignored -> Future.<Void>failedFuture("subscribe should have failed"))
                         .transform(ar -> {
-                            if (ar.succeeded()) return Future.<Void>failedFuture(\"Expected subscribe to fail\");
+                               if (ar.succeeded()) return Future.<Void>failedFuture("Expected subscribe to fail");
                             Throwable error = ar.cause();
                             testContext.verify(() -> {
                                 assertTrue(error.getMessage().contains("forced listen failure"));
                                 assertTrue(handler.subscriptionsView().isEmpty(), "Failed subscribe should not retain handler state");
                                 assertTrue(handler.listeningChannelsView().isEmpty(), "Failed subscribe should not retain channel state");
+                                logger.info("THIS IS AN INTENTIONAL TEST ERROR: Confirmed expected LISTEN setup failure and state rollback");
                             });
                             return handler.stop();
                         }))

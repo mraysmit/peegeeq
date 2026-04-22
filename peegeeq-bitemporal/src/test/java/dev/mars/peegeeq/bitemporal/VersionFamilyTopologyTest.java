@@ -37,6 +37,8 @@ import io.vertx.pgclient.PgConnectOptions;
 import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -66,6 +68,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 class VersionFamilyTopologyTest {
+
+        private static final Logger logger = LoggerFactory.getLogger(VersionFamilyTopologyTest.class);
 
     private static final String DATABASE_SCHEMA_PROPERTY = "peegeeq.database.schema";
 
@@ -608,10 +612,12 @@ class VersionFamilyTopologyTest {
     @Test
     @DisplayName("getAllVersions on closed store returns failed future")
     void getAllVersionsOnClosedStoreFailsWithIllegalState(VertxTestContext testContext) throws Exception {
+                logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = getAllVersions on closed store must fail");
         eventStore.close()
                 .compose(v -> eventStore.getAllVersions("any-id"))
                 .onSuccess(result -> testContext.failNow("getAllVersions on closed store should fail"))
                 .onFailure(err -> testContext.verify(() -> {
+                                        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected closed-store getAllVersions failure = {}", err.getMessage());
                     assertInstanceOf(IllegalStateException.class, err);
                     assertTrue(err.getMessage().contains("closed"));
                     testContext.completeNow();
@@ -624,10 +630,12 @@ class VersionFamilyTopologyTest {
     @Test
     @DisplayName("getAsOfTransactionTime on closed store returns failed future")
     void getAsOfTransactionTimeOnClosedStoreFailsWithIllegalState(VertxTestContext testContext) throws Exception {
+                logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = getAsOfTransactionTime on closed store must fail");
         eventStore.close()
                 .compose(v -> eventStore.getAsOfTransactionTime("any-id", Instant.now()))
                 .onSuccess(result -> testContext.failNow("getAsOfTransactionTime on closed store should fail"))
                 .onFailure(err -> testContext.verify(() -> {
+                                        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected closed-store getAsOfTransactionTime failure = {}", err.getMessage());
                     assertInstanceOf(IllegalStateException.class, err);
                     assertTrue(err.getMessage().contains("closed"));
                     testContext.completeNow();
@@ -642,7 +650,9 @@ class VersionFamilyTopologyTest {
     @Test
     @DisplayName("getAllVersions with null event ID throws NullPointerException")
     void getAllVersionsWithNullEventIdFails(VertxTestContext testContext) throws Exception {
+                logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = getAllVersions invoked with null event ID");
         assertThrows(NullPointerException.class, () -> eventStore.getAllVersions(null));
+                logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected NullPointerException for null event ID");
         testContext.completeNow();
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
