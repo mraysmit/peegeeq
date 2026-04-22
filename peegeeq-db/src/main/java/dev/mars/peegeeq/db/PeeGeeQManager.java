@@ -919,16 +919,21 @@ public class PeeGeeQManager implements AutoCloseable {
         }
         Future<Void> jobStop = Future.succeededFuture();
         if (deadConsumerDetectionJob != null) {
-            jobStop = deadConsumerDetectionJob.stop()
-                .onFailure(e -> logger.warn("Error stopping dead consumer detection job: {}", e.getMessage()));
+            DeadConsumerDetectionJob job = deadConsumerDetectionJob;
             deadConsumerDetectionJob = null;
+            jobStop = jobStop.compose(v -> job.stop()
+                .onFailure(e -> logger.warn("Error stopping dead consumer detection job: {}", e.getMessage()))
+                .transform(ar -> Future.succeededFuture()));
         }
         if (consumerGroupRetryJob != null) {
-            consumerGroupRetryJob.stop();
+            ConsumerGroupRetryJob job = consumerGroupRetryJob;
             consumerGroupRetryJob = null;
+            jobStop = jobStop.compose(v -> job.stop()
+                .onFailure(e -> logger.warn("Error stopping consumer group retry job: {}", e.getMessage()))
+                .transform(ar -> Future.succeededFuture()));
         }
-        logger.debug("DB-DEBUG: All background tasks stopped");
-        return jobStop;
+        return jobStop
+            .onSuccess(v -> logger.debug("DB-DEBUG: All background tasks stopped"));
     }
 
 }

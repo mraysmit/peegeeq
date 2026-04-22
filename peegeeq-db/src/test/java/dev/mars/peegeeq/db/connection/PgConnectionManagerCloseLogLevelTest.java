@@ -21,6 +21,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.AppenderBase;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
+import dev.mars.peegeeq.db.PgTestImageConstant;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
@@ -61,7 +62,7 @@ import static org.junit.jupiter.api.Assertions.*;
 public class PgConnectionManagerCloseLogLevelTest {
 
     private static final Logger logger = LoggerFactory.getLogger(PgConnectionManagerCloseLogLevelTest.class);
-    private static final String POSTGRES_IMAGE = PostgreSQLTestConstants.POSTGRES_IMAGE;
+    private static final String POSTGRES_IMAGE = PgTestImageConstant.POSTGRES_IMAGE;
 
     @SuppressWarnings("resource")
     @Container
