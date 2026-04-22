@@ -39,6 +39,8 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -74,6 +76,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 class PgBiTemporalEventStoreStatsTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(PgBiTemporalEventStoreStatsTest.class);
 
     private static final String DATABASE_SCHEMA_PROPERTY = "peegeeq.database.schema";
 
@@ -552,10 +556,12 @@ class PgBiTemporalEventStoreStatsTest {
 
     @Test
     void testGetStatsOnClosedStoreFailsWithIllegalState(VertxTestContext testContext) throws Exception {
+        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = getStats on closed store must fail");
         eventStore.close()
                 .compose(v -> eventStore.getStats())
                 .onSuccess(stats -> testContext.failNow("getStats() on closed store should fail"))
                 .onFailure(err -> testContext.verify(() -> {
+                logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected closed-store failure = {}", err.getMessage());
                     assertInstanceOf(IllegalStateException.class, err);
                     assertTrue(err.getMessage().contains("closed"),
                             "Error message should mention 'closed', got: " + err.getMessage());
@@ -578,9 +584,11 @@ class PgBiTemporalEventStoreStatsTest {
                 .compose(v -> eventStore.getStats())
                 .onSuccess(stats -> testContext.verify(() -> {
                     Map<String, Long> counts = stats.getEventCountsByType();
+                    logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = eventCountsByType map is immutable");
                     assertThrows(UnsupportedOperationException.class,
                             () -> counts.put("injected", 99L),
                             "eventCountsByType map should be unmodifiable");
+                    logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected UnsupportedOperationException when mutating eventCountsByType");
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);

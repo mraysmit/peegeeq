@@ -542,6 +542,10 @@ class TransactionPropagationHonestyTest {
                                 Future.<BiTemporalEvent<TestPayload>>failedFuture(
                                         new RuntimeException("Deliberate rollback")))
         )
+                .transform(ar -> {
+                    if (ar.failed()) logger.info("External transaction rolled back as expected: {}", ar.cause().getMessage());
+                    return Future.succeededFuture(null);
+                })
         .compose(ignored -> {
             String countSql = "SELECT COUNT(*) FROM " + schema +
                     ".bitemporal_event_log WHERE event_type = $1";
@@ -595,6 +599,10 @@ class TransactionPropagationHonestyTest {
                                 Future.<BiTemporalEvent<TestPayload>>failedFuture(
                                         new RuntimeException("Deliberate rollback")))
         )
+                .transform(ar -> {
+                    if (ar.failed()) logger.info("Transaction rolled back as expected: {}", ar.cause().getMessage());
+                    return Future.succeededFuture(null);
+                })
         .compose(ignored -> {
             String countSql = "SELECT COUNT(*) FROM " + schema +
                     ".bitemporal_event_log WHERE event_type = $1";
@@ -747,6 +755,10 @@ class TransactionPropagationHonestyTest {
                                 Future.<BiTemporalEvent<TestPayload>>failedFuture(
                                         new RuntimeException("Deliberate rollback")))
         )
+        .transform(ar -> {
+            if (ar.failed()) logger.info("Full-metadata transaction rolled back as expected: {}", ar.cause().getMessage());
+            return Future.succeededFuture(null);
+        })
         .compose(ignored -> {
             String countSql = "SELECT COUNT(*) FROM " + schema +
                     ".bitemporal_event_log WHERE event_type = $1";
@@ -841,10 +853,12 @@ class TransactionPropagationHonestyTest {
         TestPayload payload = new TestPayload("null-conn", 120);
         Instant validTime = Instant.now();
 
+        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = appendInTransaction invoked with null connection");
         eventStore.appendInTransaction(eventType, payload, validTime, null)
         .onSuccess(event -> testContext.failNow(
                 new AssertionError("Should have failed with IllegalArgumentException")))
         .onFailure(err -> testContext.verify(() -> {
+            logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected null-connection validation failure = {}", err.getMessage());
             assertInstanceOf(IllegalArgumentException.class, err,
                     "Null connection must produce IllegalArgumentException");
             assertTrue(err.getMessage().contains("connection cannot be null"),
@@ -877,6 +891,7 @@ class TransactionPropagationHonestyTest {
         TestPayload payload = new TestPayload("closed-store", 130);
         Instant validTime = Instant.now();
 
+        logger.error("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = closed store rejects append and appendInTransaction");
         // Close the event store first, then null the field so tearDown
         // does not attempt a redundant second close.
         PgBiTemporalEventStore<TestPayload> closedStore = eventStore;
@@ -890,6 +905,7 @@ class TransactionPropagationHonestyTest {
         .transform(ar -> {
             if (ar.succeeded()) return Future.failedFuture(new AssertionError("Expected failure from closed store append()"));
             testContext.verify(() -> {
+            logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected closed-store append failure = {}", ar.cause().getMessage());
                 assertInstanceOf(IllegalStateException.class, ar.cause(),
                         "Closed store must produce IllegalStateException from append()");
                 assertTrue(ar.cause().getMessage().contains("Event store is closed"),
@@ -906,6 +922,7 @@ class TransactionPropagationHonestyTest {
         .transform(ar -> {
             if (ar.succeeded()) return Future.failedFuture(new AssertionError("Expected failure from closed store appendInTransaction()"));
             testContext.verify(() -> {
+            logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected closed-store appendInTransaction failure = {}", ar.cause().getMessage());
                 assertInstanceOf(IllegalStateException.class, ar.cause(),
                         "Closed store must produce IllegalStateException from appendInTransaction()");
                 assertTrue(ar.cause().getMessage().contains("Event store is closed"),

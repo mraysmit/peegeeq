@@ -238,14 +238,14 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
     @Override
     public Future<BiTemporalEvent<T>> append(String eventType, T payload, Instant validTime) {
-        logger.debug("BITEMPORAL-DEBUG: Appending event - type: {}, validTime: {}", eventType, validTime);
+        logger.debug("Appending event - type: {}, validTime: {}", eventType, validTime);
         return append(eventType, payload, validTime, Map.of(), null, null, null);
     }
 
     @Override
     public Future<BiTemporalEvent<T>> append(String eventType, T payload, Instant validTime,
             Map<String, String> headers) {
-        logger.debug("BITEMPORAL-DEBUG: Appending event with headers - type: {}, validTime: {}, headers: {}",
+        logger.debug("Appending event with headers - type: {}, validTime: {}, headers: {}",
                 eventType, validTime, headers);
         return append(eventType, payload, validTime, headers, null, null, null);
     }
@@ -255,7 +255,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             Map<String, String> headers, String correlationId,
             String causationId, String aggregateId) {
         logger.debug(
-                "BITEMPORAL-DEBUG: Appending event with full metadata - type: {}, validTime: {}, correlationId: {}, causationId: {}, aggregateId: {}",
+                "Appending event with full metadata - type: {}, validTime: {}, correlationId: {}, causationId: {}, aggregateId: {}",
                 eventType, validTime, correlationId, causationId, aggregateId);
 
         // Performance monitoring: Track append operation timing

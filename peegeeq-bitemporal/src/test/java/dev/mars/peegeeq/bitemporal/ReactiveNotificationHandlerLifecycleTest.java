@@ -12,6 +12,7 @@ package dev.mars.peegeeq.bitemporal;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.api.messaging.MessageHandler;
+import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import io.vertx.core.Future;
@@ -58,7 +59,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-01-12
  */
-@Tag(TestCategories.CORE)
+@Tag(TestCategories.INTEGRATION)
 @ExtendWith(VertxExtension.class)
 @Testcontainers
 @Isolated
@@ -67,10 +68,10 @@ class ReactiveNotificationHandlerLifecycleTest {
     private static final Logger logger = LoggerFactory.getLogger(ReactiveNotificationHandlerLifecycleTest.class);
 
     @Container
-    static PostgreSQLContainer postgres = createPostgresContainer();
+    private static final PostgreSQLContainer postgres = createPostgresContainer();
 
     private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer("postgres:15.13-alpine3.20");
+        PostgreSQLContainer container = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
         container.withDatabaseName("reactive_lifecycle_test");
         container.withUsername("test_user");
         container.withPassword("test_password");
@@ -145,12 +146,12 @@ class ReactiveNotificationHandlerLifecycleTest {
         assertFalse(handler.isActive(), "Handler should not be active before start");
 
         handler.start()
-            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 assertTrue(handler.isActive(), "Handler should be active after successful start");
                 logger.info("✓ Handler started successfully and is active");
                 
                 // Cleanup
-                handler.stop().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+                    handler.stop().onSuccess(stopResult -> testContext.completeNow()).onFailure(testContext::failNow);
             })));
     }
 
@@ -183,14 +184,14 @@ class ReactiveNotificationHandlerLifecycleTest {
         );
 
         handler.start()
-            .compose(v -> handler.start()) // Second start
-            .compose(v -> handler.start()) // Third start
-            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                .compose(ignored -> handler.start()) // Second start
+                .compose(ignored -> handler.start()) // Third start
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 assertTrue(handler.isActive(), "Handler should be active after multiple starts");
                 logger.info("✓ Multiple start calls are idempotent");
                 
                 // Cleanup
-                handler.stop().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+                    handler.stop().onSuccess(stopResult -> testContext.completeNow()).onFailure(testContext::failNow);
             })));
     }
 
@@ -247,12 +248,12 @@ class ReactiveNotificationHandlerLifecycleTest {
             message -> Future.<Void>succeededFuture();
 
         handler.start()
-            .compose(v -> handler.subscribe("order.created", null, messageHandler))
-            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                .compose(ignored -> handler.subscribe("order.created", null, messageHandler))
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 logger.info("✓ Subscribe succeeded with exact event type");
                 
                 // Cleanup
-                handler.stop().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+                    handler.stop().onSuccess(stopResult -> testContext.completeNow()).onFailure(testContext::failNow);
             })));
     }
 
@@ -268,12 +269,12 @@ class ReactiveNotificationHandlerLifecycleTest {
             message -> Future.<Void>succeededFuture();
 
         handler.start()
-            .compose(v -> handler.subscribe("order.*", null, messageHandler))
-            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                .compose(ignored -> handler.subscribe("order.*", null, messageHandler))
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 logger.info("✓ Subscribe succeeded with wildcard event type");
                 
                 // Cleanup
-                handler.stop().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+                    handler.stop().onSuccess(stopResult -> testContext.completeNow()).onFailure(testContext::failNow);
             })));
     }
 
@@ -289,12 +290,12 @@ class ReactiveNotificationHandlerLifecycleTest {
             message -> Future.<Void>succeededFuture();
 
         handler.start()
-            .compose(v -> handler.subscribe(null, null, messageHandler))
-            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                .compose(ignored -> handler.subscribe(null, null, messageHandler))
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 logger.info("✓ Subscribe succeeded with null event type (all events)");
                 
                 // Cleanup
-                handler.stop().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+                    handler.stop().onSuccess(stopResult -> testContext.completeNow()).onFailure(testContext::failNow);
             })));
     }
 
@@ -314,19 +315,19 @@ class ReactiveNotificationHandlerLifecycleTest {
         };
 
         handler.start()
-            .compose(v -> handler.subscribe("order.created", null, messageHandler))
-            .compose(v -> {
+                .compose(ignored -> handler.subscribe("order.created", null, messageHandler))
+                .compose(ignored -> {
                 // Insert event and send notification
                 return insertEventAndNotify(vertx, "evt-001", "order.created", "agg-001", "Test payload");
             })
-            .compose(v -> waitForCondition(vertx, 5000, () -> receivedEvents.size() == 1))
-            .onComplete(testContext.succeeding(v -> {
+                .compose(ignored -> waitForCondition(vertx, 5000, () -> receivedEvents.size() == 1))
+                .onComplete(testContext.succeeding(result -> {
                 testContext.verify(() -> {
                     assertEquals(1, receivedEvents.size(), "Should receive exactly one event");
                     assertEquals("evt-001", receivedEvents.get(0), "Should receive correct event ID");
                     logger.info("✓ Received notification for exact event type match");
                 });
-                handler.stop().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+                    handler.stop().onSuccess(stopResult -> testContext.completeNow()).onFailure(testContext::failNow);
             }));
     }
 
@@ -352,18 +353,18 @@ class ReactiveNotificationHandlerLifecycleTest {
         };
 
         handler.start()
-            .compose(v -> handler.subscribe("order.created", null, firstHandler))
-            .compose(v -> handler.subscribe("order.created", null, secondHandler))
-            .compose(v -> insertEventAndNotify(vertx, "evt-012-same-key", "order.created", "agg-012", "same-key"))
-            .compose(v -> waitForCondition(vertx, 5000,
+                .compose(ignored -> handler.subscribe("order.created", null, firstHandler))
+                .compose(ignored -> handler.subscribe("order.created", null, secondHandler))
+                .compose(ignored -> insertEventAndNotify(vertx, "evt-012-same-key", "order.created", "agg-012", "same-key"))
+                .compose(ignored -> waitForCondition(vertx, 5000,
                 () -> firstHandlerCount.get() == 1 && secondHandlerCount.get() == 1))
-            .onComplete(testContext.succeeding(v -> {
+                .onComplete(testContext.succeeding(result -> {
                 testContext.verify(() -> {
                     assertEquals(1, firstHandlerCount.get(), "First handler should be invoked once");
                     assertEquals(1, secondHandlerCount.get(), "Second handler should be invoked once");
                     logger.info("✓ Multiple handlers for same key are all notified");
                 });
-                handler.stop().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+                    handler.stop().onSuccess(stopResult -> testContext.completeNow()).onFailure(testContext::failNow);
             }));
     }
 
@@ -383,18 +384,18 @@ class ReactiveNotificationHandlerLifecycleTest {
         };
 
         handler.start()
-            .compose(v -> handler.subscribe("order.*", null, messageHandler))
-            .compose(v -> insertEventAndNotify(vertx, "evt-002", "order.created", "agg-001", "Payload 1"))
-            .compose(v -> insertEventAndNotify(vertx, "evt-003", "order.updated", "agg-001", "Payload 2"))
-            .compose(v -> waitForCondition(vertx, 5000, () -> receivedEvents.size() == 2))
-            .onComplete(testContext.succeeding(v -> {
+                .compose(ignored -> handler.subscribe("order.*", null, messageHandler))
+                .compose(ignored -> insertEventAndNotify(vertx, "evt-002", "order.created", "agg-001", "Payload 1"))
+                .compose(ignored -> insertEventAndNotify(vertx, "evt-003", "order.updated", "agg-001", "Payload 2"))
+                .compose(ignored -> waitForCondition(vertx, 5000, () -> receivedEvents.size() == 2))
+                .onComplete(testContext.succeeding(result -> {
                 testContext.verify(() -> {
                     assertEquals(2, receivedEvents.size(), "Should receive two events");
                     assertTrue(receivedEvents.contains("order.created"), "Should receive order.created");
                     assertTrue(receivedEvents.contains("order.updated"), "Should receive order.updated");
                     logger.info("✓ Received notifications for wildcard pattern match");
                 });
-                handler.stop().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+                    handler.stop().onSuccess(stopResult -> testContext.completeNow()).onFailure(testContext::failNow);
             }));
     }
 
@@ -414,20 +415,20 @@ class ReactiveNotificationHandlerLifecycleTest {
         };
 
         handler.start()
-            .compose(v -> handler.subscribe("order.created", null, messageHandler))
-            .compose(v -> insertEventAndNotify(vertx, "evt-004", "payment.completed", "agg-002", "Wrong type"))
-            .compose(v -> {
+                .compose(ignored -> handler.subscribe("order.created", null, messageHandler))
+                .compose(ignored -> insertEventAndNotify(vertx, "evt-004", "payment.completed", "agg-002", "Wrong type"))
+                .compose(ignored -> {
                 // Wait a bit to ensure no notification is received
                 return Future.future(promise -> 
                     vertx.setTimer(2000, id -> promise.complete()));
             })
-            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 assertEquals(0, receivedEvents.size(), 
                     "Should not receive notification for non-matching event type");
                 logger.info("✓ Correctly filtered out non-matching event type");
                 
                 // Cleanup
-                handler.stop().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+                    handler.stop().onSuccess(stopResult -> testContext.completeNow()).onFailure(testContext::failNow);
             })));
     }
 
@@ -459,20 +460,20 @@ class ReactiveNotificationHandlerLifecycleTest {
         };
 
         handler.start()
-            .compose(v -> handler.subscribe("order.*", null, orderHandler))
-            .compose(v -> handler.subscribe("payment.*", null, paymentHandler))
-            .compose(v -> handler.subscribe(null, null, allHandler))
-            .compose(v -> insertEventAndNotify(vertx, "evt-005", "order.created", "agg-003", "Order"))
-            .compose(v -> waitForCondition(vertx, 5000,
+                .compose(ignored -> handler.subscribe("order.*", null, orderHandler))
+                .compose(ignored -> handler.subscribe("payment.*", null, paymentHandler))
+                .compose(ignored -> handler.subscribe(null, null, allHandler))
+                .compose(ignored -> insertEventAndNotify(vertx, "evt-005", "order.created", "agg-003", "Order"))
+                .compose(ignored -> waitForCondition(vertx, 5000,
                 () -> orderCount.get() == 1 && allCount.get() == 1))
-            .onComplete(testContext.succeeding(v -> {
+                .onComplete(testContext.succeeding(result -> {
                 testContext.verify(() -> {
                     assertEquals(1, orderCount.get(), "Order handler should receive one event");
                     assertEquals(0, paymentCount.get(), "Payment handler should not receive events");
                     assertEquals(1, allCount.get(), "All-events handler should receive one event");
                     logger.info("✓ Multiple subscriptions handled correctly");
                 });
-                handler.stop().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+                    handler.stop().onSuccess(stopResult -> testContext.completeNow()).onFailure(testContext::failNow);
             }));
     }
 
@@ -492,18 +493,18 @@ class ReactiveNotificationHandlerLifecycleTest {
         };
 
         handler.start()
-            .compose(v -> handler.subscribe("order.created", "specific-agg", messageHandler))
-            .compose(v -> insertEventAndNotify(vertx, "evt-006", "order.created", "specific-agg", "Match"))
-            .compose(v -> insertEventAndNotify(vertx, "evt-007", "order.created", "other-agg", "No match"))
-            .compose(v -> waitForCondition(vertx, 5000, () -> receivedAggregates.size() == 1))
-            .onComplete(testContext.succeeding(v -> {
+                .compose(ignored -> handler.subscribe("order.created", "specific-agg", messageHandler))
+                .compose(ignored -> insertEventAndNotify(vertx, "evt-006", "order.created", "specific-agg", "Match"))
+                .compose(ignored -> insertEventAndNotify(vertx, "evt-007", "order.created", "other-agg", "No match"))
+                .compose(ignored -> waitForCondition(vertx, 5000, () -> receivedAggregates.size() == 1))
+                .onComplete(testContext.succeeding(result -> {
                 testContext.verify(() -> {
                     assertEquals(1, receivedAggregates.size(), "Should receive one event");
                     assertEquals("specific-agg", receivedAggregates.get(0),
                         "Should receive event with correct aggregate ID");
                     logger.info("✓ Aggregate ID filtering works correctly");
                 });
-                handler.stop().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+                    handler.stop().onSuccess(stopResult -> testContext.completeNow()).onFailure(testContext::failNow);
             }));
     }
 
@@ -515,24 +516,26 @@ class ReactiveNotificationHandlerLifecycleTest {
             vertx, connectOptions, objectMapper, String.class, eventRetriever
         );
 
+        logger.info("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = subscription handler throws and notification pipeline must continue safely");
+
         AtomicInteger errorCount = new AtomicInteger(0);
 
         MessageHandler<BiTemporalEvent<String>> faultyHandler = message -> {
             errorCount.incrementAndGet();
-            // Simulate handler error
+            // Intentionally trigger handler failure to validate negative-path error handling.
             return Future.failedFuture(new RuntimeException("Handler error"));
         };
 
         handler.start()
-            .compose(v -> handler.subscribe("error.test", null, faultyHandler))
-            .compose(v -> insertEventAndNotify(vertx, "evt-008", "error.test", "agg-004", "Error test"))
-            .compose(v -> waitForCondition(vertx, 5000, () -> errorCount.get() == 1))
-            .onComplete(testContext.succeeding(v -> {
+                .compose(ignored -> handler.subscribe("error.test", null, faultyHandler))
+                .compose(ignored -> insertEventAndNotify(vertx, "evt-008", "error.test", "agg-004", "Error test"))
+                .compose(ignored -> waitForCondition(vertx, 5000, () -> errorCount.get() == 1))
+                .onComplete(testContext.succeeding(result -> {
                 testContext.verify(() -> {
                     assertEquals(1, errorCount.get(), "Handler should be invoked once");
-                    logger.info("✓ Handler errors are caught and logged gracefully");
+                    logger.info("THIS IS AN INTENTIONAL TEST ERROR: Confirmed expected handler exception path and graceful recovery");
                 });
-                handler.stop().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+                    handler.stop().onSuccess(stopResult -> testContext.completeNow()).onFailure(testContext::failNow);
             }));
     }
 
@@ -581,21 +584,21 @@ class ReactiveNotificationHandlerLifecycleTest {
         };
 
         handler.start()
-            .compose(v -> handler.subscribe("order.created", null, messageHandler))
-            .compose(v -> handler.stop())
-            .compose(v -> handler.start())
-            .compose(v -> insertEventAndNotify(vertx, "evt-009", "order.created", "agg-005", "After restart"))
-            .compose(v -> {
+                .compose(ignored -> handler.subscribe("order.created", null, messageHandler))
+                .compose(ignored -> handler.stop())
+                .compose(ignored -> handler.start())
+                .compose(ignored -> insertEventAndNotify(vertx, "evt-009", "order.created", "agg-005", "After restart"))
+                .compose(ignored -> {
                 // Wait to ensure no stale handler is invoked after restart.
                 return Future.future(promise -> vertx.setTimer(1500, id -> promise.complete()));
             })
-            .onComplete(testContext.succeeding(v -> {
+                .onComplete(testContext.succeeding(result -> {
                 testContext.verify(() -> {
                     assertEquals(0, receivedCount.get(),
                         "Stale subscriptions from before stop() should not receive notifications after restart");
                     logger.info("✓ Stop/start does not retain stale subscriptions");
                 });
-                handler.stop().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+                    handler.stop().onSuccess(stopResult -> testContext.completeNow()).onFailure(testContext::failNow);
             }));
     }
 
@@ -614,17 +617,17 @@ class ReactiveNotificationHandlerLifecycleTest {
         };
 
         handler.start()
-            .compose(v -> handler.subscribe("order.*", "customer_1", messageHandler))
-            .compose(v -> insertEventAndNotify(vertx, "evt-010", "order.created", "customer_1", "Match"))
-            .compose(v -> insertEventAndNotify(vertx, "evt-011", "order.updated", "customer_2", "No match"))
-            .compose(v -> waitForCondition(vertx, 5000, () -> receivedCount.get() == 1))
-            .onComplete(testContext.succeeding(v -> {
+                .compose(ignored -> handler.subscribe("order.*", "customer_1", messageHandler))
+                .compose(ignored -> insertEventAndNotify(vertx, "evt-010", "order.created", "customer_1", "Match"))
+                .compose(ignored -> insertEventAndNotify(vertx, "evt-011", "order.updated", "customer_2", "No match"))
+                .compose(ignored -> waitForCondition(vertx, 5000, () -> receivedCount.get() == 1))
+                .onComplete(testContext.succeeding(result -> {
                 testContext.verify(() -> {
                     assertEquals(1, receivedCount.get(),
                         "Wildcard subscription should correctly match underscore aggregate IDs");
                     logger.info("✓ Wildcard aggregate matching works with underscores");
                 });
-                handler.stop().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+                    handler.stop().onSuccess(stopResult -> testContext.completeNow()).onFailure(testContext::failNow);
             }));
     }
 

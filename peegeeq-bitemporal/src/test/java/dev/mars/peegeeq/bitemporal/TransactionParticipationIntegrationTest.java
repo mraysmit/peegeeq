@@ -493,6 +493,7 @@ public class TransactionParticipationIntegrationTest {
 
         try {
             // Attempt transaction that should fail after bitemporal append
+            logger.info("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = business SQL failure after bitemporal append must roll back the full transaction");
             Exception thrownException = assertThrows(Exception.class, () -> {
                 pool.withTransaction(connection -> {
                     logger.info("📝 Starting transaction that will fail after bitemporal append");
@@ -515,7 +516,7 @@ public class TransactionParticipationIntegrationTest {
                 }).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
             });
 
-            logger.info("Expected exception thrown: {}", thrownException.getMessage());
+            logger.info("THIS IS AN INTENTIONAL TEST ERROR: Captured expected rollback trigger (business SQL failure): {}", thrownException.getMessage());
 
             // CRITICAL ROLLBACK VERIFICATION
             logger.info("🔍 Verifying complete rollback - no partial data should exist");
@@ -597,6 +598,7 @@ public class TransactionParticipationIntegrationTest {
 
         try {
             // Attempt transaction that should fail after business operation
+            logger.info("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = bitemporal append validation failure after business insert must roll back the full transaction");
             Exception thrownException = assertThrows(Exception.class, () -> {
                 pool.withTransaction(connection -> {
                     logger.info("📝 Starting transaction that will fail after business operation");
@@ -619,7 +621,7 @@ public class TransactionParticipationIntegrationTest {
                 }).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
             });
 
-            logger.info("Expected exception thrown: {}", thrownException.getMessage());
+            logger.info("THIS IS AN INTENTIONAL TEST ERROR: Captured expected rollback trigger (append validation failure): {}", thrownException.getMessage());
 
             // CRITICAL ROLLBACK VERIFICATION
             logger.info("🔍 Verifying complete rollback - no partial data should exist");
@@ -673,6 +675,7 @@ public class TransactionParticipationIntegrationTest {
 
         try {
             // Attempt complex transaction with multiple operations that will fail at the end
+            logger.info("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = late-stage SQL failure in multi-step transaction must prevent partial commits");
             Exception thrownException = assertThrows(Exception.class, () -> {
                 pool.withTransaction(connection -> {
                     logger.info("📝 Starting complex transaction with multiple operations that will fail");
@@ -723,7 +726,7 @@ public class TransactionParticipationIntegrationTest {
                 }).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
             });
 
-            logger.info("Expected exception thrown: {}", thrownException.getMessage());
+            logger.info("THIS IS AN INTENTIONAL TEST ERROR: Captured expected boundary-integrity rollback trigger: {}", thrownException.getMessage());
 
             // COMPREHENSIVE TRANSACTION BOUNDARY VERIFICATION
             logger.info("🔍 Verifying transaction boundary integrity - ALL operations should be rolled back");

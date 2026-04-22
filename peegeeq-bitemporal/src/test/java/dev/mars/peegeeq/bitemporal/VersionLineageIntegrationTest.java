@@ -785,6 +785,7 @@ class VersionLineageIntegrationTest {
     @Test
     void appendCorrectionForNonExistentRootIsRejectedByConstraint(VertxTestContext testContext) throws Exception {
         String fakeRootId = "non-existent-" + System.nanoTime();
+        logger.info("THIS IS AN INTENTIONAL TEST ERROR: Negative-path case = appendCorrection must reject non-existent original event IDs");
 
         startManagerAndStore()
             .compose(store -> store.appendCorrection(fakeRootId, "orphan.correction",
@@ -796,6 +797,7 @@ class VersionLineageIntegrationTest {
                     "Expected IllegalArgumentException, got: " + err.getClass().getName());
                 assertTrue(err.getMessage().contains("Cannot correct non-existent event"),
                     "Expected 'Cannot correct non-existent event' message, got: " + err.getMessage());
+                logger.info("THIS IS AN INTENTIONAL TEST ERROR: Captured expected appendCorrection rejection for non-existent root ID: {}", err.getMessage());
                 testContext.completeNow();
             }));
 
