@@ -110,7 +110,7 @@ public class SharedPostgresTestExtension implements BeforeAllCallback {
      * </ul>
      */
     private void initializeContainer() {
-        PostgreSQLContainer tempContainer = new PostgreSQLContainer(PostgreSQLTestConstants.POSTGRES_IMAGE);
+        PostgreSQLContainer tempContainer = new PostgreSQLContainer(PgTestImageConstant.POSTGRES_IMAGE);
         tempContainer.withDatabaseName("peegeeq_test");
         tempContainer.withUsername("peegeeq_test");
         tempContainer.withPassword("peegeeq_test");

@@ -143,7 +143,7 @@ class HardwareProfilingIntegrationTest extends PeeGeeQTestBase {
         
         // Create performance metrics collector with hardware profiling enabled
         PerformanceMetricsCollector collector = new PerformanceMetricsCollector(
-            getMetrics(), "hardware-integration-test", true);
+            getMeterRegistry(), "hardware-integration-test", true);
         
         assertTrue(collector.isHardwareProfilingEnabled(), "Hardware profiling should be enabled");
         assertNotNull(collector.getHardwareProfile(), "Hardware profile should be available");

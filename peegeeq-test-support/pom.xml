@@ -15,14 +15,6 @@
     <description>Shared test utilities and constants for PeeGeeQ project</description>
 
     <dependencies>
-        <!-- PeeGeeQ Dependencies -->
-        <dependency>
-            <groupId>dev.mars</groupId>
-            <artifactId>peegeeq-db</artifactId>
-            <version>${project.version}</version>
-            <scope>compile</scope>
-        </dependency>
-
         <dependency>
             <groupId>org.flywaydb</groupId>
             <artifactId>flyway-core</artifactId>

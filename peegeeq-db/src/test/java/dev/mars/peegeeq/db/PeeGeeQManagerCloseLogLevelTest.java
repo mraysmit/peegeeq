@@ -70,7 +70,7 @@ import static org.junit.jupiter.api.Assertions.*;
 public class PeeGeeQManagerCloseLogLevelTest {
 
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQManagerCloseLogLevelTest.class);
-    private static final String POSTGRES_IMAGE = PostgreSQLTestConstants.POSTGRES_IMAGE;
+    private static final String POSTGRES_IMAGE = PgTestImageConstant.POSTGRES_IMAGE;
 
     @SuppressWarnings("resource")
     @Container

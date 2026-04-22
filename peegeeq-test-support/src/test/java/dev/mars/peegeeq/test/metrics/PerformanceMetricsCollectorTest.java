@@ -16,7 +16,6 @@ package dev.mars.peegeeq.test.metrics;
  * limitations under the License.
  */
 
-import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -46,7 +45,6 @@ import static org.junit.jupiter.api.Assertions.*;
 class PerformanceMetricsCollectorTest {
     private static final Logger logger = LoggerFactory.getLogger(PerformanceMetricsCollectorTest.class);
     
-    private PeeGeeQMetrics baseMetrics;
     private SimpleMeterRegistry meterRegistry;
     private PerformanceMetricsCollector collector;
     private String testInstanceId;
@@ -58,11 +56,8 @@ class PerformanceMetricsCollectorTest {
         
         testInstanceId = "test-collector-" + System.currentTimeMillis();
         meterRegistry = new SimpleMeterRegistry();
-        // Pass null for the pool as we are not testing database metrics that require the pool
-        baseMetrics = new PeeGeeQMetrics(null, testInstanceId);
-        baseMetrics.bindTo(meterRegistry);
-        
-        collector = new PerformanceMetricsCollector(baseMetrics, testInstanceId);
+
+        collector = new PerformanceMetricsCollector(meterRegistry, testInstanceId);
         this.vertx = vertx;
         
         logger.info("Set up PerformanceMetricsCollector test with instance: {}", testInstanceId);

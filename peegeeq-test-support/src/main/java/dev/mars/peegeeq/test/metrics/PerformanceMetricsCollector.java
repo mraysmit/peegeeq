@@ -16,7 +16,6 @@ package dev.mars.peegeeq.test.metrics;
  * limitations under the License.
  */
 
-import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile;
 import dev.mars.peegeeq.test.hardware.HardwareAwarePerformanceResult;
 import dev.mars.peegeeq.test.hardware.HardwareProfile;
@@ -40,7 +39,7 @@ import java.util.concurrent.atomic.AtomicReference;
 /**
  * Specialized metrics collector for parameterized performance tests.
  * 
- * This class extends the standard PeeGeeQMetrics functionality with
+ * This class extends shared test metrics functionality with
  * test-specific metrics collection, performance profiling, and
  * cross-profile comparison capabilities.
  * 
@@ -80,22 +79,22 @@ public class PerformanceMetricsCollector {
     /**
      * Create a new PerformanceMetricsCollector.
      *
-     * @param baseMetrics the base PeeGeeQMetrics instance
+     * @param meterRegistry the meter registry used to register metrics
      * @param testInstanceId unique identifier for this test instance
      */
-    public PerformanceMetricsCollector(PeeGeeQMetrics baseMetrics, String testInstanceId) {
-        this(baseMetrics, testInstanceId, true);
+    public PerformanceMetricsCollector(MeterRegistry meterRegistry, String testInstanceId) {
+        this(meterRegistry, testInstanceId, true);
     }
 
     /**
      * Create a new PerformanceMetricsCollector with optional hardware profiling.
      *
-     * @param baseMetrics the base PeeGeeQMetrics instance
+     * @param meterRegistry the meter registry used to register metrics
      * @param testInstanceId unique identifier for this test instance
      * @param enableHardwareProfiling whether to enable hardware profiling
      */
-    public PerformanceMetricsCollector(PeeGeeQMetrics baseMetrics, String testInstanceId, boolean enableHardwareProfiling) {
-        this.meterRegistry = extractMeterRegistry(baseMetrics);
+    public PerformanceMetricsCollector(MeterRegistry meterRegistry, String testInstanceId, boolean enableHardwareProfiling) {
+        this.meterRegistry = meterRegistry;
         this.testInstanceId = testInstanceId;
         this.hardwareProfilingEnabled = enableHardwareProfiling;
 
@@ -605,7 +604,4 @@ public class PerformanceMetricsCollector {
         );
     }
 
-    private MeterRegistry extractMeterRegistry(PeeGeeQMetrics metrics) {
-        return metrics.getRegistry();
-    }
 }
