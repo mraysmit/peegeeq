@@ -97,11 +97,8 @@ public class SSEBatchingIntegrationTest {
                 httpClient = vertx.createHttpClient();
                 webClient = WebClient.create(vertx);
 
-                // Give server time to fully start
-                vertx.setTimer(1000, timerId -> {
-                    // Now create database setup via REST API
-                    createDatabaseSetupViaRestApi(vertx, testContext);
-                });
+                // Now create database setup via REST API
+                createDatabaseSetupViaRestApi(vertx, testContext);
             })
             .onFailure(testContext::failNow);
     }
