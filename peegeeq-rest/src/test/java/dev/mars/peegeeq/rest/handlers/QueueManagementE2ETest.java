@@ -219,26 +219,23 @@ public class QueueManagementE2ETest {
     void test03_VerifyQueueHasMessages(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== E2E Test 3: Verify Queue Has Messages ===");
 
-        // Wait a bit for messages to be available
-        vertx.setTimer(1000, timerId -> {
-            webClient.get(TEST_PORT, "localhost", "/api/v1/queues/" + setupId + "/" + queueName)
-                .send()
-                .onSuccess(response -> {
-                    testContext.verify(() -> {
-                        assertEquals(200, response.statusCode(), "Should return 200 OK");
+        webClient.get(TEST_PORT, "localhost", "/api/v1/queues/" + setupId + "/" + queueName)
+            .send()
+            .onSuccess(response -> {
+                testContext.verify(() -> {
+                    assertEquals(200, response.statusCode(), "Should return 200 OK");
 
-                        JsonObject body = response.bodyAsJsonObject();
-                        assertNotNull(body, "Response should be JSON");
+                    JsonObject body = response.bodyAsJsonObject();
+                    assertNotNull(body, "Response should be JSON");
 
-                        long messageCount = body.getLong("messages", 0L);
-                        assertTrue(messageCount > 0, "Should have at least one message, found: " + messageCount);
+                    long messageCount = body.getLong("messages", 0L);
+                    assertTrue(messageCount > 0, "Should have at least one message, found: " + messageCount);
 
-                        logger.info("Verified queue has {} messages", messageCount);
-                        testContext.completeNow();
-                    });
-                })
-                .onFailure(testContext::failNow);
-        });
+                    logger.info("Verified queue has {} messages", messageCount);
+                    testContext.completeNow();
+                });
+            })
+            .onFailure(testContext::failNow);
     }
 
     @Test

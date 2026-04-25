@@ -370,8 +370,8 @@ The test passes regardless of whether the system behaves correctly.
 | `peegeeq-rest/.../ConsumerGroupSubscriptionIntegrationTest.java` | 1010 | "SSE stream may not have sent configured event" → `completeNow()` |
 
 **Fix:** Replace `completeNow()` in timeout handlers with `testContext.failNow(new AssertionError("..."))`.
-For tests where the feature is genuinely optional/experimental, mark them `@Disabled` with a
-note rather than silently passing.
+For tests where a feature gap is known, keep the test failing loudly and link the assertion
+message to the tracked issue rather than silently passing.
 
 ---
 
@@ -494,8 +494,8 @@ arrived.
 
 **General solution for all P2 instances:** Replace `completeNow()` in timeout handlers with
 `testContext.failNow(new AssertionError("..."))`. For features that are genuinely not yet
-implemented, annotate with `@Disabled("feature not yet implemented: ...")` rather than
-hiding the gap behind a silent pass.
+implemented, fail with a clear issue-linked message rather than hiding the gap behind a
+silent pass.
 
 #### `EndToEndValidationTest.java:227` — `testAllEndpointsIntegration`
 
@@ -534,8 +534,8 @@ vertx.setTimer(5000, id -> {
 ```
 
 Note: if the WS feature is not yet implemented, the outer `.onFailure` already calls
-`testContext.completeNow()` — those should also become `testContext.failNow(...)` or the
-test should be `@Disabled`.
+`testContext.completeNow()` — those should also become `testContext.failNow(...)` so the
+gap remains visible in CI.
 
 #### `SystemMonitoringHandlerTest.java:294` and `:443` — WS metrics timeout
 
