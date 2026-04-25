@@ -129,63 +129,61 @@ public class TraceIdSpanIdDemoTest {
                     try (var ignored = TraceContextUtil.mdcScope(rootSpan)) {
                         log.info("STEP 3: Back to root span on event loop");
                     }
-                    
+
                     // Verify captured logs
-                    vertx.setTimer(100, id -> {
-                        try {
-                            List<String> logs = traceAppender.getCapturedLogs();
-                            
-                            // Print logs for demonstration
-                            log.info("\n========== TRACE ID vs SPAN ID DEMONSTRATION ==========");
-                            log.info("Expected TraceId: {}", expectedTraceId);
-                            log.info("Root SpanId: {}", rootSpanId);
-                            log.info("");
-                            
-                            String step1SpanId = null;
-                            String step2SpanId = null;
-                            String step3SpanId = null;
-                            
-                            for (String logLine : logs) {
-                                if (logLine.contains("STEP")) {
-                                    log.info("{}", logLine);
-                                    
-                                    Matcher m = TRACE_SPAN_PATTERN.matcher(logLine);
-                                    if (m.find()) {
-                                        String traceId = m.group(1);
-                                        String spanId = m.group(2);
-                                        
-                                        // All logs should have the same traceId
-                                        assertEquals(expectedTraceId, traceId, 
-                                            "TraceId must be constant across all log lines");
-                                        
-                                        if (logLine.contains("STEP 1")) step1SpanId = spanId;
-                                        if (logLine.contains("STEP 2")) step2SpanId = spanId;
-                                        if (logLine.contains("STEP 3")) step3SpanId = spanId;
-                                    }
+                    try {
+                        List<String> logs = traceAppender.getCapturedLogs();
+
+                        // Print logs for demonstration
+                        log.info("\n========== TRACE ID vs SPAN ID DEMONSTRATION ==========");
+                        log.info("Expected TraceId: {}", expectedTraceId);
+                        log.info("Root SpanId: {}", rootSpanId);
+                        log.info("");
+
+                        String step1SpanId = null;
+                        String step2SpanId = null;
+                        String step3SpanId = null;
+
+                        for (String logLine : logs) {
+                            if (logLine.contains("STEP")) {
+                                log.info("{}", logLine);
+
+                                Matcher m = TRACE_SPAN_PATTERN.matcher(logLine);
+                                if (m.find()) {
+                                    String traceId = m.group(1);
+                                    String spanId = m.group(2);
+
+                                    // All logs should have the same traceId
+                                    assertEquals(expectedTraceId, traceId,
+                                        "TraceId must be constant across all log lines");
+
+                                    if (logLine.contains("STEP 1")) step1SpanId = spanId;
+                                    if (logLine.contains("STEP 2")) step2SpanId = spanId;
+                                    if (logLine.contains("STEP 3")) step3SpanId = spanId;
                                 }
                             }
-                            
-                            log.info("");
-                            log.info("Analysis:");
-                            log.info("  - STEP 1 (event loop): spanId = {}", step1SpanId);
-                            log.info("  - STEP 2 (worker):     spanId = {} <-- DIFFERENT (child span)", step2SpanId);
-                            log.info("  - STEP 3 (event loop): spanId = {} <-- SAME as STEP 1 (root span)", step3SpanId);
-                            log.info("  - TraceId: SAME across all steps");
-                            log.info("=======================================================\n");
-                            
-                            // Verify step 1 and step 3 have the same spanId (root span)
-                            assertEquals(step1SpanId, step3SpanId, 
-                                "Event loop spans should have same spanId");
-                            
-                            // Verify step 2 has different spanId (worker/child span)
-                            assertNotEquals(step1SpanId, step2SpanId, 
-                                "Worker span should have different spanId");
-                            
-                            testContext.completeNow();
-                        } catch (Throwable t) {
-                            testContext.failNow(t);
                         }
-                    });
+
+                        log.info("");
+                        log.info("Analysis:");
+                        log.info("  - STEP 1 (event loop): spanId = {}", step1SpanId);
+                        log.info("  - STEP 2 (worker):     spanId = {} <-- DIFFERENT (child span)", step2SpanId);
+                        log.info("  - STEP 3 (event loop): spanId = {} <-- SAME as STEP 1 (root span)", step3SpanId);
+                        log.info("  - TraceId: SAME across all steps");
+                        log.info("=======================================================\n");
+
+                        // Verify step 1 and step 3 have the same spanId (root span)
+                        assertEquals(step1SpanId, step3SpanId,
+                            "Event loop spans should have same spanId");
+
+                        // Verify step 2 has different spanId (worker/child span)
+                        assertNotEquals(step1SpanId, step2SpanId,
+                            "Worker span should have different spanId");
+
+                        testContext.completeNow();
+                    } catch (Throwable t) {
+                        testContext.failNow(t);
+                    }
                 } else {
                     testContext.failNow(ar.cause());
                 }

@@ -207,9 +207,8 @@ class WebSocketHandlerTest {
                 });
             })
             .onFailure(err -> {
-                // WebSocket endpoint might not be implemented yet - that's OK
-                logger.warn("WebSocket connection failed (may not be implemented): {}", err.getMessage());
-                testContext.completeNow();
+                logger.error("WebSocket connection failed", err);
+                testContext.failNow(err);
             });
     }
 
@@ -255,8 +254,8 @@ class WebSocketHandlerTest {
                 });
             })
             .onFailure(err -> {
-                logger.warn("WebSocket connection failed (may not be implemented): {}", err.getMessage());
-                testContext.completeNow();
+                logger.error("WebSocket connection failed", err);
+                testContext.failNow(err);
             });
     }
 
@@ -311,8 +310,8 @@ class WebSocketHandlerTest {
                 });
             })
             .onFailure(err -> {
-                logger.warn("WebSocket connection failed (may not be implemented): {}", err.getMessage());
-                testContext.completeNow();
+                logger.error("WebSocket connection failed", err);
+                testContext.failNow(err);
             });
     }
 
@@ -367,8 +366,8 @@ class WebSocketHandlerTest {
                 });
             })
             .onFailure(err -> {
-                logger.warn("WebSocket connection failed (may not be implemented): {}", err.getMessage());
-                testContext.completeNow();
+                logger.error("WebSocket connection failed", err);
+                testContext.failNow(err);
             });
     }
 

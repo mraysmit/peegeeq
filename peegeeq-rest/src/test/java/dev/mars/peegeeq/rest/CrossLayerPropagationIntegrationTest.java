@@ -258,24 +258,23 @@ public class CrossLayerPropagationIntegrationTest {
                     }
                 });
 
-                // Send message via REST API after SSE connection is established
-                vertx.setTimer(1000, id -> {
-                    JsonObject sendRequest = new JsonObject()
-                        .put("payload", new JsonObject()
-                            .put("testField", "testValue")
-                            .put("timestamp", System.currentTimeMillis()))
-                        .put("headers", new JsonObject().put("X-Test-Header", "test-value"));
+                // Send message via REST API — the SSE handler is already registered above,
+                // so the stream is ready to receive events as soon as this send is dispatched.
+                JsonObject sendRequest = new JsonObject()
+                    .put("payload", new JsonObject()
+                        .put("testField", "testValue")
+                        .put("timestamp", System.currentTimeMillis()))
+                    .put("headers", new JsonObject().put("X-Test-Header", "test-value"));
 
-                    String sendUrl = String.format("/api/v1/queues/%s/%s/messages", testSetupId, QUEUE_NAME);
+                String sendUrl = String.format("/api/v1/queues/%s/%s/messages", testSetupId, QUEUE_NAME);
 
-                    client.post(TEST_PORT, "localhost", sendUrl)
-                        .putHeader("content-type", "application/json")
-                        .sendJsonObject(sendRequest)
-                        .onSuccess(sendResponse -> {
-                            logger.info("Message sent via REST API, status: {}", sendResponse.statusCode());
-                        })
-                        .onFailure(err -> logger.error("Failed to send message", err));
-                });
+                client.post(TEST_PORT, "localhost", sendUrl)
+                    .putHeader("content-type", "application/json")
+                    .sendJsonObject(sendRequest)
+                    .onSuccess(sendResponse -> {
+                        logger.info("Message sent via REST API, status: {}", sendResponse.statusCode());
+                    })
+                    .onFailure(err -> logger.error("Failed to send message", err));
             })
             .onFailure(testContext::failNow);
 
@@ -365,96 +364,91 @@ public class CrossLayerPropagationIntegrationTest {
     @Test
     @Order(3)
     @DisplayName("Test 3: Multiple SSE consumers receive messages")
-    void testMultipleSSEConsumersMessageDistribution(Vertx vertx, VertxTestContext testContext) throws Exception {
+    void testMultipleSSEConsumersMessageDistribution(Vertx vertx, VertxTestContext testContext) {
         logger.info("=== Test 3: Multiple SSE Consumers Message Distribution ===");
 
-        CountDownLatch consumer1Latch = new CountDownLatch(1);
-        CountDownLatch consumer2Latch = new CountDownLatch(1);
-        AtomicReference<String> consumer1Data = new AtomicReference<>();
-        AtomicReference<String> consumer2Data = new AtomicReference<>();
+        Promise<Void> conn1Ready = Promise.promise();
+        Promise<Void> conn2Ready = Promise.promise();
+        Promise<String> msg1Promise = Promise.promise();
+        Promise<String> msg2Promise = Promise.promise();
         AtomicReference<HttpClientResponse> response1Ref = new AtomicReference<>();
         AtomicReference<HttpClientResponse> response2Ref = new AtomicReference<>();
 
         String sseUrl = "/api/v1/queues/" + testSetupId + "/" + QUEUE_NAME + "/stream";
         String uniqueMarker = "multi-consumer-test-" + System.currentTimeMillis();
 
-        // Establish first SSE connection
+        // Establish first SSE connection — resolve conn1Ready on the initial SSE connection event
         httpClient.request(HttpMethod.GET, TEST_PORT, "localhost", sseUrl)
             .compose(HttpClientRequest::send)
             .onSuccess(response1 -> {
                 response1Ref.set(response1);
                 logger.info("SSE Consumer 1 connected");
-
                 response1.handler(buffer -> {
                     String data = buffer.toString();
+                    if (data.contains("event: connection")) conn1Ready.tryComplete();
                     if (data.contains(uniqueMarker)) {
-                        consumer1Data.set(data);
                         logger.info("Consumer 1 received: {}", data);
-                        consumer1Latch.countDown();
+                        msg1Promise.tryComplete(data);
                     }
                 });
-            });
+            })
+            .onFailure(conn1Ready::tryFail);
 
-        // Establish second SSE connection
+        // Establish second SSE connection — resolve conn2Ready on the initial SSE connection event
         httpClient.request(HttpMethod.GET, TEST_PORT, "localhost", sseUrl)
             .compose(HttpClientRequest::send)
             .onSuccess(response2 -> {
                 response2Ref.set(response2);
                 logger.info("SSE Consumer 2 connected");
-
                 response2.handler(buffer -> {
                     String data = buffer.toString();
+                    if (data.contains("event: connection")) conn2Ready.tryComplete();
                     if (data.contains(uniqueMarker)) {
-                        consumer2Data.set(data);
                         logger.info("Consumer 2 received: {}", data);
-                        consumer2Latch.countDown();
+                        msg2Promise.tryComplete(data);
                     }
                 });
-            });
-
-        // Wait for connections to establish
-        Promise<Void> delay = Promise.promise();
-        vertx.setTimer(2000, id -> delay.complete());
-        delay.future().await();
-
-        // Send a message
-        JsonObject sendRequest = new JsonObject()
-            .put("payload", new JsonObject()
-                .put("marker", uniqueMarker)
-                .put("timestamp", System.currentTimeMillis()));
-
-        String sendUrl = String.format("/api/v1/queues/%s/%s/messages", testSetupId, QUEUE_NAME);
-
-        client.post(TEST_PORT, "localhost", sendUrl)
-            .putHeader("content-type", "application/json")
-            .sendJsonObject(sendRequest)
-            .onSuccess(response -> {
-                logger.info("Message sent, status: {}", response.statusCode());
             })
-            .onFailure(err -> logger.error("Failed to send message", err));
+            .onFailure(conn2Ready::tryFail);
 
-        // Wait for both consumers to receive the message
-        boolean consumer1Received = consumer1Latch.await(15, TimeUnit.SECONDS);
-        boolean consumer2Received = consumer2Latch.await(15, TimeUnit.SECONDS);
+        // Wait for both SSE connections to signal readiness, then send the message
+        Future.all(conn1Ready.future(), conn2Ready.future())
+            .compose(ignored -> {
+                JsonObject sendRequest = new JsonObject()
+                    .put("payload", new JsonObject()
+                        .put("marker", uniqueMarker)
+                        .put("timestamp", System.currentTimeMillis()));
 
-        testContext.verify(() -> {
-            // At least one consumer should receive the message
-            assertTrue(consumer1Received || consumer2Received,
-                "At least one SSE consumer should receive the message");
-            logger.info("Consumer 1 received: {}, Consumer 2 received: {}",
-                consumer1Received, consumer2Received);
-            logger.info("Multiple SSE consumers test complete");
-        });
+                String sendUrl = String.format("/api/v1/queues/%s/%s/messages", testSetupId, QUEUE_NAME);
+                return client.post(TEST_PORT, "localhost", sendUrl)
+                    .putHeader("content-type", "application/json")
+                    .sendJsonObject(sendRequest);
+            })
+            .onSuccess(sendResponse -> logger.info("Message sent, status: {}", sendResponse.statusCode()))
+            .onFailure(testContext::failNow);
 
-        // Close connections
-        if (response1Ref.get() != null) {
-            response1Ref.get().request().connection().close();
-        }
-        if (response2Ref.get() != null) {
-            response2Ref.get().request().connection().close();
-        }
+        // Fail if neither consumer receives the message within 15 s
+        long timeoutId = vertx.setTimer(15000, id ->
+            testContext.failNow(new AssertionError("Neither SSE consumer received the message within 15 s")));
 
-        testContext.completeNow();
+        // Complete as soon as at least one consumer receives the message
+        Future.any(msg1Promise.future(), msg2Promise.future())
+            .onSuccess(cf -> {
+                vertx.cancelTimer(timeoutId);
+                boolean consumer1Received = msg1Promise.future().isComplete();
+                boolean consumer2Received = msg2Promise.future().isComplete();
+                testContext.verify(() -> {
+                    assertTrue(consumer1Received || consumer2Received,
+                        "At least one SSE consumer should receive the message");
+                    logger.info("Consumer 1 received: {}, Consumer 2 received: {}",
+                        consumer1Received, consumer2Received);
+                    logger.info("Multiple SSE consumers test complete");
+                });
+                if (response1Ref.get() != null) response1Ref.get().request().connection().close();
+                if (response2Ref.get() != null) response2Ref.get().request().connection().close();
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     // ========== Test 4: Queue Stats REST API Cross-Layer ==========
