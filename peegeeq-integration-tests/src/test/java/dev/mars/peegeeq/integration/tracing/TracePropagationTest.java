@@ -105,35 +105,33 @@ public class TracePropagationTest {
                 if (ar.succeeded()) {
                     // 6. Log on EventLoop (Phase 3)
                     log.info("Phase 3: EventLoop End");
-                    
+
                     // Assertions
-                    vertx.setTimer(100, id -> { // Give appender a moment to flush if async (it's not, but safety)
-                        try {
-                            List<String> logs = traceAppender.getCapturedLogs();
-                            
-                            boolean foundPhase1 = false;
-                            boolean foundPhase2 = false;
-                            boolean foundPhase3 = false;
-                            
-                            for (String line : logs) {
-                                if (line.contains("Phase 1") && line.contains("captured-trace=" + expectedTraceId)) foundPhase1 = true;
-                                if (line.contains("Phase 2") && line.contains("captured-trace=" + expectedTraceId)) foundPhase2 = true;
-                                if (line.contains("Phase 3") && line.contains("captured-trace=" + expectedTraceId)) foundPhase3 = true;
-                            }
-                            
-                            if (!foundPhase1) logger.warn("FAILED: Phase 1 trace missing. Logs: {}", logs);
-                            if (!foundPhase2) logger.warn("FAILED: Phase 2 trace missing. Logs: {}", logs);
-                            if (!foundPhase3) logger.warn("FAILED: Phase 3 trace missing. Logs: {}", logs);
-                            
-                            if (foundPhase1 && foundPhase2 && foundPhase3) {
-                                testContext.completeNow();
-                            } else {
-                                testContext.failNow(new AssertionError("Trace ID propagation failed. See stderr."));
-                            }
-                        } catch (Throwable t) {
-                            testContext.failNow(t);
+                    try {
+                        List<String> logs = traceAppender.getCapturedLogs();
+
+                        boolean foundPhase1 = false;
+                        boolean foundPhase2 = false;
+                        boolean foundPhase3 = false;
+
+                        for (String line : logs) {
+                            if (line.contains("Phase 1") && line.contains("captured-trace=" + expectedTraceId)) foundPhase1 = true;
+                            if (line.contains("Phase 2") && line.contains("captured-trace=" + expectedTraceId)) foundPhase2 = true;
+                            if (line.contains("Phase 3") && line.contains("captured-trace=" + expectedTraceId)) foundPhase3 = true;
                         }
-                    });
+
+                        if (!foundPhase1) logger.warn("FAILED: Phase 1 trace missing. Logs: {}", logs);
+                        if (!foundPhase2) logger.warn("FAILED: Phase 2 trace missing. Logs: {}", logs);
+                        if (!foundPhase3) logger.warn("FAILED: Phase 3 trace missing. Logs: {}", logs);
+
+                        if (foundPhase1 && foundPhase2 && foundPhase3) {
+                            testContext.completeNow();
+                        } else {
+                            testContext.failNow(new AssertionError("Trace ID propagation failed. See stderr."));
+                        }
+                    } catch (Throwable t) {
+                        testContext.failNow(t);
+                    }
                 } else {
                     testContext.failNow(ar.cause());
                 }

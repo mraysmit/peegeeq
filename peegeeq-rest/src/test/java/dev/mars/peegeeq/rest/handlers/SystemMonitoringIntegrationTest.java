@@ -7,6 +7,7 @@ import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
 
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 
 import io.vertx.core.http.WebSocketClient;
@@ -133,12 +134,27 @@ public class SystemMonitoringIntegrationTest {
                     return wsClient.connect(wsOptions);
                 })
                 .compose(ws -> {
-                    // Give it a moment to receive the first stats update
-                    return Future.<Void>future(promise -> {
-                        vertx.setTimer(1500, id -> {
+                    Promise<Void> firstStats = Promise.promise();
+                    long timeoutTimerId = vertx.setTimer(5000, id -> {
+                        ws.close();
+                        firstStats.tryFail(new AssertionError("No system_stats message received within 5 s"));
+                    });
+
+                    ws.textMessageHandler(message -> {
+                        if (firstStats.future().isComplete()) {
+                            return;
+                        }
+                        JsonObject payload = new JsonObject(message);
+                        if ("system_stats".equals(payload.getString("type"))) {
                             ws.close();
-                            promise.complete();
-                        });
+                            firstStats.tryComplete();
+                        }
+                    });
+                    ws.exceptionHandler(firstStats::tryFail);
+
+                    return firstStats.future().eventually(() -> {
+                        vertx.cancelTimer(timeoutTimerId);
+                        return Future.succeededFuture();
                     });
                 })
                 .compose(v -> {
