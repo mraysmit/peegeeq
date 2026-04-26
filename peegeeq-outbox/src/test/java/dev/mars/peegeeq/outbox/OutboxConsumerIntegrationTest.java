@@ -26,6 +26,7 @@ import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.junit5.VertxExtension;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -217,7 +218,10 @@ class OutboxConsumerIntegrationTest {
         consumer.close();
 
         // When/Then
-        assertThrows(IllegalStateException.class, () -> consumer.subscribe(handler));
+        Future<Void> result = consumer.subscribe(handler);
+        assertTrue(result.failed(), "subscribe on closed consumer should return a failed future");
+        assertInstanceOf(IllegalStateException.class, result.cause(),
+                "subscribe on closed consumer should fail with IllegalStateException");
 
         consumer = null;
     }

@@ -590,8 +590,13 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
                     });
 
                     processingGate.complete();
-                    group.close();
                     testContext.completeNow();
+                    // Do NOT call group.close() here: we are on the Vert.x event loop.
+                    // Calling close() from the event loop causes closeAsync().await() to
+                    // throw "Cannot be called on a Vert.x event-loop thread", leaving an
+                    // in-progress closeAsync() that races with manager.closeReactive() in
+                    // tearDown and causes the pool close to hang. The factory.close() in
+                    // tearDown calls group.closeAsync() correctly on the main thread.
                 }))
                 .onFailure(testContext::failNow);
             assertTrue(testContext.awaitCompletion(30, SECONDS));

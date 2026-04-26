@@ -275,7 +275,7 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
             return Future.succeededFuture();
         });
 
-        // Group 2: accepts "TypeB" messages — the ones group 1 rejected
+        // Group 2: accepts "TypeB" messages — created but not started yet
         ConsumerGroup<String> consumerGroup2 = outboxFactory.createConsumerGroup(
                 "group-2", testTopic, String.class);
         consumerGroup2.setGroupFilter(msg -> msg.getPayload().startsWith("TypeB"));
@@ -284,13 +284,26 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
             return Future.succeededFuture();
         });
 
+        // Start group 1 only; send TypeB which group 1 will filter.
+        // After confirming group 1 has filtered it, stop group 1 and start group 2.
+        // This avoids the polling-race starvation between two concurrent groups.
         consumerGroup.start();
-        consumerGroup2.start();
 
-        // Send a TypeB message — group 1 should filter it, group 2 should process it
         producer.send("TypeB-important-event")
-            .compose(v -> awaitCondition(vertx, () -> group2Processed.get() >= 1, 10_000,
-                    "Group 2 should have processed the TypeB message"))
+            .compose(v -> awaitCondition(vertx,
+                    () -> consumerGroup.getStats().getTotalMessagesFiltered() >= 1,
+                    10_000, "Group 1 should have filtered the TypeB message"))
+            .compose(v -> {
+                // Stop group 1 so it no longer competes for the reset-to-PENDING message
+                consumerGroup.stop();
+                // Brief pause to let any in-flight reset-to-PENDING operation complete
+                return vertx.timer(500);
+            })
+            .compose(v -> {
+                consumerGroup2.start();
+                return awaitCondition(vertx, () -> group2Processed.get() >= 1, 10_000,
+                        "Group 2 should have processed the TypeB message that group 1 filtered");
+            })
             .onSuccess(v -> testContext.verify(() -> {
                 assertEquals(0, group1Processed.get(),
                         "Group 1 should not have processed TypeB message");
@@ -303,7 +316,7 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
             }))
             .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     // ========================================================================

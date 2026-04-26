@@ -118,7 +118,7 @@ public class OutboxQueueBrowser<T> implements QueueBrowser<T> {
 
                             messages.add(new OutboxMessage<>(id, payload, createdAt, headers, correlationId));
                         } catch (Exception e) {
-                            logger.warn("Failed to parse message: {}", e.getMessage());
+                            logger.error("Failed to parse message: {}", e.getMessage());
                         }
                     }
                     return messages;
