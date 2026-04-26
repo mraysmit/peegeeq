@@ -290,7 +290,7 @@ class ConsumerModePropertyIntegrationTest {
         logger.info("🧪 Testing multiple property combinations");
 
         // Set multiple properties together
-        System.setProperty("peegeeq.queue.polling-interval", "PT500MS"); // Fast polling
+        System.setProperty("peegeeq.queue.polling-interval", "PT0.5S"); // Fast polling
         System.setProperty("peegeeq.queue.visibility-timeout", "PT15S");
 
         initializeManagerAndFactory();

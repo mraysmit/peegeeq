@@ -23,6 +23,8 @@ import dev.mars.peegeeq.db.metrics.PeeGeeQMetrics;
 import dev.mars.peegeeq.db.resilience.BackpressureManager;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
@@ -128,6 +130,9 @@ class PeeGeeQExampleTest {
             try {
                 logger.info("Starting PeeGeeQ Example functionality test");
 
+                // Initialize database schema before starting manager
+                PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
+
                 // Test basic PeeGeeQ functionality instead of calling non-existent main
                 runAllDemonstrations();
 
@@ -162,6 +167,9 @@ class PeeGeeQExampleTest {
 
             // Configure PeeGeeQ to use the container
             configureSystemPropertiesForContainer(postgres);
+
+            // Initialize database schema before starting manager
+            PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
 
             // Run comprehensive demonstrations
             runAllDemonstrations();

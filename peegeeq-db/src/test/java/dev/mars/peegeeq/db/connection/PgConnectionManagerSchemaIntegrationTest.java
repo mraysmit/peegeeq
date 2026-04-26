@@ -1,4 +1,4 @@
-﻿package dev.mars.peegeeq.db.connection;
+package dev.mars.peegeeq.db.connection;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd

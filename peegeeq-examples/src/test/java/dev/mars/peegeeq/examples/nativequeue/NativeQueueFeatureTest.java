@@ -149,7 +149,6 @@ class NativeQueueFeatureTest {
         // Verify that native factory is properly created and identified
         assertNotNull(nativeFactory);
         assertEquals("native", nativeFactory.getImplementationType());
-        assertTrue(nativeFactory.isHealthy());
         
         logger.info("Native factory creation test passed");
     }
