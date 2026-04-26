@@ -6,6 +6,8 @@ import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Future;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -15,6 +17,8 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -77,9 +81,13 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         if (connectionManager != null) {
-            awaitFuture(connectionManager.close());
+            connectionManager.close()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
     }
 
@@ -87,51 +95,59 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
      * Test F13: QUEUE topics always allow writes.
      */
     @Test
-    void testQueueTopicAlwaysAllowsWrites() throws Exception {
+    void testQueueTopicAlwaysAllowsWrites(VertxTestContext testContext) throws Exception {
         String topic = "test-queue-allow";
 
-        // Create a QUEUE topic
-        TopicConfig config = TopicConfig.builder()
-            .topic(topic)
-            .semantics(TopicSemantics.QUEUE)
-            .messageRetentionHours(24)
-            .build();
-        topicConfigService.createTopic(config)
-            .toCompletionStage().toCompletableFuture().get();
-
-        // Verify write is allowed
-        Boolean allowed = validator.isWriteAllowed(topic)
-            .toCompletionStage().toCompletableFuture().get();
-
-        assertTrue(allowed, "QUEUE topics should always allow writes");
-
-        logger.info("QUEUE topic write allowed verified");
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        topicConfigService.createTopic(TopicConfig.builder()
+                .topic(topic)
+                .semantics(TopicSemantics.QUEUE)
+                .messageRetentionHours(24)
+                .build())
+            .compose(v -> validator.isWriteAllowed(topic))
+            .onSuccess(allowed -> {
+                try {
+                    assertTrue(allowed, "QUEUE topics should always allow writes");
+                    logger.info("QUEUE topic write allowed verified");
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
     }
 
     /**
      * Test F14: PUB_SUB topics with blocking disabled allow writes even with zero subscriptions.
      */
     @Test
-    void testPubSubTopicWithBlockingDisabledAllowsWrites() throws Exception {
+    void testPubSubTopicWithBlockingDisabledAllowsWrites(VertxTestContext testContext) throws Exception {
         String topic = "test-pubsub-blocking-disabled";
 
-        // Create a PUB_SUB topic with blocking disabled
-        TopicConfig config = TopicConfig.builder()
-            .topic(topic)
-            .semantics(TopicSemantics.PUB_SUB)
-            .messageRetentionHours(24)
-            .blockWritesOnZeroSubscriptions(false)
-            .build();
-        topicConfigService.createTopic(config)
-            .toCompletionStage().toCompletableFuture().get();
-
-        // Verify write is allowed (even with zero subscriptions)
-        Boolean allowed = validator.isWriteAllowed(topic)
-            .toCompletionStage().toCompletableFuture().get();
-
-        assertTrue(allowed, "PUB_SUB topics with blocking disabled should allow writes");
-
-        logger.info("PUB_SUB topic with blocking disabled allows writes verified");
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        topicConfigService.createTopic(TopicConfig.builder()
+                .topic(topic)
+                .semantics(TopicSemantics.PUB_SUB)
+                .messageRetentionHours(24)
+                .blockWritesOnZeroSubscriptions(false)
+                .build())
+            .compose(v -> validator.isWriteAllowed(topic))
+            .onSuccess(allowed -> {
+                try {
+                    assertTrue(allowed, "PUB_SUB topics with blocking disabled should allow writes");
+                    logger.info("PUB_SUB topic with blocking disabled allows writes verified");
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
     }
 
     /**
@@ -143,75 +159,85 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
      * This warning is the expected behavior being tested and is not an error.
      */
     @Test
-    void testPubSubTopicWithBlockingEnabledBlocksWrites() throws Exception {
+    void testPubSubTopicWithBlockingEnabledBlocksWrites(VertxTestContext testContext) throws Exception {
         String topic = "test-pubsub-blocking-enabled";
 
-        // Create a PUB_SUB topic with blocking enabled
-        TopicConfig config = TopicConfig.builder()
-            .topic(topic)
-            .semantics(TopicSemantics.PUB_SUB)
-            .messageRetentionHours(24)
-            .blockWritesOnZeroSubscriptions(true)
-            .build();
-        topicConfigService.createTopic(config)
-            .toCompletionStage().toCompletableFuture().get();
-
-        // Verify write is blocked (zero subscriptions)
-        // EXPECTED WARNING: This will log a warning about blocking the write
-        Boolean allowed = validator.isWriteAllowed(topic)
-            .toCompletionStage().toCompletableFuture().get();
-
-        assertFalse(allowed, "PUB_SUB topics with blocking enabled and zero subscriptions should block writes");
-
-        logger.info("PUB_SUB topic with blocking enabled blocks writes verified");
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        topicConfigService.createTopic(TopicConfig.builder()
+                .topic(topic)
+                .semantics(TopicSemantics.PUB_SUB)
+                .messageRetentionHours(24)
+                .blockWritesOnZeroSubscriptions(true)
+                .build())
+            .compose(v -> validator.isWriteAllowed(topic))
+            .onSuccess(allowed -> {
+                try {
+                    assertFalse(allowed, "PUB_SUB topics with blocking enabled and zero subscriptions should block writes");
+                    logger.info("PUB_SUB topic with blocking enabled blocks writes verified");
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
     }
 
     /**
      * Test F16: PUB_SUB topics with blocking enabled and active subscriptions allow writes.
      */
     @Test
-    void testPubSubTopicWithBlockingEnabledAndActiveSubscriptionsAllowsWrites() throws Exception {
+    void testPubSubTopicWithBlockingEnabledAndActiveSubscriptionsAllowsWrites(VertxTestContext testContext) throws Exception {
         String topic = "test-pubsub-blocking-with-subs";
 
-        // Create a PUB_SUB topic with blocking enabled
-        TopicConfig config = TopicConfig.builder()
-            .topic(topic)
-            .semantics(TopicSemantics.PUB_SUB)
-            .messageRetentionHours(24)
-            .blockWritesOnZeroSubscriptions(true)
-            .build();
-        topicConfigService.createTopic(config)
-            .toCompletionStage().toCompletableFuture().get();
-
-        // Create an active subscription
-        subscriptionManager.subscribe(topic, "group-a", SubscriptionOptions.defaults())
-            .toCompletionStage().toCompletableFuture().get();
-
-        // Verify write is allowed (has active subscription)
-        Boolean allowed = validator.isWriteAllowed(topic)
-            .toCompletionStage().toCompletableFuture().get();
-
-        assertTrue(allowed, "PUB_SUB topics with blocking enabled and active subscriptions should allow writes");
-
-        logger.info("PUB_SUB topic with blocking enabled and active subscriptions allows writes verified");
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        topicConfigService.createTopic(TopicConfig.builder()
+                .topic(topic)
+                .semantics(TopicSemantics.PUB_SUB)
+                .messageRetentionHours(24)
+                .blockWritesOnZeroSubscriptions(true)
+                .build())
+            .compose(v -> subscriptionManager.subscribe(topic, "group-a", SubscriptionOptions.defaults()))
+            .compose(v -> validator.isWriteAllowed(topic))
+            .onSuccess(allowed -> {
+                try {
+                    assertTrue(allowed, "PUB_SUB topics with blocking enabled and active subscriptions should allow writes");
+                    logger.info("PUB_SUB topic with blocking enabled and active subscriptions allows writes verified");
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
     }
 
     /**
      * Test F17: Unconfigured topics default to QUEUE semantics and allow writes.
      */
     @Test
-    void testUnconfiguredTopicAllowsWrites() throws Exception {
+    void testUnconfiguredTopicAllowsWrites(VertxTestContext testContext) throws Exception {
         String topic = "test-unconfigured-topic";
 
-        // Do NOT create topic configuration
-
-        // Verify write is allowed (defaults to QUEUE)
-        Boolean allowed = validator.isWriteAllowed(topic)
-            .toCompletionStage().toCompletableFuture().get();
-
-        assertTrue(allowed, "Unconfigured topics should default to QUEUE semantics and allow writes");
-
-        logger.info("Unconfigured topic allows writes verified");
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        validator.isWriteAllowed(topic)
+            .onSuccess(allowed -> {
+                try {
+                    assertTrue(allowed, "Unconfigured topics should default to QUEUE semantics and allow writes");
+                    logger.info("Unconfigured topic allows writes verified");
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
     }
 
     /**
@@ -223,57 +249,60 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
      * This warning is the expected behavior being tested and is not an error.
      */
     @Test
-    void testValidateWriteAllowedThrowsExceptionWhenBlocked() throws Exception {
+    void testValidateWriteAllowedThrowsExceptionWhenBlocked(VertxTestContext testContext) throws Exception {
         logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Blocking write to topic - zero ACTIVE subscriptions') is EXPECTED — this test verifies writes are blocked when block_writes_on_zero_subscriptions = TRUE");
         String topic = "test-validate-blocked";
 
-        // Create a PUB_SUB topic with blocking enabled
-        TopicConfig config = TopicConfig.builder()
-            .topic(topic)
-            .semantics(TopicSemantics.PUB_SUB)
-            .messageRetentionHours(24)
-            .blockWritesOnZeroSubscriptions(true)
-            .build();
-        topicConfigService.createTopic(config)
-            .toCompletionStage().toCompletableFuture().get();
-
-        // Verify validateWriteAllowed throws exception
-        // EXPECTED WARNING: This will log a warning about blocking the write
-        try {
-            validator.validateWriteAllowed(topic)
-                .toCompletionStage().toCompletableFuture().get();
-            fail("Expected NoActiveSubscriptionsException to be thrown");
-        } catch (Exception e) {
-            assertTrue(e.getCause() instanceof ZeroSubscriptionValidator.NoActiveSubscriptionsException,
-                "Expected NoActiveSubscriptionsException");
-            assertTrue(e.getCause().getMessage().contains("zero ACTIVE subscriptions"),
-                "Exception message should mention zero subscriptions");
-        }
-
-        logger.info("validateWriteAllowed throws exception when blocked verified");
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        topicConfigService.createTopic(TopicConfig.builder()
+                .topic(topic)
+                .semantics(TopicSemantics.PUB_SUB)
+                .messageRetentionHours(24)
+                .blockWritesOnZeroSubscriptions(true)
+                .build())
+            .compose(v -> validator.validateWriteAllowed(topic))
+            .transform(ar -> {
+                if (ar.succeeded()) {
+                    return Future.failedFuture(new AssertionError("Expected NoActiveSubscriptionsException to be thrown"));
+                }
+                try {
+                    assertTrue(ar.cause() instanceof ZeroSubscriptionValidator.NoActiveSubscriptionsException,
+                        "Expected NoActiveSubscriptionsException");
+                    assertTrue(ar.cause().getMessage().contains("zero ACTIVE subscriptions"),
+                        "Exception message should mention zero subscriptions");
+                    logger.info("validateWriteAllowed throws exception when blocked verified");
+                } catch (Throwable t) {
+                    return Future.failedFuture(t);
+                }
+                return Future.succeededFuture();
+            })
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
     }
 
     /**
      * Test F19: validateWriteAllowed succeeds when write is allowed.
      */
     @Test
-    void testValidateWriteAllowedSucceedsWhenAllowed() throws Exception {
+    void testValidateWriteAllowedSucceedsWhenAllowed(VertxTestContext testContext) throws Exception {
         String topic = "test-validate-allowed";
 
-        // Create a QUEUE topic
-        TopicConfig config = TopicConfig.builder()
-            .topic(topic)
-            .semantics(TopicSemantics.QUEUE)
-            .messageRetentionHours(24)
-            .build();
-        topicConfigService.createTopic(config)
-            .toCompletionStage().toCompletableFuture().get();
-
-        // Verify validateWriteAllowed succeeds
-        validator.validateWriteAllowed(topic)
-            .toCompletionStage().toCompletableFuture().get();
-
-        logger.info("validateWriteAllowed succeeds when allowed verified");
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        topicConfigService.createTopic(TopicConfig.builder()
+                .topic(topic)
+                .semantics(TopicSemantics.QUEUE)
+                .messageRetentionHours(24)
+                .build())
+            .compose(v -> validator.validateWriteAllowed(topic))
+            .onSuccess(v -> {
+                logger.info("validateWriteAllowed succeeds when allowed verified");
+                testContext.completeNow();
+            })
+            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
     }
 }
 

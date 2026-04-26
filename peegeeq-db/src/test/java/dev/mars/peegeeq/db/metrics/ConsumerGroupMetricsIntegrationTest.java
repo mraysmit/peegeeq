@@ -16,6 +16,7 @@ import io.micrometer.core.instrument.MeterRegistry;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Tuple;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -27,6 +28,8 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -89,9 +92,11 @@ public class ConsumerGroupMetricsIntegrationTest extends BaseIntegrationTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         if (connectionManager != null) {
-            awaitFuture(connectionManager.close());
+            connectionManager.close().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
     }
 
@@ -116,27 +121,32 @@ public class ConsumerGroupMetricsIntegrationTest extends BaseIntegrationTest {
      * should reflect the count from the database.
      */
     @Test
-    void testActiveSubscriptionGaugeAfterRefresh() throws Exception {
+    void testActiveSubscriptionGaugeAfterRefresh(VertxTestContext testContext) throws Exception {
         String topic = uniqueTopic("metrics-active");
 
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         createTopic(topic)
                 .compose(v -> subscribeWithDefaults(topic, "group-1"))
                 .compose(v -> subscribeWithDefaults(topic, "group-2"))
-                .toCompletionStage().toCompletableFuture().get();
-
-        // Refresh metrics from DB
-        consumerGroupMetrics.refresh()
-                .toCompletionStage().toCompletableFuture().get();
-
-        double activeCount = getGaugeValue("peegeeq.subscriptions.active");
-        assertTrue(activeCount >= 2,
-                "Active subscription gauge should be >= 2 after creating 2 subscriptions, but was " + activeCount);
-
-        double totalCount = getGaugeValue("peegeeq.subscriptions.total");
-        assertTrue(totalCount >= 2,
-                "Total subscription gauge should be >= 2, but was " + totalCount);
-
-        logger.info("Active subscription gauge verified: active={}, total={}", activeCount, totalCount);
+                .compose(v -> consumerGroupMetrics.refresh())
+                .onSuccess(v -> {
+                    try {
+                        double activeCount = getGaugeValue("peegeeq.subscriptions.active");
+                        assertTrue(activeCount >= 2,
+                                "Active subscription gauge should be >= 2 after creating 2 subscriptions, but was " + activeCount);
+                        double totalCount = getGaugeValue("peegeeq.subscriptions.total");
+                        assertTrue(totalCount >= 2,
+                                "Total subscription gauge should be >= 2, but was " + totalCount);
+                        logger.info("Active subscription gauge verified: active={}, total={}", activeCount, totalCount);
+                    } catch (Throwable t) {
+                        errorRef.set(t);
+                    } finally {
+                        testContext.completeNow();
+                    }
+                })
+                .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
     }
 
     /**
@@ -144,31 +154,35 @@ public class ConsumerGroupMetricsIntegrationTest extends BaseIntegrationTest {
      * the dead gauge should increment.
      */
     @Test
-    void testDeadSubscriptionGaugeAfterDetection() throws Exception {
+    void testDeadSubscriptionGaugeAfterDetection(VertxTestContext testContext) throws Exception {
         logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN logs ('Marked N subscriptions as DEAD') are EXPECTED — this test marks a subscription DEAD to verify the dead subscription gauge increments");
         String topic = uniqueTopic("metrics-dead");
-        int threshold = 3; // default dead_after_misses
 
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         createTopic(topic)
                 .compose(v -> subscribeWithShortTimeout(topic, "dead-group"))
-                .toCompletionStage().toCompletableFuture().get();
-
-        // Expire heartbeat and run detection threshold times to trigger DEAD
-        for (int i = 0; i < threshold; i++) {
-            setHeartbeatInPast(topic, "dead-group", 10)
-                    .compose(v -> detector.detectDeadSubscriptions(topic))
-                    .toCompletionStage().toCompletableFuture().get();
-        }
-
-        // Refresh metrics
-        consumerGroupMetrics.refresh()
-                .toCompletionStage().toCompletableFuture().get();
-
-        double deadCount = getGaugeValue("peegeeq.subscriptions.dead");
-        assertTrue(deadCount >= 1,
-                "Dead subscription gauge should be >= 1 after marking a subscription DEAD, but was " + deadCount);
-
-        logger.info("Dead subscription gauge verified: dead={}", deadCount);
+                .compose(v -> setHeartbeatInPast(topic, "dead-group", 10))
+                .compose(v -> detector.detectDeadSubscriptions(topic))
+                .compose(v -> setHeartbeatInPast(topic, "dead-group", 10))
+                .compose(v -> detector.detectDeadSubscriptions(topic))
+                .compose(v -> setHeartbeatInPast(topic, "dead-group", 10))
+                .compose(v -> detector.detectDeadSubscriptions(topic))
+                .compose(v -> consumerGroupMetrics.refresh())
+                .onSuccess(v -> {
+                    try {
+                        double deadCount = getGaugeValue("peegeeq.subscriptions.dead");
+                        assertTrue(deadCount >= 1,
+                                "Dead subscription gauge should be >= 1 after marking a subscription DEAD, but was " + deadCount);
+                        logger.info("Dead subscription gauge verified: dead={}", deadCount);
+                    } catch (Throwable t) {
+                        errorRef.set(t);
+                    } finally {
+                        testContext.completeNow();
+                    }
+                })
+                .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
     }
 
     /**
@@ -176,22 +190,29 @@ public class ConsumerGroupMetricsIntegrationTest extends BaseIntegrationTest {
      * should reflect the count.
      */
     @Test
-    void testPausedSubscriptionGaugeAfterRefresh() throws Exception {
+    void testPausedSubscriptionGaugeAfterRefresh(VertxTestContext testContext) throws Exception {
         String topic = uniqueTopic("metrics-paused");
 
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         createTopic(topic)
                 .compose(v -> subscribeWithDefaults(topic, "pause-group"))
                 .compose(v -> subscriptionManager.pause(topic, "pause-group"))
-                .toCompletionStage().toCompletableFuture().get();
-
-        consumerGroupMetrics.refresh()
-                .toCompletionStage().toCompletableFuture().get();
-
-        double pausedCount = getGaugeValue("peegeeq.subscriptions.paused");
-        assertTrue(pausedCount >= 1,
-                "Paused subscription gauge should be >= 1 after pausing a subscription, but was " + pausedCount);
-
-        logger.info("Paused subscription gauge verified: paused={}", pausedCount);
+                .compose(v -> consumerGroupMetrics.refresh())
+                .onSuccess(v -> {
+                    try {
+                        double pausedCount = getGaugeValue("peegeeq.subscriptions.paused");
+                        assertTrue(pausedCount >= 1,
+                                "Paused subscription gauge should be >= 1 after pausing a subscription, but was " + pausedCount);
+                        logger.info("Paused subscription gauge verified: paused={}", pausedCount);
+                    } catch (Throwable t) {
+                        errorRef.set(t);
+                    } finally {
+                        testContext.completeNow();
+                    }
+                })
+                .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
     }
 
     /**
@@ -199,24 +220,31 @@ public class ConsumerGroupMetricsIntegrationTest extends BaseIntegrationTest {
      * that have subscriptions.
      */
     @Test
-    void testTopicsGaugeReflectsDistinctTopicCount() throws Exception {
+    void testTopicsGaugeReflectsDistinctTopicCount(VertxTestContext testContext) throws Exception {
         String topic1 = uniqueTopic("metrics-t1");
         String topic2 = uniqueTopic("metrics-t2");
 
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         createTopic(topic1)
                 .compose(v -> createTopic(topic2))
                 .compose(v -> subscribeWithDefaults(topic1, "group-a"))
                 .compose(v -> subscribeWithDefaults(topic2, "group-b"))
-                .toCompletionStage().toCompletableFuture().get();
-
-        consumerGroupMetrics.refresh()
-                .toCompletionStage().toCompletableFuture().get();
-
-        double topicCount = getGaugeValue("peegeeq.subscriptions.topics");
-        assertTrue(topicCount >= 2,
-                "Topics gauge should be >= 2 after subscribing to 2 topics, but was " + topicCount);
-
-        logger.info("Topics gauge verified: topics={}", topicCount);
+                .compose(v -> consumerGroupMetrics.refresh())
+                .onSuccess(v -> {
+                    try {
+                        double topicCount = getGaugeValue("peegeeq.subscriptions.topics");
+                        assertTrue(topicCount >= 2,
+                                "Topics gauge should be >= 2 after subscribing to 2 topics, but was " + topicCount);
+                        logger.info("Topics gauge verified: topics={}", topicCount);
+                    } catch (Throwable t) {
+                        errorRef.set(t);
+                    } finally {
+                        testContext.completeNow();
+                    }
+                })
+                .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
     }
 
     /**
@@ -224,55 +252,62 @@ public class ConsumerGroupMetricsIntegrationTest extends BaseIntegrationTest {
      * Gauges are snapshots, not counters.
      */
     @Test
-    void testRefreshReplacesGaugeValues() throws Exception {
+    void testRefreshReplacesGaugeValues(VertxTestContext testContext) throws Exception {
         String topic = uniqueTopic("metrics-replace");
 
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        AtomicReference<Double> firstReadRef = new AtomicReference<>();
         createTopic(topic)
                 .compose(v -> subscribeWithDefaults(topic, "group-1"))
-                .toCompletionStage().toCompletableFuture().get();
-
-        consumerGroupMetrics.refresh()
-                .toCompletionStage().toCompletableFuture().get();
-        double firstRead = getGaugeValue("peegeeq.subscriptions.active");
-
-        // Subscribe another group
-        subscribeWithDefaults(topic, "group-2")
-                .toCompletionStage().toCompletableFuture().get();
-
-        consumerGroupMetrics.refresh()
-                .toCompletionStage().toCompletableFuture().get();
-        double secondRead = getGaugeValue("peegeeq.subscriptions.active");
-
-        assertTrue(secondRead > firstRead,
-                "Gauge should increase after adding subscription: first=" + firstRead + " second=" + secondRead);
-
-        logger.info("Gauge replacement verified: first={}, second={}", firstRead, secondRead);
+                .compose(v -> consumerGroupMetrics.refresh())
+                .compose(v -> {
+                    firstReadRef.set(getGaugeValue("peegeeq.subscriptions.active"));
+                    return subscribeWithDefaults(topic, "group-2");
+                })
+                .compose(v -> consumerGroupMetrics.refresh())
+                .onSuccess(v -> {
+                    try {
+                        double secondRead = getGaugeValue("peegeeq.subscriptions.active");
+                        assertTrue(secondRead > firstReadRef.get(),
+                                "Gauge should increase after adding subscription: first=" + firstReadRef.get() + " second=" + secondRead);
+                        logger.info("Gauge replacement verified: first={}, second={}", firstReadRef.get(), secondRead);
+                    } catch (Throwable t) {
+                        errorRef.set(t);
+                    } finally {
+                        testContext.completeNow();
+                    }
+                })
+                .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
     }
 
     /**
      * Detection run metrics: total detection runs counted.
      */
     @Test
-    void testDetectionRunCountGauge() throws Exception {
+    void testDetectionRunCountGauge(VertxTestContext testContext) throws Exception {
         String topic = uniqueTopic("metrics-runs");
 
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         createTopic(topic)
                 .compose(v -> subscribeWithShortTimeout(topic, "run-group"))
-                .toCompletionStage().toCompletableFuture().get();
-
-        // Run detection once
-        detector.detectDeadSubscriptions(topic)
-                .toCompletionStage().toCompletableFuture().get();
-
-        consumerGroupMetrics.refresh()
-                .toCompletionStage().toCompletableFuture().get();
-
-        // Detection run count is tracked by the job, not the detector.
-        // But subscription counts should still reflect state.
-        double activeCount = getGaugeValue("peegeeq.subscriptions.active");
-        assertTrue(activeCount >= 0, "Active count should be non-negative");
-
-        logger.info("Detection-related gauge verified");
+                .compose(v -> detector.detectDeadSubscriptions(topic))
+                .compose(v -> consumerGroupMetrics.refresh())
+                .onSuccess(v -> {
+                    try {
+                        double activeCount = getGaugeValue("peegeeq.subscriptions.active");
+                        assertTrue(activeCount >= 0, "Active count should be non-negative");
+                        logger.info("Detection-related gauge verified");
+                    } catch (Throwable t) {
+                        errorRef.set(t);
+                    } finally {
+                        testContext.completeNow();
+                    }
+                })
+                .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
     }
 
     // ========================================================================

@@ -9,6 +9,7 @@ import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -20,6 +21,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -58,9 +60,13 @@ public class StuckMessageRecoveryManagerCoreTest extends BaseIntegrationTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         if (connectionManager != null) {
-            awaitFuture(connectionManager.close());
+            connectionManager.close()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
     }
 
@@ -82,39 +88,103 @@ public class StuckMessageRecoveryManagerCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testRecoverStuckMessagesWhenDisabled() throws Exception {
+    void testRecoverStuckMessagesWhenDisabled(VertxTestContext testContext) throws InterruptedException {
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         StuckMessageRecoveryManager disabledManager = new StuckMessageRecoveryManager(pool, Duration.ofMinutes(5), false);
-        int recovered = disabledManager.recoverStuckMessages()
-            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        assertEquals(0, recovered);
+        disabledManager.recoverStuckMessages()
+            .onSuccess(recovered -> {
+                try {
+                    assertEquals(0, (int) recovered);
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> {
+                errorRef.set(e);
+                testContext.completeNow();
+            });
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        if (errorRef.get() != null) {
+            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        }
     }
 
     @Test
-    void testRecoverStuckMessagesNoStuckMessages() throws Exception {
-        int recovered = recoveryManager.recoverStuckMessages()
-            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        assertEquals(0, recovered);
+    void testRecoverStuckMessagesNoStuckMessages(VertxTestContext testContext) throws InterruptedException {
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        recoveryManager.recoverStuckMessages()
+            .onSuccess(recovered -> {
+                try {
+                    assertEquals(0, (int) recovered);
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> {
+                errorRef.set(e);
+                testContext.completeNow();
+            });
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        if (errorRef.get() != null) {
+            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        }
     }
 
     @Test
-    void testGetRecoveryStats() throws Exception {
-        StuckMessageRecoveryManager.RecoveryStats stats = recoveryManager.getRecoveryStats()
-            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        assertNotNull(stats);
-        assertTrue(stats.isEnabled());
-        assertEquals(0, stats.getStuckMessagesCount());
-        assertEquals(0, stats.getTotalProcessingCount());
+    void testGetRecoveryStats(VertxTestContext testContext) throws InterruptedException {
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        recoveryManager.getRecoveryStats()
+            .onSuccess(stats -> {
+                try {
+                    assertNotNull(stats);
+                    assertTrue(stats.isEnabled());
+                    assertEquals(0, stats.getStuckMessagesCount());
+                    assertEquals(0, stats.getTotalProcessingCount());
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> {
+                errorRef.set(e);
+                testContext.completeNow();
+            });
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        if (errorRef.get() != null) {
+            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        }
     }
 
     @Test
-    void testGetRecoveryStatsWhenDisabled() throws Exception {
+    void testGetRecoveryStatsWhenDisabled(VertxTestContext testContext) throws InterruptedException {
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         StuckMessageRecoveryManager disabledManager = new StuckMessageRecoveryManager(pool, Duration.ofMinutes(5), false);
-        StuckMessageRecoveryManager.RecoveryStats stats = disabledManager.getRecoveryStats()
-            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        assertNotNull(stats);
-        assertFalse(stats.isEnabled());
-        assertEquals(0, stats.getStuckMessagesCount());
-        assertEquals(0, stats.getTotalProcessingCount());
+        disabledManager.getRecoveryStats()
+            .onSuccess(stats -> {
+                try {
+                    assertNotNull(stats);
+                    assertFalse(stats.isEnabled());
+                    assertEquals(0, stats.getStuckMessagesCount());
+                    assertEquals(0, stats.getTotalProcessingCount());
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> {
+                errorRef.set(e);
+                testContext.completeNow();
+            });
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        if (errorRef.get() != null) {
+            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        }
     }
 
     @Test
@@ -135,42 +205,86 @@ public class StuckMessageRecoveryManagerCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testRecoverStuckMessagesMultipleCalls() throws Exception {
-        // First call
-        int count1 = recoveryManager.recoverStuckMessages()
-            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        assertTrue(count1 >= 0);
-
-        // Second call
-        int count2 = recoveryManager.recoverStuckMessages()
-            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        assertTrue(count2 >= 0);
+    void testRecoverStuckMessagesMultipleCalls(VertxTestContext testContext) throws InterruptedException {
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        recoveryManager.recoverStuckMessages()
+            .compose(count1 -> {
+                assertTrue(count1 >= 0);
+                return recoveryManager.recoverStuckMessages();
+            })
+            .onSuccess(count2 -> {
+                try {
+                    assertTrue(count2 >= 0);
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> {
+                errorRef.set(e);
+                testContext.completeNow();
+            });
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        if (errorRef.get() != null) {
+            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        }
     }
 
     @Test
-    void testGetRecoveryStatsMultipleCalls() throws Exception {
-        // First call
-        StuckMessageRecoveryManager.RecoveryStats stats1 = recoveryManager.getRecoveryStats()
-            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        assertNotNull(stats1);
-
-        // Second call
-        StuckMessageRecoveryManager.RecoveryStats stats2 = recoveryManager.getRecoveryStats()
-            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        assertNotNull(stats2);
+    void testGetRecoveryStatsMultipleCalls(VertxTestContext testContext) throws InterruptedException {
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        recoveryManager.getRecoveryStats()
+            .compose(stats1 -> {
+                assertNotNull(stats1);
+                return recoveryManager.getRecoveryStats();
+            })
+            .onSuccess(stats2 -> {
+                try {
+                    assertNotNull(stats2);
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> {
+                errorRef.set(e);
+                testContext.completeNow();
+            });
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        if (errorRef.get() != null) {
+            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        }
     }
 
     @Test
-    void testRecoveryManagerWithDifferentTimeouts() throws Exception {
+    void testRecoveryManagerWithDifferentTimeouts(VertxTestContext testContext) throws InterruptedException {
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         StuckMessageRecoveryManager manager1 = new StuckMessageRecoveryManager(pool, Duration.ofMinutes(1), true);
-        int count1 = manager1.recoverStuckMessages()
-            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        assertTrue(count1 >= 0);
-
         StuckMessageRecoveryManager manager2 = new StuckMessageRecoveryManager(pool, Duration.ofMinutes(10), true);
-        int count2 = manager2.recoverStuckMessages()
-            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-        assertTrue(count2 >= 0);
+        manager1.recoverStuckMessages()
+            .compose(count1 -> {
+                assertTrue(count1 >= 0);
+                return manager2.recoverStuckMessages();
+            })
+            .onSuccess(count2 -> {
+                try {
+                    assertTrue(count2 >= 0);
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> {
+                errorRef.set(e);
+                testContext.completeNow();
+            });
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        if (errorRef.get() != null) {
+            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        }
     }
 }
 
