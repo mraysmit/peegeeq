@@ -45,6 +45,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneOffset;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -56,7 +57,7 @@ import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaCo
  * This test validates that the StuckMessageRecoveryManager correctly identifies
  * and recovers messages that are stuck in PROCESSING state due to consumer crashes.
  */
-@Tag(TestCategories.FLAKY)  // Long to OffsetDateTime coercion error - needs investigation
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 public class StuckMessageRecoveryIntegrationTest {
@@ -334,8 +335,8 @@ public class StuckMessageRecoveryIntegrationTest {
 
         long messageId = reactivePool.withConnection(conn -> 
             conn.preparedQuery(insertSql)
-                .execute(Tuple.of(testTopic, "\"Stuck message for recovery test\"", 
-                    stuckTime.toEpochMilli(), now.toEpochMilli()))
+                .execute(Tuple.of(testTopic, "\"Stuck message for recovery test\"",
+                    stuckTime.atOffset(ZoneOffset.UTC), now.atOffset(ZoneOffset.UTC)))
                 .map(rows -> {
                     if (rows.size() > 0) {
                         long id = rows.iterator().next().getLong("id");
@@ -442,7 +443,7 @@ public class StuckMessageRecoveryIntegrationTest {
                     logger.info("Executing update for topic: {}, maxMessages: {}", testTopic, maxMessages);
                     
                     return conn.preparedQuery(updateSql)
-                        .execute(Tuple.of(stuckTime.toEpochMilli(), testTopic, maxMessages));
+                        .execute(Tuple.of(stuckTime.atOffset(ZoneOffset.UTC), testTopic, maxMessages));
                 })
                 .map(updateRows -> {
                     int updated = updateRows.rowCount();

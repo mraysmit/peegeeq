@@ -10,6 +10,7 @@ import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -22,6 +23,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.Set;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -46,9 +49,13 @@ public class PgClientFactoryCoreTest extends BaseIntegrationTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         if (factory != null) {
-            factory.closeAsync().toCompletionStage().toCompletableFuture().get();
+            factory.closeAsync()
+                    .onSuccess(v -> testContext.completeNow())
+                    .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
     }
 
@@ -58,18 +65,24 @@ public class PgClientFactoryCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testPgClientFactoryCreationWithVertx() throws Exception {
+    void testPgClientFactoryCreationWithVertx(VertxTestContext testContext) throws Exception {
         PgClientFactory f = new PgClientFactory(manager.getVertx());
         assertNotNull(f);
-        f.closeAsync().toCompletionStage().toCompletableFuture().get();
+        f.closeAsync()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testPgClientFactoryCreationWithConnectionManager() throws Exception {
+    void testPgClientFactoryCreationWithConnectionManager(VertxTestContext testContext) throws Exception {
         PgConnectionManager cm = new PgConnectionManager(manager.getVertx());
         PgClientFactory f = new PgClientFactory(cm);
         assertNotNull(f);
-        f.closeAsync().toCompletionStage().toCompletableFuture().get();
+        f.closeAsync()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
@@ -385,7 +398,7 @@ public class PgClientFactoryCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testRemoveClient() throws Exception {
+    void testRemoveClient(VertxTestContext testContext) throws Exception {
         PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
@@ -399,20 +412,34 @@ public class PgClientFactoryCoreTest extends BaseIntegrationTest {
 
         factory.createClient("test-client", connectionConfig, poolConfig);
 
-        factory.removeClient("test-client").toCompletionStage().toCompletableFuture().get();
-
-        Optional<PgClient> client = factory.getClient("test-client");
-        assertFalse(client.isPresent());
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        factory.removeClient("test-client")
+                .onSuccess(v -> {
+                    try {
+                        Optional<PgClient> client = factory.getClient("test-client");
+                        assertFalse(client.isPresent());
+                    } catch (Throwable t) {
+                        errorRef.set(t);
+                    } finally {
+                        testContext.completeNow();
+                    }
+                })
+                .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
     }
 
     @Test
-    void testRemoveClientNonExistent() throws Exception {
+    void testRemoveClientNonExistent(VertxTestContext testContext) throws Exception {
         // Should not throw exception
-        factory.removeClient("non-existent").toCompletionStage().toCompletableFuture().get();
+        factory.removeClient("non-existent")
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testCloseAsync() throws Exception {
+    void testCloseAsync(VertxTestContext testContext) throws Exception {
         PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
@@ -426,10 +453,21 @@ public class PgClientFactoryCoreTest extends BaseIntegrationTest {
 
         factory.createClient("test-client", connectionConfig, poolConfig);
 
-        factory.closeAsync().toCompletionStage().toCompletableFuture().get();
-
-        Set<String> clients = factory.getAvailableClients();
-        assertEquals(0, clients.size());
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        factory.closeAsync()
+                .onSuccess(v -> {
+                    try {
+                        Set<String> clients = factory.getAvailableClients();
+                        assertEquals(0, clients.size());
+                    } catch (Throwable t) {
+                        errorRef.set(t);
+                    } finally {
+                        testContext.completeNow();
+                    }
+                })
+                .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
     }
 }
 

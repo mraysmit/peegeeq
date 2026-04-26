@@ -26,6 +26,9 @@ import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
+import io.vertx.junit5.VertxTestContext;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -44,7 +47,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-11-12
  * @version 1.0
  */
-@Tag(TestCategories.FLAKY)  // Race condition in parallel execution - needs investigation
+@Tag(TestCategories.INTEGRATION)
 public class FanoutProducerIntegrationTest extends BaseIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(FanoutProducerIntegrationTest.class);
@@ -54,7 +57,7 @@ public class FanoutProducerIntegrationTest extends BaseIntegrationTest {
     private SubscriptionManager subscriptionManager;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp() {
         // Create connection manager using the shared Vertx instance
         connectionManager = new PgConnectionManager(manager.getVertx(), null);
 
@@ -86,9 +89,11 @@ public class FanoutProducerIntegrationTest extends BaseIntegrationTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         if (connectionManager != null) {
-            awaitFuture(connectionManager.close());
+            connectionManager.close().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
     }
 
@@ -97,8 +102,9 @@ public class FanoutProducerIntegrationTest extends BaseIntegrationTest {
      * Messages published to QUEUE topics should have required_consumer_groups = 1.
      */
     @Test
-    void testQueueTopicBackwardCompatibility() throws Exception {
+    void testQueueTopicBackwardCompatibility(VertxTestContext testContext) throws Exception {
         String topic = "test-queue-topic-" + UUID.randomUUID().toString().substring(0, 8);
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         // Create a QUEUE topic
         TopicConfig config = TopicConfig.builder()
@@ -106,21 +112,25 @@ public class FanoutProducerIntegrationTest extends BaseIntegrationTest {
             .semantics(TopicSemantics.QUEUE)
             .messageRetentionHours(24)
             .build();
+
         topicConfigService.createTopic(config)
-            .toCompletionStage().toCompletableFuture().get();
+            .compose(v -> insertMessage(topic, new JsonObject().put("test", "data")))
+            .compose(messageId -> getRequiredConsumerGroups(messageId))
+            .onSuccess(requiredGroups -> {
+                try {
+                    assertEquals(1, requiredGroups,
+                        "QUEUE topics should have required_consumer_groups = 1 for backward compatibility");
+                    logger.info("QUEUE topic backward compatibility verified");
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
 
-        // Insert a message into the outbox table
-        Long messageId = insertMessage(topic, new JsonObject().put("test", "data"))
-            .toCompletionStage().toCompletableFuture().get();
-
-        // Verify required_consumer_groups = 1 (backward compatibility)
-        Integer requiredGroups = getRequiredConsumerGroups(messageId)
-            .toCompletionStage().toCompletableFuture().get();
-
-        assertEquals(1, requiredGroups,
-            "QUEUE topics should have required_consumer_groups = 1 for backward compatibility");
-
-        logger.info("QUEUE topic backward compatibility verified");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
     }
 
     /**
@@ -129,8 +139,9 @@ public class FanoutProducerIntegrationTest extends BaseIntegrationTest {
      * should have required_consumer_groups = 0.
      */
     @Test
-    void testPubSubTopicZeroSubscriptions() throws Exception {
+    void testPubSubTopicZeroSubscriptions(VertxTestContext testContext) throws Exception {
         String topic = "test-pubsub-zero-" + UUID.randomUUID().toString().substring(0, 8);
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         // Create a PUB_SUB topic (no subscriptions)
         TopicConfig config = TopicConfig.builder()
@@ -138,21 +149,25 @@ public class FanoutProducerIntegrationTest extends BaseIntegrationTest {
             .semantics(TopicSemantics.PUB_SUB)
             .messageRetentionHours(24)
             .build();
+
         topicConfigService.createTopic(config)
-            .toCompletionStage().toCompletableFuture().get();
+            .compose(v -> insertMessage(topic, new JsonObject().put("test", "data")))
+            .compose(messageId -> getRequiredConsumerGroups(messageId))
+            .onSuccess(requiredGroups -> {
+                try {
+                    assertEquals(0, requiredGroups,
+                        "PUB_SUB topics with zero subscriptions should have required_consumer_groups = 0");
+                    logger.info("PUB_SUB topic with zero subscriptions verified");
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
 
-        // Insert a message
-        Long messageId = insertMessage(topic, new JsonObject().put("test", "data"))
-            .toCompletionStage().toCompletableFuture().get();
-
-        // Verify required_consumer_groups = 0
-        Integer requiredGroups = getRequiredConsumerGroups(messageId)
-            .toCompletionStage().toCompletableFuture().get();
-
-        assertEquals(0, requiredGroups,
-            "PUB_SUB topics with zero subscriptions should have required_consumer_groups = 0");
-
-        logger.info("PUB_SUB topic with zero subscriptions verified");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
     }
 
     /**
@@ -161,9 +176,10 @@ public class FanoutProducerIntegrationTest extends BaseIntegrationTest {
      * should have required_consumer_groups = 1.
      */
     @Test
-    void testPubSubTopicOneSubscription() throws Exception {
+    void testPubSubTopicOneSubscription(VertxTestContext testContext) throws Exception {
         String topic = "test-pubsub-one-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group-a";
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         // Create a PUB_SUB topic
         TopicConfig config = TopicConfig.builder()
@@ -171,25 +187,26 @@ public class FanoutProducerIntegrationTest extends BaseIntegrationTest {
             .semantics(TopicSemantics.PUB_SUB)
             .messageRetentionHours(24)
             .build();
+
         topicConfigService.createTopic(config)
-            .toCompletionStage().toCompletableFuture().get();
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.defaults()))
+            .compose(v -> insertMessage(topic, new JsonObject().put("test", "data")))
+            .compose(messageId -> getRequiredConsumerGroups(messageId))
+            .onSuccess(requiredGroups -> {
+                try {
+                    assertEquals(1, requiredGroups,
+                        "PUB_SUB topics with one subscription should have required_consumer_groups = 1");
+                    logger.info("PUB_SUB topic with one subscription verified");
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
 
-        // Create one subscription
-        subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.defaults())
-            .toCompletionStage().toCompletableFuture().get();
-
-        // Insert a message
-        Long messageId = insertMessage(topic, new JsonObject().put("test", "data"))
-            .toCompletionStage().toCompletableFuture().get();
-
-        // Verify required_consumer_groups = 1
-        Integer requiredGroups = getRequiredConsumerGroups(messageId)
-            .toCompletionStage().toCompletableFuture().get();
-
-        assertEquals(1, requiredGroups,
-            "PUB_SUB topics with one subscription should have required_consumer_groups = 1");
-
-        logger.info("PUB_SUB topic with one subscription verified");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
     }
 
     /**
@@ -198,8 +215,9 @@ public class FanoutProducerIntegrationTest extends BaseIntegrationTest {
      * should have required_consumer_groups = 3.
      */
     @Test
-    void testPubSubTopicMultipleSubscriptions() throws Exception {
+    void testPubSubTopicMultipleSubscriptions(VertxTestContext testContext) throws Exception {
         String topic = "test-pubsub-multi-" + UUID.randomUUID().toString().substring(0, 8);
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         // Create a PUB_SUB topic
         TopicConfig config = TopicConfig.builder()
@@ -207,29 +225,28 @@ public class FanoutProducerIntegrationTest extends BaseIntegrationTest {
             .semantics(TopicSemantics.PUB_SUB)
             .messageRetentionHours(24)
             .build();
+
         topicConfigService.createTopic(config)
-            .toCompletionStage().toCompletableFuture().get();
+            .compose(v -> subscriptionManager.subscribe(topic, "group-a", SubscriptionOptions.defaults()))
+            .compose(v -> subscriptionManager.subscribe(topic, "group-b", SubscriptionOptions.defaults()))
+            .compose(v -> subscriptionManager.subscribe(topic, "group-c", SubscriptionOptions.defaults()))
+            .compose(v -> insertMessage(topic, new JsonObject().put("test", "data")))
+            .compose(messageId -> getRequiredConsumerGroups(messageId))
+            .onSuccess(requiredGroups -> {
+                try {
+                    assertEquals(3, requiredGroups,
+                        "PUB_SUB topics with three subscriptions should have required_consumer_groups = 3");
+                    logger.info("PUB_SUB topic with multiple subscriptions verified");
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
 
-        // Create three subscriptions
-        subscriptionManager.subscribe(topic, "group-a", SubscriptionOptions.defaults())
-            .toCompletionStage().toCompletableFuture().get();
-        subscriptionManager.subscribe(topic, "group-b", SubscriptionOptions.defaults())
-            .toCompletionStage().toCompletableFuture().get();
-        subscriptionManager.subscribe(topic, "group-c", SubscriptionOptions.defaults())
-            .toCompletionStage().toCompletableFuture().get();
-
-        // Insert a message
-        Long messageId = insertMessage(topic, new JsonObject().put("test", "data"))
-            .toCompletionStage().toCompletableFuture().get();
-
-        // Verify required_consumer_groups = 3
-        Integer requiredGroups = getRequiredConsumerGroups(messageId)
-            .toCompletionStage().toCompletableFuture().get();
-
-        assertEquals(3, requiredGroups,
-            "PUB_SUB topics with three subscriptions should have required_consumer_groups = 3");
-
-        logger.info("PUB_SUB topic with multiple subscriptions verified");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
     }
 
     /**
@@ -237,8 +254,10 @@ public class FanoutProducerIntegrationTest extends BaseIntegrationTest {
      * Adding a subscription after message insertion should NOT affect existing messages.
      */
     @Test
-    void testSnapshotSemanticsImmutable() throws Exception {
+    void testSnapshotSemanticsImmutable(VertxTestContext testContext) throws Exception {
         String topic = "test-snapshot-" + UUID.randomUUID().toString().substring(0, 8);
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        AtomicReference<Long> messageIdRef = new AtomicReference<>();
 
         // Create a PUB_SUB topic with one subscription
         TopicConfig config = TopicConfig.builder()
@@ -246,31 +265,38 @@ public class FanoutProducerIntegrationTest extends BaseIntegrationTest {
             .semantics(TopicSemantics.PUB_SUB)
             .messageRetentionHours(24)
             .build();
+
         topicConfigService.createTopic(config)
-            .toCompletionStage().toCompletableFuture().get();
-        subscriptionManager.subscribe(topic, "group-a", SubscriptionOptions.defaults())
-            .toCompletionStage().toCompletableFuture().get();
+            .compose(v -> subscriptionManager.subscribe(topic, "group-a", SubscriptionOptions.defaults()))
+            .compose(v -> insertMessage(topic, new JsonObject().put("test", "data")))
+            .compose(messageId -> {
+                messageIdRef.set(messageId);
+                return getRequiredConsumerGroups(messageId);
+            })
+            .compose(before -> {
+                try {
+                    assertEquals(1, (int) before);
+                } catch (Throwable t) {
+                    return Future.failedFuture(t);
+                }
+                return subscriptionManager.subscribe(topic, "group-b", SubscriptionOptions.defaults())
+                    .compose(v -> getRequiredConsumerGroups(messageIdRef.get()));
+            })
+            .onSuccess(requiredGroupsAfter -> {
+                try {
+                    assertEquals(1, (int) requiredGroupsAfter,
+                        "required_consumer_groups should be immutable after message insertion (snapshot semantics)");
+                    logger.info("Snapshot semantics (immutability) verified");
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
 
-        // Insert a message (should have required_consumer_groups = 1)
-        Long messageId = insertMessage(topic, new JsonObject().put("test", "data"))
-            .toCompletionStage().toCompletableFuture().get();
-
-        Integer requiredGroupsBefore = getRequiredConsumerGroups(messageId)
-            .toCompletionStage().toCompletableFuture().get();
-        assertEquals(1, requiredGroupsBefore);
-
-        // Add a second subscription AFTER message insertion
-        subscriptionManager.subscribe(topic, "group-b", SubscriptionOptions.defaults())
-            .toCompletionStage().toCompletableFuture().get();
-
-        // Verify required_consumer_groups is still 1 (immutable)
-        Integer requiredGroupsAfter = getRequiredConsumerGroups(messageId)
-            .toCompletionStage().toCompletableFuture().get();
-
-        assertEquals(1, requiredGroupsAfter,
-            "required_consumer_groups should be immutable after message insertion (snapshot semantics)");
-
-        logger.info("Snapshot semantics (immutability) verified");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
     }
 
     /**
@@ -278,23 +304,28 @@ public class FanoutProducerIntegrationTest extends BaseIntegrationTest {
      * Messages published to topics without configuration should default to QUEUE behavior.
      */
     @Test
-    void testUnconfiguredTopicDefaultsToQueue() throws Exception {
+    void testUnconfiguredTopicDefaultsToQueue(VertxTestContext testContext) throws Exception {
         String topic = "test-unconfigured-" + UUID.randomUUID().toString().substring(0, 8);
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         // Do NOT create topic configuration - let it default
+        insertMessage(topic, new JsonObject().put("test", "data"))
+            .compose(messageId -> getRequiredConsumerGroups(messageId))
+            .onSuccess(requiredGroups -> {
+                try {
+                    assertEquals(1, requiredGroups,
+                        "Unconfigured topics should default to QUEUE semantics (required_consumer_groups = 1)");
+                    logger.info("Unconfigured topic defaults to QUEUE verified");
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
 
-        // Insert a message
-        Long messageId = insertMessage(topic, new JsonObject().put("test", "data"))
-            .toCompletionStage().toCompletableFuture().get();
-
-        // Verify required_consumer_groups = 1 (QUEUE default)
-        Integer requiredGroups = getRequiredConsumerGroups(messageId)
-            .toCompletionStage().toCompletableFuture().get();
-
-        assertEquals(1, requiredGroups,
-            "Unconfigured topics should default to QUEUE semantics (required_consumer_groups = 1)");
-
-        logger.info("Unconfigured topic defaults to QUEUE verified");
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
     }
 
     // Helper methods
