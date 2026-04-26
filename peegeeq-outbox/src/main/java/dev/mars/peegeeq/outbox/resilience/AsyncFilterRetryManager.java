@@ -199,7 +199,7 @@ public class AsyncFilterRetryManager {
                 if (attemptNumber >= config.getMaxRetries()) {
                     failedRetries.incrementAndGet();
                     Duration finalTime = Duration.between(startTime, Instant.now());
-                    logger.warn("Filter '{}' sending message {} to dead letter queue after {} attempts. Final error: {}",
+                    logger.error("Filter '{}' sending message {} to dead letter queue after {} attempts. Final error: {}",
                         filterId, message.getId(), attemptNumber + 1, originalError.getMessage());
 
                     // Send to dead letter queue asynchronously
@@ -211,7 +211,7 @@ public class AsyncFilterRetryManager {
             case DEAD_LETTER_IMMEDIATELY:
                 failedRetries.incrementAndGet();
                 Duration dlqTime = Duration.between(startTime, Instant.now());
-                logger.warn("Filter '{}' sending message {} to dead letter queue immediately due to {} error: {}",
+                logger.error("Filter '{}' sending message {} to dead letter queue immediately due to {} error: {}",
                     filterId, message.getId(), filterException.getClassification().name().toLowerCase(),
                     originalError.getMessage());
 
@@ -221,7 +221,7 @@ public class AsyncFilterRetryManager {
             default:
                 failedRetries.incrementAndGet();
                 Duration unknownTime = Duration.between(startTime, Instant.now());
-                logger.warn("Unknown filter error strategy: {}. Rejecting message {}", strategy, message.getId());
+                logger.error("Unknown filter error strategy: {}. Rejecting message {}", strategy, message.getId());
                 return Future.succeededFuture(
                     FilterResult.rejected("Unknown strategy: " + strategy, attemptNumber + 1, unknownTime));
         }

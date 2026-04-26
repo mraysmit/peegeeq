@@ -365,7 +365,7 @@ public class PeeGeeQConfiguration {
         try {
             return Duration.parse(value);
         } catch (Exception e) {
-            logger.warn("Invalid duration value for {}: {}, using default: {}", key, value, defaultValue);
+            logger.error("Invalid duration value for {}: {}, using default: {}", key, value, defaultValue);
             return defaultValue;
         }
     }

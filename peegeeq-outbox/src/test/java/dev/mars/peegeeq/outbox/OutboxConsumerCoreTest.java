@@ -277,11 +277,12 @@ public class OutboxConsumerCoreTest {
         logger.info("Test: subscribe on closed consumer");
         consumer.close();
 
-        testContext.verify(() -> assertThrows(
-            IllegalStateException.class,
-            () -> consumer.subscribe(message -> Future.succeededFuture()),
-            "Subscribing to a closed consumer should throw IllegalStateException"
-        ));
+        testContext.verify(() -> {
+            Future<Void> result = consumer.subscribe(message -> Future.succeededFuture());
+            assertTrue(result.failed(), "Subscribing to a closed consumer should return a failed future");
+            assertInstanceOf(IllegalStateException.class, result.cause(),
+                    "Subscribing to a closed consumer should fail with IllegalStateException");
+        });
         testContext.completeNow();
     }
 
