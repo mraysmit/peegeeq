@@ -285,6 +285,7 @@ class DeadConsumerDetectionDemoTest {
         SubscriptionOptions shortTimeoutOptions = SubscriptionOptions.builder()
             .heartbeatIntervalSeconds(1)    // Very short for demo
             .heartbeatTimeoutSeconds(10)    // 10 seconds timeout for demo
+            .deadAfterMisses(1)             // Mark DEAD after first missed detection run
             .build();
 
         subscriptionManager.subscribe(topic, healthyGroup, shortTimeoutOptions)
@@ -397,6 +398,7 @@ class DeadConsumerDetectionDemoTest {
         SubscriptionOptions shortTimeoutOptions = SubscriptionOptions.builder()
             .heartbeatIntervalSeconds(1)
             .heartbeatTimeoutSeconds(10)
+            .deadAfterMisses(1)             // Mark DEAD after first missed detection run
             .build();
 
         subscriptionManager.subscribe(topic, consumerGroup, shortTimeoutOptions)
