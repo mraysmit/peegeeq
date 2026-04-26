@@ -1,4 +1,4 @@
-﻿package dev.mars.peegeeq.db.metrics;
+package dev.mars.peegeeq.db.metrics;
 
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.db.BaseIntegrationTest;

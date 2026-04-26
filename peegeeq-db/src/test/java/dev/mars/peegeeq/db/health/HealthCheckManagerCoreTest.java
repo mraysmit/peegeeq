@@ -1,4 +1,4 @@
-﻿package dev.mars.peegeeq.db.health;
+package dev.mars.peegeeq.db.health;
 
 import dev.mars.peegeeq.db.BaseIntegrationTest;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;

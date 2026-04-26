@@ -115,6 +115,9 @@ public class PeeGeeQManager implements AutoCloseable {
     private static final long TIMER_FAILURE_ESCALATION_THRESHOLD = 3;
     private final java.util.concurrent.atomic.AtomicLong persistMetricsFailures = new java.util.concurrent.atomic.AtomicLong(0);
     private final java.util.concurrent.atomic.AtomicLong depthCacheFailures = new java.util.concurrent.atomic.AtomicLong(0);
+    // Overlap guards — prevent a new tick firing while the previous one is still in-flight
+    private final java.util.concurrent.atomic.AtomicBoolean persistMetricsRunning = new java.util.concurrent.atomic.AtomicBoolean(false);
+    private final java.util.concurrent.atomic.AtomicBoolean depthCacheRunning = new java.util.concurrent.atomic.AtomicBoolean(false);
     private final java.util.concurrent.atomic.AtomicLong dlqCleanupFailures = new java.util.concurrent.atomic.AtomicLong(0);
     private final java.util.concurrent.atomic.AtomicLong stuckMessageFailures = new java.util.concurrent.atomic.AtomicLong(0);
     private volatile boolean started = false;
@@ -822,9 +825,14 @@ public class PeeGeeQManager implements AutoCloseable {
             long intervalMs = configuration.getMetricsConfig().getReportingInterval().toMillis();
             metricsTimerId = vertx.setPeriodic(intervalMs, id -> {
                 if (closing) return;
+                if (!persistMetricsRunning.compareAndSet(false, true)) return;
                 metrics.persistMetrics(meterRegistry)
-                    .onSuccess(v -> persistMetricsFailures.set(0))
+                    .onSuccess(v -> {
+                        persistMetricsFailures.set(0);
+                        persistMetricsRunning.set(false);
+                    })
                     .onFailure(e -> {
+                        persistMetricsRunning.set(false);
                         long failures = persistMetricsFailures.incrementAndGet();
                         if (failures >= TIMER_FAILURE_ESCALATION_THRESHOLD) {
                             logger.error("Failed to persist metrics ({} consecutive failures): {}",
@@ -839,9 +847,14 @@ public class PeeGeeQManager implements AutoCloseable {
             long depthCacheIntervalMs = configuration.getMetricsConfig().getDepthCacheInterval().toMillis();
             depthCacheTimerId = vertx.setPeriodic(depthCacheIntervalMs, id -> {
                 if (closing) return;
+                if (!depthCacheRunning.compareAndSet(false, true)) return;
                 metrics.refreshDepthCache()
-                    .onSuccess(v -> depthCacheFailures.set(0))
+                    .onSuccess(v -> {
+                        depthCacheFailures.set(0);
+                        depthCacheRunning.set(false);
+                    })
                     .onFailure(e -> {
+                        depthCacheRunning.set(false);
                         long failures = depthCacheFailures.incrementAndGet();
                         if (failures >= TIMER_FAILURE_ESCALATION_THRESHOLD) {
                             logger.error("Failed to refresh depth cache ({} consecutive failures): {}",

@@ -147,11 +147,8 @@ public class QueueHandler {
                     // Check if this is an expected setup not found error (no stack trace)
                     Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
                     if (isSetupNotFoundError(cause)) {
-                        logger.debug("🚫 EXPECTED: Setup not found for queue operation: {} (setup: {})",
+                        logger.debug("Setup not found for queue operation: {} (setup: {})",
                                    queueName, setupId);
-                    } else if (isTestScenario(setupId, throwable)) {
-                        logger.info("🧪 EXPECTED TEST ERROR - Error sending message to queue: {} (setup: {}) - {}",
-                                   queueName, setupId, throwable.getMessage());
                     } else {
                         logger.error("Error sending message to queue: " + queueName, throwable);
                     }
@@ -241,7 +238,7 @@ public class QueueHandler {
                                     if (batchRequest.isFailOnError()) {
                                         return Future.<String>failedFuture(new RuntimeException("Batch failed at message: " + ar.cause().getMessage(), ar.cause()));
                                     } else {
-                                        logger.warn("Failed to send message in batch: {}", ar.cause().getMessage());
+                                        logger.error("Failed to send message in batch: {}", ar.cause().getMessage());
                                         return Future.succeededFuture("FAILED:" + ar.cause().getMessage());
                                     }
                                 }
@@ -287,13 +284,7 @@ public class QueueHandler {
                         successCount, failureCount, queueName, setupId);
                 })
                 .onFailure(throwable -> {
-                    // Check if this is an intentional test error
-                    if (isTestScenario(setupId, throwable)) {
-                        logger.info("🧪 EXPECTED TEST ERROR - Error sending batch messages to queue: {} (setup: {}) - {}",
-                                   queueName, setupId, throwable.getMessage());
-                    } else {
-                        logger.error("Error sending batch messages to queue: " + queueName, throwable);
-                    }
+                    logger.error("Error sending batch messages to queue: " + queueName, throwable);
                     sendError(ctx, 500, "Failed to send batch messages: " + throwable.getMessage());
                 })
                 .onComplete(ar -> {
@@ -392,14 +383,10 @@ public class QueueHandler {
                         });
                 })
                 .onFailure(throwable -> {
-                    // Check if this is an expected setup not found error (no stack trace)
                     Throwable cause = throwable.getCause() != null ? throwable.getCause() : throwable;
                     if (isSetupNotFoundError(cause)) {
-                        logger.debug("EXPECTED: Setup not found for queue stats: {} (setup: {})",
+                        logger.debug("Setup not found for queue stats: {} (setup: {})",
                                    queueName, setupId);
-                    } else if (isTestScenario(setupId, throwable)) {
-                        logger.info("EXPECTED TEST ERROR - Error getting queue stats: {} (setup: {}) - {}",
-                                   queueName, setupId, throwable.getMessage());
                     } else {
                         logger.error("Error getting queue stats: " + queueName, throwable);
                     }
@@ -705,25 +692,6 @@ public class QueueHandler {
     private boolean isSetupNotFoundError(Throwable throwable) {
         return throwable != null &&
                throwable.getClass().getSimpleName().equals("SetupNotFoundException");
-    }
-
-    /**
-     * Determines if an error is part of an intentional test scenario
-     */
-    private boolean isTestScenario(String setupId, Throwable throwable) {
-        // Check for test setup IDs
-        if (setupId != null && (setupId.equals("non-existent-setup") || setupId.startsWith("test-"))) {
-            return true;
-        }
-
-        // Check for test-related error messages
-        String message = throwable.getMessage();
-        if (message != null && (message.contains("Setup not found: non-existent-setup") ||
-                               message.contains("INTENTIONAL TEST FAILURE"))) {
-            return true;
-        }
-
-        return false;
     }
 
     /**

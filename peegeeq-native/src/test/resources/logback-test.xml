@@ -51,6 +51,10 @@
 
     <!-- Suppress noisy duplicate-object warnings from idempotent Flyway migrations. -->
     <logger name="org.flywaydb.core.internal.sqlscript.DefaultSqlScriptExecutor" level="ERROR" />
+
+    <!-- Suppress PostgreSQL NOTICE messages (42P06 schema already exists, 42P07 relation already exists)
+         which Vert.x SQL client promotes to WARN. These are expected from IF NOT EXISTS DDL. -->
+    <logger name="io.vertx.sqlclient.impl.SocketConnectionBase" level="ERROR" />
     
     <!-- Reduce Vert.x noise -->
     <logger name="io.vertx" level="WARN" />
