@@ -9,6 +9,8 @@ import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.core.Future;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -19,6 +21,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.List;
 import java.util.UUID;
 
@@ -83,318 +87,280 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         if (connectionManager != null) {
-            awaitFuture(connectionManager.close());
+            connectionManager.close().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
     }
 
     @Test
-    void testSubscribeWithDefaultOptions() throws Exception {
+    void testSubscribeWithDefaultOptions(VertxTestContext testContext) throws Exception {
         String topic = "test-topic-default";
         String groupName = "test-group-1";
         
-        // Create topic configuration first
         TopicConfig topicConfig = TopicConfig.builder()
             .topic(topic)
             .semantics(TopicSemantics.PUB_SUB)
             .build();
         
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(topicConfig)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-        
-        // Subscribe with default options
-        subscriptionManager.subscribe(topic, groupName)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-        
-        // Verify subscription was created
-        SubscriptionInfo subscription = subscriptionManager.getSubscription(topic, groupName)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        assertNotNull(subscription);
-        assertEquals(topic, subscription.topic());
-        assertEquals(groupName, subscription.groupName());
-        assertEquals(SubscriptionState.ACTIVE, subscription.state());
-        assertNotNull(subscription.subscribedAt());
-        assertNotNull(subscription.lastHeartbeatAt());
+            .compose(v -> subscriptionManager.subscribe(topic, groupName))
+            .compose(v -> subscriptionManager.getSubscription(topic, groupName))
+            .onSuccess(subscription -> {
+                try {
+                    assertNotNull(subscription);
+                    assertEquals(topic, subscription.topic());
+                    assertEquals(groupName, subscription.groupName());
+                    assertEquals(SubscriptionState.ACTIVE, subscription.state());
+                    assertNotNull(subscription.subscribedAt());
+                    assertNotNull(subscription.lastHeartbeatAt());
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
     }
 
     @Test
-    void testSubscribeWithFromBeginning() throws Exception {
+    void testSubscribeWithFromBeginning(VertxTestContext testContext) throws Exception {
         String topic = "test-topic-beginning";
         String groupName = "test-group-2";
 
-        // Create topic
         TopicConfig topicConfig = TopicConfig.builder()
             .topic(topic)
             .semantics(TopicSemantics.QUEUE)
             .build();
 
-        topicConfigService.createTopic(topicConfig)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        // Subscribe from beginning
         SubscriptionOptions options = SubscriptionOptions.builder()
             .startPosition(StartPosition.FROM_BEGINNING)
             .build();
 
-        subscriptionManager.subscribe(topic, groupName, options)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        // Verify subscription
-        SubscriptionInfo subscription = subscriptionManager.getSubscription(topic, groupName)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        assertNotNull(subscription);
-        assertEquals(1L, subscription.startFromMessageId());
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        topicConfigService.createTopic(topicConfig)
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
+            .compose(v -> subscriptionManager.getSubscription(topic, groupName))
+            .onSuccess(subscription -> {
+                try {
+                    assertNotNull(subscription);
+                    assertEquals(1L, subscription.startFromMessageId());
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
     }
 
     @Test
-    void testSubscribeWithFromNow() throws Exception {
+    void testSubscribeWithFromNow(VertxTestContext testContext) throws Exception {
         String topic = "test-topic-now";
         String groupName = "test-group-3";
 
-        // Create topic
         TopicConfig topicConfig = TopicConfig.builder()
             .topic(topic)
             .semantics(TopicSemantics.PUB_SUB)
             .build();
 
-        topicConfigService.createTopic(topicConfig)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        // Subscribe from now
         SubscriptionOptions options = SubscriptionOptions.builder()
             .startPosition(StartPosition.FROM_NOW)
             .build();
 
-        subscriptionManager.subscribe(topic, groupName, options)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        // Verify subscription - should start from next message (1 since no messages exist)
-        SubscriptionInfo subscription = subscriptionManager.getSubscription(topic, groupName)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        assertNotNull(subscription);
-        assertNotNull(subscription.startFromMessageId());
-        assertTrue(subscription.startFromMessageId() >= 1);
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        topicConfigService.createTopic(topicConfig)
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
+            .compose(v -> subscriptionManager.getSubscription(topic, groupName))
+            .onSuccess(subscription -> {
+                try {
+                    assertNotNull(subscription);
+                    assertNotNull(subscription.startFromMessageId());
+                    assertTrue(subscription.startFromMessageId() >= 1);
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
     }
 
     @Test
-    void testSubscribeWithFromMessageId() throws Exception {
+    void testSubscribeWithFromMessageId(VertxTestContext testContext) throws Exception {
         String topic = "test-topic-msgid";
         String groupName = "test-group-4";
 
-        // Create topic
         TopicConfig topicConfig = TopicConfig.builder()
             .topic(topic)
             .semantics(TopicSemantics.QUEUE)
             .build();
 
-        topicConfigService.createTopic(topicConfig)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        // Subscribe from specific message ID
         SubscriptionOptions options = SubscriptionOptions.builder()
             .startPosition(StartPosition.FROM_MESSAGE_ID)
             .startFromMessageId(100L)
             .build();
 
-        subscriptionManager.subscribe(topic, groupName, options)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        // Verify subscription
-        SubscriptionInfo subscription = subscriptionManager.getSubscription(topic, groupName)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        assertNotNull(subscription);
-        assertEquals(100L, subscription.startFromMessageId());
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        topicConfigService.createTopic(topicConfig)
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
+            .compose(v -> subscriptionManager.getSubscription(topic, groupName))
+            .onSuccess(subscription -> {
+                try {
+                    assertNotNull(subscription);
+                    assertEquals(100L, subscription.startFromMessageId());
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
     }
 
     @Test
-    void testSubscribeWithFromTimestamp() throws Exception {
+    void testSubscribeWithFromTimestamp(VertxTestContext testContext) throws Exception {
         String topic = "test-topic-timestamp";
         String groupName = "test-group-5";
 
-        // Create topic
         TopicConfig topicConfig = TopicConfig.builder()
             .topic(topic)
             .semantics(TopicSemantics.PUB_SUB)
             .build();
 
-        topicConfigService.createTopic(topicConfig)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        // Subscribe from timestamp
         Instant startTime = Instant.now().minusSeconds(3600); // 1 hour ago
         SubscriptionOptions options = SubscriptionOptions.builder()
             .startPosition(StartPosition.FROM_TIMESTAMP)
             .startFromTimestamp(startTime)
             .build();
 
-        subscriptionManager.subscribe(topic, groupName, options)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        // Verify subscription
-        SubscriptionInfo subscription = subscriptionManager.getSubscription(topic, groupName)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        assertNotNull(subscription);
-        assertNotNull(subscription.startFromTimestamp());
-        // PostgreSQL stores timestamps with microsecond precision, so truncate to micros for comparison
-        Instant expectedTruncated = startTime.truncatedTo(java.time.temporal.ChronoUnit.MICROS);
-        Instant actualTruncated = subscription.startFromTimestamp().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
-        assertEquals(expectedTruncated, actualTruncated);
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        topicConfigService.createTopic(topicConfig)
+            .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
+            .compose(v -> subscriptionManager.getSubscription(topic, groupName))
+            .onSuccess(subscription -> {
+                try {
+                    assertNotNull(subscription);
+                    assertNotNull(subscription.startFromTimestamp());
+                    // PostgreSQL stores timestamps with microsecond precision, so truncate to micros for comparison
+                    Instant expectedTruncated = startTime.truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+                    Instant actualTruncated = subscription.startFromTimestamp().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
+                    assertEquals(expectedTruncated, actualTruncated);
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
     }
 
     @Test
-    void testPauseSubscription() throws Exception {
+    void testPauseSubscription(VertxTestContext testContext) throws Exception {
         String topic = "test-topic-pause";
         String groupName = "test-group-6";
 
-        // Create topic and subscribe
         TopicConfig topicConfig = TopicConfig.builder()
             .topic(topic)
             .semantics(TopicSemantics.QUEUE)
             .build();
 
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(topicConfig)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        subscriptionManager.subscribe(topic, groupName)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        // Pause subscription
-        subscriptionManager.pause(topic, groupName)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        // Verify status
-        SubscriptionInfo subscription = subscriptionManager.getSubscription(topic, groupName)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        assertNotNull(subscription);
-        assertEquals(SubscriptionState.PAUSED, subscription.state());
+            .compose(v -> subscriptionManager.subscribe(topic, groupName))
+            .compose(v -> subscriptionManager.pause(topic, groupName))
+            .compose(v -> subscriptionManager.getSubscription(topic, groupName))
+            .onSuccess(subscription -> {
+                try {
+                    assertNotNull(subscription);
+                    assertEquals(SubscriptionState.PAUSED, subscription.state());
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
     }
 
     @Test
-    void testResumeSubscription() throws Exception {
+    void testResumeSubscription(VertxTestContext testContext) throws Exception {
         String topic = "test-topic-resume";
         String groupName = "test-group-7";
 
-        // Create topic, subscribe, and pause
         TopicConfig topicConfig = TopicConfig.builder()
             .topic(topic)
             .semantics(TopicSemantics.PUB_SUB)
             .build();
 
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(topicConfig)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        subscriptionManager.subscribe(topic, groupName)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        subscriptionManager.pause(topic, groupName)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        // Resume subscription
-        subscriptionManager.resume(topic, groupName)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        // Verify status
-        SubscriptionInfo subscription = subscriptionManager.getSubscription(topic, groupName)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        assertNotNull(subscription);
-        assertEquals(SubscriptionState.ACTIVE, subscription.state());
+            .compose(v -> subscriptionManager.subscribe(topic, groupName))
+            .compose(v -> subscriptionManager.pause(topic, groupName))
+            .compose(v -> subscriptionManager.resume(topic, groupName))
+            .compose(v -> subscriptionManager.getSubscription(topic, groupName))
+            .onSuccess(subscription -> {
+                try {
+                    assertNotNull(subscription);
+                    assertEquals(SubscriptionState.ACTIVE, subscription.state());
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
     }
 
     @Test
-    void testCancelSubscription() throws Exception {
+    void testCancelSubscription(VertxTestContext testContext) throws Exception {
         String topic = "test-topic-cancel";
         String groupName = "test-group-8";
 
-        // Create topic and subscribe
         TopicConfig topicConfig = TopicConfig.builder()
             .topic(topic)
             .semantics(TopicSemantics.QUEUE)
             .build();
 
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(topicConfig)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        subscriptionManager.subscribe(topic, groupName)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        // Cancel subscription
-        subscriptionManager.cancel(topic, groupName)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        // Verify status
-        SubscriptionInfo subscription = subscriptionManager.getSubscription(topic, groupName)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        assertNotNull(subscription);
-        assertEquals(SubscriptionState.CANCELLED, subscription.state());
+            .compose(v -> subscriptionManager.subscribe(topic, groupName))
+            .compose(v -> subscriptionManager.cancel(topic, groupName))
+            .compose(v -> subscriptionManager.getSubscription(topic, groupName))
+            .onSuccess(subscription -> {
+                try {
+                    assertNotNull(subscription);
+                    assertEquals(SubscriptionState.CANCELLED, subscription.state());
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
     }
 
     @Test
-    void testResumeCancelledSubscriptionFails() throws Exception {
+    void testResumeCancelledSubscriptionFails(VertxTestContext testContext) throws Exception {
         logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Cannot resume cancelled subscription') is EXPECTED — this test deliberately attempts to resume a cancelled subscription to verify rejection");
         String topic = "test-topic-cancel-resume";
         String groupName = "test-group-cancel-resume";
@@ -404,173 +370,138 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
             .semantics(TopicSemantics.QUEUE)
             .build();
 
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(topicConfig)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        subscriptionManager.subscribe(topic, groupName)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        subscriptionManager.cancel(topic, groupName)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        assertThrows(Exception.class, () ->
-            subscriptionManager.resume(topic, groupName)
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get());
-
-        SubscriptionInfo subscription = subscriptionManager.getSubscription(topic, groupName)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        assertNotNull(subscription);
-        assertEquals(SubscriptionState.CANCELLED, subscription.state());
+            .compose(v -> subscriptionManager.subscribe(topic, groupName))
+            .compose(v -> subscriptionManager.cancel(topic, groupName))
+            .compose(v -> subscriptionManager.resume(topic, groupName)
+                .<SubscriptionInfo>transform(ar -> {
+                    if (ar.succeeded()) {
+                        return Future.failedFuture(new AssertionError("Expected resume of cancelled subscription to fail"));
+                    }
+                    return subscriptionManager.getSubscription(topic, groupName);
+                }))
+            .onSuccess(subscription -> {
+                try {
+                    assertNotNull(subscription);
+                    assertEquals(SubscriptionState.CANCELLED, subscription.state());
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
     }
 
     @Test
-    void testUpdateHeartbeat() throws Exception {
+    void testUpdateHeartbeat(VertxTestContext testContext) throws Exception {
         String topic = "test-topic-heartbeat";
         String groupName = "test-group-9";
 
-        // Create topic and subscribe
         TopicConfig topicConfig = TopicConfig.builder()
             .topic(topic)
             .semantics(TopicSemantics.PUB_SUB)
             .build();
 
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        AtomicReference<Instant> initialHeartbeatRef = new AtomicReference<>();
         topicConfigService.createTopic(topicConfig)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        subscriptionManager.subscribe(topic, groupName)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        // Get initial heartbeat
-        SubscriptionInfo before = subscriptionManager.getSubscription(topic, groupName)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        Instant initialHeartbeat = before.lastHeartbeatAt();
-
-        // Wait a bit to ensure timestamp changes
-        manager.getVertx().timer(100).toCompletionStage().toCompletableFuture().join();
-
-        // Update heartbeat
-        subscriptionManager.updateHeartbeat(topic, groupName)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        // Verify heartbeat was updated
-        SubscriptionInfo after = subscriptionManager.getSubscription(topic, groupName)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        assertNotNull(after.lastHeartbeatAt());
-        assertTrue(after.lastHeartbeatAt().isAfter(initialHeartbeat),
-            "Heartbeat should be updated to a later time");
+            .compose(v -> subscriptionManager.subscribe(topic, groupName))
+            .compose(v -> subscriptionManager.getSubscription(topic, groupName))
+            .compose(before -> {
+                initialHeartbeatRef.set(before.lastHeartbeatAt());
+                return manager.getVertx().timer(100);
+            })
+            .compose(v -> subscriptionManager.updateHeartbeat(topic, groupName))
+            .compose(v -> subscriptionManager.getSubscription(topic, groupName))
+            .onSuccess(after -> {
+                try {
+                    assertNotNull(after.lastHeartbeatAt());
+                    assertTrue(after.lastHeartbeatAt().isAfter(initialHeartbeatRef.get()),
+                        "Heartbeat should be updated to a later time");
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
     }
 
     @Test
-    void testListSubscriptionsForTopic() throws Exception {
-        // Use unique topic name to avoid conflicts in parallel test execution
+    void testListSubscriptionsForTopic(VertxTestContext testContext) throws Exception {
         String topic = "test-topic-list-" + UUID.randomUUID().toString().substring(0, 8);
 
-        // Create topic
         TopicConfig topicConfig = TopicConfig.builder()
             .topic(topic)
             .semantics(TopicSemantics.PUB_SUB)
             .build();
 
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(topicConfig)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        // Create multiple subscriptions
-        subscriptionManager.subscribe(topic, "group-1")
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        subscriptionManager.subscribe(topic, "group-2")
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        subscriptionManager.subscribe(topic, "group-3")
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        // List subscriptions
-        List<SubscriptionInfo> subscriptions = subscriptionManager.listSubscriptions(topic)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        assertNotNull(subscriptions);
-        assertEquals(3, subscriptions.size());
-
-        // Verify all groups are present
-        List<String> groupNames = subscriptions.stream()
-            .map(SubscriptionInfo::groupName)
-            .sorted()
-            .toList();
-
-        assertEquals(List.of("group-1", "group-2", "group-3"), groupNames);
+            .compose(v -> subscriptionManager.subscribe(topic, "group-1"))
+            .compose(v -> subscriptionManager.subscribe(topic, "group-2"))
+            .compose(v -> subscriptionManager.subscribe(topic, "group-3"))
+            .compose(v -> subscriptionManager.listSubscriptions(topic))
+            .onSuccess(subscriptions -> {
+                try {
+                    assertNotNull(subscriptions);
+                    assertEquals(3, subscriptions.size());
+                    List<String> groupNames = subscriptions.stream()
+                        .map(SubscriptionInfo::groupName)
+                        .sorted()
+                        .toList();
+                    assertEquals(List.of("group-1", "group-2", "group-3"), groupNames);
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
     }
 
     @Test
-    void testGetNonExistentSubscription() throws Exception {
-        SubscriptionInfo subscription = subscriptionManager.getSubscription("non-existent-topic", "non-existent-group")
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-
-        assertNull(subscription, "Should return null for non-existent subscription");
+    void testGetNonExistentSubscription(VertxTestContext testContext) throws Exception {
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        subscriptionManager.getSubscription("non-existent-topic", "non-existent-group")
+            .onSuccess(subscription -> {
+                try {
+                    assertNull(subscription, "Should return null for non-existent subscription");
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
     }
 
     @Test
-    void testSubscribeRequiresNonNullTopic() {
-        assertThrows(NullPointerException.class, () -> {
-            subscriptionManager.subscribe(null, "group-name")
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get();
-        });
+    void testSubscribeRequiresNonNullTopic(VertxTestContext testContext) {
+        assertThrows(NullPointerException.class, () -> subscriptionManager.subscribe(null, "group-name"));
+        testContext.completeNow();
     }
 
     @Test
-    void testSubscribeRequiresNonNullGroupName() {
-        assertThrows(NullPointerException.class, () -> {
-            subscriptionManager.subscribe("topic", null)
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get();
-        });
+    void testSubscribeRequiresNonNullGroupName(VertxTestContext testContext) {
+        assertThrows(NullPointerException.class, () -> subscriptionManager.subscribe("topic", null));
+        testContext.completeNow();
     }
 
     @Test
-    void testSubscribeRequiresNonNullOptions() {
-        assertThrows(NullPointerException.class, () -> {
-            subscriptionManager.subscribe("topic", "group", null)
-                .toCompletionStage()
-                .toCompletableFuture()
-                .get();
-        });
+    void testSubscribeRequiresNonNullOptions(VertxTestContext testContext) {
+        assertThrows(NullPointerException.class, () -> subscriptionManager.subscribe("topic", "group", null));
+        testContext.completeNow();
     }
 }
 

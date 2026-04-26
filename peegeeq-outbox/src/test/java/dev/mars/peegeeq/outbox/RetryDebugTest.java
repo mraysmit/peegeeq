@@ -30,7 +30,6 @@ import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
-import io.vertx.junit5.Checkpoint;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
@@ -49,15 +48,12 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
-
 import static dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
 /**
  * Debug test to understand why retry mechanism is not working.
  */
-@Tag(TestCategories.FLAKY)  // Column ocg.outbox_message_id does not exist - needs investigation
+@Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 public class RetryDebugTest {
@@ -133,12 +129,12 @@ public class RetryDebugTest {
         return manager.getDatabaseService().getConnectionProvider()
             .getReactivePool("peegeeq-main")
             .compose(pool -> pool.withConnection(conn -> {
-                logger.info("🔍 === DATABASE STATE: {} ===", phase);
+                logger.info("=== DATABASE STATE: {} ===", phase);
 
                 String outboxSql = "SELECT id, topic, status, retry_count, max_retries, error_message FROM outbox WHERE topic = 'debug-retry' ORDER BY created_at DESC LIMIT 5";
                 return conn.preparedQuery(outboxSql).execute()
                     .compose(outboxRows -> {
-                        logger.info("📊 OUTBOX TABLE:");
+                        logger.info("OUTBOX TABLE:");
                         outboxRows.forEach(row -> {
                             logger.info("   ID: {}, Topic: {}, Status: {}, Retry: {}/{}, Error: {}",
                                 row.getLong("id"), row.getString("topic"), row.getString("status"),
@@ -146,17 +142,17 @@ public class RetryDebugTest {
                                 row.getString("error_message"));
                         });
 
-                        String consumerGroupSql = "SELECT ocg.consumer_group_name, ocg.status, ocg.retry_count, o.topic FROM outbox_consumer_groups ocg JOIN outbox o ON ocg.outbox_message_id = o.id WHERE o.topic = 'debug-retry' ORDER BY ocg.created_at DESC LIMIT 5";
+                        String consumerGroupSql = "SELECT ocg.group_name, ocg.status, ocg.retry_count, o.topic FROM outbox_consumer_groups ocg JOIN outbox o ON ocg.message_id = o.id WHERE o.topic = 'debug-retry' ORDER BY ocg.created_at DESC LIMIT 5";
                         return conn.preparedQuery(consumerGroupSql).execute();
                     })
                     .map(groupRows -> {
-                        logger.info("📊 CONSUMER GROUPS TABLE:");
+                        logger.info("CONSUMER GROUPS TABLE:");
                         groupRows.forEach(row -> {
                             logger.info("   Group: {}, Status: {}, Retry: {}, Topic: {}",
-                                row.getString("consumer_group_name"), row.getString("status"),
+                                row.getString("group_name"), row.getString("status"),
                                 row.getInteger("retry_count"), row.getString("topic"));
                         });
-                        logger.info("🔍 === END DATABASE STATE ===");
+                        logger.info("=== END DATABASE STATE ===");
                         return (Void) null;
                     });
             }));

@@ -27,7 +27,6 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-07-24
  * @version 1.0
  */
-@Tag(TestCategories.FLAKY)
 @ExtendWith(VertxExtension.class)
 @Disabled("Use PeeGeeQServiceManagerIntegrationTest instead - requires Consul running")
 class PeeGeeQServiceManagerTest {

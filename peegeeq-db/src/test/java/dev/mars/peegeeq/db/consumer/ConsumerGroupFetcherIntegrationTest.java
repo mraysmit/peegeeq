@@ -53,7 +53,6 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
-@Tag(TestCategories.FLAKY)  // Tests are unstable in parallel execution - needs investigation
 public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(ConsumerGroupFetcherIntegrationTest.class);
@@ -100,9 +99,11 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         if (connectionManager != null) {
-            awaitFuture(connectionManager.close());
+            connectionManager.close().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
     }
 

@@ -17,7 +17,10 @@ import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
-import java.util.List;
+import io.vertx.junit5.VertxTestContext;
+
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
 import java.time.Duration;
 
@@ -57,9 +60,11 @@ public class ConsumerGroupFetcherCoreTest extends BaseIntegrationTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         if (connectionManager != null) {
-            awaitFuture(connectionManager.close());
+            connectionManager.close().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
     }
 
@@ -69,70 +74,167 @@ public class ConsumerGroupFetcherCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testFetchMessagesNoMessages() throws Exception {
-        List<OutboxMessage> messages = fetcher.fetchMessages("non-existent-topic", "test-group", 10)
-            .toCompletionStage().toCompletableFuture().get();
-        assertNotNull(messages);
-        assertEquals(0, messages.size());
+    void testFetchMessagesNoMessages(VertxTestContext testContext) throws InterruptedException {
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        fetcher.fetchMessages("non-existent-topic", "test-group", 10)
+            .onSuccess(messages -> {
+                try {
+                    assertNotNull(messages);
+                    assertEquals(0, messages.size());
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> {
+                errorRef.set(e);
+                testContext.completeNow();
+            });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get());
     }
 
     @Test
-    void testFetchMessagesWithBatchSize() throws Exception {
-        List<OutboxMessage> messages = fetcher.fetchMessages("test-topic", "test-group", 5)
-            .toCompletionStage().toCompletableFuture().get();
-        assertNotNull(messages);
-        assertTrue(messages.size() <= 5);
+    void testFetchMessagesWithBatchSize(VertxTestContext testContext) throws InterruptedException {
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        fetcher.fetchMessages("test-topic", "test-group", 5)
+            .onSuccess(messages -> {
+                try {
+                    assertNotNull(messages);
+                    assertTrue(messages.size() <= 5);
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> {
+                errorRef.set(e);
+                testContext.completeNow();
+            });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get());
     }
 
     @Test
-    void testFetchMessagesWithLargeBatchSize() throws Exception {
-        List<OutboxMessage> messages = fetcher.fetchMessages("test-topic", "test-group", 1000)
-            .toCompletionStage().toCompletableFuture().get();
-        assertNotNull(messages);
-        assertTrue(messages.size() <= 1000);
+    void testFetchMessagesWithLargeBatchSize(VertxTestContext testContext) throws InterruptedException {
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        fetcher.fetchMessages("test-topic", "test-group", 1000)
+            .onSuccess(messages -> {
+                try {
+                    assertNotNull(messages);
+                    assertTrue(messages.size() <= 1000);
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> {
+                errorRef.set(e);
+                testContext.completeNow();
+            });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get());
     }
 
     @Test
-    void testFetchMessagesWithZeroBatchSize() throws Exception {
-        List<OutboxMessage> messages = fetcher.fetchMessages("test-topic", "test-group", 0)
-            .toCompletionStage().toCompletableFuture().get();
-        assertNotNull(messages);
-        assertEquals(0, messages.size());
+    void testFetchMessagesWithZeroBatchSize(VertxTestContext testContext) throws InterruptedException {
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        fetcher.fetchMessages("test-topic", "test-group", 0)
+            .onSuccess(messages -> {
+                try {
+                    assertNotNull(messages);
+                    assertEquals(0, messages.size());
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> {
+                errorRef.set(e);
+                testContext.completeNow();
+            });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get());
     }
 
     @Test
-    void testFetchMessagesMultipleCalls() throws Exception {
-        // First call
-        List<OutboxMessage> messages1 = fetcher.fetchMessages("test-topic", "test-group", 10)
-            .toCompletionStage().toCompletableFuture().get();
-        assertNotNull(messages1);
-
-        // Second call
-        List<OutboxMessage> messages2 = fetcher.fetchMessages("test-topic", "test-group", 10)
-            .toCompletionStage().toCompletableFuture().get();
-        assertNotNull(messages2);
+    void testFetchMessagesMultipleCalls(VertxTestContext testContext) throws InterruptedException {
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        // First call, then second call via compose
+        fetcher.fetchMessages("test-topic", "test-group", 10)
+            .compose(messages1 -> {
+                assertNotNull(messages1);
+                return fetcher.fetchMessages("test-topic", "test-group", 10);
+            })
+            .onSuccess(messages2 -> {
+                try {
+                    assertNotNull(messages2);
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> {
+                errorRef.set(e);
+                testContext.completeNow();
+            });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get());
     }
 
     @Test
-    void testFetchMessagesWithDifferentTopics() throws Exception {
-        List<OutboxMessage> messages1 = fetcher.fetchMessages("topic1", "test-group", 10)
-            .toCompletionStage().toCompletableFuture().get();
-        assertNotNull(messages1);
-
-        List<OutboxMessage> messages2 = fetcher.fetchMessages("topic2", "test-group", 10)
-            .toCompletionStage().toCompletableFuture().get();
-        assertNotNull(messages2);
+    void testFetchMessagesWithDifferentTopics(VertxTestContext testContext) throws InterruptedException {
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        fetcher.fetchMessages("topic1", "test-group", 10)
+            .compose(messages1 -> {
+                assertNotNull(messages1);
+                return fetcher.fetchMessages("topic2", "test-group", 10);
+            })
+            .onSuccess(messages2 -> {
+                try {
+                    assertNotNull(messages2);
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> {
+                errorRef.set(e);
+                testContext.completeNow();
+            });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get());
     }
 
     @Test
-    void testFetchMessagesWithDifferentGroups() throws Exception {
-        List<OutboxMessage> messages1 = fetcher.fetchMessages("test-topic", "group1", 10)
-            .toCompletionStage().toCompletableFuture().get();
-        assertNotNull(messages1);
-
-        List<OutboxMessage> messages2 = fetcher.fetchMessages("test-topic", "group2", 10)
-            .toCompletionStage().toCompletableFuture().get();
-        assertNotNull(messages2);
+    void testFetchMessagesWithDifferentGroups(VertxTestContext testContext) throws InterruptedException {
+        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+        fetcher.fetchMessages("test-topic", "group1", 10)
+            .compose(messages1 -> {
+                assertNotNull(messages1);
+                return fetcher.fetchMessages("test-topic", "group2", 10);
+            })
+            .onSuccess(messages2 -> {
+                try {
+                    assertNotNull(messages2);
+                } catch (Throwable t) {
+                    errorRef.set(t);
+                } finally {
+                    testContext.completeNow();
+                }
+            })
+            .onFailure(e -> {
+                errorRef.set(e);
+                testContext.completeNow();
+            });
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+        if (errorRef.get() != null) fail(errorRef.get());
     }
 }
 
