@@ -1062,25 +1062,27 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                                     logger.info("  - {}", tableName);
                                 });
 
-                                // Check for required tables
-                                boolean hasQueueMessages = tables.contains("queue_messages");
-                                boolean hasOutbox = tables.contains("outbox");
-                                boolean hasDeadLetterQueue = tables.contains("dead_letter_queue");
+                                // Derive the required table list from the base template manifest
+                                // so this check stays in sync automatically when new tables are added.
+                                List<String> requiredTables;
+                                try {
+                                    requiredTables = List.copyOf(templateProcessor.resolveRequiredTables("base"));
+                                } catch (java.io.IOException e) {
+                                    logger.error("Could not resolve required tables from base template manifest", e);
+                                    return Future.<Void>failedFuture(e);
+                                }
 
                                 logger.info("========== REQUIRED TABLES CHECK ==========");
-                                logger.info("  queue_messages: {}", hasQueueMessages ? "✓ EXISTS" : "✗ MISSING");
-                                logger.info("  outbox: {}", hasOutbox ? "✓ EXISTS" : "✗ MISSING");
-                                logger.info("  dead_letter_queue: {}", hasDeadLetterQueue ? "✓ EXISTS" : "✗ MISSING");
+                                List<String> missingTables = new ArrayList<>();
+                                for (String required : requiredTables) {
+                                    boolean exists = tables.contains(required);
+                                    logger.info("  {}: {}", required, exists ? "✓ EXISTS" : "✗ MISSING");
+                                    if (!exists) {
+                                        missingTables.add(required);
+                                    }
+                                }
 
-                                if (!hasQueueMessages || !hasOutbox || !hasDeadLetterQueue) {
-                                    List<String> missingTables = new ArrayList<>();
-                                    if (!hasQueueMessages)
-                                        missingTables.add("queue_messages");
-                                    if (!hasOutbox)
-                                        missingTables.add("outbox");
-                                    if (!hasDeadLetterQueue)
-                                        missingTables.add("dead_letter_queue");
-
+                                if (!missingTables.isEmpty()) {
                                     logger.error("VALIDATION FAILED: Missing required tables: {}", missingTables);
                                     return Future.<Void>failedFuture(new IllegalStateException(
                                             "Database infrastructure validation failed - missing tables: "
