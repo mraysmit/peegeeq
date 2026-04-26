@@ -1,4 +1,4 @@
-﻿package dev.mars.peegeeq.db.subscription;
+package dev.mars.peegeeq.db.subscription;
 
 import dev.mars.peegeeq.api.messaging.StartPosition;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
