@@ -303,6 +303,13 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
     /**
      * Checks if this consumer accepts the given message based on its filter.
      *
+     * <p><strong>Contract:</strong> The supplied {@code Predicate<Message<T>>} filter is
+     * executed synchronously on the calling thread (Vert.x event loop). Filters
+     * <em>must</em> be non-blocking and CPU-only. Any I/O or blocking operation inside
+     * a filter will stall the event loop. If async filter evaluation is required, wrap
+     * the filter invocation in {@code vertx.executeBlocking()} before passing it here,
+     * or use {@link AsyncFilterRetryManager} directly for retry-capable async execution.
+     *
      * @param message The message to check
      * @return true if the message should be processed by this consumer
      */
@@ -407,7 +414,7 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
             // Handle null return from message handler — convert to failed future
             // so the .onFailure handler decrements inFlightCount (no slot leak)
             if (processingFuture == null) {
-                logger.warn("Message handler returned null Future for message {} in consumer '{}': treating as failure",
+                logger.error("Message handler returned null Future for message {} in consumer '{}': treating as failure",
                     message.getId(), consumerId);
                 processingFuture = Future.failedFuture(
                     new IllegalStateException("Message handler returned null Future"));
@@ -438,7 +445,7 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
                 totalProcessingTimeMs.addAndGet(processingTime);
                 failedMessageCount.incrementAndGet();
                 lastError.set(error.getMessage());
-                logger.warn("Failed to process message {} with outbox consumer '{}' in group '{}': {}",
+                logger.error("Failed to process message {} with outbox consumer '{}' in group '{}': {}",
                     message.getId(), consumerId, groupName, error.getMessage());
                 lastActiveAt.set(Instant.now());
             })
