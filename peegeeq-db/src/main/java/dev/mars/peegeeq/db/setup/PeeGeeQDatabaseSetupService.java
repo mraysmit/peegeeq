@@ -1072,7 +1072,8 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
                                     return Future.<Void>failedFuture(e);
                                 }
 
-                                logger.info("========== REQUIRED TABLES CHECK ==========");
+                                logger.info("========== REQUIRED TABLES CHECK ({} tables): {} ==========",
+                                        requiredTables.size(), requiredTables);
                                 List<String> missingTables = new ArrayList<>();
                                 for (String required : requiredTables) {
                                     boolean exists = tables.contains(required);
