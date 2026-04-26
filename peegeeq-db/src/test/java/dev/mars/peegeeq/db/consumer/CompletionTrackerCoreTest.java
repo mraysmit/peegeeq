@@ -9,6 +9,7 @@ import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -57,9 +58,11 @@ public class CompletionTrackerCoreTest extends BaseIntegrationTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         if (connectionManager != null) {
-            awaitFuture(connectionManager.close());
+            connectionManager.close().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
     }
 

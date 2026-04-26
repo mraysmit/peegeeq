@@ -75,15 +75,15 @@ public abstract class BaseIntegrationTest {
     }
 
     @BeforeEach
-    protected void setUpBaseIntegration() throws Exception {
+    protected void setUpBaseIntegration(VertxTestContext testContext) {
         // Generate unique test profile to avoid conflicts
         testProfile = "test-" + UUID.randomUUID().toString().substring(0, 8);
-        
+
         logger.info("Setting up integration test with profile: {}", testProfile);
-        
+
         // Set up test-specific configuration (non-database system properties)
         setupTestConfiguration();
-        
+
         // Create configuration with explicit database settings from the shared container
         // to avoid System.setProperty race conditions under parallel execution.
         PostgreSQLContainer postgres = getPostgres();
@@ -96,62 +96,66 @@ public abstract class BaseIntegrationTest {
                 postgres.getPassword(),
                 "public");
         manager = new PeeGeeQManager(configuration, new SimpleMeterRegistry());
-        
-        // Start manager with proper error handling
-        try {
-            awaitFuture(manager.start());
-            logger.info("PeeGeeQ Manager started successfully for profile: {}", testProfile);
-        } catch (Exception e) {
-            logger.error("Failed to start PeeGeeQ Manager for profile: {}", testProfile, e);
-            // Clean up on failure
-            if (manager != null) {
-                try {
-                    awaitFuture(manager.closeReactive());
-                } catch (Exception closeException) {
-                    logger.warn("Error closing manager after startup failure", closeException);
+
+        manager.start()
+            .onSuccess(v -> {
+                logger.info("PeeGeeQ Manager started successfully for profile: {}", testProfile);
+                testContext.completeNow();
+            })
+            .onFailure(e -> {
+                logger.error("Failed to start PeeGeeQ Manager for profile: {}", testProfile, e);
+                PeeGeeQManager failedManager = manager;
+                manager = null;
+                if (failedManager != null) {
+                    failedManager.closeReactive()
+                        .onComplete(ar -> testContext.failNow(e));
+                } else {
+                    testContext.failNow(e);
                 }
-            }
-            throw e;
-        }
+            });
     }
     
     @AfterEach
-    void tearDownBaseIntegration() throws Exception {
+    void tearDownBaseIntegration(VertxTestContext testContext) {
         logger.info("Tearing down integration test for profile: {}", testProfile);
-        
+
         // Capture Vertx reference before nulling manager — we need it for the
         // belt-and-suspenders close below (Tier 2 fix for connection exhaustion).
         Vertx vertxRef = (manager != null) ? manager.getVertx() : null;
-        
-        if (manager != null) {
-            try {
-                // closeReactive() handles dead Vertx internally (step 7 catch).
-                // No grace timer needed — it serves no documented purpose and
-                // throws RejectedExecutionException when the event loop is dead.
-                awaitFuture(manager.closeReactive());
-                logger.info("PeeGeeQ Manager closed successfully for profile: {}", testProfile);
-            } catch (Exception e) {
-                logger.error("Error closing PeeGeeQ Manager for profile: {}", testProfile, e);
-            } finally {
-                manager = null;
-            }
-        }
-        
+        PeeGeeQManager currentManager = manager;
+        manager = null;
+
+        // closeReactive() handles dead Vertx internally (step 7 catch).
+        // No grace timer needed — it serves no documented purpose and
+        // throws RejectedExecutionException when the event loop is dead.
+        Future<Void> closeManager = (currentManager != null)
+            ? currentManager.closeReactive()
+                .onSuccess(v -> logger.info("PeeGeeQ Manager closed successfully for profile: {}", testProfile))
+                .recover(e -> {
+                    logger.error("Error closing PeeGeeQ Manager for profile: {}", testProfile, e);
+                    return Future.succeededFuture();
+                })
+            : Future.succeededFuture();
+
         // Tier 2: Eagerly close Vert.x to guarantee TCP socket release before the
         // next test starts. closeReactive() step 7 attempts this, but .eventually()
         // swallows failures (e.g. RejectedExecutionException when the event loop is
         // already dead). A second vertx.close() call is idempotent and ensures
         // all Netty channels are torn down.
-        if (vertxRef != null) {
-            try {
-                awaitFuture(vertxRef.close());
-                logger.info("Vert.x instance closed explicitly for profile: {}", testProfile);
-            } catch (Exception e) {
-                logger.debug("Vert.x close after manager shutdown (expected if already closed): {}", e.getMessage());
-            }
-        }
-        
-        logger.info("Integration test teardown completed for profile: {}", testProfile);
+        closeManager
+            .compose(v -> vertxRef != null
+                ? vertxRef.close()
+                    .onSuccess(ignored -> logger.info("Vert.x instance closed explicitly for profile: {}", testProfile))
+                    .recover(e -> {
+                        logger.debug("Vert.x close after manager shutdown (expected if already closed): {}", e.getMessage());
+                        return Future.succeededFuture();
+                    })
+                : Future.succeededFuture())
+            .onSuccess(v -> {
+                logger.info("Integration test teardown completed for profile: {}", testProfile);
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
     
     /**
