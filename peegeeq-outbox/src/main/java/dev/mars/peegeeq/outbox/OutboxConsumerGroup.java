@@ -665,7 +665,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
                 accepted = groupFilter.test(message);
             } catch (Exception e) {
                 totalMessagesFiltered.incrementAndGet();
-                logger.warn("Group filter threw exception for message {} in group '{}', treating as rejection: {}",
+                logger.error("Group filter threw exception for message {} in group '{}', treating as rejection: {}",
                         message.getId(), groupName, e.getMessage());
                 logger.debug("Group filter exception detail", e);
                 return Future.<Void>failedFuture(

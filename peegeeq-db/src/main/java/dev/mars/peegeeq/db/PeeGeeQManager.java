@@ -110,6 +110,13 @@ public class PeeGeeQManager implements AutoCloseable {
     private long recoveryTimerId = 0;
     private DeadConsumerDetectionJob deadConsumerDetectionJob;
     private ConsumerGroupRetryJob consumerGroupRetryJob;
+
+    // Consecutive failure counters for background timers — escalate to ERROR after threshold
+    private static final long TIMER_FAILURE_ESCALATION_THRESHOLD = 3;
+    private final java.util.concurrent.atomic.AtomicLong persistMetricsFailures = new java.util.concurrent.atomic.AtomicLong(0);
+    private final java.util.concurrent.atomic.AtomicLong depthCacheFailures = new java.util.concurrent.atomic.AtomicLong(0);
+    private final java.util.concurrent.atomic.AtomicLong dlqCleanupFailures = new java.util.concurrent.atomic.AtomicLong(0);
+    private final java.util.concurrent.atomic.AtomicLong stuckMessageFailures = new java.util.concurrent.atomic.AtomicLong(0);
     private volatile boolean started = false;
     private volatile boolean closing = false;
     private volatile Future<Void> startFuture = null;
@@ -814,15 +821,35 @@ public class PeeGeeQManager implements AutoCloseable {
 
             long intervalMs = configuration.getMetricsConfig().getReportingInterval().toMillis();
             metricsTimerId = vertx.setPeriodic(intervalMs, id -> {
+                if (closing) return;
                 metrics.persistMetrics(meterRegistry)
-                    .onFailure(e -> logger.warn("Failed to persist metrics", e));
+                    .onSuccess(v -> persistMetricsFailures.set(0))
+                    .onFailure(e -> {
+                        long failures = persistMetricsFailures.incrementAndGet();
+                        if (failures >= TIMER_FAILURE_ESCALATION_THRESHOLD) {
+                            logger.error("Failed to persist metrics ({} consecutive failures): {}",
+                                failures, e.getMessage(), e);
+                        } else {
+                            logger.warn("Failed to persist metrics: {}", e.getMessage(), e);
+                        }
+                    });
             });
 
             // Separate timer for refreshing cached queue depth values used by gauges
             long depthCacheIntervalMs = configuration.getMetricsConfig().getDepthCacheInterval().toMillis();
             depthCacheTimerId = vertx.setPeriodic(depthCacheIntervalMs, id -> {
+                if (closing) return;
                 metrics.refreshDepthCache()
-                    .onFailure(e -> logger.warn("Failed to refresh depth cache", e));
+                    .onSuccess(v -> depthCacheFailures.set(0))
+                    .onFailure(e -> {
+                        long failures = depthCacheFailures.incrementAndGet();
+                        if (failures >= TIMER_FAILURE_ESCALATION_THRESHOLD) {
+                            logger.error("Failed to refresh depth cache ({} consecutive failures): {}",
+                                failures, e.getMessage(), e);
+                        } else {
+                            logger.warn("Failed to refresh depth cache: {}", e.getMessage(), e);
+                        }
+                    });
             });
 
             logger.info("Started metrics collection every {}", configuration.getMetricsConfig().getReportingInterval());
@@ -840,27 +867,47 @@ public class PeeGeeQManager implements AutoCloseable {
 
             // Dead letter queue cleanup every 24 hours
             dlqTimerId = vertx.setPeriodic(TimeUnit.HOURS.toMillis(DLQ_CLEANUP_INTERVAL_HOURS), id -> {
+                if (closing) return;
                 deadLetterQueueManager.purgeOldDeadLetterMessages(DEFAULT_DLQ_RETENTION_DAYS)
                     .onSuccess(cleaned -> {
+                        dlqCleanupFailures.set(0);
                         if (cleaned > 0) {
                             logger.info("Cleaned up {} old dead letter messages (retention: {} days)",
                                 cleaned, DEFAULT_DLQ_RETENTION_DAYS);
                         }
                     })
-                    .onFailure(e -> logger.warn("Failed to cleanup old dead letter messages", e));
+                    .onFailure(e -> {
+                        long failures = dlqCleanupFailures.incrementAndGet();
+                        if (failures >= TIMER_FAILURE_ESCALATION_THRESHOLD) {
+                            logger.error("Failed to cleanup old dead letter messages ({} consecutive failures): {}",
+                                failures, e.getMessage(), e);
+                        } else {
+                            logger.warn("Failed to cleanup old dead letter messages: {}", e.getMessage(), e);
+                        }
+                    });
             });
 
             // Stuck message recovery
             if (stuckMessageRecoveryManager != null) {
                 long recoveryMs = configuration.getQueueConfig().getRecoveryCheckInterval().toMillis();
                 recoveryTimerId = vertx.setPeriodic(recoveryMs, id -> {
+                    if (closing) return;
                     stuckMessageRecoveryManager.recoverStuckMessages()
                         .onSuccess(recovered -> {
+                            stuckMessageFailures.set(0);
                             if (recovered > 0) {
                                 logger.info("Recovered {} stuck messages from PROCESSING state", recovered);
                             }
                         })
-                        .onFailure(e -> logger.warn("Failed to recover stuck messages", e));
+                        .onFailure(e -> {
+                            long failures = stuckMessageFailures.incrementAndGet();
+                            if (failures >= TIMER_FAILURE_ESCALATION_THRESHOLD) {
+                                logger.error("Failed to recover stuck messages ({} consecutive failures): {}",
+                                    failures, e.getMessage(), e);
+                            } else {
+                                logger.warn("Failed to recover stuck messages: {}", e.getMessage(), e);
+                            }
+                        });
                 });
             }
 

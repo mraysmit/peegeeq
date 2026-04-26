@@ -136,7 +136,7 @@ public class FilterRetryManager {
                 
             case RETRY_THEN_DEAD_LETTER:
                 if (attemptNumber >= config.getMaxRetries()) {
-                    logger.warn("Filter '{}' sending message {} to dead letter queue after {} attempts. Final error: {}",
+                    logger.error("Filter '{}' sending message {} to dead letter queue after {} attempts. Final error: {}",
                         filterId, message.getId(), attemptNumber + 1, error.getMessage());
                     return sendToDeadLetterQueue(message, error, attemptNumber + 1, classification);
                 } else {
@@ -144,12 +144,12 @@ public class FilterRetryManager {
                 }
 
             case DEAD_LETTER_IMMEDIATELY:
-                logger.warn("Filter '{}' sending message {} to dead letter queue immediately due to {} error: {}",
+                logger.error("Filter '{}' sending message {} to dead letter queue immediately due to {} error: {}",
                     filterId, message.getId(), classification.name().toLowerCase(), error.getMessage());
                 return sendToDeadLetterQueue(message, error, attemptNumber + 1, classification);
                 
             default:
-                logger.warn("Unknown filter error strategy: {}. Rejecting message {}", strategy, message.getId());
+                logger.error("Unknown filter error strategy: {}. Rejecting message {}", strategy, message.getId());
                 return Future.succeededFuture(false);
         }
     }
@@ -201,12 +201,12 @@ public class FilterRetryManager {
             FilterErrorHandlingConfig.ErrorClassification classification) {
 
         if (!config.isDeadLetterQueueEnabled()) {
-            logger.warn("Dead letter queue is disabled, rejecting message {} instead", message.getId());
+            logger.error("Dead letter queue is disabled, rejecting message {} instead", message.getId());
             return Future.succeededFuture(false);
         }
 
         if (deadLetterQueueManager == null) {
-            logger.warn("Dead letter queue manager not configured, rejecting message {} instead. " +
+            logger.error("Dead letter queue manager not configured, rejecting message {} instead. " +
                 "Use the constructor with DeadLetterQueueManager to enable DLQ support.", message.getId());
             return Future.succeededFuture(false);
         }

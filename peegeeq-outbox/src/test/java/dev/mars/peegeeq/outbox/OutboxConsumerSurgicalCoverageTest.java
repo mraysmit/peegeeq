@@ -361,9 +361,10 @@ class OutboxConsumerSurgicalCoverageTest {
 
         consumer.close();
 
-        assertThrows(IllegalStateException.class, () -> {
-            consumer.subscribe(message -> Future.succeededFuture());
-        }, "Should throw IllegalStateException when subscribing to closed consumer");
+        Future<Void> result = consumer.subscribe(message -> Future.succeededFuture());
+        assertTrue(result.failed(), "subscribe on closed consumer should return a failed future");
+        assertInstanceOf(IllegalStateException.class, result.cause(),
+                "Should fail with IllegalStateException when subscribing to closed consumer");
     }
 
     /**

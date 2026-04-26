@@ -38,6 +38,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
@@ -68,6 +69,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @Testcontainers
 @ExtendWith(VertxExtension.class)
 class PgBiTemporalEventStoreCloseLogLevelTest {
+
+    private static final Logger log = LoggerFactory.getLogger(PgBiTemporalEventStoreCloseLogLevelTest.class);
 
     @Container
     @SuppressWarnings("resource")
@@ -182,7 +185,9 @@ class PgBiTemporalEventStoreCloseLogLevelTest {
                             vertx, ownManager, JsonObject.class, "bitemporal_log_level_test2",
                             new ObjectMapper());
 
-                    // Stop the database to cause close failures
+                    // Stop the database to cause close failures.
+                    // Connection-abort errors from background jobs (e.g. DeadConsumerDetectionJob) below are expected.
+                    log.info("[TEST] Intentionally stopping database container to trigger close failure path — subsequent connection errors are expected");
                     ownContainer.stop();
                     ownCapture.clear();
 
