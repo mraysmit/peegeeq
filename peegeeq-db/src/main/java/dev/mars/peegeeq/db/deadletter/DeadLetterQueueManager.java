@@ -56,6 +56,9 @@ public class DeadLetterQueueManager implements DeadLetterService {
     private final Pool reactivePool;
     private final ObjectMapper objectMapper;
 
+    // Shutdown coordination — prevents database operations during closeReactive()
+    private volatile boolean closing = false;
+
     /**
      * Modern reactive constructor using Vert.x Pool.
      * This is the only constructor - pure Vert.x reactive implementation.
@@ -63,6 +66,14 @@ public class DeadLetterQueueManager implements DeadLetterService {
     public DeadLetterQueueManager(Pool reactivePool, ObjectMapper objectMapper) {
         this.reactivePool = Objects.requireNonNull(reactivePool, "Reactive pool cannot be null");
         this.objectMapper = Objects.requireNonNull(objectMapper, "Object mapper cannot be null");
+    }
+
+    /**
+     * Marks this manager as closing to fail-fast any in-flight timer operations.
+     * Called by PeeGeeQManager.closeReactive() to prevent database queries after shutdown begins.
+     */
+    public void markClosing() {
+        this.closing = true;
     }
 
     /**
@@ -341,12 +352,19 @@ public class DeadLetterQueueManager implements DeadLetterService {
     }
 
     public Future<Integer> purgeOldDeadLetterMessages(int retentionDays) {
+        if (closing) {
+            return Future.succeededFuture(0);
+        }
         if (retentionDays <= 0) {
             return Future.failedFuture(new IllegalArgumentException("retentionDays must be > 0"));
         }
         String sql = "DELETE FROM dead_letter_queue WHERE failed_at < NOW() - ($1 * INTERVAL '1 day')";
 
         return reactivePool.withTransaction(connection -> {
+            // Double-check closing flag inside transaction callback
+            if (closing) {
+                return Future.succeededFuture(0);
+            }
             return connection.preparedQuery(sql)
                 .execute(Tuple.of(retentionDays))
                 .map(result -> {

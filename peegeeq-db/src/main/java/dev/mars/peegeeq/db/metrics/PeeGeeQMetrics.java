@@ -61,6 +61,9 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
     private volatile double cachedNativeDepth = 0.0;
     private volatile double cachedDeadLetterDepth = 0.0;
 
+    // Shutdown coordination — prevents database operations during closeReactive()
+    private volatile boolean closing = false;
+
     // Counters
     private Counter messagesSent;
     private Counter messagesReceived;
@@ -87,6 +90,14 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
     public PeeGeeQMetrics(Pool reactivePool, String instanceId) {
         this.reactivePool = reactivePool;
         this.instanceId = instanceId;
+    }
+
+    /**
+     * Marks this metrics instance as closing to fail-fast any in-flight timer operations.
+     * Called by PeeGeeQManager.closeReactive() to prevent database queries after shutdown begins.
+     */
+    public void markClosing() {
+        this.closing = true;
     }
 
     @Override
@@ -634,7 +645,7 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
      * @return Future that completes when all depth caches have been updated
      */
     public Future<Void> refreshDepthCache() {
-        if (reactivePool == null) {
+        if (reactivePool == null || closing) {
             return Future.succeededFuture();
         }
 
@@ -657,11 +668,15 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
      * Executes a count query reactively using Vert.x Pool.
      */
     private Future<Double> executeCountQuery(String sql) {
-        if (reactivePool == null) {
-            return Future.failedFuture(new IllegalStateException("No reactive pool available"));
+        if (reactivePool == null || closing) {
+            return Future.succeededFuture(0.0);
         }
 
         return reactivePool.withConnection(connection -> {
+            // Double-check closing flag inside connection callback
+            if (closing) {
+                return Future.succeededFuture(0.0);
+            }
             return connection.preparedQuery(sql).execute()
                 .map(rowSet -> {
                     if (rowSet.iterator().hasNext()) {
@@ -677,11 +692,17 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
      * Returns a Future for non-blocking database operations.
      */
     public Future<Void> persistMetrics(MeterRegistry registry) {
-        if (reactivePool == null) {
-            return Future.failedFuture(new IllegalStateException("No reactive pool available"));
+        if (reactivePool == null || closing) {
+            return Future.succeededFuture();
         }
 
         return reactivePool.withTransaction(connection -> {
+            // Double-check closing flag inside transaction callback - pool may have started
+            // closing between the initial check and this callback execution
+            if (closing) {
+                return Future.succeededFuture();
+            }
+            
             // Persist key metrics using reactive patterns
             Future<Void> future = Future.succeededFuture();
 

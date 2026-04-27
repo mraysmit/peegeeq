@@ -282,6 +282,102 @@ public class PeeGeeQManagerTimerGuardTest {
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
+    @Test
+    @DisplayName("In-flight background tasks fail fast if manager is closed")
+    void testInFlightTasksFailFast(VertxTestContext testContext) throws InterruptedException {
+        setSystemPropertiesFor(postgres);
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
+
+        manager.start()
+                .compose(v -> {
+                    logCapture.clear();
+                    // Close the manager, setting closing=true immediately.
+                    Future<Void> close = manager.closeReactive();
+                    
+                    // Immediately invoke background tasks simulating a race condition
+                    // where the timer fired right before/during close but the task 
+                    // execution started just after closing=true was set.
+                    Future<Void> depthCache = manager.getMetrics().refreshDepthCache();
+                    Future<Void> persist = manager.getMetrics().persistMetrics(manager.getMeterRegistry());
+                    
+                    manager = null;
+                    return close.compose(v2 -> Future.join(depthCache, persist))
+                                .recover(err -> Future.succeededFuture());
+                })
+                .onSuccess(v -> testContext.verify(() -> {
+                    // With the fail-fast guard inside the tasks, no connection 
+                    // refused errors should be logged.
+                    List<ILoggingEvent> timerFailures = captureTimerFailures();
+                    assertTrue(timerFailures.isEmpty(),
+                            "Background tasks should fail-fast without hitting DB when closing. Got: " +
+                            timerFailures.stream().map(ILoggingEvent::getFormattedMessage).toList());
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+    }
+
+    @Test
+    @DisplayName("Fast timers with immediate close do not cause connection refused errors")
+    void testFastTimersWithImmediateClose(VertxTestContext testContext) throws InterruptedException {
+        // This test uses very fast timer intervals (100ms) to maximize the likelihood
+        // of a timer callback firing during the close sequence, verifying that the
+        // markClosing() defense prevents connection refused errors.
+        Properties props = new Properties();
+        props.setProperty("peegeeq.database.host", postgres.getHost());
+        props.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        props.setProperty("peegeeq.database.name", postgres.getDatabaseName());
+        props.setProperty("peegeeq.database.username", postgres.getUsername());
+        props.setProperty("peegeeq.database.password", postgres.getPassword());
+        props.setProperty("peegeeq.database.ssl.enabled", "false");
+        props.setProperty("peegeeq.database.schema", "public");
+        props.setProperty("peegeeq.database.pool.min-size", "1");
+        props.setProperty("peegeeq.database.pool.max-size", "3");
+        props.setProperty("peegeeq.database.pool.shared", "false");
+        props.setProperty("peegeeq.health.check-interval", "PT30S");
+
+        // VERY fast timer intervals - PT1S is minimum, but we verify close happens quickly
+        props.setProperty("peegeeq.metrics.enabled", "true");
+        props.setProperty("peegeeq.metrics.reporting-interval", "PT1S");
+        props.setProperty("peegeeq.metrics.depth-cache-interval", "PT1S");
+
+        // Disable other background tasks
+        props.setProperty("peegeeq.queue.recovery.enabled", "false");
+        props.setProperty("peegeeq.queue.dead-consumer-detection.enabled", "false");
+        props.setProperty("peegeeq.queue.consumer-group-retry.enabled", "false");
+        props.setProperty("peegeeq.migration.enabled", "false");
+        props.setProperty("peegeeq.migration.auto-migrate", "false");
+        props.forEach((k, v) -> System.setProperty(k.toString(), v.toString()));
+
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
+        Vertx vertx = manager.getVertx();
+
+        manager.start()
+                // Let 2-3 timer ticks fire successfully to ensure timers are running
+                .compose(v -> delay(vertx, 2500))
+                .compose(v -> {
+                    logCapture.clear();
+                    // Close immediately - with 1s intervals, there's a good chance
+                    // a timer is about to fire or is firing right now.
+                    // The markClosing() calls should prevent any connection refused errors.
+                    Future<Void> close = manager.closeReactive();
+                    manager = null;
+                    return close;
+                })
+                .onSuccess(v -> testContext.verify(() -> {
+                    List<ILoggingEvent> timerFailures = captureTimerFailures();
+                    assertTrue(timerFailures.isEmpty(),
+                            "Fast timers with immediate close should not cause connection refused errors. " +
+                            "The markClosing() defense should prevent database queries after shutdown begins. Got: " +
+                            timerFailures.stream().map(ILoggingEvent::getFormattedMessage).toList());
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+    }
+
     // ─────────────────────────────────────────────────────────────────
     // Helpers
     // ─────────────────────────────────────────────────────────────────
