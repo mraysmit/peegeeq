@@ -572,8 +572,8 @@ class EventSourcingCQRSDemoTest {
         logger.info("Testing Event Sourcing");
 
         // Queue names for command and event streams
-        String commandQueue = "eventsourcing-commands-queue";
-        String eventQueue = "eventsourcing-events-queue";
+        String commandQueue = "eventsourcing-commands-queue-" + System.currentTimeMillis();
+        String eventQueue = "eventsourcing-events-queue-" + System.currentTimeMillis();
 
         // In-memory event store and aggregate cache for demo purposes
         // 🚨 PRODUCTION NOTE: These would be replaced with proper persistence layers
@@ -823,8 +823,8 @@ class EventSourcingCQRSDemoTest {
         logger.info("Testing CQRS");
 
         // Queue names for command and event streams
-        String commandQueue = "cqrs-commands-queue";
-        String eventQueue = "cqrs-events-queue";
+        String commandQueue = "cqrs-commands-queue-" + System.currentTimeMillis();
+        String eventQueue = "cqrs-events-queue-" + System.currentTimeMillis();
 
         // Separate models for writes and reads - the core of CQRS
         // 🚨 PRODUCTION NOTE: These would be backed by different databases
