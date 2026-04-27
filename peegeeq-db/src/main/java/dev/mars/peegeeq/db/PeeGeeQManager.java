@@ -115,12 +115,15 @@ public class PeeGeeQManager implements AutoCloseable {
     private static final long TIMER_FAILURE_ESCALATION_THRESHOLD = 3;
     private final java.util.concurrent.atomic.AtomicLong persistMetricsFailures = new java.util.concurrent.atomic.AtomicLong(0);
     private final java.util.concurrent.atomic.AtomicLong depthCacheFailures = new java.util.concurrent.atomic.AtomicLong(0);
+
     // Overlap guards — prevent a new tick firing while the previous one is still in-flight
     private final java.util.concurrent.atomic.AtomicBoolean persistMetricsRunning = new java.util.concurrent.atomic.AtomicBoolean(false);
     private final java.util.concurrent.atomic.AtomicBoolean depthCacheRunning = new java.util.concurrent.atomic.AtomicBoolean(false);
     private final java.util.concurrent.atomic.AtomicLong dlqCleanupFailures = new java.util.concurrent.atomic.AtomicLong(0);
     private final java.util.concurrent.atomic.AtomicLong stuckMessageFailures = new java.util.concurrent.atomic.AtomicLong(0);
+
     private volatile boolean started = false;
+    // Shutdown coordination — prevents database operations during closeReactive()
     private volatile boolean closing = false;
     private volatile Future<Void> startFuture = null;
     private volatile Future<Void> closeFuture = null;
@@ -416,7 +419,20 @@ public class PeeGeeQManager implements AutoCloseable {
         closing = true;
         logger.info("PeeGeeQManager.closeReactive() called - starting shutdown sequence");
 
-        // 0. Await in-flight start() if any, so startup futures resolve before pools close
+        // Step 1: Mark all components as closing to fail-fast any in-flight timer operations
+        // This prevents database queries from being attempted after shutdown begins
+        if (metrics != null) {
+            metrics.markClosing();
+        }
+        if (deadLetterQueueManager != null) {
+            deadLetterQueueManager.markClosing();
+        }
+        if (stuckMessageRecoveryManager != null) {
+            stuckMessageRecoveryManager.markClosing();
+        }
+        logger.debug("All components marked as closing to prevent in-flight timer operations");
+
+        // Step 2: Await in-flight start() if any, so startup futures resolve before pools close
         Future<Void> pendingStart = startFuture;
         Future<Void> awaitStart;
         if (pendingStart != null) {
@@ -430,10 +446,11 @@ public class PeeGeeQManager implements AutoCloseable {
         // The original awaitStart outcome flows through to the caller automatically —
         // if start() was in-flight and failed, that failure propagates after cleanup.
         Future<Void> result = awaitStart
-            // 1. Stop reactive components (background tasks, health checks)
+            // Step 3: Stop reactive components (cancel timers, stop background tasks)
+            // After this point, no new timer callbacks will fire
             .eventually(() -> stop()
                 .onFailure(e -> logger.warn("stop() failed during close, continuing cleanup: {}", e.getMessage())))
-            // 2. Run registered close hooks
+            // Step 4: Run registered close hooks
             .eventually(() -> {
                 io.vertx.core.Future<Void> chain = io.vertx.core.Future.succeededFuture();
                 if (!closeHooks.isEmpty()) {
@@ -448,11 +465,11 @@ public class PeeGeeQManager implements AutoCloseable {
                 }
                 return chain;
             })
-            // 3. Timer cancellation already handled by stop()->stopBackgroundTasks()
-            // 4. Close worker executor (finish pending tasks)
+            // Note: Timer cancellation handled by Step 3 stop()->stopBackgroundTasks()
+            // Step 5: Close worker executor (finish pending tasks)
             .eventually(() -> workerExecutor.close()
                 .onFailure(e -> logger.warn("Failed to close worker executor", e)))
-            // 5. Close client factory (DB pools) - AFTER workers are done
+            // Step 6: Close client factory (DB pools) - AFTER workers are done
             .eventually(() -> {
                 if (clientFactory != null) {
                     logger.info("Closing client factory");
@@ -462,7 +479,7 @@ public class PeeGeeQManager implements AutoCloseable {
                 }
                 return Future.succeededFuture();
             })
-            // 6. Close manager-owned MeterRegistry
+            // Step 7: Close manager-owned MeterRegistry
             .eventually(() -> {
                 if (meterRegistryOwnedByManager && meterRegistry instanceof AutoCloseable ac) {
                     try {
@@ -501,7 +518,7 @@ public class PeeGeeQManager implements AutoCloseable {
     @Override
     public void close() {
         closeReactive()
-            .onSuccess(v -> logger.debug("PeeGeeQManager closed successfully"))
+            .onSuccess(v -> logger.info("PeeGeeQManager closed successfully"))
             .onFailure(e -> logger.error("Error closing PeeGeeQManager", e));
     }
 

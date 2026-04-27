@@ -53,6 +53,9 @@ public class StuckMessageRecoveryManager {
     private final Duration processingTimeout;
     private final boolean enabled;
 
+    // Shutdown coordination — prevents database operations during closeReactive()
+    private volatile boolean closing = false;
+
     /**
      * Constructor using reactive Pool for Vert.x 5.x patterns.
      * This is the only constructor - pure Vert.x reactive implementation.
@@ -67,6 +70,14 @@ public class StuckMessageRecoveryManager {
     }
 
     /**
+     * Marks this manager as closing to fail-fast any in-flight timer operations.
+     * Called by PeeGeeQManager.closeReactive() to prevent database queries after shutdown begins.
+     */
+    public void markClosing() {
+        this.closing = true;
+    }
+
+    /**
      * Recovers stuck messages by resetting them from PROCESSING back to PENDING state.
      * 
      * This method identifies messages that have been in PROCESSING state longer than
@@ -75,8 +86,9 @@ public class StuckMessageRecoveryManager {
      * @return Future with the number of messages recovered
      */
     public Future<Integer> recoverStuckMessages() {
-        if (!enabled) {
-            logger.debug("Stuck message recovery is disabled, skipping recovery");
+        if (closing || !enabled) {
+            logger.debug("Stuck message recovery is {} skipping recovery", 
+                closing ? "closing," : "disabled,");
             return Future.succeededFuture(0);
         }
 
@@ -117,6 +129,10 @@ public class StuckMessageRecoveryManager {
         Tuple params = Tuple.of(cutoffTime);
 
         return reactivePool.withConnection(connection -> {
+            // Double-check closing flag inside connection callback
+            if (closing) {
+                return Future.succeededFuture(0);
+            }
             return connection.preparedQuery(countSql).execute(params)
                 .map(rowSet -> {
                     if (rowSet.iterator().hasNext()) {
@@ -142,6 +158,10 @@ public class StuckMessageRecoveryManager {
         Tuple params = Tuple.of(cutoffTime);
 
         return reactivePool.withConnection(connection -> {
+            // Double-check closing flag inside connection callback
+            if (closing) {
+                return Future.succeededFuture(0);
+            }
             return connection.preparedQuery(resetSql).execute(params)
                 .compose(rowSet -> {
                     int updatedCount = rowSet.rowCount();
