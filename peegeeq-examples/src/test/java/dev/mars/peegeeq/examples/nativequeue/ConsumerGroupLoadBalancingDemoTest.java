@@ -230,7 +230,7 @@ class ConsumerGroupLoadBalancingDemoTest {
         logger.info("Test: round robin load balancing");
         logger.info("Testing Round Robin Load Balancing");
 
-        String queueName = "loadbalancing-roundrobin-queue";
+        String queueName = "loadbalancing-roundrobin-queue-" + System.currentTimeMillis();
         int numConsumers = 3;
         int numMessages = 15; // Should distribute 5 messages per consumer
 
@@ -329,7 +329,7 @@ class ConsumerGroupLoadBalancingDemoTest {
         logger.info("Test: weighted load balancing");
         logger.info("Testing Weighted Load Balancing");
 
-        String queueName = "loadbalancing-weighted-queue";
+        String queueName = "loadbalancing-weighted-queue-" + System.currentTimeMillis();
         int numMessages = 20;
 
         // Consumer weights: 1:2:3 ratio (total weight = 6)
@@ -441,7 +441,7 @@ class ConsumerGroupLoadBalancingDemoTest {
         logger.info("Test: sticky session load balancing");
         logger.info("Testing Sticky Session Load Balancing");
 
-        String queueName = "loadbalancing-sticky-queue";
+        String queueName = "loadbalancing-sticky-queue-" + System.currentTimeMillis();
         int numSessions = 3;
         int messagesPerSession = 5;
         int totalMessages = numSessions * messagesPerSession;
@@ -567,7 +567,7 @@ class ConsumerGroupLoadBalancingDemoTest {
         logger.info("Test: dynamic load balancing");
         logger.info("Testing Dynamic Load Balancing");
 
-        String queueName = "loadbalancing-dynamic-queue";
+        String queueName = "loadbalancing-dynamic-queue-" + System.currentTimeMillis();
         int numConsumers = 3;
         int numMessages = 18;
 
