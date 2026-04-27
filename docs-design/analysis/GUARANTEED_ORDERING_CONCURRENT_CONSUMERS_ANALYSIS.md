@@ -29,9 +29,17 @@
 
 ## Problem Analysis
 
-### The Core Trade-Off
+### The Core Trade-Off: Design Choice vs. Technical Limitation
 
-PeeGeeQ is designed for **throughput over ordering**:
+PeeGeeQ is designed for **throughput over ordering**. While a single simple `MessageConsumer` could theoretically be designed to fetch and process messages strictly sequentially, omitting this feature for simple consumers is a deliberate **architectural design choice**, not a technical limitation.
+
+If simple consumers enforced global strict ordering:
+- Scaling to multiple instances would cause severe **head-of-line blocking** (e.g., Consumer A processing Message 1 would block Consumer B from accessing Message 2).
+- The `FOR UPDATE SKIP LOCKED` mechanism would lose its primary benefit of concurrent, lock-free throughput.
+
+Therefore, PeeGeeQ intentionally divides consumer responsibilities:
+- **Simple Consumer (`MessageConsumer`)**: Optimized entirely for raw, concurrent throughput. No coordination, no ordering guarantees, even when running as a single instance.
+- **Consumer Group (`ConsumerGroup`)**: Optimized for coordinated state. Introduces the required overhead (partition assignment, exclusivity, fencing) to mathematically guarantee order per-partition.
 
 | Optimization | Benefit | Cost |
 |--------------|---------|------|
@@ -124,7 +132,16 @@ PeeGeeQ **already has** infrastructure for guaranteed ordering via **partitioned
    - Producer sets partition key via `messageGroup` parameter
    - Messages with same `message_group` guaranteed sequential processing
 
-### How It Works
+### How It Works: The Mechanics of Guaranteed Ordering
+
+PeeGeeQ guarantees strict message ordering through a precise four-step mechanism that securely isolates partitions:
+
+1. **Routing**: When producers send a message, they specify a `messageGroup` (the partition key, e.g., `account-123`). All messages for `account-123` are routed to the same partition.
+2. **Exclusive Ownership**: The `PartitionAssignmentService` ensures that a specific partition is assigned to **exactly one consumer instance** within the consumer group. No two consumers will ever overlap on `account-123`.
+3. **Sequential Processing Loop**: Inside the assigned consumer, `PartitionedConsumerEngine` fetches messages for the partition in batches but processes them strictly one-by-one. It waits for Message 1's `Future` to complete successfully *before* dispatching Message 2.
+4. **Guarded Fetching**: The engine will not fetch the next batch for that partition until the offset for the entire current batch is successfully committed to the database, enforced by an atomic `fetchInProgress` guard.
+
+Below is how these mechanics translate into the codebase.
 
 #### 1. Partition Assignment
 
@@ -325,6 +342,51 @@ public void applyEvent(DomainEvent event) {
 - ❌ Memory overhead (O(N) event IDs)
 - ❌ Not production-ready (in-memory Set doesn't persist)
 - ❌ Doesn't solve general ordering problem
+
+---
+
+### Option 3: Future Proposal — Exclusive Consumer (Total Global Ordering)
+
+**Approach**: Use PostgreSQL Advisory Locks to guarantee that only one simple consumer can ever process a queue, enforcing strict sequential execution across all messages.
+
+While `OFFSET_WATERMARK` mode provides *per-key* ordering, some use cases require **total global ordering** across the entire queue. Currently, a single `MessageConsumer` cannot guarantee this safely, as a rogue second consumer could connect and steal rows via `SKIP LOCKED`, immediately destroying the ordering guarantee.
+
+To solve this mathematically without forming a consumer group, an **Exclusive Consumer Model** can be implemented using PostgreSQL Advisory Locks (`pg_try_advisory_lock`).
+
+**Proposed Implementation Details**:
+1. **Configuration**: Add an `exclusive(true)` flag to `ConsumerConfig`.
+2. **Advisory Lock Acquisition**: On startup, the consumer attempts to acquire a session-level advisory lock using a unique hash of the topic/queue name.
+3. **Active/Passive HA**: If the lock is held by another instance, the consumer does not fail; instead, it enters a hot-standby polling loop, waiting passively for the active consumer to crash or gracefully disconnect.
+4. **Sequential Processing Loop**: Once locked, the active exclusive consumer fetches batches and iterates through them strictly sequentially (chaining futures), safe in the knowledge that no other consumer can concurrently read from this queue.
+
+**Trade-offs vs. Partitioned Consumer Groups**:
+
+| Feature | Exclusive Consumer (`exclusive=true`) | Partitioned Consumer Group (`OFFSET_WATERMARK`) |
+|---------|---------------------------------------|-------------------------------------------------|
+| **Scope of Ordering** | Total Global Ordering (all messages) | Per-Key Ordering (e.g., per account) |
+| **Max Throughput** | Limited to exactly 1 thread on 1 instance | Scales infinitely across multiple instances |
+| **Fault Tolerance** | Active/Passive (HA failover latency based on session limits) | Active/Active (Dynamic partition rebalancing) |
+| **Complexity** | Low (simple session lock) | High (offset tracking, generations) |
+
+*Conclusion*: This is a highly valid future extension for domains requiring absolute sequential consistency at the expense of horizontal scalability.
+
+---
+
+### TODO: Cross-Module API Alignment Analysis (Outbox & Bitemporal)
+
+**Status: Pending Deep Analysis**
+
+The ordering guarantees designed in the `peegeeq-native` layer must be explicitly exposed through the configuration APIs of the higher-level modules. A strict ordered consumption feature is only useful if it maintains feature parity across the entire ecosystem.
+
+**1. `peegeeq-outbox` Impact:**
+- **Current State:** `OutboxConsumerConfig.Builder` currently only supports `pollingInterval`, `batchSize`, `consumerThreads`, `maxRetries`, and `serverSideFilter`. It completely lacks the ability to configure `exclusive(true)` or safely enforce `OFFSET_WATERMARK` modes.
+- **Required Analysis:** Outbox pattern implementations are typically used for transactional log relays (e.g., Change Data Capture). Chronological integrity is critical. We must design how `OutboxConsumer` and `OutboxConsumerGroup` explicitly expose strict ordering configurations so downstream systems do not receive "Entity Updated" events before "Entity Created" events.
+
+**2. `peegeeq-bitemporal` Impact:**
+- **Current State:** `PgBiTemporalEventStore` uses a simplistic `subscribe(eventType, handler)` API backed by `ReactiveNotificationHandler`. It has no configuration object to request durable, exclusive timeline ordering.
+- **Required Analysis:** Bitemporal state is projected using precise `valid_time` and `transaction_time` coordinates. Consuming these streams concurrently via `SKIP LOCKED` risks replaying timelines out-of-sequence, breaking the mathematical projection of state. We must design a `BiTemporalSubscriptionConfig` object to expose the `exclusive` and partitioned ordering features securely to bitemporal subscribers.
+
+This TODO serves as a placeholder to expand the architectural design of module consistency before implementation begins.
 
 ---
 
