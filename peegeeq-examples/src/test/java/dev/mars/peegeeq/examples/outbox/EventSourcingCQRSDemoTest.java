@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.examples.nativequeue;
+package dev.mars.peegeeq.examples.outbox;
 
 import dev.mars.peegeeq.api.messaging.*;
 import dev.mars.peegeeq.api.QueueFactoryProvider;
@@ -7,7 +7,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
-import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
+import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
@@ -19,6 +19,7 @@ import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
+import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.*;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -29,6 +30,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.time.Instant;
 import java.util.*;
 
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -39,7 +41,7 @@ import org.slf4j.LoggerFactory;
 /**
  * Demo test showcasing Event Sourcing & CQRS Patterns for PeeGeeQ.
  * 
- * This test demonstrates:
+ * This test demonstrates the classic bank account problem:
  * 1. Event Sourcing - Storing state changes as events
  * 2. CQRS - Command Query Responsibility Segregation
  * 3. Event Store - Immutable event storage and replay
@@ -65,6 +67,7 @@ class EventSourcingCQRSDemoTest {
 
     private PeeGeeQManager manager;
     private QueueFactory queueFactory;
+    private PgDatabaseService databaseService;
 
     // Event types for event sourcing
     enum EventType {
@@ -420,6 +423,11 @@ class EventSourcingCQRSDemoTest {
         }
 
         public void applyEvent(DomainEvent event) {
+            // Idempotency fence: protects against at-least-once redelivery (rebalance,
+            // stale-generation retry, consumer restart before commit). Under OFFSET_WATERMARK,
+            // per-partition ordering is guaranteed by the broker; deduplication is the
+            // consumer's job. Removing this guard would cause totalTransactions and totals
+            // to double-count on any redelivery.
             if (event.getVersion() <= lastProcessedVersion) {
                 return; // Already processed
             }
@@ -499,14 +507,19 @@ class EventSourcingCQRSDemoTest {
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 
-        // Create native factory
-        var databaseService = new PgDatabaseService(manager);
+        // Create outbox factory. The OFFSET_WATERMARK partitioned consumer engine
+        // (PartitionedConsumerEngine + PartitionedFetcher) reads from the `outbox` table,
+        // so producers and consumers in this demo use the outbox factory end-to-end.
+        // A future phase (Phase 7 in GUARANTEED_ORDERING_CONCURRENT_CONSUMERS_ANALYSIS.md)
+        // will add native-subsystem OFFSET_WATERMARK support; until then this demo lives
+        // in the outbox examples package.
+        this.databaseService = new PgDatabaseService(manager);
         QueueFactoryProvider provider = new PgQueueFactoryProvider();
 
-        // Register native factory implementation
-        PgNativeFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
+        // Register outbox factory implementation
+        OutboxFactoryRegistrar.registerWith((QueueFactoryRegistrar) provider);
 
-        queueFactory = provider.createFactory("native", databaseService);
+        queueFactory = provider.createFactory("outbox", databaseService);
 
         logger.info("Setup complete - Ready for event sourcing & CQRS pattern testing");
     }
@@ -817,166 +830,177 @@ class EventSourcingCQRSDemoTest {
      */
     @Test
     @Order(2)
-    @DisplayName("CQRS - Command Query Responsibility Segregation")
+    @DisplayName("CQRS - Command Query Responsibility Segregation (per-account ordering via OFFSET_WATERMARK)")
     void testCQRS(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Test: c q r s");
-        logger.info("Testing CQRS");
+        logger.info("Testing CQRS with OFFSET_WATERMARK partitioned event consumption");
 
         // Queue names for command and event streams
         String commandQueue = "cqrs-commands-queue-" + System.currentTimeMillis();
         String eventQueue = "cqrs-events-queue-" + System.currentTimeMillis();
+        String eventGroupName = "cqrs-read-models";
+
+        // Configure the event topic for OFFSET_WATERMARK so per-aggregate ordering is enforced.
+        configureOffsetWatermarkTopic(eventQueue, eventGroupName).await();
 
         // Separate models for writes and reads - the core of CQRS
-        // 🚨 PRODUCTION NOTE: These would be backed by different databases
-        // optimized for their specific use cases (e.g., normalized vs denormalized)
-        Map<String, BankAccountAggregate> writeModel = new HashMap<>();  // Optimized for business logic
-        Map<String, AccountReadModel> readModel = new HashMap<>();       // Optimized for queries
+        Map<String, BankAccountAggregate> writeModel = new HashMap<>();
+        Map<String, AccountReadModel> readModel = new HashMap<>();
 
-        // Test coordination constructs
         AtomicInteger commandsProcessed = new AtomicInteger(0);
         AtomicInteger eventsProcessed = new AtomicInteger(0);
-        Checkpoint commandCheckpoint = testContext.checkpoint(4);  // Expecting 4 commands
-        Checkpoint eventCheckpoint = testContext.checkpoint(4);    // Expecting 4 events
+        Checkpoint commandCheckpoint = testContext.checkpoint(4);
+        Checkpoint eventCheckpoint = testContext.checkpoint(4);
+        // OFFSET_WATERMARK uses at-least-once delivery; dedupe redeliveries before flagging
+        // the per-unique-event checkpoint. The read-model version fence is the same
+        // idempotency guarantee a production consumer must provide.
+        Set<String> seenEventIds = ConcurrentHashMap.newKeySet();
 
-        // Create producers and consumers
+        // Promise that completes once the OpenAccount event has been persisted, so the
+        // partitioned consumer group can discover the partition at join time.
+        Promise<Void> openPhaseDone = Promise.promise();
+
+        // Create producers and consumers. The event consumer is a partitioned ConsumerGroup
+        // (OFFSET_WATERMARK), not a simple MessageConsumer.
         MessageProducer<Command> commandProducer = queueFactory.createProducer(commandQueue, Command.class);
         MessageConsumer<Command> commandConsumer = queueFactory.createConsumer(commandQueue, Command.class);
         MessageProducer<DomainEvent> eventProducer = queueFactory.createProducer(eventQueue, DomainEvent.class);
-        MessageConsumer<DomainEvent> eventConsumer = queueFactory.createConsumer(eventQueue, DomainEvent.class);
+        ConsumerGroup<DomainEvent> eventGroup = queueFactory.createConsumerGroup(
+                eventGroupName, eventQueue, DomainEvent.class);
 
-        // WRITE SIDE - Command processing (handles business logic and state changes)
-        // In CQRS, the write side is optimized for handling commands and enforcing business rules
+        // WRITE SIDE - Command processing
         commandConsumer.subscribe(message -> {
             Command command = message.getPayload();
-
             logger.info("WRITE SIDE - Processing command: {}", command.getCommandType());
 
+            BankAccountAggregate aggregate;
             try {
-                BankAccountAggregate aggregate;
-
-                // 🚨 WORKAROUND: Same aggregate creation logic as Event Sourcing test
-                // PRODUCTION NOTE: See Event Sourcing test for detailed comments on this approach
                 if ("OpenAccount".equals(command.getCommandType())) {
-                    // For OpenAccount, create a new aggregate if it doesn't exist
                     if (writeModel.containsKey(command.getAggregateId())) {
                         throw new IllegalStateException("Account already opened");
                     }
-                    // Create aggregate in write model (optimized for business logic)
                     aggregate = new BankAccountAggregate(command.getAggregateId(),
                         "ACC-" + command.getAggregateId().substring(0, 8),
                         "CUST-" + command.getAggregateId().substring(0, 8), 0.0);
                     writeModel.put(command.getAggregateId(), aggregate);
-
                     double initialDeposit = (Double) command.getCommandData().get("initialDeposit");
                     aggregate.openAccount(command.getCommandId(), initialDeposit);
                 } else {
-                    // For other commands, get existing aggregate from write model
                     aggregate = writeModel.get(command.getAggregateId());
                     if (aggregate == null) {
                         throw new IllegalStateException("Account not found: " + command.getAggregateId());
                     }
-
-                    // Handle business commands (write model focuses on business logic)
                     switch (command.getCommandType()) {
                         case "Deposit":
-                            double depositAmount = (Double) command.getCommandData().get("amount");
-                            aggregate.deposit(command.getCommandId(), depositAmount);
+                            aggregate.deposit(command.getCommandId(),
+                                    (Double) command.getCommandData().get("amount"));
                             break;
                         case "Withdraw":
-                            double withdrawAmount = (Double) command.getCommandData().get("amount");
-                            aggregate.withdraw(command.getCommandId(), withdrawAmount);
+                            aggregate.withdraw(command.getCommandId(),
+                                    (Double) command.getCommandData().get("amount"));
                             break;
+                        default:
+                            throw new IllegalArgumentException("Unknown command: " + command.getCommandType());
                     }
                 }
-
-                // Publish events
-                for (DomainEvent event : aggregate.getUncommittedEvents()) {
-                    eventProducer.send(event);
-                }
-
-                aggregate.markEventsAsCommitted();
-                commandsProcessed.incrementAndGet();
-
             } catch (Exception e) {
                 logger.warn("Command processing error: {}", e.getMessage());
+                commandCheckpoint.flag();
+                return Future.succeededFuture();
             }
 
-            commandCheckpoint.flag();
-            return Future.succeededFuture();
+            // Publish each event with messageGroup = aggregateId so OFFSET_WATERMARK routes
+            // them to the same partition. Compose the futures so the command handler
+            // completes only after every event is durably persisted.
+            Future<Void> sendChain = Future.succeededFuture();
+            for (DomainEvent event : aggregate.getUncommittedEvents()) {
+                final DomainEvent e = event;
+                sendChain = sendChain.compose(v ->
+                        eventProducer.send(e, null, null, e.getAggregateId()));
+            }
+            final BankAccountAggregate finalAggregate = aggregate;
+            return sendChain
+                    .onSuccess(v -> {
+                        finalAggregate.markEventsAsCommitted();
+                        int processed = commandsProcessed.incrementAndGet();
+                        commandCheckpoint.flag();
+                        // Once the OpenAccount event is persisted, signal that the partition
+                        // exists so the event consumer group can join.
+                        if ("OpenAccount".equals(command.getCommandType())) {
+                            openPhaseDone.tryComplete();
+                        }
+                    })
+                    .onFailure(err -> {
+                        logger.warn("Failed to publish events for {}: {}",
+                                command.getCommandId(), err.getMessage());
+                        commandCheckpoint.flag();
+                    });
         });
 
-        // READ SIDE - Event processing (updates read models for queries)
-        // In CQRS, the read side is optimized for queries and data presentation
-        eventConsumer.subscribe(message -> {
+        // READ SIDE - per-partition ordered event consumption.
+        eventGroup.setMessageHandler(message -> {
             DomainEvent event = message.getPayload();
+            if (!seenEventIds.add(event.getEventId())) {
+                logger.debug("Skipping duplicate event delivery: {} v{} for {}",
+                        event.eventType.eventName, event.version, event.getAggregateId());
+                return Future.succeededFuture();
+            }
+            logger.info("READ SIDE - Event {} v{} for {}",
+                    event.eventType.eventName, event.version, event.getAggregateId());
 
-            logger.info("READ SIDE - Processing event: {} for read model update", event.eventType.eventName);
-
-            // Update read model based on event
-            // 🎯 KEY CONCEPT: Read models are denormalized and optimized for specific queries
-            // They can have completely different structure than the write model
             AccountReadModel readModelAggregate = readModel.computeIfAbsent(event.getAggregateId(),
                 id -> {
                     if (event.getEventType() == EventType.ACCOUNT_OPENED) {
-                        // Extract data from the AccountOpened event for read model initialization
                         return new AccountReadModel(id,
                             (String) event.getEventData().get("accountNumber"),
                             (String) event.getEventData().get("customerId"));
                     }
-                    // Fallback for other event types (shouldn't happen in normal flow)
                     return new AccountReadModel(id, "ACC-" + id.substring(0, 8), "CUST-" + id.substring(0, 8));
                 });
-
-            // Apply event to read model (may update multiple denormalized fields)
-            // 🚨 PRODUCTION NOTE: Read models can be updated asynchronously
-            // and may have eventual consistency with the write model
             readModelAggregate.applyEvent(event);
             eventsProcessed.incrementAndGet();
             eventCheckpoint.flag();
             return Future.succeededFuture();
         });
 
-        // Send commands for CQRS demonstration
-        // Note: No Thread.sleep() needed here as CQRS focuses on separation of concerns,
-        // not strict event ordering like the Event Sourcing test
-        logger.info("Sending commands for CQRS demonstration...");
-
+        // Build commands.
         String accountId = "account-cqrs-001";
-
-        // Command 1: Open account (processed by write side, creates events for read side)
         Map<String, Object> openAccountData = new HashMap<>();
         openAccountData.put("initialDeposit", 2000.0);
-
         Command openAccount = new Command(
-            "cqrs-cmd-001", "OpenAccount", accountId,
-            openAccountData,
-            "user-002"
-        );
-        commandProducer.send(openAccount);
+            "cqrs-cmd-001", "OpenAccount", accountId, openAccountData, "user-002");
 
-        // Command 2: Multiple deposits (write side processes, read side gets updated via events)
         Map<String, Object> deposit1Data = new HashMap<>();
         deposit1Data.put("amount", 300.0);
         Command deposit1 = new Command("cqrs-cmd-002", "Deposit", accountId, deposit1Data, "user-002");
 
-        // Command 3: Another deposit (demonstrates multiple transactions)
         Map<String, Object> deposit2Data = new HashMap<>();
         deposit2Data.put("amount", 150.0);
         Command deposit2 = new Command("cqrs-cmd-003", "Deposit", accountId, deposit2Data, "user-002");
 
-        // Command 4: Withdrawal (final transaction to test read model calculations)
         Map<String, Object> withdraw1Data = new HashMap<>();
         withdraw1Data.put("amount", 400.0);
         Command withdraw1 = new Command("cqrs-cmd-004", "Withdraw", accountId, withdraw1Data, "user-002");
 
-        // 🚨 Pacing delay via Vert.x timer to ensure OpenAccount is processed first
-        vertx.setTimer(100, id1 -> {
-            commandProducer.send(deposit1);
-            commandProducer.send(deposit2);
-            commandProducer.send(withdraw1);
-        });
+        // Send the OpenAccount command first so the partition exists.
+        commandProducer.send(openAccount);
 
-        // Wait for processing (test synchronization)
+        // Once the open event is persisted, start the partitioned consumer group so it
+        // discovers the partition, then send the remaining commands.
+        SubscriptionOptions options = SubscriptionOptions.builder()
+                .startPosition(StartPosition.FROM_BEGINNING)
+                .build();
+        openPhaseDone.future()
+                .compose(v -> eventGroup.start(options))
+                .onSuccess(v -> {
+                    logger.info("Event ConsumerGroup started; sending remaining commands");
+                    commandProducer.send(deposit1);
+                    commandProducer.send(deposit2);
+                    commandProducer.send(withdraw1);
+                })
+                .onFailure(err -> testContext.failNow(err));
+
+        // Wait for processing.
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Should process all commands and events");
 
         // Small delay to ensure all async read model updates complete
@@ -984,17 +1008,13 @@ class EventSourcingCQRSDemoTest {
         vertx.setTimer(500, id -> delay.complete());
         delay.future().await();
 
-        // Verify CQRS separation - both sides processed the same number of operations
         assertEquals(4, commandsProcessed.get(), "Should have processed 4 commands");
         assertEquals(4, eventsProcessed.get(), "Should have processed 4 events");
 
-        // Verify write model (optimized for business logic and commands)
         BankAccountAggregate writeAggregate = writeModel.get(accountId);
         assertNotNull(writeAggregate, "Write model should exist");
         assertEquals(2050.0, writeAggregate.balance, 0.01, "Write model balance should be correct");
 
-        // Verify read model (optimized for queries and reporting)
-        // 🎯 KEY CONCEPT: Read model has different structure and additional calculated fields
         AccountReadModel readAggregate = readModel.get(accountId);
         assertNotNull(readAggregate, "Read model should exist");
         assertEquals(2050.0, readAggregate.currentBalance, 0.01, "Read model balance should match write model");
@@ -1002,7 +1022,6 @@ class EventSourcingCQRSDemoTest {
         assertEquals(2450.0, readAggregate.totalDeposits, 0.01, "Read model should track total deposits");
         assertEquals(400.0, readAggregate.totalWithdrawals, 0.01, "Read model should track total withdrawals");
 
-        // Display results showing the separation between write and read models
         logger.info("CQRS Results:");
         logger.info("  Write Model Balance: ${}", writeAggregate.balance);
         logger.info("  Read Model Balance: ${}", readAggregate.currentBalance);
@@ -1010,13 +1029,276 @@ class EventSourcingCQRSDemoTest {
         logger.info("  Read Model Total Deposits: ${}", readAggregate.totalDeposits);
         logger.info("  Read Model Total Withdrawals: ${}", readAggregate.totalWithdrawals);
 
-        // Cleanup resources
+        // Cleanup
         commandConsumer.close();
-        eventConsumer.close();
+        eventGroup.stopGracefully().await();
 
         logger.info("CQRS test completed successfully");
     }
 
+    /**
+     * RED test (Phase 2 — Decision 1): per-account ordering with multiple aggregates.
+     *
+     * <p>This test demonstrates the same out-of-order failure as {@link #testCQRS} but
+     * across multiple aggregates concurrently. With a simple {@link MessageConsumer}
+     * and no {@code messageGroup} on the producer, {@code FOR UPDATE SKIP LOCKED} can
+     * deliver events for a single account out of version order. The version guard in
+     * {@link AccountReadModel#applyEvent(DomainEvent)} silently skips earlier events
+     * once a later one has been applied, so per-account {@code totalTransactions},
+     * {@code totalDeposits} and {@code currentBalance} drift away from the expected
+     * values.</p>
+     *
+     * <p>Per the OFFSET_WATERMARK ordering plan (see
+     * {@code docs-design/analysis/GUARANTEED_ORDERING_CONCURRENT_CONSUMERS_ANALYSIS.md}),
+     * this test is RED until Phase 2 GREEN steps are applied:
+     * <ol>
+     *   <li>Configure the event topic with {@code completion_tracking_mode = 'OFFSET_WATERMARK'}.</li>
+     *   <li>Producer sends with {@code messageGroup = event.getAggregateId()}.</li>
+     *   <li>Consumer is a {@code ConsumerGroup} started via {@code start(SubscriptionOptions)}.</li>
+     * </ol>
+     * After GREEN, this test must pass 10/10 consecutive runs.</p>
+     */
+    @Test
+    @Order(3)
+    @DisplayName("CQRS - Per-account ordering across multiple aggregates (OFFSET_WATERMARK)")
+    void testCQRS_multipleAccounts_perAccountOrdering(Vertx vertx, VertxTestContext testContext) throws Exception {
+        logger.info("=== TEST METHOD STARTED: testCQRS_multipleAccounts_perAccountOrdering ===");
+
+        // Queue names for command and event streams
+        String commandQueue = "cqrs-multi-commands-queue-" + System.currentTimeMillis();
+        String eventQueue = "cqrs-multi-events-queue-" + System.currentTimeMillis();
+        String eventGroupName = "cqrs-multi-read-models";
+
+        // Configure the event topic for OFFSET_WATERMARK so per-aggregate ordering is enforced.
+        configureOffsetWatermarkTopic(eventQueue, eventGroupName).await();
+
+        List<String> accountIds = List.of(
+            "account-cqrs-multi-A-" + System.currentTimeMillis(),
+            "account-cqrs-multi-B-" + System.currentTimeMillis(),
+            "account-cqrs-multi-C-" + System.currentTimeMillis()
+        );
+
+        int commandsPerAccount = 4;
+        int totalCommands = accountIds.size() * commandsPerAccount;
+
+        Map<String, BankAccountAggregate> writeModel = new HashMap<>();
+        Map<String, AccountReadModel> readModel = new HashMap<>();
+
+        AtomicInteger commandsProcessed = new AtomicInteger(0);
+        AtomicInteger eventsProcessed = new AtomicInteger(0);
+        AtomicInteger opensProcessed = new AtomicInteger(0);
+        Checkpoint commandCheckpoint = testContext.checkpoint(totalCommands);
+        Checkpoint eventCheckpoint = testContext.checkpoint(totalCommands);
+        // OFFSET_WATERMARK uses at-least-once delivery; dedupe redeliveries before flagging
+        // the per-unique-event checkpoint.
+        Set<String> seenEventIds = ConcurrentHashMap.newKeySet();
+
+        // Promise that completes once every OpenAccount event has been persisted, so
+        // each per-aggregate partition exists before the consumer group joins.
+        Promise<Void> openPhaseDone = Promise.promise();
+
+        MessageProducer<Command> commandProducer = queueFactory.createProducer(commandQueue, Command.class);
+        MessageConsumer<Command> commandConsumer = queueFactory.createConsumer(commandQueue, Command.class);
+        MessageProducer<DomainEvent> eventProducer = queueFactory.createProducer(eventQueue, DomainEvent.class);
+        ConsumerGroup<DomainEvent> eventGroup = queueFactory.createConsumerGroup(
+                eventGroupName, eventQueue, DomainEvent.class);
+
+        // WRITE SIDE
+        commandConsumer.subscribe(message -> {
+            Command command = message.getPayload();
+            logger.info("WRITE SIDE - Processing command: {} for {}",
+                    command.getCommandType(), command.getAggregateId());
+
+            BankAccountAggregate aggregate;
+            try {
+                if ("OpenAccount".equals(command.getCommandType())) {
+                    if (writeModel.containsKey(command.getAggregateId())) {
+                        throw new IllegalStateException("Account already opened");
+                    }
+                    aggregate = new BankAccountAggregate(command.getAggregateId(),
+                        "ACC-" + command.getAggregateId().substring(0, 8),
+                        "CUST-" + command.getAggregateId().substring(0, 8), 0.0);
+                    writeModel.put(command.getAggregateId(), aggregate);
+                    double initialDeposit = (Double) command.getCommandData().get("initialDeposit");
+                    aggregate.openAccount(command.getCommandId(), initialDeposit);
+                } else {
+                    aggregate = writeModel.get(command.getAggregateId());
+                    if (aggregate == null) {
+                        throw new IllegalStateException("Account not found: " + command.getAggregateId());
+                    }
+                    switch (command.getCommandType()) {
+                        case "Deposit":
+                            aggregate.deposit(command.getCommandId(),
+                                    (Double) command.getCommandData().get("amount"));
+                            break;
+                        case "Withdraw":
+                            aggregate.withdraw(command.getCommandId(),
+                                    (Double) command.getCommandData().get("amount"));
+                            break;
+                        default:
+                            throw new IllegalArgumentException("Unknown command: " + command.getCommandType());
+                    }
+                }
+            } catch (Exception e) {
+                logger.warn("Command processing error", e);
+                commandCheckpoint.flag();
+                return Future.succeededFuture();
+            }
+
+            // Send each event with messageGroup = aggregateId to enforce per-aggregate
+            // partition routing under OFFSET_WATERMARK. Compose all send futures so the
+            // command handler completes only when all events are durable.
+            Future<Void> sendChain = Future.succeededFuture();
+            for (DomainEvent event : aggregate.getUncommittedEvents()) {
+                final DomainEvent e = event;
+                sendChain = sendChain.compose(v ->
+                        eventProducer.send(e, null, null, e.getAggregateId()));
+            }
+            final BankAccountAggregate finalAggregate = aggregate;
+            return sendChain
+                    .onSuccess(v -> {
+                        finalAggregate.markEventsAsCommitted();
+                        commandsProcessed.incrementAndGet();
+                        commandCheckpoint.flag();
+                        if ("OpenAccount".equals(command.getCommandType())
+                                && opensProcessed.incrementAndGet() == accountIds.size()) {
+                            openPhaseDone.tryComplete();
+                        }
+                    })
+                    .onFailure(err -> {
+                        logger.warn("Failed to publish events for {}: {}",
+                                command.getCommandId(), err.getMessage());
+                        commandCheckpoint.flag();
+                    });
+        });
+
+        // READ SIDE - partitioned consumer group; per-partition ordering guaranteed.
+        eventGroup.setMessageHandler(message -> {
+            DomainEvent event = message.getPayload();
+            if (!seenEventIds.add(event.getEventId())) {
+                logger.debug("Skipping duplicate event delivery: {} v{} for {}",
+                        event.eventType.eventName, event.version, event.getAggregateId());
+                return Future.succeededFuture();
+            }
+            logger.info("READ SIDE - Event {} v{} for {}",
+                    event.eventType.eventName, event.version, event.getAggregateId());
+
+            AccountReadModel readModelAggregate = readModel.computeIfAbsent(event.getAggregateId(),
+                id -> {
+                    if (event.getEventType() == EventType.ACCOUNT_OPENED) {
+                        return new AccountReadModel(id,
+                            (String) event.getEventData().get("accountNumber"),
+                            (String) event.getEventData().get("customerId"));
+                    }
+                    return new AccountReadModel(id, "ACC-" + id.substring(0, 8), "CUST-" + id.substring(0, 8));
+                });
+            readModelAggregate.applyEvent(event);
+            eventsProcessed.incrementAndGet();
+            eventCheckpoint.flag();
+            return Future.succeededFuture();
+        });
+
+        // Send Open commands first so each per-aggregate partition exists.
+        logger.info("Sending Open commands for {} accounts", accountIds.size());
+        int openIdx = 1;
+        for (String accountId : accountIds) {
+            Map<String, Object> openData = new HashMap<>();
+            openData.put("initialDeposit", 1000.0);
+            commandProducer.send(new Command(
+                "cqrs-multi-cmd-open-" + openIdx++, "OpenAccount", accountId, openData, "user-multi"));
+        }
+
+        // Once every Open event is persisted, start the consumer group (it discovers
+        // partitions at join time), then fire the business commands in a tight burst.
+        SubscriptionOptions options = SubscriptionOptions.builder()
+                .startPosition(StartPosition.FROM_BEGINNING)
+                .build();
+        openPhaseDone.future()
+                .compose(v -> eventGroup.start(options))
+                .onSuccess(v -> {
+                    logger.info("Event ConsumerGroup started; sending business commands");
+                    int seq = 1;
+                    for (String accountId : accountIds) {
+                        Map<String, Object> dep1 = new HashMap<>();
+                        dep1.put("amount", 200.0);
+                        commandProducer.send(new Command(
+                            "cqrs-multi-cmd-dep1-" + seq, "Deposit", accountId, dep1, "user-multi"));
+
+                        Map<String, Object> dep2 = new HashMap<>();
+                        dep2.put("amount", 300.0);
+                        commandProducer.send(new Command(
+                            "cqrs-multi-cmd-dep2-" + seq, "Deposit", accountId, dep2, "user-multi"));
+
+                        Map<String, Object> wd1 = new HashMap<>();
+                        wd1.put("amount", 100.0);
+                        commandProducer.send(new Command(
+                            "cqrs-multi-cmd-wd1-" + seq, "Withdraw", accountId, wd1, "user-multi"));
+                        seq++;
+                    }
+                })
+                .onFailure(err -> testContext.failNow(err));
+
+        // Wait for all checkpoints.
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
+                "Should process all commands and events");
+
+        // Allow async read-model updates to settle.
+        Promise<Void> delay = Promise.promise();
+        vertx.setTimer(500, id -> delay.complete());
+        delay.future().await();
+
+        assertEquals(totalCommands, commandsProcessed.get(),
+                "Should have processed " + totalCommands + " commands");
+        assertEquals(totalCommands, eventsProcessed.get(),
+                "Should have processed " + totalCommands + " events");
+
+        // Per-account assertions on the READ model — these are the assertions that
+        // fail when events are processed out of order.
+        for (String accountId : accountIds) {
+            BankAccountAggregate writeAggregate = writeModel.get(accountId);
+            assertNotNull(writeAggregate, "Write model should exist for " + accountId);
+            assertEquals(1400.0, writeAggregate.balance, 0.01,
+                    "Write model balance should be correct for " + accountId);
+
+            AccountReadModel readAggregate = readModel.get(accountId);
+            assertNotNull(readAggregate, "Read model should exist for " + accountId);
+            assertEquals(1400.0, readAggregate.currentBalance, 0.01,
+                    "Read model balance should match write model for " + accountId);
+            assertEquals(4, readAggregate.totalTransactions,
+                    "Read model should record 4 transactions for " + accountId);
+            assertEquals(1500.0, readAggregate.totalDeposits, 0.01,
+                    "Read model totalDeposits incorrect for " + accountId);
+            assertEquals(100.0, readAggregate.totalWithdrawals, 0.01,
+                    "Read model totalWithdrawals incorrect for " + accountId);
+            assertEquals(4L, readAggregate.lastProcessedVersion,
+                    "Read model lastProcessedVersion should be 4 for " + accountId);
+        }
+
+        commandConsumer.close();
+        eventGroup.stopGracefully().await();
+
+        logger.info("Multi-account CQRS ordering test completed successfully");
+    }
+
+    /**
+     * Configures an event topic to use OFFSET_WATERMARK completion tracking and registers
+     * a consumer-group subscription. This is the canonical setup for tests that exercise
+     * partitioned, per-aggregate ordered consumption via {@link ConsumerGroup}.
+     */
+    private Future<Void> configureOffsetWatermarkTopic(String topic, String groupName) {
+        return databaseService.getPool()
+                .withConnection(conn -> conn.preparedQuery(
+                        "INSERT INTO outbox_topics (topic, semantics, completion_tracking_mode) " +
+                        "VALUES ($1, 'PUB_SUB', 'OFFSET_WATERMARK') " +
+                        "ON CONFLICT (topic) DO UPDATE SET completion_tracking_mode = 'OFFSET_WATERMARK'")
+                        .execute(Tuple.of(topic))
+                        .compose(r -> conn.preparedQuery(
+                                "INSERT INTO outbox_topic_subscriptions (topic, group_name, subscription_status) " +
+                                "VALUES ($1, $2, 'ACTIVE') " +
+                                "ON CONFLICT (topic, group_name) DO NOTHING")
+                                .execute(Tuple.of(topic, groupName)))
+                        .mapEmpty());
+    }
 
 }
 
