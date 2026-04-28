@@ -845,7 +845,7 @@ This section defines the **execution order** across Phases 1–5. The phases bel
 | VERIFY 12 | Regression gate | `testEventSourcing` (Order=1) still passes — no regression. |
 | Documentation | Phase 1 + Phase 5 | Phase 1 (`PEEGEEQ_ORDERING_PATTERNS_GUIDE.md`) may be drafted at any point but is **finalised after VERIFY** so examples reflect the shipped APIs; Phase 5 (user-guide cross-references) lands last. |
 
-**Phase 6** (Deferred — Exclusive Consumer) has its own, independent TDD ordering and is not part of the table above. It begins only when the triggers documented in *Phase 6 (Deferred)* are satisfied.
+**Phase 6** (Deferred — Exclusive Consumer) and **Phase 7** (Deferred — Native-Table OFFSET_WATERMARK over `queue_messages`) each have their own, independent TDD ordering and are not part of the table above. They begin only when the triggers documented in *Phase 6 (Deferred)* and *Phase 7 (Deferred)* respectively are satisfied.
 
 **Execution sequence in flat form** (the original list, retained for quick reference):
 
@@ -1033,6 +1033,69 @@ This phase implements Decision 2 (see *Decision 2 (Future Phase): Exclusive Cons
 
 ---
 
+### Phase 7 (Deferred): Native-Table OFFSET_WATERMARK — Partitioned Engine over `queue_messages`
+
+**Status**: **deferred future phase.** Not in scope for the current implementation cycle.
+
+#### Background
+
+`PartitionedConsumerEngine` and `PartitionedFetcher` were designed for the outbox subsystem; their fetch SQL reads from the `outbox` table:
+
+```sql
+-- PartitionedFetcher.fetchMessages (peegeeq-db)
+SELECT o.id, o.topic, o.payload, ...
+FROM outbox o
+WHERE o.topic = $1
+  AND o.id > $2
+  AND o.status IN ('PENDING','PROCESSING')
+  AND o.message_group = $3
+ORDER BY o.id ASC
+LIMIT $4
+FOR UPDATE OF o SKIP LOCKED;
+```
+
+The **native** subsystem (`PgNativeQueueProducer` + `PgNativeQueueConsumer`) writes to a different table — `queue_messages` — using PostgreSQL `LISTEN/NOTIFY` for low-latency delivery. `PgNativeConsumerGroup.startPartitioned()` *does* register partition assignments when the topic is configured `OFFSET_WATERMARK`, but the partitioned engine then finds zero rows because the producer's writes never reach `outbox`. As a result, today the `EventSourcingCQRSDemoTest` Phase 2 GREEN demo runs over the **outbox factory** (see [`peegeeq-examples/.../EventSourcingCQRSDemoTest.java`](../../peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/nativequeue/EventSourcingCQRSDemoTest.java)). This is correct end-to-end behaviour but means OFFSET_WATERMARK currently has **no native-subsystem equivalent**.
+
+#### Goal
+
+Make `PgNativeConsumerGroup` + OFFSET_WATERMARK fully functional against the native producer — so a single demo or production application can use the native subsystem (LISTEN/NOTIFY-driven low-latency delivery) **and** still get per-`messageGroup` ordering.
+
+#### Design Options
+
+1. **Sibling fetcher** (recommended): introduce `PartitionedNativeFetcher` (in `peegeeq-db` or `peegeeq-native`) that mirrors `PartitionedFetcher` but reads from `queue_messages`. `PartitionedConsumerEngine` selects the fetcher implementation based on the calling factory (native vs outbox) at construction time. Lowest-risk change; no shared SQL surface.
+2. **Parameterised fetcher**: extend `PartitionedFetcher` with a "source table" parameter (`outbox` | `queue_messages`) and column mapping. Higher coupling, requires care that locking semantics (`FOR UPDATE SKIP LOCKED`) remain correct against `queue_messages`'s indexes and status enum.
+3. **Cross-table view/MV**: a database view that unions outbox and native rows. Rejected — adds replication latency and complicates `FOR UPDATE`.
+
+#### Required Production Changes (option 1)
+
+- New `PartitionedNativeFetcher` reading `queue_messages` with the same contract as `PartitionedFetcher` (`fetchMessages → setPendingOffset → getCommittedOffset`).
+- `PgNativeQueueFactory` (or `PgNativeConsumerGroup`) wires the native fetcher into `PartitionedConsumerEngine` instead of the outbox fetcher.
+- Verify `queue_messages` has the columns required: `id`, `topic`, `payload`, `headers`, `correlation_id`, `message_group`, `created_at`, plus a status column suitable for `FOR UPDATE SKIP LOCKED`. Add a partial index `(topic, message_group, id) WHERE status IN (...)` if missing.
+- Confirm offset persistence (`outbox_partition_offsets`) is table-agnostic and can be reused; if not, generalise it.
+- LISTEN/NOTIFY: the partitioned engine is poll-driven; native messages still notify, but the engine should not double-deliver. Either disable LISTEN-based dispatch on OFFSET_WATERMARK topics for `PgNativeConsumerGroup`, or use NOTIFY purely as a fetch-trigger.
+
+#### Trigger to Start Phase 7
+
+1. Phases 1–5 are signed off and merged (per-partition ordering on outbox is stable).
+2. A concrete workload requires native-subsystem latency **and** per-key ordering (e.g. low-latency notification stream where each user must see strictly ordered events).
+3. Operational story for offset table sharing between subsystems is settled.
+
+#### Scope when Phase 7 begins
+
+- TDD: RED test in `peegeeq-native` mirroring `PartitionedNativeConsumerIntegrationTest` but driving messages via `PgNativeQueueProducer.send(payload, headers, correlationId, messageGroup)` (not direct SQL inserts) and asserting per-partition ordering and offset advancement.
+- GREEN: `PartitionedNativeFetcher` + factory wiring.
+- Migration: optional new partial index on `queue_messages`.
+- Documentation: update `PEEGEEQ_ORDERING_PATTERNS_GUIDE.md` (Phase 1 deliverable) to describe both subsystems' OFFSET_WATERMARK support.
+- Once Phase 7 lands, the `EventSourcingCQRSDemoTest` may be migrated back to the native factory if desired (it currently runs on outbox).
+
+#### Out of scope for Phase 7
+
+- Cross-subsystem topic interoperability (a topic that mixes native and outbox producers).
+- Changes to LISTEN/NOTIFY semantics for non-OFFSET_WATERMARK native topics.
+- Performance benchmarks comparing native vs outbox under OFFSET_WATERMARK (separate performance-module task).
+
+---
+
 ## Success Criteria
 
 ### Functional
@@ -1158,7 +1221,7 @@ This phase implements Decision 2 (see *Decision 2 (Future Phase): Exclusive Cons
 5. **✅ Engine lifecycle caveats remain documented as-is**; periodic rediscovery / heartbeat emission is tracked under Open Question 6.
 6. **✅ Decision 2 (Exclusive Consumer) is deferred to Phase 6** (a future phase). Its full design is preserved in this document; no implementation work in the current cycle.
 
-**Implementation scope for the current cycle**: Phases 1–5. Phase 6 begins only after the triggers listed in *Phase 6 (Deferred)* are satisfied.
+**Implementation scope for the current cycle**: Phases 1–5. Phase 6 begins only after the triggers listed in *Phase 6 (Deferred)* are satisfied. Phase 7 (native-table OFFSET_WATERMARK) begins only after the triggers listed in *Phase 7 (Deferred)* are satisfied.
 
 **Changelog v1.3**:
 
