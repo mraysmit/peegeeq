@@ -68,7 +68,7 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
     private final AtomicReference<String> lastError = new AtomicReference<>();
 
     // Concurrency gate: limits the number of in-flight messages per member
-    private final int maxConcurrency;
+    private volatile int maxConcurrency;
     private final AtomicInteger inFlightCount = new AtomicInteger(0);
 
     // Tracks in-flight processMessage() futures so stopAsync() can await them all before returning.
@@ -158,7 +158,11 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
     public String getConsumerId() {
         return consumerId;
     }
-    
+
+    void setMaxConcurrency(int n) {
+        this.maxConcurrency = Math.max(1, n);
+    }
+
     @Override
     public String getGroupName() {
         return groupName;

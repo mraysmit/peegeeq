@@ -31,6 +31,8 @@ import dev.mars.peegeeq.api.tracing.TraceContextUtil;
 import dev.mars.peegeeq.api.tracing.TraceCtx;
 import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.db.connection.PgConnectionManager;
+import dev.mars.peegeeq.db.consumer.PartitionedConsumerEngine;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import org.slf4j.Logger;
@@ -87,6 +89,11 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     private volatile Predicate<Message<T>> groupFilter;
     private volatile MessageConsumer<T> underlyingConsumer;
     private volatile boolean startedWithSubscription;
+
+    // Partitioned consumption (OFFSET_WATERMARK mode) — mirrors PgNativeConsumerGroup
+    private final PgConnectionManager connectionManager;
+    private final String connectionServiceId;
+    private volatile PartitionedConsumerEngine<T> partitionedEngine;
 
     /**
      * Builder for constructing {@link OutboxConsumerGroup} instances.
@@ -160,7 +167,8 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
                 throw new IllegalStateException("Only one of clientFactory or databaseService may be provided");
             }
             return new OutboxConsumerGroup<>(groupName, topic, payloadType,
-                    clientFactory, databaseService, objectMapper, metrics, configuration, clientId);
+                    clientFactory, databaseService, objectMapper, metrics, configuration, clientId,
+                    null, null);
         }
     }
 
@@ -172,34 +180,54 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     public OutboxConsumerGroup(String groupName, String topic, Class<T> payloadType,
                               PgClientFactory clientFactory, ObjectMapper objectMapper, MetricsProvider metrics,
                               PeeGeeQConfiguration configuration) {
-        this(groupName, topic, payloadType, clientFactory, null, objectMapper, metrics, configuration, null);
+        this(groupName, topic, payloadType, clientFactory, null, objectMapper, metrics, configuration, null,
+                null, null);
     }
 
     public OutboxConsumerGroup(String groupName, String topic, Class<T> payloadType,
                               PgClientFactory clientFactory, ObjectMapper objectMapper, MetricsProvider metrics,
                               PeeGeeQConfiguration configuration, String clientId) {
-        this(groupName, topic, payloadType, clientFactory, null, objectMapper, metrics, configuration, clientId);
+        this(groupName, topic, payloadType, clientFactory, null, objectMapper, metrics, configuration, clientId,
+                null, null);
     }
 
     public OutboxConsumerGroup(String groupName, String topic, Class<T> payloadType,
                               dev.mars.peegeeq.api.database.DatabaseService databaseService,
                               ObjectMapper objectMapper, MetricsProvider metrics,
                               PeeGeeQConfiguration configuration) {
-        this(groupName, topic, payloadType, null, databaseService, objectMapper, metrics, configuration, null);
+        this(groupName, topic, payloadType, null, databaseService, objectMapper, metrics, configuration, null,
+                null, null);
     }
 
     public OutboxConsumerGroup(String groupName, String topic, Class<T> payloadType,
                               dev.mars.peegeeq.api.database.DatabaseService databaseService,
                               ObjectMapper objectMapper, MetricsProvider metrics,
                               PeeGeeQConfiguration configuration, String clientId) {
-        this(groupName, topic, payloadType, null, databaseService, objectMapper, metrics, configuration, clientId);
+        this(groupName, topic, payloadType, null, databaseService, objectMapper, metrics, configuration, clientId,
+                null, null);
+    }
+
+    /**
+     * Constructor with partitioned-consumption support. When {@code connectionManager}
+     * and {@code connectionServiceId} are non-null, the group will detect OFFSET_WATERMARK
+     * topics on start and route through {@link PartitionedConsumerEngine}. Mirrors
+     * the corresponding native constructor.
+     */
+    public OutboxConsumerGroup(String groupName, String topic, Class<T> payloadType,
+                              dev.mars.peegeeq.api.database.DatabaseService databaseService,
+                              ObjectMapper objectMapper, MetricsProvider metrics,
+                              PeeGeeQConfiguration configuration, String clientId,
+                              PgConnectionManager connectionManager, String connectionServiceId) {
+        this(groupName, topic, payloadType, null, databaseService, objectMapper, metrics, configuration, clientId,
+                connectionManager, connectionServiceId);
     }
 
     private OutboxConsumerGroup(String groupName, String topic, Class<T> payloadType,
                                PgClientFactory clientFactory,
                                dev.mars.peegeeq.api.database.DatabaseService databaseService,
                                ObjectMapper objectMapper, MetricsProvider metrics,
-                               PeeGeeQConfiguration configuration, String clientId) {
+                               PeeGeeQConfiguration configuration, String clientId,
+                               PgConnectionManager connectionManager, String connectionServiceId) {
         this.groupName = Objects.requireNonNull(groupName, "groupName");
         this.topic = Objects.requireNonNull(topic, "topic");
         this.payloadType = Objects.requireNonNull(payloadType, "payloadType");
@@ -209,6 +237,8 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
         this.metrics = metrics != null ? metrics : NoOpMetricsProvider.INSTANCE;
         this.configuration = configuration;
         this.clientId = clientId;
+        this.connectionManager = connectionManager;
+        this.connectionServiceId = connectionServiceId;
         this.createdAt = Instant.now();
         if (databaseService != null) {
             this.vertx = databaseService.getVertx();
@@ -218,8 +248,9 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
             this.vertx = null;
         }
 
-        logger.info("Created outbox consumer group '{}' for topic '{}' (clientId: {})",
-                groupName, topic, clientId != null ? clientId : "default");
+        logger.info("Created outbox consumer group '{}' for topic '{}' (clientId: {}, partitioned: {})",
+                groupName, topic, clientId != null ? clientId : "default",
+                connectionManager != null ? "enabled" : "disabled");
     }
 
     // -- Package-private accessors for testing and member construction --
@@ -379,7 +410,35 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
                 .compose(v -> {
                     logger.info("Subscription created successfully for group '{}' on topic '{}'", groupName, topic);
                     startedWithSubscription = true;
-                    // Transition from STARTING to ACTIVE via the internal start path
+                    // After the subscription row exists, detect topic mode and route accordingly.
+                    // Mirrors PgNativeConsumerGroup#startInternal: if connectionManager is wired
+                    // and the topic is OFFSET_WATERMARK, start the partitioned engine; otherwise
+                    // fall back to the existing reference-counting (subscribe + distribute) path.
+                    if (connectionManager != null) {
+                        return PartitionedConsumerEngine.isOffsetWatermarkTopic(
+                                        connectionManager, connectionServiceId, topic)
+                                .transform(ar -> {
+                                    if (ar.failed()) {
+                                        logger.warn("Failed to detect topic mode for '{}', falling back to " +
+                                                "reference counting: {}", topic, ar.cause().getMessage());
+                                        return Future.succeededFuture(false);
+                                    }
+                                    return Future.succeededFuture(ar.result());
+                                })
+                                .compose(isOffsetWatermark -> {
+                                    if (isOffsetWatermark) {
+                                        return startPartitioned();
+                                    }
+                                    try {
+                                        startInternal();
+                                        return Future.<Void>succeededFuture();
+                                    } catch (Exception e) {
+                                        state.set(State.NEW);
+                                        return Future.<Void>failedFuture(e);
+                                    }
+                                });
+                    }
+                    // No connectionManager wired \u2014 always reference counting.
                     try {
                         startInternal();
                         return Future.<Void>succeededFuture();
@@ -400,6 +459,51 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
                 return Future.failedFuture(e);
             }
         }
+    }
+
+    /**
+     * Starts the partitioned consumption engine for OFFSET_WATERMARK topics.
+     * The engine handles join, fetch, dispatch, and commit internally.
+     * Mirrors {@code PgNativeConsumerGroup#startPartitioned}.
+     *
+     * @return future completing when the engine is started and members are active
+     */
+    private Future<Void> startPartitioned() {
+        String instanceId = groupName + "-" + java.util.UUID.randomUUID().toString().substring(0, 8);
+        partitionedEngine = new PartitionedConsumerEngine<>(
+                vertx, connectionManager, connectionServiceId,
+                topic, groupName, instanceId, payloadType, objectMapper
+        );
+
+        MessageHandler<T> handler = this::distributeMessage;
+
+        return partitionedEngine.start(handler)
+                .compose(v -> {
+                    if (!state.compareAndSet(State.STARTING, State.ACTIVE)) {
+                        logger.warn("Outbox consumer group '{}' was closed during startup, aborting", groupName);
+                        return partitionedEngine.stop()
+                                .onFailure(stopErr ->
+                                    logger.warn("Failed to stop engine during startup abort: {}", stopErr.getMessage()))
+                                .transform(ar -> Future.<Void>succeededFuture())
+                                .compose(v2 -> Future.<Void>failedFuture(
+                                        new IllegalStateException("Consumer group closed during startup")));
+                    }
+                    // Allow concurrent dispatch from multiple partitions:
+                    // each assigned partition may have one message in-flight simultaneously.
+                    int partitionCount = partitionedEngine.getAssignedPartitions().size();
+                    if (partitionCount > 1) {
+                        members.values().forEach(m -> m.setMaxConcurrency(partitionCount));
+                    }
+                    members.values().forEach(OutboxConsumerGroupMember::start);
+                    logger.info("Outbox consumer group '{}' started in OFFSET_WATERMARK mode with {} members",
+                            groupName, members.size());
+                    return Future.succeededFuture();
+                })
+                .onFailure(err -> {
+                    logger.error("Failed to start partitioned engine for outbox group '{}': {}",
+                            groupName, err.getMessage());
+                    state.compareAndSet(State.STARTING, State.NEW);
+                });
     }
 
     /**
@@ -482,6 +586,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
             return allMembersStopped
                 .compose(v -> closeUnderlyingConsumerAsync(
                     "Error closing outbox consumer for group '{}' during stop: {}", groupName))
+                .compose(v -> stopPartitionedEngineAsync())
                 .eventually(() -> {
                     state.set(State.NEW);
                     logger.info("Outbox consumer group '{}' stopped", groupName);
@@ -511,6 +616,23 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
 
         underlyingConsumer = null;
         return consumerClose;
+    }
+
+    /**
+     * Stops and clears the partitioned engine (if any). Safe to call when no engine
+     * was started \u2014 returns a succeeded future immediately. Always nulls the field
+     * so a subsequent {@link #start} starts cleanly.
+     */
+    private Future<Void> stopPartitionedEngineAsync() {
+        PartitionedConsumerEngine<T> engine = partitionedEngine;
+        if (engine == null) {
+            return Future.succeededFuture();
+        }
+        partitionedEngine = null;
+        return engine.stop()
+                .onFailure(err -> logger.warn("Error stopping partitioned engine for group '{}': {}",
+                        groupName, err.getMessage()))
+                .transform(ar -> Future.<Void>succeededFuture());
     }
     
     @Override
@@ -625,13 +747,18 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
                     "Error closing outbox consumer during close for group '{}': {}", groupName);
         }
 
+        // Always tear down the partitioned engine (if any) regardless of prior state.
+        Future<Void> engineClose = stopPartitionedEngineAsync();
+
         startedWithSubscription = false;
 
         // Close all members
         members.values().forEach(OutboxConsumerGroupMember::close);
         members.clear();
 
-        return consumerClose.onSuccess(v -> logger.info("Outbox consumer group '{}' closed", groupName));
+        return consumerClose
+                .compose(v -> engineClose)
+                .onSuccess(v -> logger.info("Outbox consumer group '{}' closed", groupName));
     }
     
     /**
