@@ -31,6 +31,7 @@ import dev.mars.peegeeq.api.messaging.ConsumerMemberStats;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
+import dev.mars.peegeeq.db.consumer.PartitionedConsumerEngine;
 import io.vertx.core.Future;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

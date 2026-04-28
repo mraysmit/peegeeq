@@ -351,6 +351,144 @@ class PartitionedConsumerSafetyIntegrationTest {
     }
 
     // ========================================================================
+    // Item 4: discovery gap — consumer joins before any messages exist.
+    //
+    // When discoverPartitionsInternal() finds no PENDING/PROCESSING rows,
+    // joinGroup() returns an empty list. The engine must start cleanly with
+    // zero assigned partitions, reach ACTIVE state, and run its no-op fetch
+    // loop without crashing. No partition assignments are written to the DB.
+    // ========================================================================
+
+    @Test
+    @Order(4)
+    @DisplayName("empty topic: engine starts cleanly, reaches ACTIVE, no partition assignments")
+    void testDiscoveryGap_emptyTopic_engineStartsCleanly(VertxTestContext testContext) throws Exception {
+        logger.info("=== SAFETY 4: testDiscoveryGap_emptyTopic_engineStartsCleanly STARTED ===");
+
+        String topic = "test-safety-empty-" + System.nanoTime();
+        String groupName = "safety-4";
+
+        // No messages inserted — topic is empty when the group joins.
+        createTopic(topic, "OFFSET_WATERMARK")
+                .compose(v -> createSubscription(topic, groupName))
+                .compose(v -> {
+                    PgNativeConsumerGroup<String> group = new PgNativeConsumerGroup<>(
+                            groupName, topic, String.class,
+                            adapter, mapper, null, null, databaseService,
+                            connectionManager, SERVICE_ID
+                    );
+                    group.setMessageHandler(msg -> Future.succeededFuture());
+                    group.start();
+
+                    // Wait long enough for async partitioned startup to complete.
+                    // (topic-mode detection → engine.start() → joinGroup → empty → fetch loop)
+                    return databaseService.getVertx().timer(5000).mapEmpty()
+                            .compose(delayed -> {
+                                // Engine should reach ACTIVE despite zero discovered partitions.
+                                assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState(),
+                                        "Group should reach ACTIVE even when topic has no messages");
+
+                                // No rows in outbox_partition_assignments: nothing to assign.
+                                return connectionManager.withConnection(SERVICE_ID, conn ->
+                                        conn.preparedQuery(
+                                                "SELECT COUNT(*) AS cnt FROM outbox_partition_assignments " +
+                                                "WHERE topic = $1 AND group_name = $2"
+                                        ).execute(Tuple.of(topic, groupName))
+                                        .map(rows -> rows.iterator().next().getInteger("cnt"))
+                                ).map(count -> {
+                                    assertEquals(0, (int) count,
+                                            "No partition assignments should exist when topic has no messages; got: " + count);
+                                    logger.info("SAFETY 4 PASSED: ACTIVE state reached, 0 partition assignments");
+                                    return (Void) null;
+                                }).eventually(() -> {
+                                    group.close();
+                                    return Future.succeededFuture();
+                                });
+                            });
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Test timed out");
+    }
+
+    // ========================================================================
+    // Item 5: handler failure mid-batch — offset must NOT advance.
+    //
+    // When the message handler returns a failed Future, processAndCommit()
+    // short-circuits via .compose() before commitOffset() is reached. The
+    // committed_offset in outbox_partition_offsets stays at 0, and the next
+    // fetch tick re-delivers the same message (at-least-once guarantee).
+    // ========================================================================
+
+    @Test
+    @Order(5)
+    @DisplayName("failing handler: committed_offset stays 0, message eligible for redelivery")
+    void testHandlerFailure_offsetNotAdvanced(VertxTestContext testContext) throws Exception {
+        logger.info("=== SAFETY 5: testHandlerFailure_offsetNotAdvanced STARTED ===");
+
+        String topic = "test-safety-fail-" + System.nanoTime();
+        String groupName = "safety-5";
+        String partition = "fail-part";
+
+        AtomicInteger handlerInvocations = new AtomicInteger(0);
+
+        createTopic(topic, "OFFSET_WATERMARK")
+                .compose(v -> createSubscription(topic, groupName))
+                .compose(v -> insertOutboxMessage(topic, partition, "failing-msg"))
+                .compose(v -> {
+                    PgNativeConsumerGroup<String> group = new PgNativeConsumerGroup<>(
+                            groupName, topic, String.class,
+                            adapter, mapper, null, null, databaseService,
+                            connectionManager, SERVICE_ID
+                    );
+                    // Handler always fails — offset must never advance.
+                    group.setMessageHandler(msg -> {
+                        handlerInvocations.incrementAndGet();
+                        return Future.failedFuture(new RuntimeException("intentional handler failure"));
+                    });
+                    group.start();
+
+                    // Wait for startup (~4s on cold Testcontainers) plus several fetch ticks
+                    // (DEFAULT_FETCH_INTERVAL_MS = 1000 ms). Each tick re-delivers the same
+                    // message because the offset was never committed.
+                    return databaseService.getVertx().timer(9000).mapEmpty()
+                            .compose(delayed -> {
+                                group.close();
+
+                                int invocations = handlerInvocations.get();
+                                logger.info("SAFETY 5: handler invoked {} times (all failures)", invocations);
+                                assertTrue(invocations >= 1,
+                                        "Handler should have been invoked at least once; got: " + invocations);
+
+                                // committed_offset must still be 0: the commit chain was
+                                // short-circuited by the failed handler Future.
+                                return connectionManager.withConnection(SERVICE_ID, conn ->
+                                        conn.preparedQuery(
+                                                "SELECT committed_offset FROM outbox_partition_offsets " +
+                                                "WHERE topic = $1 AND group_name = $2 AND partition_key = $3"
+                                        ).execute(Tuple.of(topic, groupName, partition))
+                                        .map(rows -> {
+                                            assertTrue(rows.size() > 0,
+                                                    "Offset row should exist once the partition was assigned");
+                                            long committedOffset = rows.iterator().next().getLong("committed_offset");
+                                            assertEquals(0L, committedOffset,
+                                                    "committed_offset must remain 0 after handler failures; got: "
+                                                    + committedOffset);
+                                            logger.info("SAFETY 5 PASSED: {} handler invocations, committed_offset=0",
+                                                    invocations);
+                                            return (Void) null;
+                                        })
+                                );
+                            });
+                })
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
+    }
+
+    // ========================================================================
     // Helpers
     // ========================================================================
 
@@ -375,7 +513,7 @@ class PartitionedConsumerSafetyIntegrationTest {
     }
 
     private Future<Long> insertOutboxMessage(String topic, String messageGroup, String payload) {
-        JsonObject payloadJson = new JsonObject().put("data", payload);
+        JsonObject payloadJson = new JsonObject().put("value", payload);
         return connectionManager.withConnection(SERVICE_ID, conn ->
                 conn.preparedQuery(
                         "INSERT INTO outbox (topic, payload, status, message_group, created_at) " +
