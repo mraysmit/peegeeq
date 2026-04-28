@@ -19,7 +19,10 @@ package dev.mars.peegeeq.outbox;
 import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.messaging.QueueFactory;
+import dev.mars.peegeeq.db.PeeGeeQDefaults;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.db.connection.PgConnectionManager;
+import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -74,13 +77,29 @@ public class OutboxFactoryRegistrar {
                     peeGeeQConfig = (PeeGeeQConfiguration) configObj;
                 }
             }
-            
-            // Create the factory with proper constructor
-            if (peeGeeQConfig != null) {
-                return new OutboxFactory(databaseService, peeGeeQConfig);
-            } else {
-                return new OutboxFactory(databaseService);
+
+            // Extract the underlying PgConnectionManager (if available) so the factory can
+            // wire PartitionedConsumerEngine for OFFSET_WATERMARK topics. Mirrors the
+            // pattern used by PgNativeFactoryRegistrar where PeeGeeQConfiguration is pulled
+            // from PgDatabaseService.
+            PgConnectionManager connectionManager = null;
+            String connectionServiceId = null;
+            if (databaseService instanceof PgDatabaseService pgDs) {
+                connectionManager = pgDs.getClientFactory().getConnectionManager();
+                // The pool registered for outbox usage is keyed under DEFAULT_POOL_ID by
+                // PeeGeeQManager. PartitionedConsumerEngine calls
+                // connectionManager.withConnection(serviceId, ...) directly, so the resolved
+                // (non-null) id is required.
+                connectionServiceId = PeeGeeQDefaults.DEFAULT_POOL_ID;
             }
+
+            // Create the factory with the partitioned-aware constructor.
+            return new OutboxFactory(databaseService,
+                    null,
+                    peeGeeQConfig,
+                    null,
+                    connectionManager,
+                    connectionServiceId);
         }
     }
 }
