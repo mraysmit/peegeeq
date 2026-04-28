@@ -208,4 +208,16 @@ public class PgDatabaseService implements dev.mars.peegeeq.api.database.Database
     public dev.mars.peegeeq.db.config.PeeGeeQConfiguration getPeeGeeQConfiguration() {
         return manager.getConfiguration();
     }
+
+    /**
+     * Gets the underlying {@link dev.mars.peegeeq.db.client.PgClientFactory}.
+     * Queue factory registrars use this to obtain the {@link dev.mars.peegeeq.db.connection.PgConnectionManager}
+     * required by partitioned-consumption (OFFSET_WATERMARK) wiring. Symmetric with
+     * {@link #getPeeGeeQConfiguration()}.
+     *
+     * @return The PgClientFactory
+     */
+    public dev.mars.peegeeq.db.client.PgClientFactory getClientFactory() {
+        return manager.getClientFactory();
+    }
 }

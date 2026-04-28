@@ -13,18 +13,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package dev.mars.peegeeq.pgqueue;
+package dev.mars.peegeeq.db.consumer;
 
 import dev.mars.peegeeq.api.messaging.Message;
 import dev.mars.peegeeq.api.messaging.MessageHandler;
 import dev.mars.peegeeq.api.messaging.SimpleMessage;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
-import dev.mars.peegeeq.db.consumer.OutboxMessage;
-import dev.mars.peegeeq.db.consumer.PartitionAssignmentService;
-import dev.mars.peegeeq.db.consumer.PartitionedFetcher;
-import dev.mars.peegeeq.db.consumer.PartitionedOffsetManager;
-import dev.mars.peegeeq.db.consumer.WatermarkCalculator;
-import dev.mars.peegeeq.db.consumer.WatermarkJob;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.core.json.JsonObject;
@@ -44,9 +38,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  * Encapsulates the partitioned consumption loop for OFFSET_WATERMARK topics.
  *
  * <p>Coordinates partition assignment, per-partition fetching, message dispatch,
- * offset commits, and watermark sweeping. Used internally by
- * {@link PgNativeConsumerGroup} and {@link PgNativeQueueConsumer} when the
- * topic's completion tracking mode is OFFSET_WATERMARK.</p>
+ * offset commits, and watermark sweeping. Used by consumer-group implementations
+ * (native and outbox) when the topic's completion tracking mode is OFFSET_WATERMARK.</p>
  *
  * <p>Lifecycle: {@link #start(MessageHandler)} → fetching loop → {@link #stop()} → {@link #close()}</p>
  *
@@ -54,7 +47,7 @@ import java.util.concurrent.atomic.AtomicInteger;
  * @since 2026-04-12
  * @version 1.0
  */
-class PartitionedConsumerEngine<T> {
+public class PartitionedConsumerEngine<T> {
 
     private static final Logger logger = LoggerFactory.getLogger(PartitionedConsumerEngine.class);
     private static final long DEFAULT_FETCH_INTERVAL_MS = 1000L;
@@ -87,7 +80,7 @@ class PartitionedConsumerEngine<T> {
     private volatile long fetchTimerId = -1;
     private volatile MessageHandler<T> messageHandler;
 
-    PartitionedConsumerEngine(Vertx vertx,
+    public PartitionedConsumerEngine(Vertx vertx,
                               PgConnectionManager connectionManager,
                               String serviceId,
                               String topic,
@@ -120,7 +113,7 @@ class PartitionedConsumerEngine<T> {
      * @param handler the message handler to dispatch messages to
      * @return future that completes when the join and initial setup is done
      */
-    Future<Void> start(MessageHandler<T> handler) {
+    public Future<Void> start(MessageHandler<T> handler) {
         Objects.requireNonNull(handler, "handler");
         if (closed.get()) {
             return Future.failedFuture(new IllegalStateException("Engine is closed"));
@@ -180,7 +173,7 @@ class PartitionedConsumerEngine<T> {
      *
      * @return future completing when leave is done
      */
-    Future<Void> stop() {
+    public Future<Void> stop() {
         if (!running.compareAndSet(true, false)) {
             return Future.succeededFuture();
         }
@@ -211,16 +204,16 @@ class PartitionedConsumerEngine<T> {
     /**
      * Stops and permanently closes the engine.
      */
-    Future<Void> close() {
+    public Future<Void> close() {
         closed.set(true);
         return stop();
     }
 
-    boolean isRunning() {
+    public boolean isRunning() {
         return running.get();
     }
 
-    Map<String, Integer> getAssignedPartitions() {
+    public Map<String, Integer> getAssignedPartitions() {
         return Map.copyOf(assignedPartitions);
     }
 
@@ -293,7 +286,7 @@ class PartitionedConsumerEngine<T> {
     }
 
     @SuppressWarnings("unchecked")
-    Future<Void> dispatchMessage(OutboxMessage outboxMsg) {
+    public Future<Void> dispatchMessage(OutboxMessage outboxMsg) {
         try {
             T payload = parsePayload(outboxMsg.getPayload());
             Map<String, String> headers = parseHeaders(outboxMsg.getHeaders());
@@ -316,15 +309,21 @@ class PartitionedConsumerEngine<T> {
     }
 
     @SuppressWarnings("unchecked")
-    T parsePayload(JsonObject payload) {
+    public T parsePayload(JsonObject payload) {
         if (payload == null) return null;
-        if (payloadType == String.class) {
-            // For String payloads, extract the "data" field or use the full JSON string
-            String data = payload.getString("data");
-            return (T) (data != null ? data : payload.encode());
-        }
         if (payloadType == JsonObject.class) {
             return (T) payload;
+        }
+        // Both peegeeq-outbox (OutboxProducer) and peegeeq-native (PgNativeQueueProducer)
+        // wrap simple/scalar payloads as {"value": <scalar>}. Mirror the unwrap logic used
+        // by their respective consumers (OutboxConsumer.parsePayloadFromJsonObject /
+        // PgNativeQueueConsumer.parsePayloadFromJsonObject) so partitioned dispatch
+        // delivers the same payload shape as the legacy non-partitioned path.
+        if (payload.size() == 1 && payload.containsKey("value")) {
+            Object value = payload.getValue("value");
+            if (payloadType.isInstance(value)) {
+                return (T) value;
+            }
         }
         if (objectMapper != null) {
             try {
@@ -333,10 +332,14 @@ class PartitionedConsumerEngine<T> {
                 throw new RuntimeException("Failed to deserialize payload to " + payloadType.getName(), e);
             }
         }
+        if (payloadType == String.class) {
+            // Last-resort fallback for String when no ObjectMapper is configured.
+            return (T) payload.encode();
+        }
         throw new RuntimeException("Cannot deserialize payload: no ObjectMapper configured and type is not String/JsonObject");
     }
 
-    Map<String, String> parseHeaders(JsonObject headers) {
+    public Map<String, String> parseHeaders(JsonObject headers) {
         if (headers == null) return Map.of();
         Map<String, String> result = new HashMap<>();
         for (String key : headers.fieldNames()) {
@@ -358,7 +361,7 @@ class PartitionedConsumerEngine<T> {
      * @param topic the topic to check
      * @return future resolving to true if OFFSET_WATERMARK, false otherwise
      */
-    static Future<Boolean> isOffsetWatermarkTopic(PgConnectionManager connectionManager,
+    public static Future<Boolean> isOffsetWatermarkTopic(PgConnectionManager connectionManager,
                                                    String serviceId, String topic) {
         return connectionManager.withConnection(serviceId, connection ->
                 connection.preparedQuery(

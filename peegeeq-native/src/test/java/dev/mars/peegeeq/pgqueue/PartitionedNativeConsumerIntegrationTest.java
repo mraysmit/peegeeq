@@ -1201,7 +1201,10 @@ class PartitionedNativeConsumerIntegrationTest {
     }
 
     private Future<Long> insertOutboxMessage(String topic, String messageGroup, String payload) {
-        JsonObject payloadJson = new JsonObject().put("data", payload);
+        // Match the production wire format used by both PgNativeQueueProducer and
+        // OutboxProducer (and unwrapped by both consumers and PartitionedConsumerEngine):
+        // simple/scalar payloads are wrapped as {"value": <scalar>}.
+        JsonObject payloadJson = new JsonObject().put("value", payload);
         return connectionManager.withConnection(SERVICE_ID, conn ->
                 conn.preparedQuery(
                         "INSERT INTO outbox (topic, payload, status, message_group, created_at) " +

@@ -26,6 +26,7 @@ import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.database.MetricsProvider;
 import dev.mars.peegeeq.api.database.NoOpMetricsProvider;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import io.cloudevents.jackson.JsonFormat;
@@ -66,6 +67,12 @@ public class OutboxFactory implements QueueFactory {
     // Client ID for pool lookup - null means use default pool
     private final String clientId;
 
+    // Optional partitioned-consumption support (OFFSET_WATERMARK). When non-null,
+    // consumer groups created by this factory will route OFFSET_WATERMARK topics
+    // through PartitionedConsumerEngine. Mirrors PgNativeQueueFactory.
+    private final PgConnectionManager connectionManager;
+    private final String connectionServiceId;
+
     // Common fields
     private final ObjectMapper objectMapper;
     private final AtomicBoolean closed = new AtomicBoolean(false);
@@ -93,13 +100,28 @@ public class OutboxFactory implements QueueFactory {
 
     public OutboxFactory(DatabaseService databaseService, ObjectMapper objectMapper, PeeGeeQConfiguration configuration,
             String clientId) {
+        this(databaseService, objectMapper, configuration, clientId, null, null);
+    }
+
+    /**
+     * Constructor with partitioned-consumption support. When {@code connectionManager}
+     * and {@code connectionServiceId} are non-null, consumer groups created by this
+     * factory detect OFFSET_WATERMARK topics on start and route them through
+     * {@link dev.mars.peegeeq.db.consumer.PartitionedConsumerEngine}. Mirrors the
+     * corresponding native factory constructor.
+     */
+    public OutboxFactory(DatabaseService databaseService, ObjectMapper objectMapper, PeeGeeQConfiguration configuration,
+            String clientId, PgConnectionManager connectionManager, String connectionServiceId) {
         this.databaseService = databaseService;
         this.configuration = configuration;
         this.clientId = clientId; // null means use default pool
+        this.connectionManager = connectionManager;
+        this.connectionServiceId = connectionServiceId;
         this.objectMapper = objectMapper != null ? objectMapper : createDefaultObjectMapper();
-        logger.info("Initialized OutboxFactory with configuration: {} (clientId: {})",
+        logger.info("Initialized OutboxFactory with configuration: {} (clientId: {}, partitioned: {})",
                 configuration != null ? "enabled" : "disabled",
-                clientId != null ? clientId : "default");
+                clientId != null ? clientId : "default",
+                connectionManager != null ? "enabled" : "disabled");
 
         // Register a close hook with the manager if available (explicit
         // lifecycle, no reflection)
@@ -264,7 +286,8 @@ public class OutboxFactory implements QueueFactory {
 
         MetricsProvider metrics = getMetrics();
         ConsumerGroup<T> consumerGroup = new OutboxConsumerGroup<>(groupName, topic, payloadType,
-                databaseService, objectMapper, metrics, configuration, clientId);
+                databaseService, objectMapper, metrics, configuration, clientId,
+                connectionManager, connectionServiceId);
 
         // Track the consumer group for cleanup
         createdResources.add(consumerGroup);
