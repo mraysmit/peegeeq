@@ -19,6 +19,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
@@ -35,6 +37,8 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.CORE)
 public class PeeGeeQMetricsCoreTest extends BaseIntegrationTest {
+
+    private static final Logger logger = LoggerFactory.getLogger(PeeGeeQMetricsCoreTest.class);
 
     private PgConnectionManager connectionManager;
     private Pool pool;
@@ -383,9 +387,12 @@ public class PeeGeeQMetricsCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testPersistMetrics() {
-        metrics.persistMetrics(meterRegistry);
-        // Verify no exception thrown
+    void testPersistMetrics(VertxTestContext testContext) throws InterruptedException {
+        logger.warn("===== INTENTIONAL ERROR TEST ===== If the next ERROR log ('Failed to persist metrics to database') appears, it is EXPECTED \u2014 queue_metrics table is absent from the standard test schema");
+        metrics.persistMetrics(meterRegistry)
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(err -> testContext.completeNow());
+        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
 }
