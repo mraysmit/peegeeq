@@ -1,9 +1,9 @@
 # Guaranteed Ordering for Concurrent Consumers - Architecture Design
 
 **Author**: Mark A Ray-Smith 
-**Date**: April 28, 2026  
-**Status**: DECIDED — v1.3 (Decision 1 adopted; Decision 2 deferred to a future phase)  
-**Version**: 1.3  
+**Date**: April 29, 2026  
+**Status**: DECIDED — v1.4 (Decision 1 adopted; Decision 2 deferred to a future phase)  
+**Version**: 1.4  
 **Priority**: P1 (Architectural Documentation & Pattern Guidance)
 
 ---
@@ -461,6 +461,20 @@ A `message_group` value that first appears in `outbox` *after* the consumer inst
 
 OFFSET_WATERMARK guarantees per-partition order. It does **not** guarantee exactly-once. Duplicates can occur on consumer restart before offset commit, on stale-generation rejection followed by retry, and on rebalance windows. Consumer logic must remain idempotent — see *Phase 2, step 6* below for the recommended idempotency-fence pattern.
 
+#### 5. Partitions with all-COMPLETED rows are invisible at join time
+
+`PartitionAssignmentService.discoverPartitionsInternal` filters `status IN ('PENDING', 'PROCESSING')`. A `message_group` whose rows have all transitioned to `COMPLETED` (or `FAILED`, `DEAD_LETTER`) by the time a consumer joins will not appear in the partition-discovery query. The engine will not assign or fetch for it.
+
+When a new message with that same `message_group` is later published, it creates a `PENDING` row. If no rebalance has occurred since join, no instance has `account-123` in its `assignedPartitions` map, and the row accumulates in `PENDING` indefinitely — until another join or leave event triggers rediscovery.
+
+**This is the same class of problem as caveats §1 and §3.** All three share the same root cause: discovery is point-in-time, not continuous.
+
+**Implications for application code**:
+
+- Do **not** assume that a previously active partition remains assigned after all its messages drain. The assignment may be dropped on the next rebalance if discovery sees no `PENDING`/`PROCESSING` rows at that moment.
+- For long-lived aggregates that may go quiet and resume later, the safest model is to accept the rebalance latency and rely on a subsequent join/leave to re-surface the partition. Alternatively, keep at least one `PROCESSING`-status sentinel row alive during quiet periods (not recommended in most designs — document the trade-off if used).
+- If/when periodic rediscovery (Open Question 6) is implemented, this caveat and caveats §1/§3 are addressed together. Any change to that behaviour must update all three entries here.
+
 ---
 
 ### Decision 1: Adopt OFFSET_WATERMARK Mode ⭐
@@ -486,8 +500,9 @@ SET completion_tracking_mode = 'OFFSET_WATERMARK';
 // Use the aggregate ID as partition key
 String partitionKey = command.getAggregateId();  // e.g., "account-123"
 
-// send(...) returns Future<Void>. Compose it: only acknowledge the command
-// after the event is durably persisted, and propagate failure to the caller.
+// send(...) returns Future<Void>. Return it: the command handler's own future
+// must not complete until the event is durably persisted. .onFailure is a
+// side-effect terminal handler; use .compose(...) if further chaining is needed.
 return eventProducer.send(event, headers, correlationId, partitionKey)
         .onFailure(err -> logger.error("Failed to publish event {}: {}",
                 event.getEventId(), err.getMessage()));
@@ -601,7 +616,7 @@ ConsumerConfig config = ConsumerConfig.builder()
 | `lockAcquisitionInterval` | `Duration` | `5s` | How often standby instances retry `pg_try_advisory_lock`. |
 | `onLockUnavailable` | enum | `STANDBY` | `STANDBY` = enter hot standby; `FAIL_FAST` = fail `start()` immediately. |
 | `lockAcquisitionTimeout` | `Duration` | `null` (unbounded) | If non-null, a standby that fails to acquire within this window fails its `start()` future. |
-| `heartbeatInterval` | `Duration` | `10s` | Active consumer issues a lightweight `SELECT 1` on the lock-holding connection at this cadence to keep the connection alive through pgBouncer / NAT idle timers. |
+| `heartbeatInterval` | `Duration` | `10s` | Active consumer issues a lightweight `SELECT 1` on the lock-holding connection at this cadence to keep the connection alive through NAT idle timers and proxy idle-connection reaping. |
 
 **Validation rules** (added to `ConsumerConfig.Builder.build()`):
 
@@ -700,7 +715,7 @@ The exclusive consumer must remain safe under the following failure scenarios:
 |---|---|---|
 | Active consumer process crashes | TCP session ends; Postgres releases session-level lock automatically | A standby acquires the lock on its next retry. Maximum failover latency = `lockAcquisitionInterval` + RTT. |
 | Network partition (active consumer cut off from DB) | Heartbeat `SELECT 1` fails, OR Postgres terminates the session via `tcp_keepalives_idle` | Active consumer transitions to STOPPED. Standby takes over once Postgres releases the lock. |
-| pgBouncer / proxy in transaction-pooling mode | Advisory locks are session-scoped and incompatible with transaction pooling | **Documented restriction**: exclusive consumers must connect via session pooling (`pool_mode = session`) or directly to Postgres. `start()` validates and fails fast if it detects a transaction-pooled connection. |
+| Connection pool or proxy that does not preserve session lifetime | Advisory locks are session-scoped; returning the connection to a pool releases the lock silently | **Operator requirement**: the dedicated connection used by `ExclusiveConsumerCoordinator` must persist for the consumer's lifetime. Use a direct connection or a pool configured for session-level persistence. This is an operator responsibility — the engine cannot reliably detect whether a connection will be returned to a pool mid-session. |
 | Two instances both believe they hold the lock | Cannot happen at Postgres level — `pg_try_advisory_lock` is atomic | Application code never branches on a cached lock-state belief; it issues queries on the lock-holding connection and trusts Postgres. |
 | Handler hangs indefinitely | No automatic fence today | Recommend: combine with the existing `ConsumerConfig.handlerTimeout` (separate proposal). Out of scope for this design. |
 
@@ -740,15 +755,13 @@ RED:
  3. ExclusiveConsumerFailoverIntegrationTest — kill active, standby takes over within 2× interval
  4. ExclusiveConsumerStrictOrderingIntegrationTest — 1000 messages, slow handler, asserts strict id order
  5. ExclusiveConsumerIncompatibleWithOffsetWatermarkTest — start() fails on OFFSET_WATERMARK topic
- 6. ExclusiveConsumerTransactionPooledRejectionTest — start() fails fast on pgBouncer txn mode
 
 GREEN:
- 7. ExclusiveConfig + LockKey + builder validation
- 8. ExclusiveConsumerCoordinator with state machine on a dedicated SqlConnection
- 9. Wire into PgNativeQueueConsumer.start() so existing simple consumers opt in via config
-10. Topic-mode incompatibility check
-11. Pool-mode probe at start() (reads server settings via SHOW pool_mode or a dedicated query)
-12. Metrics + structured logging
+ 6. ExclusiveConfig + LockKey + builder validation
+ 7. ExclusiveConsumerCoordinator with state machine on a dedicated SqlConnection
+ 8. Wire into PgNativeQueueConsumer.start() so existing simple consumers opt in via config
+ 9. Topic-mode incompatibility check
+10. Metrics + structured logging
 
 VERIFY:
 13. All RED tests pass deterministically (10/10 runs)
@@ -913,7 +926,7 @@ DOCUMENTATION (lands after VERIFY so examples reflect shipped APIs):
 
 ### Phase 2: Fix `testCQRS` in `EventSourcingCQRSDemoTest`
 
-**File**: `peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/nativequeue/EventSourcingCQRSDemoTest.java`
+**File**: `peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/outbox/EventSourcingCQRSDemoTest.java`
 
 **Changes** (all inside `testCQRS`, Order=2):
 
@@ -956,7 +969,7 @@ Add `testCQRS_multipleAccounts_perAccountOrdering` (Order=3) to verify that the 
 | 2a | `testPartitionedOrdering_eventsPerAggregateInOrder` | 3 accounts × 5 events = 15 messages. Per-account version order is strictly ascending at the consumer. |
 | 2b | `testPartitionedOrdering_differentAggregatesProcessedConcurrently` | 2 accounts × 3 slow events each (100 ms delay in handler). Total elapsed < 2 × single-account time. |
 | 2c | `testPartitionedOrdering_defaultPartition_noMessageGroup` | Producer sends without `messageGroup`. Topic is OFFSET_WATERMARK. Asserts `outbox_partition_assignments` contains exactly one row with `partition_key = '__default__'`; all 5 messages received in order. |
-| 2d | `testPartitionedOrdering_idempotentRedelivery` | Consumer group processes a batch, then is restarted without an offset reset. Verifies the committed offset prevents re-delivery. |
+| 2d | `testPartitionedOrdering_consumerRestart_resumesFromCommittedOffset` | Consumer group processes a batch, then is restarted without an offset reset. Verifies that the engine resumes from the committed offset (does not restart from zero) and does not re-deliver already-committed messages in the normal restart path. (OFFSET_WATERMARK is at-least-once; this test asserts cursor position, not the absence of all possible re-delivery.) |
 
 ---
 
@@ -989,8 +1002,9 @@ The existing safety tests cover close-during-startup, stop-failure logging, and 
 - Handler returns `Future.succeededFuture()` for messages 1–2 and `Future.failedFuture(...)` for message 3.
 - After the fetch cycle completes, `committed_offset` must remain at its pre-batch value — the offset must not advance past the failure.
 - `fetchInProgress` for that partition must be `false` (released by `.eventually()`) so the next cycle can run.
+- On the **next fetch cycle**, messages 1–5 are re-fetched from the pre-batch offset and the handler is invoked again for messages 1–2 (at-least-once redelivery after failure). This assertion is required to prove the at-least-once + re-delivery contract, not merely the offset non-advancement.
 
-This validates the `processAndCommit` → `.eventually(() -> inProgress.set(false))` contract under failure.
+This validates the `processAndCommit` → `.eventually(() -> inProgress.set(false))` contract under failure, including the full redelivery loop.
 
 ---
 
@@ -1025,7 +1039,7 @@ This phase implements Decision 2 (see *Decision 2 (Future Phase): Exclusive Cons
 - `ExclusiveConfig` value object on `ConsumerConfig`.
 - `LockKey` strategy interface with `fromTopic()` / `ofLiteral(long)` / `ofString(...)` implementations.
 - `ExclusiveConsumerCoordinator` with a dedicated `SqlConnection` and the documented state machine.
-- Validation rules (mutually exclusive with OFFSET_WATERMARK; rejects pgBouncer transaction-pooled connections).
+- Validation rules (mutually exclusive with OFFSET_WATERMARK).
 - Six RED tests, six GREEN steps, three VERIFY checks per the documented TDD ordering.
 - Cross-module API alignment for `peegeeq-outbox` and `peegeeq-bitemporal` follows after the native implementation lands.
 
@@ -1054,7 +1068,7 @@ LIMIT $4
 FOR UPDATE OF o SKIP LOCKED;
 ```
 
-The **native** subsystem (`PgNativeQueueProducer` + `PgNativeQueueConsumer`) writes to a different table — `queue_messages` — using PostgreSQL `LISTEN/NOTIFY` for low-latency delivery. `PgNativeConsumerGroup.startPartitioned()` *does* register partition assignments when the topic is configured `OFFSET_WATERMARK`, but the partitioned engine then finds zero rows because the producer's writes never reach `outbox`. As a result, today the `EventSourcingCQRSDemoTest` Phase 2 GREEN demo runs over the **outbox factory** (see [`peegeeq-examples/.../EventSourcingCQRSDemoTest.java`](../../peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/nativequeue/EventSourcingCQRSDemoTest.java)). This is correct end-to-end behaviour but means OFFSET_WATERMARK currently has **no native-subsystem equivalent**.
+The **native** subsystem (`PgNativeQueueProducer` + `PgNativeQueueConsumer`) writes to a different table — `queue_messages` — using PostgreSQL `LISTEN/NOTIFY` for low-latency delivery. `PgNativeConsumerGroup.startPartitioned()` *does* register partition assignments when the topic is configured `OFFSET_WATERMARK`, but the partitioned engine then finds zero rows because the producer's writes never reach `outbox`. As a result, today the `EventSourcingCQRSDemoTest` Phase 2 GREEN demo runs over the **outbox factory** (see [`peegeeq-examples/.../EventSourcingCQRSDemoTest.java`](../../peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/outbox/EventSourcingCQRSDemoTest.java)). This is correct end-to-end behaviour but means OFFSET_WATERMARK currently has **no native-subsystem equivalent**.
 
 #### Goal
 
@@ -1082,9 +1096,42 @@ Make `PgNativeConsumerGroup` + OFFSET_WATERMARK fully functional against the nat
 
 #### Scope when Phase 7 begins
 
-- TDD: RED test in `peegeeq-native` mirroring `PartitionedNativeConsumerIntegrationTest` but driving messages via `PgNativeQueueProducer.send(payload, headers, correlationId, messageGroup)` (not direct SQL inserts) and asserting per-partition ordering and offset advancement.
-- GREEN: `PartitionedNativeFetcher` + factory wiring.
-- Migration: optional new partial index on `queue_messages`.
+##### TDD ordering for Phase 7 (mandatory — do not reverse)
+
+```
+RED:
+ 1. PartitionedNativeConsumerOrderingIntegrationTest
+    — topic configured OFFSET_WATERMARK; messages produced via PgNativeQueueProducer.send(..., messageGroup);
+      asserts per-partition strict ordering at the consumer (version order ascending per aggregateId).
+ 2. PartitionedNativeConsumerOffsetAdvancementIntegrationTest
+    — asserts outbox_partition_offsets.committed_offset advances after successful processing
+      when messages arrive via the native producer path.
+ 3. PartitionedNativeConsumerRestartResumesFromOffsetIntegrationTest
+    — consumer group stopped and restarted without offset reset; asserts engine resumes
+      from committed_offset and does not re-deliver already-committed messages in normal path.
+ 4. PartitionedNativeConsumerConcurrentPartitionsIntegrationTest
+    — 2 accounts × 3 slow-handler events each; asserts total elapsed < 2 × single-partition time
+      (cross-partition concurrency preserved on native path).
+
+GREEN:
+ 5. PartitionedNativeFetcher — reads from queue_messages with the same contract as
+    PartitionedFetcher (fetchMessages → setPendingOffset → getCommittedOffset).
+    Confirm queue_messages has (topic, message_group, id) index; add partial index if absent.
+ 6. PgNativeQueueFactory (or PgNativeConsumerGroup) wires PartitionedNativeFetcher into
+    PartitionedConsumerEngine instead of the outbox fetcher when topic mode is OFFSET_WATERMARK.
+ 7. Confirm outbox_partition_offsets is table-agnostic and can be shared; generalise if not.
+ 8. Disable or convert LISTEN/NOTIFY-based dispatch for OFFSET_WATERMARK topics on
+    PgNativeConsumerGroup — use NOTIFY as a fetch-trigger only, not for direct delivery.
+
+VERIFY:
+ 9. All four RED tests pass deterministically (10/10 runs each).
+10. testCQRS and testCQRS_multipleAccounts_perAccountOrdering in EventSourcingCQRSDemoTest
+    still pass — no regression on the outbox path.
+11. Existing PartitionedNativeConsumerIntegrationTest (outbox-path tests 6.1–6.6) still pass.
+```
+
+**Additional scope**:
+
 - Documentation: update `PEEGEEQ_ORDERING_PATTERNS_GUIDE.md` (Phase 1 deliverable) to describe both subsystems' OFFSET_WATERMARK support.
 - Once Phase 7 lands, the `EventSourcingCQRSDemoTest` may be migrated back to the native factory if desired (it currently runs on outbox).
 
@@ -1141,13 +1188,15 @@ Make `PgNativeConsumerGroup` + OFFSET_WATERMARK fully functional against the nat
    - Custom business key — any key that defines the ordering boundary.
    - **Rule**: the partition key must be the entity whose events must be strictly ordered relative to each other.
 
-3. **Should we provide automatic partition-key extraction?** *(deferred)*
+3. **Should we provide automatic partition-key extraction?** *(rejected)*
 
    ```java
-   // Proposed annotation approach — deferred to a future iteration:
+   // Annotation extraction was considered and rejected — complexity for marginal gain.
+   // The correct pattern is explicit:
    producer.send(event, headers, correlationId, event.getAggregateId());
-   // is the correct pattern now; annotation extraction adds complexity for marginal gain.
    ```
+
+   **Rationale**: explicit `messageGroup` on every `send(...)` call makes the partition boundary visible at the call site, which is essential for correctness review. An annotation approach would hide that contract and add a non-trivial annotation-processing or reflection layer. Rejected; not deferred.
 
 4. **What about cross-partition transactions?** *(out of scope for this phase)*
    - Currently each partition processes independently.
@@ -1222,6 +1271,17 @@ Make `PgNativeConsumerGroup` + OFFSET_WATERMARK fully functional against the nat
 6. **✅ Decision 2 (Exclusive Consumer) is deferred to Phase 6** (a future phase). Its full design is preserved in this document; no implementation work in the current cycle.
 
 **Implementation scope for the current cycle**: Phases 1–5. Phase 6 begins only after the triggers listed in *Phase 6 (Deferred)* are satisfied. Phase 7 (native-table OFFSET_WATERMARK) begins only after the triggers listed in *Phase 7 (Deferred)* are satisfied.
+
+**Changelog v1.4** (April 29, 2026):
+
+- Corrected `EventSourcingCQRSDemoTest` package path in Phase 2 and Phase 7: `nativequeue/` → `outbox/` (the test uses `OutboxFactoryRegistrar` and lives in the `outbox` package).
+- Added **Operational Caveats & Lifecycle §5**: COMPLETED-row discovery gap — partitions whose rows have all drained to COMPLETED are invisible to `discoverPartitionsInternal` at join time; cross-referenced with §1 and §3 as the same root cause.
+- Renamed Phase 3 test 2d to `testPartitionedOrdering_consumerRestart_resumesFromCommittedOffset`; corrected description to assert cursor position rather than overstating "prevents re-delivery".
+- Added missing re-delivery assertion to Phase 4 Test B: next fetch cycle must re-invoke the handler for messages 1–2, proving the at-least-once + redelivery contract.
+- Fixed misleading producer snippet comment: "Compose it" replaced with accurate wording distinguishing `.onFailure` (terminal side-effect) from `.compose` (chaining).
+- Removed all pgBouncer-specific references from the Phase 6 deferred design. The underlying constraint (advisory locks require a dedicated persistent connection) is retained as a general operator requirement; the removed items were: the pgBouncer failure-mode row, `ExclusiveConsumerTransactionPooledRejectionTest` (RED 6), and the `Pool-mode probe` GREEN step.
+- Changed Open Question 3 status from `*(deferred)*` to `*(rejected)*` with explicit rationale.
+- Added formal RED/GREEN/VERIFY TDD table to Phase 7 (*Scope when Phase 7 begins*), matching the structure of Phase 6.
 
 **Changelog v1.3**:
 
