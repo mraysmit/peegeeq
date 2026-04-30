@@ -12,6 +12,8 @@ This guide takes you from complete beginner to production-ready implementation w
 
 > ** Need Technical Reference?** For detailed API specifications, database schema, and architectural details, see the [PeeGeeQ Architecture & API Reference](PEEGEEQ_ARCHITECTURE_API_GUIDE.md).
 
+> **Ordering Guarantees?** For a complete guide to PeeGeeQ's consumer modes and how to achieve per-key ordering, see the [PeeGeeQ Ordering Patterns Guide](PEEGEEQ_ORDERING_PATTERNS_GUIDE.md).
+
 ## Table of Contents
 
 ### Part I: Understanding Message Queues
