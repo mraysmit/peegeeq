@@ -2268,7 +2268,27 @@ This sophisticated utility provides a complete framework for running and managin
 - **Native performance** - Performance characteristics of native implementation
 - **Resource management** - PostgreSQL-specific resource management
 
-### 22-32. Additional Test Examples
+### 22. EventSourcingCQRSDemoTest
+**Purpose**: Demonstrates CQRS with guaranteed per-account ordering via OFFSET_WATERMARK partitioned consumption
+**What it demonstrates**:
+- **Event sourcing basics** - Storing and replaying raw events (Order=1)
+- **CQRS with partitioned consumer** - Using `ConsumerGroup` with `messageGroup=aggregateId` to guarantee event ordering per aggregate (Order=2)
+- **Per-account ordering at scale** - 3 accounts × 4 commands processed concurrently with per-account order guaranteed (Order=3)
+- **Idempotency fence** - `ConcurrentHashMap`-backed seen-ID set protecting against at-least-once redelivery
+
+See [Ordering Patterns Guide — Pattern 2](PEEGEEQ_ORDERING_PATTERNS_GUIDE.md#4-pattern-2--partitioned-consumption-offset_watermark) for the design rationale.
+
+### 23. PartitionedOrderingDemoTest
+**Purpose**: Reference demonstration of all four partitioned ordering patterns
+**What it demonstrates**:
+- **Per-aggregate ordering** (2a) - 3 accounts × 5 events; strict per-account version sequence asserted
+- **Concurrent throughput** (2b) - 2 accounts with slow handlers; total elapsed < 2× single-account time
+- **Default partition behaviour** (2c) - Messages without `messageGroup` assigned to `__default__` partition; 5 messages received in order
+- **Idempotent redelivery** (2d) - Consumer restart without offset reset; committed offset prevents re-delivery
+
+See [Ordering Patterns Guide](PEEGEEQ_ORDERING_PATTERNS_GUIDE.md) for decision criteria and migration steps.
+
+### 24-34. Additional Test Examples
 - **BiTemporalEventStoreExampleTest** - Bi-temporal event store testing patterns
 - **MultiConfigurationIntegrationTest** - Multi-environment integration testing
 - **NativeVsOutboxComparisonTest** - Automated performance comparison testing

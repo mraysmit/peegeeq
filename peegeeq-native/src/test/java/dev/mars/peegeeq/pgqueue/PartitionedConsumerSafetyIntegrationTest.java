@@ -489,6 +489,131 @@ class PartitionedConsumerSafetyIntegrationTest {
     }
 
     // ========================================================================
+    // Item 6: new message_group after join not assigned until rebalance (Test A)
+    //
+    // When joinGroup() runs against an empty topic it returns an empty partition
+    // list and the engine's assignedPartitions map stays empty.  A message
+    // inserted afterwards for a new messageGroup is NOT processed by the already-
+    // running engine — there is no periodic rediscovery.  Only a second instance
+    // joining (which triggers a full rebalance) causes the new partition to be
+    // discovered and assigned, after which the message is processed.
+    //
+    // This test locks in the documented operational caveat from:
+    //   docs-design/analysis/GUARANTEED_ORDERING_CONCURRENT_CONSUMERS_ANALYSIS.md
+    //   §"Operational Caveats & Lifecycle §1 and §3"
+    // If periodic rediscovery is added in future, this test must be updated
+    // rather than silently passing under the new behaviour.
+    // ========================================================================
+
+    @Test
+    @Order(6)
+    @DisplayName("new messageGroup after join: not assigned until second instance triggers rebalance")
+    void testNewMessageGroupAfterJoin_notAssignedUntilRebalance(VertxTestContext testContext) throws Exception {
+        logger.info("=== SAFETY 6: testNewMessageGroupAfterJoin_notAssignedUntilRebalance STARTED ===");
+
+        String topic = "test-safety-disc-" + System.nanoTime();
+        String groupName = "safety-6";
+        String newPartition = "acct-new";
+
+        // Completed by B's message handler when the late-join partition is processed.
+        Promise<Void> messageLatch = Promise.promise();
+
+        // groupA is declared here so it is accessible inside both the compose chain
+        // (to check its state) and the cleanup compose at the end.
+        PgNativeConsumerGroup<String>[] groupAHolder = new PgNativeConsumerGroup[1];
+
+        createTopic(topic, "OFFSET_WATERMARK")
+                .compose(v -> createSubscription(topic, groupName))
+                .compose(v -> {
+                    // Start instance A after the topic and subscription rows exist so that
+                    // isOffsetWatermarkTopic() and joinGroup() can run successfully.
+                    PgNativeConsumerGroup<String> groupA = new PgNativeConsumerGroup<>(
+                            groupName, topic, String.class,
+                            adapter, mapper, null, null, databaseService,
+                            connectionManager, SERVICE_ID
+                    );
+                    groupAHolder[0] = groupA;
+                    // A should never receive any messages — it will have no assigned partitions.
+                    groupA.setMessageHandler(msg -> Future.succeededFuture());
+                    groupA.start();
+
+                    // Wait for async partitioned startup to complete
+                    // (topic-mode detection → engine.start() → joinGroup → empty → fetch loop).
+                    return databaseService.getVertx().timer(5000).mapEmpty();
+                })
+                .compose(v -> {
+                    assertEquals(PgNativeConsumerGroup.State.ACTIVE, groupAHolder[0].getState(),
+                            "Instance A should reach ACTIVE even with empty topic");
+
+                    // No partition assignments: topic had no PENDING rows at A's join time.
+                    return connectionManager.withConnection(SERVICE_ID, conn ->
+                            conn.preparedQuery(
+                                    "SELECT COUNT(*) AS cnt FROM outbox_partition_assignments " +
+                                    "WHERE topic = $1 AND group_name = $2")
+                                    .execute(Tuple.of(topic, groupName))
+                                    .map(rows -> rows.iterator().next().getInteger("cnt")));
+                })
+                .compose(count -> {
+                    assertEquals(0, (int) count,
+                            "0 assignment rows expected after A joins empty topic; got: " + count);
+
+                    // Insert a message AFTER A has already joined — this is the late-arrival case.
+                    return insertOutboxMessage(topic, newPartition, "late-msg");
+                })
+                // Wait 3 fetch ticks (3 × DEFAULT_FETCH_INTERVAL_MS = 1 s).
+                // A's engine iterates an empty assignedPartitions map — it cannot fetch
+                // for "acct-new" because that partition was never discovered at join time.
+                .compose(msgId -> databaseService.getVertx().timer(3000).map(msgId))
+                .compose(msgId -> connectionManager.withConnection(SERVICE_ID, conn ->
+                        conn.preparedQuery("SELECT status FROM outbox WHERE id = $1")
+                                .execute(Tuple.of(msgId))
+                                .map(rows -> rows.iterator().next().getString("status")))
+                        .compose(status -> {
+                            assertEquals("PENDING", status,
+                                    "Message should remain PENDING — A has no partitions assigned; actual: " + status);
+
+                            // Zero assignment rows still: no rebalance has occurred.
+                            return connectionManager.withConnection(SERVICE_ID, conn ->
+                                    conn.preparedQuery(
+                                            "SELECT COUNT(*) AS cnt FROM outbox_partition_assignments " +
+                                            "WHERE topic = $1 AND group_name = $2")
+                                            .execute(Tuple.of(topic, groupName))
+                                            .map(rows -> rows.iterator().next().getInteger("cnt")));
+                        })
+                        .compose(cnt2 -> {
+                            assertEquals(0, (int) cnt2,
+                                    "Still 0 assignment rows before rebalance; got: " + cnt2);
+
+                            // Start instance B — its joinGroup() triggers a rebalance.
+                            // B discovers "acct-new", gets it assigned, and processes the message.
+                            PgNativeConsumerGroup<String> groupB = new PgNativeConsumerGroup<>(
+                                    groupName, topic, String.class,
+                                    adapter, mapper, null, null, databaseService,
+                                    connectionManager, SERVICE_ID
+                            );
+                            groupB.setMessageHandler(msg -> {
+                                logger.info("SAFETY 6: B processed message for partition '{}'", newPartition);
+                                messageLatch.tryComplete();
+                                return Future.succeededFuture();
+                            });
+                            groupB.start();
+
+                            // Wait for B to process the late-arrival message.
+                            return messageLatch.future()
+                                    .compose(done -> {
+                                        logger.info("SAFETY 6 PASSED: late-join partition processed after rebalance");
+                                        groupAHolder[0].close();
+                                        return groupB.stopGracefully();
+                                    });
+                        })
+                )
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+
+        assertTrue(testContext.awaitCompletion(45, TimeUnit.SECONDS), "Test timed out");
+    }
+
+    // ========================================================================
     // Helpers
     // ========================================================================
 
