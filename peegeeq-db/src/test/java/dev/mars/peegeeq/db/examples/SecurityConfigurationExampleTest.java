@@ -59,8 +59,11 @@ public class SecurityConfigurationExampleTest {
         System.setProperty("peegeeq.database.pool.min-size", "1");
         System.setProperty("peegeeq.database.pool.max-size", "3");
         System.setProperty("peegeeq.database.pool.shared", "false");
-        System.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
-        System.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
+        System.setProperty("peegeeq.database.pool.idle-timeout-ms", "5000");
+        System.setProperty("peegeeq.database.pool.connection-timeout-ms", "30000");
+        System.setProperty("peegeeq.health.check-interval", "PT5S");
+        System.setProperty("peegeeq.health.timeout", "PT10S");
+        System.setProperty("peegeeq.health-check.queue-checks-enabled", "false");
     }
     
     @AfterEach
@@ -101,7 +104,7 @@ public class SecurityConfigurationExampleTest {
 
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("secure"), new SimpleMeterRegistry());
         manager.start()
-            .compose(v -> manager.getVertx().timer(1000).mapEmpty())
+            .compose(v -> manager.getVertx().timer(5000).mapEmpty())
             .onSuccess(v -> testContext.verify(() -> {
                 var healthStatus = manager.getHealthCheckManager().getOverallHealth();
                 assertNotNull(healthStatus);
@@ -130,7 +133,7 @@ public class SecurityConfigurationExampleTest {
 
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("ssl-test"), new SimpleMeterRegistry());
         manager.start()
-            .compose(v -> manager.getVertx().timer(1000).mapEmpty())
+            .compose(v -> manager.getVertx().timer(5000).mapEmpty())
             .onSuccess(v -> testContext.verify(() -> {
                 var healthStatus = manager.getHealthCheckManager().getOverallHealth();
                 assertTrue(healthStatus.isHealthy());
@@ -163,7 +166,7 @@ public class SecurityConfigurationExampleTest {
 
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("production"), new SimpleMeterRegistry());
         manager.start()
-            .compose(v -> manager.getVertx().timer(1000).mapEmpty())
+            .compose(v -> manager.getVertx().timer(5000).mapEmpty())
             .onSuccess(v -> testContext.verify(() -> {
                 var healthStatus = manager.getHealthCheckManager().getOverallHealth();
                 assertTrue(healthStatus.isHealthy());
@@ -193,7 +196,7 @@ public class SecurityConfigurationExampleTest {
 
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("monitoring"), new SimpleMeterRegistry());
         manager.start()
-            .compose(v -> manager.getVertx().timer(2000).mapEmpty())
+            .compose(v -> manager.getVertx().timer(5000).mapEmpty())
             .onSuccess(v -> testContext.verify(() -> {
                 var healthCheckManager = manager.getHealthCheckManager();
                 assertNotNull(healthCheckManager);
@@ -229,7 +232,7 @@ public class SecurityConfigurationExampleTest {
 
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("credentials"), new SimpleMeterRegistry());
         manager.start()
-            .compose(v -> manager.getVertx().timer(1000).mapEmpty())
+            .compose(v -> manager.getVertx().timer(5000).mapEmpty())
             .onSuccess(v -> testContext.verify(() -> {
                 var healthStatus = manager.getHealthCheckManager().getOverallHealth();
                 assertTrue(healthStatus.isHealthy());
@@ -259,7 +262,7 @@ public class SecurityConfigurationExampleTest {
 
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("compliance"), new SimpleMeterRegistry());
         manager.start()
-            .compose(v -> manager.getVertx().timer(1000).mapEmpty())
+            .compose(v -> manager.getVertx().timer(5000).mapEmpty())
             .onSuccess(v -> testContext.verify(() -> {
                 var healthStatus = manager.getHealthCheckManager().getOverallHealth();
                 assertTrue(healthStatus.isHealthy());

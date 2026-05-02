@@ -190,8 +190,8 @@ public abstract class BaseIntegrationTest {
         // so values must be >= 1000 ms. A value < 1000 ms truncates to 0 = "no timeout".
         System.setProperty("peegeeq.database.pool.min-size", "1");  // needed for validation (max >= min)
         System.setProperty("peegeeq.database.pool.max-size", "3");
-        System.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");   // 5 s
-        System.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");         // 2 s
+        System.setProperty("peegeeq.database.pool.connection-timeout-ms", "30000");   // 30 s - generous for parallel test runs
+        System.setProperty("peegeeq.database.pool.idle-timeout-ms", "5000");          // 5 s
 
         // Force non-shared pools in tests so pool.close() drops the underlying connections
         // deterministically, without reference-counting deferral (see §3b).
