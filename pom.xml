@@ -480,7 +480,7 @@
                 <!-- Empty groups means: run tests that don't match any tag -->
                 <test.groups></test.groups>
                 <!-- Exclude all known tags to isolate untagged tests -->
-                <test.excludedGroups>core,integration,performance,slow,smoke,flaky</test.excludedGroups>
+                <test.excludedGroups>core,integration,performance,slow,smoke</test.excludedGroups>
                 <test.parallel>classes</test.parallel>
                 <test.threadCount>2</test.threadCount>
             </properties>
