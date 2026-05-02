@@ -1,13 +1,13 @@
 # PeeGeeQ Testing Guide
 
 **Author**: Mark Andrew Ray-Smith Cityline Ltd
-**Date**: 2025-09-11
-**Version**: 1.0
+**Date**: 2026-05-01
+**Version**: 1.2
 **Status**: Active
 
 ## Overview
 
-PeeGeeQ includes a comprehensive test categorization system that transforms the development experience from 12+ minute feedback cycles to sub-minute core test execution. The master test script provides centralized control over all 12 Maven modules and test categories.
+PeeGeeQ includes a comprehensive test categorization system that transforms the development experience from 12+ minute feedback cycles to sub-minute core test execution. The master test script provides centralized control over all 16 Maven modules and test categories.
 
 ---
 
@@ -36,28 +36,28 @@ PeeGeeQ includes a comprehensive test categorization system that transforms the 
 ./scripts/run-tests.sh help
 ```
 
-#### Using Maven Directly (Advanced)
-```bash
+#### Using Maven Directly (Windows/PowerShell)
+```powershell
 # Daily development (24 seconds)
-mvn test -Pcore-tests
+mvn test -Pcore-tests 2>&1 | Tee-Object -FilePath logs\core-tests-20260501.txt
 
 # Quick validation (20 seconds)
-mvn test -Psmoke-tests
+mvn test -Psmoke-tests 2>&1 | Tee-Object -FilePath logs\smoke-tests-20260501.txt
 
 # Single module development
-mvn test -Pcore-tests -pl :peegeeq-outbox
+mvn test -Pcore-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-core-20260501.txt
 
 # Multiple modules
-mvn test -Pcore-tests -pl :peegeeq-db,:peegeeq-api
+mvn test -Pcore-tests -pl :peegeeq-db,:peegeeq-api 2>&1 | Tee-Object -FilePath logs\peegeeq-db-api-core-20260501.txt
 
 # Integration testing (10-15 minutes)
-mvn test -Pintegration-tests
+mvn test -Pintegration-tests 2>&1 | Tee-Object -FilePath logs\integration-tests-20260501.txt
 
 # Complete test suite
-mvn test -Pall-tests
+mvn test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-20260501.txt
 ```
 
-> **⚠️ Critical**: Maven requires explicit profile activation (`-P<profile>`). Without a profile, **0 tests will run**.
+> **⚠️ Note**: In most modules the `core-tests` profile is `activeByDefault=true`, so `mvn test` without an explicit `-P` flag runs core tests automatically. Exception: `peegeeq-integration-tests` defaults to `smoke-tests`. `peegeeq-migrations` and `peegeeq-runtime` have no test-category profiles. Always use an explicit `-P<profile>` for predictable, reproducible behaviour across all modules.
 
 ### Test Categories at a Glance
 
@@ -123,32 +123,47 @@ pqsmoke
 ./scripts/run-tests.sh all
 ```
 
-### Using Maven Directly (Advanced)
+### Using Maven Directly (Windows/PowerShell)
 
-```bash
-# Daily development testing - requires profile activation
-mvn test -Pcore-tests
+```powershell
+# Daily development testing
+mvn test -Pcore-tests 2>&1 | Tee-Object -FilePath logs\core-tests-20260501.txt
 
 # Quick validation before commits
-mvn test -Psmoke-tests
+mvn test -Psmoke-tests 2>&1 | Tee-Object -FilePath logs\smoke-tests-20260501.txt
 
 # Single module development
-mvn test -Pcore-tests -pl :peegeeq-outbox
+mvn test -Pcore-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-core-20260501.txt
 
 # Multiple specific modules
-mvn test -Pcore-tests -pl :peegeeq-db,:peegeeq-api
+mvn test -Pcore-tests -pl :peegeeq-db,:peegeeq-api 2>&1 | Tee-Object -FilePath logs\peegeeq-db-api-core-20260501.txt
 
 # Integration testing
-mvn test -Pintegration-tests
+mvn test -Pintegration-tests 2>&1 | Tee-Object -FilePath logs\integration-tests-20260501.txt
 
 # Complete test suite
-mvn test -Pall-tests
+mvn test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-20260501.txt
 
 # Module-specific integration testing
-mvn test -Pintegration-tests -pl :peegeeq-examples-spring
+mvn test -Pintegration-tests -pl :peegeeq-examples-spring 2>&1 | Tee-Object -FilePath logs\peegeeq-examples-spring-integration-20260501.txt
 ```
 
-> **⚠️ Important**: Direct Maven execution requires explicit profile activation (`-P<profile>`). Without a profile, **0 tests will run** due to the test categorization system. The master test script automatically handles profile selection.
+> **⚠️ Important**: Always use explicit profile activation (`-P<profile>`) for reproducible results. In most modules `core-tests` is `activeByDefault=true`; `peegeeq-integration-tests` defaults to `smoke-tests`; `peegeeq-migrations` and `peegeeq-runtime` have no test-category filtering. The master test script handles profile selection automatically.
+
+### Platform Notes
+
+`scripts/run-tests.sh` is a **bash script** that requires Linux or macOS. There is no PowerShell equivalent.
+
+**Windows users must use Maven commands directly** (PowerShell):
+```powershell
+# Core tests — single module
+mvn test -Pcore-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-core-20260501.txt
+
+# Integration tests — single module
+mvn test -Pintegration-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-integration-20260501.txt
+```
+
+Always pipe Maven output with `Tee-Object` so output appears in the console and is saved to the log file simultaneously. Do not use `Select-String` or `Select-Object` to filter pipeline output.
 
 ## Test Categories
 
@@ -266,6 +281,19 @@ mvn test -Pintegration-tests -pl :peegeeq-examples-spring
 - `peegeeq-openapi` - OpenAPI specification and code generation
 - `peegeeq-integration-tests` - Cross-module integration tests
 
+### Module-Specific Profile Exceptions
+
+Not all modules implement the full standard profile set. The following modules behave differently:
+
+| Module | Exception |
+|---|---|
+| `peegeeq-migrations` | No test-category profiles. All 5 tests are `@Tag("integration")`. No Surefire groups filtering — all tests run on `mvn test`. Run with `mvn test -pl :peegeeq-migrations`. |
+| `peegeeq-runtime` | No test-category profiles. Uses root pom Surefire `pluginManagement` with no groups filtering — all tests run on `mvn test`. |
+| `peegeeq-rest-client` | No test-category profiles. Surefire references `${test.groups}` / `${test.excludedGroups}` but no profile sets those values. Always specify a profile explicitly (e.g. `-Pintegration-tests`) to avoid undefined behaviour. |
+| `peegeeq-integration-tests` | Default profile is `smoke-tests`, **not** `core-tests`. Only has `smoke-tests`, `integration-tests`, and `all-tests` profiles — no `core-tests`, `performance-tests`, or `slow-tests`. |
+| `peegeeq-native`, `peegeeq-db`, `peegeeq-bitemporal` | Do not have a `slow-tests` profile. Use `-Pall-tests` to run all tests in these modules. |
+| `peegeeq-openapi` | No `src/test` directory — no tests to run. |
+
 ### Single Module Examples
 
 #### Using the Master Test Script
@@ -297,33 +325,33 @@ mvn test -Pintegration-tests -pl :peegeeq-examples-spring
 ./scripts/run-tests.sh performance peegeeq-test-support
 ```
 
-#### Using Maven Directly
-```bash
+#### Using Maven Directly (Windows/PowerShell)
+```powershell
 # API module
-mvn test -Pcore-tests -pl :peegeeq-api
-mvn test -Psmoke-tests -pl :peegeeq-api
-mvn test -Pintegration-tests -pl :peegeeq-api
+mvn test -Pcore-tests -pl :peegeeq-api 2>&1 | Tee-Object -FilePath logs\peegeeq-api-core-20260501.txt
+mvn test -Psmoke-tests -pl :peegeeq-api 2>&1 | Tee-Object -FilePath logs\peegeeq-api-smoke-20260501.txt
+mvn test -Pintegration-tests -pl :peegeeq-api 2>&1 | Tee-Object -FilePath logs\peegeeq-api-integration-20260501.txt
 
 # Database module
-mvn test -Pcore-tests -pl :peegeeq-db
-mvn test -Pintegration-tests -pl :peegeeq-db
+mvn test -Pcore-tests -pl :peegeeq-db 2>&1 | Tee-Object -FilePath logs\peegeeq-db-core-20260501.txt
+mvn test -Pintegration-tests -pl :peegeeq-db 2>&1 | Tee-Object -FilePath logs\peegeeq-db-integration-20260501.txt
 
 # Outbox module
-mvn test -Pcore-tests -pl :peegeeq-outbox
-mvn test -Pintegration-tests -pl :peegeeq-outbox
-mvn test -Pperformance-tests -pl :peegeeq-outbox
+mvn test -Pcore-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-core-20260501.txt
+mvn test -Pintegration-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-integration-20260501.txt
+mvn test -Pperformance-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-performance-20260501.txt
 
 # Native queue module
-mvn test -Pcore-tests -pl :peegeeq-native
-mvn test -Pintegration-tests -pl :peegeeq-native
+mvn test -Pcore-tests -pl :peegeeq-native 2>&1 | Tee-Object -FilePath logs\peegeeq-native-core-20260501.txt
+mvn test -Pintegration-tests -pl :peegeeq-native 2>&1 | Tee-Object -FilePath logs\peegeeq-native-integration-20260501.txt
 
 # REST API module
-mvn test -Pcore-tests -pl :peegeeq-rest
-mvn test -Pintegration-tests -pl :peegeeq-rest
+mvn test -Pcore-tests -pl :peegeeq-rest 2>&1 | Tee-Object -FilePath logs\peegeeq-rest-core-20260501.txt
+mvn test -Pintegration-tests -pl :peegeeq-rest 2>&1 | Tee-Object -FilePath logs\peegeeq-rest-integration-20260501.txt
 
 # Test support module
-mvn test -Pcore-tests -pl :peegeeq-test-support
-mvn test -Pperformance-tests -pl :peegeeq-test-support
+mvn test -Pcore-tests -pl :peegeeq-test-support 2>&1 | Tee-Object -FilePath logs\peegeeq-test-support-core-20260501.txt
+mvn test -Pperformance-tests -pl :peegeeq-test-support 2>&1 | Tee-Object -FilePath logs\peegeeq-test-support-performance-20260501.txt
 ```
 
 ### Multiple Module Examples
@@ -346,22 +374,22 @@ mvn test -Pperformance-tests -pl :peegeeq-test-support
 ./scripts/run-tests.sh performance peegeeq-outbox peegeeq-test-support peegeeq-performance-test-harness
 ```
 
-#### Using Maven Directly
-```bash
+#### Using Maven Directly (Windows/PowerShell)
+```powershell
 # Core modules together
-mvn test -Pcore-tests -pl :peegeeq-api,:peegeeq-db,:peegeeq-native
+mvn test -Pcore-tests -pl :peegeeq-api,:peegeeq-db,:peegeeq-native 2>&1 | Tee-Object -FilePath logs\api-db-native-core-20260501.txt
 
 # Outbox and related modules
-mvn test -Pintegration-tests -pl :peegeeq-outbox,:peegeeq-bitemporal
+mvn test -Pintegration-tests -pl :peegeeq-outbox,:peegeeq-bitemporal 2>&1 | Tee-Object -FilePath logs\outbox-bitemporal-integration-20260501.txt
 
 # REST and service modules
-mvn test -Pcore-tests -pl :peegeeq-rest,:peegeeq-service-manager
+mvn test -Pcore-tests -pl :peegeeq-rest,:peegeeq-service-manager 2>&1 | Tee-Object -FilePath logs\rest-service-manager-core-20260501.txt
 
 # Example modules
-mvn test -Psmoke-tests -pl :peegeeq-examples,:peegeeq-examples-spring
+mvn test -Psmoke-tests -pl :peegeeq-examples,:peegeeq-examples-spring 2>&1 | Tee-Object -FilePath logs\examples-smoke-20260501.txt
 
 # Performance-focused modules
-mvn test -Pperformance-tests -pl :peegeeq-outbox,:peegeeq-test-support,:peegeeq-performance-test-harness
+mvn test -Pperformance-tests -pl :peegeeq-outbox,:peegeeq-test-support,:peegeeq-performance-test-harness 2>&1 | Tee-Object -FilePath logs\performance-focused-20260501.txt
 ```
 
 ## Maven Profile System
@@ -384,39 +412,43 @@ The PeeGeeQ project uses **Maven profiles** to control test execution through JU
 | `integration-tests` | `@Tag("integration")` | 5-10 minutes | Pre-commit testing |
 | `performance-tests` | `@Tag("performance")` | 10-15 minutes | Performance validation |
 | `slow-tests` | `@Tag("slow")` | 15+ minutes | Comprehensive testing |
-| `all-tests` | All except `flaky` | Variable | Complete test suite |
+| `all-tests` | All tags | Variable | Complete test suite |
+
+> **Note**: Profiles are defined per module, not in the root pom. Most modules define all standard profiles. `slow-tests` is not defined in `peegeeq-native`, `peegeeq-db`, or `peegeeq-bitemporal` — use `-Pall-tests` in those modules to include slow tests. See *Module-Specific Profile Exceptions* in the Module-Specific Testing section for the full list of exceptions.
 
 ### Why Profiles Are Required
 
-**Without a profile**, Maven's default Surefire configuration **excludes all test categories**:
+**Profile behaviour by default**: Profiles are defined in each module's `pom.xml`, not in the root pom. In most modules the `core-tests` profile has `<activeByDefault>true</activeByDefault>`, making `mvn test` equivalent to `mvn test -Pcore-tests`. Exceptions are documented in *Module-Specific Profile Exceptions* in the Module-Specific Testing section.
 
-```xml
-<configuration>
-    <!-- Default: exclude all tests unless a profile is active -->
-    <excludedGroups>core,smoke,integration,performance,slow</excludedGroups>
-</configuration>
-```
+Using an explicit `-P<profile>` flag deactivates the default profile and activates only the named one:
 
-This design prevents:
-- ❌ Accidental execution of slow integration tests during `mvn test`
-- ❌ Long feedback cycles during development
-- ❌ Inconsistent test execution across environments
-- ❌ CI/CD pipelines running unintended test categories
+- `-Pcore-tests` — runs only `@Tag("core")` tests (activeByDefault in most modules)
+- `-Pintegration-tests` — runs only `@Tag("integration")` tests
+- `-Pperformance-tests` — runs only `@Tag("performance")` tests
+- `-Pslow-tests` — runs only `@Tag("slow")` tests. **Not defined in `peegeeq-native`, `peegeeq-db`, or `peegeeq-bitemporal`** — use `-Pall-tests` in those modules.
+- `-Pall-tests` — runs core + integration + performance + slow + smoke
+
+This design ensures:
+- ✅ Fast feedback during daily development (core-tests default, ~30s)
+- ✅ Integration tests only run when explicitly requested
+- ✅ Performance tests are isolated from regular development
 
 ### Profile Activation Examples
 
-```bash
-# ✅ Correct - activates core-tests profile
-mvn test -Pcore-tests
+```powershell
+# ✅ Explicit — activates core-tests profile regardless of module defaults
+mvn test -Pcore-tests 2>&1 | Tee-Object -FilePath logs\core-tests-20260501.txt
 
-# ❌ Wrong - runs 0 tests (no profile activated)
-mvn test
+# ✅ Equivalent to -Pcore-tests in most modules (core-tests is activeByDefault=true)
+# ⚠️ NOT equivalent in peegeeq-integration-tests (smoke-tests is default there)
+# ⚠️ No groups filtering in peegeeq-migrations and peegeeq-runtime (no test-category profiles)
+mvn test 2>&1 | Tee-Object -FilePath logs\core-tests-20260501.txt
 
 # ✅ Correct - runs integration tests for specific module
-mvn test -Pintegration-tests -pl :peegeeq-examples-spring
+mvn test -Pintegration-tests -pl :peegeeq-examples-spring 2>&1 | Tee-Object -FilePath logs\peegeeq-examples-spring-integration-20260501.txt
 
-# ❌ Wrong - runs 0 tests (no profile activated)
-mvn test -pl :peegeeq-examples-spring
+# ⚠️ Activates module default (core-tests) for peegeeq-examples-spring
+mvn test -pl :peegeeq-examples-spring 2>&1 | Tee-Object -FilePath logs\peegeeq-examples-spring-core-20260501.txt
 ```
 
 ## Script Features
@@ -481,19 +513,19 @@ After execution, the script provides performance ratings:
 ./scripts/run-tests.sh core
 ```
 
-#### Using Maven Directly
-```bash
+#### Using Maven Directly (Windows/PowerShell)
+```powershell
 # Start development session
-mvn test -Pcore-tests
+mvn test -Pcore-tests 2>&1 | Tee-Object -FilePath logs\core-tests-20260501.txt
 
 # Work on specific module
-mvn test -Pcore-tests -pl :peegeeq-outbox
+mvn test -Pcore-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-core-20260501.txt
 
 # Quick validation before commit
-mvn test -Psmoke-tests
+mvn test -Psmoke-tests 2>&1 | Tee-Object -FilePath logs\smoke-tests-20260501.txt
 
 # Final check before push
-mvn test -Pcore-tests
+mvn test -Pcore-tests 2>&1 | Tee-Object -FilePath logs\core-tests-20260501.txt
 ```
 
 ### Pre-Commit Workflow
@@ -510,16 +542,16 @@ mvn test -Pcore-tests
 ./scripts/run-tests.sh core peegeeq-outbox peegeeq-rest
 ```
 
-#### Using Maven Directly
-```bash
+#### Using Maven Directly (Windows/PowerShell)
+```powershell
 # Quick validation (20 seconds)
-mvn test -Psmoke-tests
+mvn test -Psmoke-tests 2>&1 | Tee-Object -FilePath logs\smoke-tests-20260501.txt
 
 # Core functionality check (24 seconds)
-mvn test -Pcore-tests
+mvn test -Pcore-tests 2>&1 | Tee-Object -FilePath logs\core-tests-20260501.txt
 
 # Module-specific validation
-mvn test -Pcore-tests -pl :peegeeq-outbox,:peegeeq-rest
+mvn test -Pcore-tests -pl :peegeeq-outbox,:peegeeq-rest 2>&1 | Tee-Object -FilePath logs\outbox-rest-core-20260501.txt
 ```
 
 ### Integration Testing Workflow
@@ -536,16 +568,16 @@ mvn test -Pcore-tests -pl :peegeeq-outbox,:peegeeq-rest
 ./scripts/run-tests.sh integration
 ```
 
-#### Using Maven Directly
-```bash
+#### Using Maven Directly (Windows/PowerShell)
+```powershell
 # Single module integration
-mvn test -Pintegration-tests -pl :peegeeq-outbox
+mvn test -Pintegration-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-integration-20260501.txt
 
 # Related modules integration
-mvn test -Pintegration-tests -pl :peegeeq-outbox,:peegeeq-bitemporal
+mvn test -Pintegration-tests -pl :peegeeq-outbox,:peegeeq-bitemporal 2>&1 | Tee-Object -FilePath logs\outbox-bitemporal-integration-20260501.txt
 
 # Full integration suite
-mvn test -Pintegration-tests
+mvn test -Pintegration-tests 2>&1 | Tee-Object -FilePath logs\integration-tests-20260501.txt
 ```
 
 ### Performance Testing Workflow
@@ -562,16 +594,16 @@ mvn test -Pintegration-tests
 ./scripts/run-tests.sh performance peegeeq-outbox peegeeq-test-support
 ```
 
-#### Using Maven Directly
-```bash
+#### Using Maven Directly (Windows/PowerShell)
+```powershell
 # Quick performance check
-mvn test -Pperformance-tests -pl :peegeeq-outbox
+mvn test -Pperformance-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-performance-20260501.txt
 
 # Comprehensive performance suite
-mvn test -Pperformance-tests
+mvn test -Pperformance-tests 2>&1 | Tee-Object -FilePath logs\performance-tests-20260501.txt
 
 # Performance comparison
-mvn test -Pperformance-tests -pl :peegeeq-outbox,:peegeeq-test-support
+mvn test -Pperformance-tests -pl :peegeeq-outbox,:peegeeq-test-support 2>&1 | Tee-Object -FilePath logs\outbox-test-support-performance-20260501.txt
 ```
 
 ## CI/CD Integration
@@ -595,7 +627,8 @@ mvn test -Pperformance-tests -pl :peegeeq-outbox,:peegeeq-test-support
   run: ./scripts/run-tests.sh all
 ```
 
-#### Using Maven Directly
+#### Using Maven Directly (Linux CI/CD agents)
+> **Note**: These CI/CD examples run on Linux agents. Use the PowerShell pattern with `Tee-Object` for Windows local development.
 ```yaml
 # Fast feedback (core tests)
 - name: Run Core Tests
@@ -638,7 +671,8 @@ stage('Performance Tests') {
 }
 ```
 
-#### Using Maven Directly
+#### Using Maven Directly (Linux CI/CD agents)
+> **Note**: These CI/CD examples run on Linux agents. Use the PowerShell pattern with `Tee-Object` for Windows local development.
 ```groovy
 // Fast feedback stage
 stage('Core Tests') {
@@ -682,13 +716,12 @@ chmod +x scripts/run-tests.sh
 ```
 
 **Tests failing:**
-```bash
+```powershell
 # Run with Maven verbose output
-mvn test -Pcore-tests -pl :peegeeq-outbox -X
+mvn test -Pcore-tests -pl :peegeeq-outbox -X 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-core-verbose-20260501.txt
 
-# Check individual module
-cd peegeeq-outbox
-mvn test -Pcore-tests
+# Check individual module (run from project root)
+mvn test -Pcore-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-core-20260501.txt
 ```
 
 ### Performance Issues
@@ -713,17 +746,17 @@ The script uses these Maven profiles internally:
 - `smoke-tests` - Ultra-fast validation  
 - `integration-tests` - TestContainers integration
 - `performance-tests` - Load and throughput
-- `slow-tests` - Long-running comprehensive
+- `slow-tests` - Long-running comprehensive (not available in `peegeeq-native`, `peegeeq-db`, `peegeeq-bitemporal` — use `-Pall-tests` in those modules)
 - `all-tests` - Complete test suite
 
-### Direct Maven Usage
+### Direct Maven Usage (Windows/PowerShell)
 If you prefer direct Maven commands:
-```bash
+```powershell
 # Equivalent to: ./scripts/run-tests.sh core peegeeq-outbox
-mvn test -Pcore-tests -pl :peegeeq-outbox
+mvn test -Pcore-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-core-20260501.txt
 
-# Equivalent to: ./scripts/run-tests.sh integration
-mvn test -Pintegration-tests -pl :peegeeq-db,:peegeeq-native,:peegeeq-bitemporal,:peegeeq-outbox,:peegeeq-rest,:peegeeq-test-support,:peegeeq-service-manager,:peegeeq-performance-test-harness,:peegeeq-api,:peegeeq-examples,:peegeeq-examples-spring
+# Equivalent to: ./scripts/run-tests.sh integration (all 16 modules)
+mvn test -Pintegration-tests -pl :peegeeq-api,:peegeeq-db,:peegeeq-native,:peegeeq-bitemporal,:peegeeq-outbox,:peegeeq-runtime,:peegeeq-rest,:peegeeq-rest-client,:peegeeq-test-support,:peegeeq-service-manager,:peegeeq-performance-test-harness,:peegeeq-migrations,:peegeeq-examples,:peegeeq-examples-spring,:peegeeq-openapi,:peegeeq-integration-tests 2>&1 | Tee-Object -FilePath logs\integration-all-modules-20260501.txt
 ```
 
 ## Test Categories Deep Dive
@@ -737,7 +770,7 @@ This section provides comprehensive information about the test categorization sy
 - **Target Time**: < 30 seconds total
 - **Includes**: Configuration loading, validation logic, basic CRUD operations, error handling
 - **Usage**: `@Tag(TestCategories.CORE)`
-- **Run**: `mvn test` (default) or `mvn test -Pcore-tests`
+- **Run**: `mvn test -Pcore-tests` (or plain `mvn test` — `core-tests` is `activeByDefault=true` in most modules)
 
 #### 🔧 **INTEGRATION** - Infrastructure Tests
 - **Purpose**: End-to-end functionality with real PostgreSQL/TestContainers
@@ -758,7 +791,7 @@ This section provides comprehensive information about the test categorization sy
 - **Target Time**: 5+ minutes
 - **Includes**: Full system integration, multi-container orchestration, extended reliability
 - **Usage**: `@Tag(TestCategories.SLOW)`
-- **Run**: `mvn test -Pall-tests` (includes slow)
+- **Run**: `mvn test -Pslow-tests` (or `mvn test -Pall-tests`). **Not defined in `peegeeq-native`, `peegeeq-db`, or `peegeeq-bitemporal`** — use `-Pall-tests` in those modules.
 
 #### 🔥 **SMOKE** - Ultra-Fast Verification
 - **Purpose**: Basic "system works" verification
@@ -766,13 +799,6 @@ This section provides comprehensive information about the test categorization sy
 - **Includes**: System startup, basic connections, minimal operations
 - **Usage**: `@Tag(TestCategories.SMOKE)`
 - **Run**: `mvn test -Psmoke-tests`
-
-#### ⚠️ **FLAKY** - Unstable Tests
-- **Purpose**: Tests that may fail due to timing/external factors
-- **Target Time**: Variable
-- **Includes**: Timing-sensitive tests, external dependencies
-- **Usage**: `@Tag(TestCategories.FLAKY)`
-- **Run**: `mvn test -Pfull-tests` (includes flaky)
 
 ### How to Categorize Your Tests
 
@@ -819,12 +845,6 @@ class MyTest {
 - ✅ Minimal assertions
 - ✅ High-level validation
 
-**FLAKY** if your test:
-- ⚠️ Sometimes fails due to timing
-- ⚠️ Depends on external services
-- ⚠️ Sensitive to system load
-- ⚠️ Needs investigation/fixing
-
 ### Benefits of Test Categorization
 
 #### For Developers
@@ -836,7 +856,6 @@ class MyTest {
 #### For CI/CD
 - **Efficient Pipelines**: Different test categories for different stages
 - **Resource Optimization**: Appropriate parallelism per category
-- **Failure Isolation**: Skip flaky tests in critical pipelines
 - **Scalable Testing**: Add categories as needed
 
 ### Migration Strategy
@@ -930,15 +949,15 @@ CATEGORIZED_MODULES=(
 **Note**: `peegeeq-management-ui` is excluded as it's a TypeScript/JavaScript UI project with separate test tooling (Vitest/Playwright, not Maven).
 
 **Maven Command Generation:**
-```bash
+```powershell
 # Single module
-mvn test -Pcore-tests -pl :peegeeq-outbox
+mvn test -Pcore-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-core-20260501.txt
 
 # Multiple modules
-mvn test -Pcore-tests -pl :peegeeq-db,:peegeeq-api
+mvn test -Pcore-tests -pl :peegeeq-db,:peegeeq-api 2>&1 | Tee-Object -FilePath logs\peegeeq-db-api-core-20260501.txt
 
-# All modules (12 Maven modules)
-mvn test -Pcore-tests -pl :peegeeq-db,:peegeeq-native,:peegeeq-bitemporal,:peegeeq-migrations,...
+# All modules (16 Maven modules)
+mvn test -Pcore-tests -pl :peegeeq-api,:peegeeq-db,:peegeeq-native,:peegeeq-bitemporal,:peegeeq-outbox,:peegeeq-runtime,:peegeeq-rest,:peegeeq-rest-client,:peegeeq-test-support,:peegeeq-service-manager,:peegeeq-performance-test-harness,:peegeeq-migrations,:peegeeq-examples,:peegeeq-examples-spring,:peegeeq-openapi,:peegeeq-integration-tests 2>&1 | Tee-Object -FilePath logs\core-all-modules-20260501.txt
 ```
 
 ## Integration with IDEs
@@ -1008,10 +1027,8 @@ mvn test -Pcore-tests -pl :peegeeq-db,:peegeeq-native,:peegeeq-bitemporal,:peege
 ## Migration from Legacy Testing
 
 ### Before Test Categorization
-```bash
-# Old way - slow and inefficient
-mvn test  # 12+ minutes for everything
-```
+
+Previously: `mvn test` with no profile — ran all tests, 12+ minutes with no control over what executed.
 
 ### After Test Categorization
 ```bash
@@ -1073,5 +1090,5 @@ The script is designed to be easily extensible:
 
 *This comprehensive guide covers all aspects of the PeeGeeQ testing system. The master test script transforms development workflow from slow, monolithic testing to fast, selective, and efficient test execution. For questions or issues, refer to the troubleshooting section or check the script's built-in help: `./scripts/run-tests.sh help`*
 
-**Last Updated**: 2026-01-07
-**Version**: 1.1
+**Last Updated**: 2026-05-01
+**Version**: 1.2
