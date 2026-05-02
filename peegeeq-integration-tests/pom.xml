@@ -145,7 +145,7 @@
             </activation>
             <properties>
                 <test.groups>smoke</test.groups>
-                <test.excludedGroups>flaky</test.excludedGroups>
+                <test.excludedGroups></test.excludedGroups>
                 <test.parallel>classes</test.parallel>
                 <test.threadCount>2</test.threadCount>
                 <test.timeout.default>5m</test.timeout.default>
@@ -158,7 +158,7 @@
             <id>integration-tests</id>
             <properties>
                 <test.groups>integration</test.groups>
-                <test.excludedGroups>flaky</test.excludedGroups>
+                <test.excludedGroups></test.excludedGroups>
                 <test.parallel>classes</test.parallel>
                 <test.threadCount>2</test.threadCount>
                 <test.timeout.default>5m</test.timeout.default>
@@ -171,7 +171,7 @@
             <id>all-tests</id>
             <properties>
                 <test.groups>smoke,integration</test.groups>
-                <test.excludedGroups>flaky</test.excludedGroups>
+                <test.excludedGroups></test.excludedGroups>
                 <test.parallel>classes</test.parallel>
                 <test.threadCount>2</test.threadCount>
                 <test.timeout.default>10m</test.timeout.default>
