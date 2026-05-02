@@ -23,6 +23,7 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Isolated;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -53,6 +54,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.PERFORMANCE)
+@Isolated("Performance test requires exclusive database access")
 public class FanoutPerformanceValidationTest extends BaseIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(FanoutPerformanceValidationTest.class);
@@ -83,10 +85,10 @@ public class FanoutPerformanceValidationTest extends BaseIntegrationTest {
             .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-            .maxSize(3)
+            .maxSize(5)
             .shared(false)
-            .idleTimeout(Duration.ofSeconds(2))
-            .connectionTimeout(Duration.ofSeconds(5))
+            .idleTimeout(Duration.ofSeconds(5))
+            .connectionTimeout(Duration.ofSeconds(30))
             .build();
 
         connectionManager.getOrCreateReactivePool("peegeeq-main", connectionConfig, poolConfig);
@@ -290,7 +292,7 @@ public class FanoutPerformanceValidationTest extends BaseIntegrationTest {
 
             // Mark all messages as completed
             for (OutboxMessage message : messages) {
-                completionTracker.markCompleted(message.getId(), topic, groupName)
+                completionTracker.markCompleted(message.getId(), groupName, topic)
                     .toCompletionStage().toCompletableFuture().get();
             }
 

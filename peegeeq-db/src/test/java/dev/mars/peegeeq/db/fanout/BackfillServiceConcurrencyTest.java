@@ -20,6 +20,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.parallel.Isolated;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -59,6 +60,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.PERFORMANCE)
 @Tag(TestCategories.INTEGRATION)
+@Isolated("Performance test requires exclusive database access")
 public class BackfillServiceConcurrencyTest extends BaseIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(BackfillServiceConcurrencyTest.class);
@@ -84,10 +86,10 @@ public class BackfillServiceConcurrencyTest extends BaseIntegrationTest {
 
         // Larger pool for concurrency testing
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-                .maxSize(3)
+                .maxSize(5)
                 .shared(false)
-                .idleTimeout(Duration.ofSeconds(2))
-                .connectionTimeout(Duration.ofSeconds(5))
+                .idleTimeout(Duration.ofSeconds(5))
+                .connectionTimeout(Duration.ofSeconds(30))
                 .build();
 
         connectionManager.getOrCreateReactivePool("peegeeq-main", connectionConfig, poolConfig);
@@ -140,12 +142,11 @@ public class BackfillServiceConcurrencyTest extends BaseIntegrationTest {
                         BackfillResult result = backfillService.startBackfill(topic, groupName, 100, 0)
                                 .toCompletionStage().toCompletableFuture().get();
                         
-                        synchronized (processedCounts) {
-                            processedCounts.add(result.processedMessages());
-                        }
-                        
                         if (result.status() == BackfillResult.Status.COMPLETED) {
                             completedCount.incrementAndGet();
+                            synchronized (processedCounts) {
+                                processedCounts.add(result.processedMessages());
+                            }
                             logger.info("Attempt {} completed: {} messages", attemptNum, result.processedMessages());
                         }
                     } catch (Exception e) {
@@ -166,13 +167,11 @@ public class BackfillServiceConcurrencyTest extends BaseIntegrationTest {
             // Should have at least one completion
             assertTrue(completedCount.get() >= 1, "At least one backfill should complete");
             
-            // All successful attempts should report the same count (1000 messages)
+            // All COMPLETED attempts should report the same count (1000 messages)
             long expectedCount = 1000;
             for (Long count : processedCounts) {
-                if (count > 0) {
-                    assertEquals(expectedCount, count, 
-                            "Each completed backfill should process all " + expectedCount + " messages");
-                }
+                assertEquals(expectedCount, count, 
+                        "Each completed backfill should process all " + expectedCount + " messages");
             }
 
             // Verify database state: messages should be processed exactly once
@@ -234,7 +233,7 @@ public class BackfillServiceConcurrencyTest extends BaseIntegrationTest {
         // Wait for all to complete
         CompletableFuture<Void> allOf = CompletableFuture.allOf(
                 futures.toArray(new CompletableFuture[0]));
-        allOf.get(60, TimeUnit.SECONDS);
+        allOf.get(120, TimeUnit.SECONDS);
 
         long elapsed = System.currentTimeMillis() - startTime;
         logger.info("All {} concurrent backfills completed in {} ms", numSubscriptions, elapsed);

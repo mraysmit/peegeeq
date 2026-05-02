@@ -4,17 +4,15 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.Isolated;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
-import org.testcontainers.junit.jupiter.Container;
-import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.lang.management.ManagementFactory;
 import java.lang.management.ThreadInfo;
@@ -46,56 +44,43 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.SLOW)
 @DisplayName("Resource Leak Detection Tests")
-@Testcontainers
+@ExtendWith(SharedPostgresTestExtension.class)
 @Isolated("Resource leak detection must run in complete isolation")
 @org.junit.jupiter.api.parallel.Execution(org.junit.jupiter.api.parallel.ExecutionMode.SAME_THREAD)
 public class ResourceLeakDetectionTest {
     private static final Logger logger = LoggerFactory.getLogger(ResourceLeakDetectionTest.class);
-    
-    @Container
-    private static final PostgreSQLContainer postgres = createPostgresContainer();
 
-    private static PostgreSQLContainer createPostgresContainer() {
-        PostgreSQLContainer container = new PostgreSQLContainer(PgTestImageConstant.POSTGRES_IMAGE);
-        container.withDatabaseName("peegeeq_test");
-        container.withUsername("peegeeq_user");
-        container.withPassword("peegeeq_pass");
-        container.withReuse(true);
-        return container;
+    private static PostgreSQLContainer getPostgres() {
+        return SharedPostgresTestExtension.getContainer();
     }
-    
+
     private PeeGeeQConfiguration configuration;
     private PeeGeeQManager testManager;
     private Set<Long> initialThreadIds;
     private int initialThreadCount;
-    
-    @BeforeAll
-    static void setUpDatabase() {
-        // Ensure TestContainers is started
-        postgres.start();
-    }
-    
+
     @BeforeEach
     void setUp() throws Exception {
         logger.info("[SETUP] Configuring database and starting PeeGeeQManager");
 
         // Set up database connection properties from TestContainers BEFORE creating configuration
         // Use the correct property names from peegeeq-default.properties
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
+        System.setProperty("peegeeq.database.host", getPostgres().getHost());
+        System.setProperty("peegeeq.database.port", String.valueOf(getPostgres().getFirstMappedPort()));
+        System.setProperty("peegeeq.database.name", getPostgres().getDatabaseName());
+        System.setProperty("peegeeq.database.username", getPostgres().getUsername());
+        System.setProperty("peegeeq.database.password", getPostgres().getPassword());
+        System.setProperty("peegeeq.database.pool.min-size", "1");
         System.setProperty("peegeeq.database.pool.max-size", "3");
         System.setProperty("peegeeq.database.pool.shared", "false");
-        System.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
-        System.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
+        System.setProperty("peegeeq.database.pool.idle-timeout-ms", "5000");
+        System.setProperty("peegeeq.database.pool.connection-timeout-ms", "30000");
 
         // CRITICAL: Disable migrations to avoid duplicate key violations with shared TestContainer
         System.setProperty("peegeeq.migration.enabled", "false");
 
         logger.info("TestContainers database: {}:{}/{}",
-            postgres.getHost(), postgres.getFirstMappedPort(), postgres.getDatabaseName());
+            getPostgres().getHost(), getPostgres().getFirstMappedPort(), getPostgres().getDatabaseName());
 
         // Create configuration AFTER setting system properties
         configuration = new PeeGeeQConfiguration();
@@ -293,9 +278,17 @@ public class ResourceLeakDetectionTest {
     @Test
     @DisplayName("Should not leak Vert.x event loop threads")
     void testNoVertxEventLoopLeaks() throws Exception {
+        // Capture thread IDs before creating this test's manager
+        Set<Long> threadsBefore = getCurrentThreadIds();
+
         // Create and start test manager
         testManager = new PeeGeeQManager(configuration, new SimpleMeterRegistry());
         testManager.start().await();
+
+        // Capture thread IDs created by this manager's startup (including event loop threads)
+        Set<Long> threadsAfterStart = getCurrentThreadIds();
+        Set<Long> thisTestThreadIds = new HashSet<>(threadsAfterStart);
+        thisTestThreadIds.removeAll(threadsBefore);
 
         // Close test manager — Vert.x runtime is gone after this
         testManager.closeReactive().await();
@@ -309,36 +302,23 @@ public class ResourceLeakDetectionTest {
         // Wait for any remaining Vert.x threads from previous tests to terminate
         waitForVertxThreadsToTerminate();
 
-        // Check for Vert.x event loop threads
+        // Check only the specific threads created by THIS test's manager
         ThreadMXBean threadMXBean = ManagementFactory.getThreadMXBean();
-        long[] threadIds = threadMXBean.getAllThreadIds();
 
-        Set<String> allVertxThreads = new HashSet<>();
-        for (long threadId : threadIds) {
+        Set<String> leakedEventLoopThreads = new HashSet<>();
+        for (long threadId : thisTestThreadIds) {
             ThreadInfo threadInfo = threadMXBean.getThreadInfo(threadId);
             if (threadInfo != null && threadInfo.getThreadName().contains("vert.x-eventloop")) {
-                allVertxThreads.add(threadInfo.getThreadName());
+                leakedEventLoopThreads.add(threadInfo.getThreadName() + " (id=" + threadId + ")");
             }
         }
 
-        // Since this test is @Isolated, any Vert.x threads detected are likely from other parallel tests
-        // that are still cleaning up. We'll be more lenient and only fail if there are an excessive number
-        // of threads (indicating a real leak from this test)
-        int maxAllowedVertxThreads = 5; // Allow some threads from other parallel tests
-
-        if (!allVertxThreads.isEmpty()) {
-            logger.warn("Detected {} Vert.x event loop threads (likely from other parallel tests): {}",
-                allVertxThreads.size(), allVertxThreads);
+        if (!leakedEventLoopThreads.isEmpty()) {
+            logger.error("This test's Vert.x event loop threads still alive after manager.close(): {}", leakedEventLoopThreads);
         }
 
-        // Only fail if there are excessive threads indicating a real leak
-        if (allVertxThreads.size() > maxAllowedVertxThreads) {
-            logger.error("Excessive Vert.x event loop threads detected: {}", allVertxThreads);
-            assertEquals(0, allVertxThreads.size(),
-                "Excessive Vert.x event loop threads detected (>" + maxAllowedVertxThreads + "). Found: " + allVertxThreads);
-        } else {
-            logger.info("Vert.x thread count ({}) is within acceptable range for parallel test execution", allVertxThreads.size());
-        }
+        assertEquals(0, leakedEventLoopThreads.size(),
+            "Vert.x event loop threads created by this test should not outlive manager.close(). Found: " + leakedEventLoopThreads);
     }
     
     @Test
