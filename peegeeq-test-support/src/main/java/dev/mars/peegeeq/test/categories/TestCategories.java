@@ -30,7 +30,6 @@ package dev.mars.peegeeq.test.categories;
  *   <li><strong>PERFORMANCE</strong> - Load and throughput tests (2-5 minutes)</li>
  *   <li><strong>SMOKE</strong> - Ultra-fast basic verification (&lt;10s total)</li>
  *   <li><strong>SLOW</strong> - Long-running comprehensive tests (5+ minutes)</li>
- *   <li><strong>FLAKY</strong> - Unstable tests needing investigation</li>
  * </ul>
  * 
  * <h3>Usage Examples:</h3>
@@ -172,21 +171,6 @@ public final class TestCategories {
      * <p>Examples: Comprehensive performance demos, stress tests</p>
      */
     public static final String SLOW = "slow";
-    
-    /**
-     * Flaky tests - Unstable tests needing investigation.
-     * 
-     * <p>These tests should:</p>
-     * <ul>
-     *   <li>Be excluded from regular test runs</li>
-     *   <li>Be investigated and fixed</li>
-     *   <li>Be moved to appropriate category once stable</li>
-     *   <li>Include detailed logging for debugging</li>
-     * </ul>
-     * 
-     * <p>Examples: Tests with timing issues, environment-dependent tests</p>
-     */
-    public static final String FLAKY = "flaky";
     
     /**
      * Private constructor to prevent instantiation of utility class.
