@@ -49,6 +49,14 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
         logger.info("Starting enhanced test with setup ID: {}", testSetupId);
     }
 
+    @AfterEach
+    void tearDown() throws Exception {
+        if (setupService != null) {
+            awaitFuture(setupService.close());
+            setupService = null;
+        }
+    }
+
     @Test
     @Order(1)
     void testSetupServiceBasicDatabaseCreation() throws Exception {
@@ -94,10 +102,6 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
         // Cleanup
         setupService.destroySetup(testSetupId).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
         logger.info("Setup service basic database creation test passed");
-
-        // Cleanup
-        setupService.destroySetup(testSetupId).toCompletionStage().toCompletableFuture().get(30, TimeUnit.SECONDS);
-        logger.info("Setup service with queue factory registration test passed");
     }
 
     @Test

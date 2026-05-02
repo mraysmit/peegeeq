@@ -37,6 +37,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.parallel.Isolated;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -68,6 +69,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.PERFORMANCE)
 @Tag(TestCategories.INTEGRATION)
+@Isolated("Performance test requires exclusive database access")
 public class BackfillScopePerformanceTest extends BaseIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(BackfillScopePerformanceTest.class);
@@ -92,10 +94,10 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
                 .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-                .maxSize(3)
+                .maxSize(5)
                 .shared(false)
-                .idleTimeout(Duration.ofSeconds(2))
-                .connectionTimeout(Duration.ofSeconds(5))
+                .idleTimeout(Duration.ofSeconds(5))
+                .connectionTimeout(Duration.ofSeconds(30))
                 .build();
 
         connectionManager.getOrCreateReactivePool("peegeeq-main", connectionConfig, poolConfig);
