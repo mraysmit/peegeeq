@@ -27,7 +27,6 @@ import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -62,7 +61,7 @@ public class ResurrectionReBackfillIntegrationTest extends BaseIntegrationTest {
     private PgConnectionManager connectionManager;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp() {
         connectionManager = new PgConnectionManager(manager.getVertx(), null);
 
         PostgreSQLContainer postgres = getPostgres();
@@ -102,7 +101,7 @@ public class ResurrectionReBackfillIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testResurrectionTriggersBackfillForCleanedUpMessages(VertxTestContext testContext) throws Exception {
+    void testResurrectionTriggersBackfillForCleanedUpMessages(VertxTestContext testContext) {
         logger.info("=== Testing DEAD→ACTIVE resurrection triggers re-backfill ===");
 
         String topic = "test-resurrect-backfill-" + UUID.randomUUID().toString().substring(0, 8);
@@ -110,7 +109,6 @@ public class ResurrectionReBackfillIntegrationTest extends BaseIntegrationTest {
         String lateGroup = "late-joiner";
         int messageCount = 5;
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(TopicConfig.builder()
                 .topic(topic)
                 .semantics(TopicSemantics.PUB_SUB)
@@ -151,30 +149,22 @@ public class ResurrectionReBackfillIntegrationTest extends BaseIntegrationTest {
                 assertEquals("COMPLETED", resurrected.backfillStatus(), "Backfill should complete after resurrection");
                 return countMessagesWithRequiredGroups(topic, 2);
             })
-            .onSuccess(rebackfilledMsgs -> {
-                try {
-                    assertEquals(messageCount, rebackfilledMsgs,
-                        "After resurrection re-backfill, messages should require 2 consumer groups again");
-                    logger.info("Resurrection triggers backfill test passed");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(rebackfilledMsgs -> testContext.verify(() -> {
+                assertEquals(messageCount, rebackfilledMsgs,
+                    "After resurrection re-backfill, messages should require 2 consumer groups again");
+                logger.info("Resurrection triggers backfill test passed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testResurrectionWithoutBackfillServiceStillSucceeds(VertxTestContext testContext) throws Exception {
+    void testResurrectionWithoutBackfillServiceStillSucceeds(VertxTestContext testContext) {
         logger.info("=== Testing resurrection without BackfillService still works ===");
 
         String topic = "test-resurrect-nosvc-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "no-backfill-svc-group";
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(TopicConfig.builder()
                 .topic(topic)
                 .semantics(TopicSemantics.PUB_SUB)
@@ -183,24 +173,17 @@ public class ResurrectionReBackfillIntegrationTest extends BaseIntegrationTest {
             .compose(v -> setSubscriptionStatus(topic, groupName, "DEAD"))
             .compose(v -> subscriptionManager.updateHeartbeat(topic, groupName))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(resurrected -> {
-                try {
-                    assertEquals(SubscriptionState.ACTIVE, resurrected.state(),
-                        "Should be ACTIVE after heartbeat, even without BackfillService");
-                    logger.info("Resurrection without BackfillService test passed");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(resurrected -> testContext.verify(() -> {
+                assertEquals(SubscriptionState.ACTIVE, resurrected.state(),
+                    "Should be ACTIVE after heartbeat, even without BackfillService");
+                logger.info("Resurrection without BackfillService test passed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testResurrectionResetsBackfillStatusBeforeReBackfill(VertxTestContext testContext) throws Exception {
+    void testResurrectionResetsBackfillStatusBeforeReBackfill(VertxTestContext testContext) {
         logger.info("=== Testing resurrection resets backfill status before triggering re-backfill ===");
 
         String topic = "test-resurrect-reset-" + UUID.randomUUID().toString().substring(0, 8);
@@ -208,7 +191,6 @@ public class ResurrectionReBackfillIntegrationTest extends BaseIntegrationTest {
         String lateGroup = "late-reset-group";
         int messageCount = 3;
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(TopicConfig.builder()
                 .topic(topic)
                 .semantics(TopicSemantics.PUB_SUB)
@@ -239,24 +221,17 @@ public class ResurrectionReBackfillIntegrationTest extends BaseIntegrationTest {
                 .cleanupDeadGroup(topic, lateGroup).mapEmpty())
             .compose(v -> subscriptionManager.updateHeartbeat(topic, lateGroup))
             .compose(v -> subscriptionManager.getSubscription(topic, lateGroup))
-            .onSuccess(resurrected -> {
-                try {
-                    assertEquals(SubscriptionState.ACTIVE, resurrected.state());
-                    assertEquals("COMPLETED", resurrected.backfillStatus(),
-                        "Re-backfill should complete fresh after resurrection");
-                    assertTrue(resurrected.backfillProcessedMessages() >= messageCount,
-                        "Re-backfill must process messages (not skip as ALREADY_COMPLETED). " +
-                        "Processed: " + resurrected.backfillProcessedMessages());
-                    logger.info("Resurrection resets backfill status test passed");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(resurrected -> testContext.verify(() -> {
+                assertEquals(SubscriptionState.ACTIVE, resurrected.state());
+                assertEquals("COMPLETED", resurrected.backfillStatus(),
+                    "Re-backfill should complete fresh after resurrection");
+                assertTrue(resurrected.backfillProcessedMessages() >= messageCount,
+                    "Re-backfill must process messages (not skip as ALREADY_COMPLETED). " +
+                    "Processed: " + resurrected.backfillProcessedMessages());
+                logger.info("Resurrection resets backfill status test passed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     /**
@@ -275,14 +250,13 @@ public class ResurrectionReBackfillIntegrationTest extends BaseIntegrationTest {
      * being silently swallowed.</p>
      */
     @Test
-    void testResurrectionBackfillFailurePropagates(VertxTestContext testContext) throws Exception {
+    void testResurrectionBackfillFailurePropagates(VertxTestContext testContext) {
         logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Resurrection re-backfill failed') is EXPECTED — this test deliberately uses a broken connection manager to verify backfill failure propagates from heartbeat");
         logger.info("=== Testing resurrection backfill failure propagates ===");
 
         String topic = "test-resurrect-fail-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "backfill-fail-group";
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(TopicConfig.builder()
                 .topic(topic)
                 .semantics(TopicSemantics.PUB_SUB)
@@ -309,13 +283,11 @@ public class ResurrectionReBackfillIntegrationTest extends BaseIntegrationTest {
                 return Future.succeededFuture();
             })
             .onSuccess(v -> testContext.completeNow())
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testActiveHeartbeatDoesNotTriggerBackfill(VertxTestContext testContext) throws Exception {
+    void testActiveHeartbeatDoesNotTriggerBackfill(VertxTestContext testContext) {
         logger.info("=== Testing ACTIVE heartbeat does NOT trigger backfill ===");
 
         String topic = "test-active-no-backfill-" + UUID.randomUUID().toString().substring(0, 8);
@@ -324,7 +296,6 @@ public class ResurrectionReBackfillIntegrationTest extends BaseIntegrationTest {
         int messageCount = 3;
 
         AtomicReference<String> backfillStatusRef = new AtomicReference<>();
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(TopicConfig.builder()
                 .topic(topic)
                 .semantics(TopicSemantics.PUB_SUB)
@@ -357,30 +328,22 @@ public class ResurrectionReBackfillIntegrationTest extends BaseIntegrationTest {
                     "Messages should still require 2 groups — ACTIVE heartbeat should not trigger backfill");
                 return subscriptionManager.getSubscription(topic, activeGroup);
             })
-            .onSuccess(after -> {
-                try {
-                    assertEquals(backfillStatusRef.get(), after.backfillStatus(),
-                        "Backfill status should be unchanged after ACTIVE heartbeat");
-                    logger.info("ACTIVE heartbeat does not trigger backfill test passed");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(after -> testContext.verify(() -> {
+                assertEquals(backfillStatusRef.get(), after.backfillStatus(),
+                    "Backfill status should be unchanged after ACTIVE heartbeat");
+                logger.info("ACTIVE heartbeat does not trigger backfill test passed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testPausedHeartbeatDoesNotTriggerBackfill(VertxTestContext testContext) throws Exception {
+    void testPausedHeartbeatDoesNotTriggerBackfill(VertxTestContext testContext) {
         logger.info("=== Testing PAUSED heartbeat does NOT trigger backfill ===");
 
         String topic = "test-paused-no-backfill-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "paused-group";
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(TopicConfig.builder()
                 .topic(topic)
                 .semantics(TopicSemantics.PUB_SUB)
@@ -397,20 +360,13 @@ public class ResurrectionReBackfillIntegrationTest extends BaseIntegrationTest {
                 return subscriptionManager.updateHeartbeat(topic, groupName);
             })
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(afterHeartbeat -> {
-                try {
-                    assertEquals(SubscriptionState.PAUSED, afterHeartbeat.state(),
-                        "PAUSED subscription should stay PAUSED after heartbeat");
-                    logger.info("PAUSED heartbeat does not trigger backfill test passed");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(afterHeartbeat -> testContext.verify(() -> {
+                assertEquals(SubscriptionState.PAUSED, afterHeartbeat.state(),
+                    "PAUSED subscription should stay PAUSED after heartbeat");
+                logger.info("PAUSED heartbeat does not trigger backfill test passed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     // --- Helper methods ---

@@ -39,7 +39,6 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -80,20 +79,20 @@ public class PerformanceTuningExampleTest {
     }
     
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws InterruptedException {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down Performance Tuning Example Test");
         
         if (manager != null) {
             manager.closeReactive()
-                .onComplete(v -> {
+                .onSuccess(v -> {
                     logger.info("✓ Performance Tuning Example Test teardown completed");
                     testContext.completeNow();
-                });
+                })
+                .onFailure(testContext::failNow);
         } else {
             logger.info("✓ Performance Tuning Example Test teardown completed");
             testContext.completeNow();
         }
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -101,7 +100,7 @@ public class PerformanceTuningExampleTest {
      * Validates database connection pool tuning strategies
      */
     @Test
-    void testConnectionPoolOptimization(VertxTestContext testContext) throws InterruptedException {
+    void testConnectionPoolOptimization(VertxTestContext testContext) {
         logger.info("=== Testing Connection Pool Optimization ===");
         
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance"), new SimpleMeterRegistry());
@@ -116,8 +115,6 @@ public class PerformanceTuningExampleTest {
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -125,7 +122,7 @@ public class PerformanceTuningExampleTest {
      * Validates message throughput and processing optimization
      */
     @Test
-    void testThroughputOptimization(VertxTestContext testContext) throws InterruptedException {
+    void testThroughputOptimization(VertxTestContext testContext) {
         logger.info("=== Testing Throughput Optimization ===");
         
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance"), new SimpleMeterRegistry());
@@ -141,8 +138,6 @@ public class PerformanceTuningExampleTest {
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -150,7 +145,7 @@ public class PerformanceTuningExampleTest {
      * Validates end-to-end latency reduction techniques
      */
     @Test
-    void testLatencyOptimization(VertxTestContext testContext) throws InterruptedException {
+    void testLatencyOptimization(VertxTestContext testContext) {
         logger.info("=== Testing Latency Optimization ===");
         
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance"), new SimpleMeterRegistry());
@@ -167,8 +162,6 @@ public class PerformanceTuningExampleTest {
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -176,7 +169,7 @@ public class PerformanceTuningExampleTest {
      * Validates batch processing for improved performance
      */
     @Test
-    void testBatchProcessingOptimization(VertxTestContext testContext) throws InterruptedException {
+    void testBatchProcessingOptimization(VertxTestContext testContext) {
         logger.info("=== Testing Batch Processing Optimization ===");
         
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance"), new SimpleMeterRegistry());
@@ -191,8 +184,6 @@ public class PerformanceTuningExampleTest {
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -200,7 +191,7 @@ public class PerformanceTuningExampleTest {
      * Validates multi-threaded processing strategies
      */
     @Test
-    void testConcurrentProcessingOptimization(VertxTestContext testContext) throws InterruptedException {
+    void testConcurrentProcessingOptimization(VertxTestContext testContext) {
         logger.info("=== Testing Concurrent Processing Optimization ===");
         
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance"), new SimpleMeterRegistry());
@@ -215,8 +206,6 @@ public class PerformanceTuningExampleTest {
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -224,7 +213,7 @@ public class PerformanceTuningExampleTest {
      * Validates memory usage and garbage collection optimization
      */
     @Test
-    void testMemoryOptimization(VertxTestContext testContext) throws InterruptedException {
+    void testMemoryOptimization(VertxTestContext testContext) {
         logger.info("=== Testing Memory Optimization ===");
         
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance"), new SimpleMeterRegistry());
@@ -243,8 +232,6 @@ public class PerformanceTuningExampleTest {
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     // Helper methods that replicate the original example's functionality

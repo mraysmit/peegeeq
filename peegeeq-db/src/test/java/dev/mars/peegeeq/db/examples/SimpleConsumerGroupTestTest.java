@@ -36,7 +36,6 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -97,7 +96,7 @@ public class SimpleConsumerGroupTestTest {
      * Validates simple consumer group setup and operation
      */
     @Test
-    void testBasicConsumerGroup(VertxTestContext testContext) throws InterruptedException {
+    void testBasicConsumerGroup(VertxTestContext testContext) {
         logger.info("=== Testing Basic Consumer Group ===");
         
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
@@ -117,8 +116,6 @@ public class SimpleConsumerGroupTestTest {
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -126,7 +123,7 @@ public class SimpleConsumerGroupTestTest {
      * Validates consumer-specific message filtering
      */
     @Test
-    void testMessageFiltering(VertxTestContext testContext) throws InterruptedException {
+    void testMessageFiltering(VertxTestContext testContext) {
         logger.info("=== Testing Message Filtering ===");
         
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
@@ -146,8 +143,6 @@ public class SimpleConsumerGroupTestTest {
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -155,7 +150,7 @@ public class SimpleConsumerGroupTestTest {
      * Validates concurrent message processing across consumers
      */
     @Test
-    void testMessageProcessing(VertxTestContext testContext) throws InterruptedException {
+    void testMessageProcessing(VertxTestContext testContext) {
         logger.info("=== Testing Message Processing ===");
         
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
@@ -174,8 +169,6 @@ public class SimpleConsumerGroupTestTest {
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -183,7 +176,7 @@ public class SimpleConsumerGroupTestTest {
      * Validates adding and managing multiple consumers
      */
     @Test
-    void testConsumerManagement(VertxTestContext testContext) throws InterruptedException {
+    void testConsumerManagement(VertxTestContext testContext) {
         logger.info("=== Testing Consumer Management ===");
         
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
@@ -202,8 +195,6 @@ public class SimpleConsumerGroupTestTest {
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     // Helper methods that replicate the original example's functionality

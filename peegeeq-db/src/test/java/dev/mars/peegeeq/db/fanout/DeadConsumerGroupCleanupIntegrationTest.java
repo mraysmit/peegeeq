@@ -33,7 +33,6 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -62,7 +61,7 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
     private DeadConsumerGroupCleanup cleanup;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp() {
         connectionManager = new PgConnectionManager(manager.getVertx(), null);
 
         PostgreSQLContainer postgres = getPostgres();
@@ -112,7 +111,7 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
      * - Since completed (1) >= required (1), all 3 messages auto-complete
      */
     @Test
-    void testCleanupDecrementsAndAutoCompletes(VertxTestContext testContext) throws InterruptedException {
+    void testCleanupDecrementsAndAutoCompletes(VertxTestContext testContext) {
         String topic = uniqueTopic("cleanup-basic");
 
         createPubSubTopic(topic)
@@ -141,15 +140,13 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
      * Test that cleanup is idempotent — running it twice doesn't double-decrement.
      */
     @Test
-    void testCleanupIsIdempotent(VertxTestContext testContext) throws InterruptedException {
+    void testCleanupIsIdempotent(VertxTestContext testContext) {
         String topic = uniqueTopic("cleanup-idempotent");
 
         createPubSubTopic(topic)
@@ -177,8 +174,6 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -188,7 +183,7 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
      * Required goes from 3 to 2, and since completed=2 >= required=2, messages auto-complete.
      */
     @Test
-    void testDoesNotAffectCompletedGroups(VertxTestContext testContext) throws InterruptedException {
+    void testDoesNotAffectCompletedGroups(VertxTestContext testContext) {
         String topic = uniqueTopic("cleanup-completed");
 
         createPubSubTopic(topic)
@@ -233,8 +228,6 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -245,7 +238,7 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
      * - Messages 2,3: group-b has no tracking row (should decrement)
      */
     @Test
-    void testPartiallyProcessedDeadGroup(VertxTestContext testContext) throws InterruptedException {
+    void testPartiallyProcessedDeadGroup(VertxTestContext testContext) {
         String topic = uniqueTopic("cleanup-partial");
 
         createPubSubTopic(topic)
@@ -275,15 +268,13 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
      * Test cleanup when no messages exist for the dead group (no-op).
      */
     @Test
-    void testCleanupWithNoMessages(VertxTestContext testContext) throws InterruptedException {
+    void testCleanupWithNoMessages(VertxTestContext testContext) {
         String topic = uniqueTopic("cleanup-empty");
 
         createPubSubTopic(topic)
@@ -299,8 +290,6 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -310,7 +299,7 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
      * but then dies. Cleanup should remove those orphaned rows.
      */
     @Test
-    void testRemovesOrphanedTrackingRows(VertxTestContext testContext) throws InterruptedException {
+    void testRemovesOrphanedTrackingRows(VertxTestContext testContext) {
         String topic = uniqueTopic("cleanup-orphans");
 
         createPubSubTopic(topic)
@@ -348,15 +337,13 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
      * Test cleanupAllDeadGroups discovers and cleans multiple dead groups.
      */
     @Test
-    void testCleanupAllDeadGroups(VertxTestContext testContext) throws InterruptedException {
+    void testCleanupAllDeadGroups(VertxTestContext testContext) {
         String topic = uniqueTopic("cleanup-all");
 
         createPubSubTopic(topic)
@@ -400,15 +387,13 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
      * Test that cleanup doesn't decrement below zero.
      */
     @Test
-    void testDoesNotDecrementBelowZero(VertxTestContext testContext) throws InterruptedException {
+    void testDoesNotDecrementBelowZero(VertxTestContext testContext) {
         String topic = uniqueTopic("cleanup-zero-guard");
 
         createPubSubTopic(topic)
@@ -436,8 +421,6 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
         /**
@@ -446,7 +429,7 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
          * be auto-completed instead of being left PENDING/PROCESSING.
          */
         @Test
-        void testDecrementToZeroAutoCompletesMessage(VertxTestContext testContext) throws InterruptedException {
+        void testDecrementToZeroAutoCompletesMessage(VertxTestContext testContext) {
         String topic = uniqueTopic("cleanup-to-zero");
 
         createPubSubTopic(topic)
@@ -484,8 +467,6 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         }
 
         /**
@@ -494,7 +475,7 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
          * dead group subscribed (the dead group was never part of required quorum).
          */
         @Test
-        void testDoesNotDecrementMessagesCreatedBeforeDeadGroupSubscribed(VertxTestContext testContext) throws InterruptedException {
+        void testDoesNotDecrementMessagesCreatedBeforeDeadGroupSubscribed(VertxTestContext testContext) {
         String topic = uniqueTopic("cleanup-late-subscriber");
 
         createPubSubTopic(topic)
@@ -533,8 +514,6 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         }
 
     // ========================================================================
@@ -744,7 +723,7 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
      * so the batch can continue.</p>
      */
     @Test
-    void testCleanupContinuesAfterOneGroupFails(VertxTestContext testContext) throws InterruptedException {
+    void testCleanupContinuesAfterOneGroupFails(VertxTestContext testContext) {
         logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Cleanup failed for group=...') is EXPECTED — this test deliberately injects a RuntimeException to verify cleanup resilience");
         String topicOk = uniqueTopic("resilience-ok");
         String topicFail = uniqueTopic("resilience-fail");
@@ -832,7 +811,5 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 }

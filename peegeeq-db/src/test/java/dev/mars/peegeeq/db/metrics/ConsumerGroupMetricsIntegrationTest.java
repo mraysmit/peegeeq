@@ -28,8 +28,6 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -123,30 +121,21 @@ public class ConsumerGroupMetricsIntegrationTest extends BaseIntegrationTest {
     @Test
     void testActiveSubscriptionGaugeAfterRefresh(VertxTestContext testContext) throws Exception {
         String topic = uniqueTopic("metrics-active");
-
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         createTopic(topic)
                 .compose(v -> subscribeWithDefaults(topic, "group-1"))
                 .compose(v -> subscribeWithDefaults(topic, "group-2"))
                 .compose(v -> consumerGroupMetrics.refresh())
-                .onSuccess(v -> {
-                    try {
-                        double activeCount = getGaugeValue("peegeeq.subscriptions.active");
+                .onSuccess(v -> testContext.verify(() -> {
+                double activeCount = getGaugeValue("peegeeq.subscriptions.active");
                         assertTrue(activeCount >= 2,
                                 "Active subscription gauge should be >= 2 after creating 2 subscriptions, but was " + activeCount);
                         double totalCount = getGaugeValue("peegeeq.subscriptions.total");
                         assertTrue(totalCount >= 2,
                                 "Total subscription gauge should be >= 2, but was " + totalCount);
                         logger.info("Active subscription gauge verified: active={}, total={}", activeCount, totalCount);
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                })
-                .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     /**
@@ -157,8 +146,6 @@ public class ConsumerGroupMetricsIntegrationTest extends BaseIntegrationTest {
     void testDeadSubscriptionGaugeAfterDetection(VertxTestContext testContext) throws Exception {
         logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN logs ('Marked N subscriptions as DEAD') are EXPECTED — this test marks a subscription DEAD to verify the dead subscription gauge increments");
         String topic = uniqueTopic("metrics-dead");
-
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         createTopic(topic)
                 .compose(v -> subscribeWithShortTimeout(topic, "dead-group"))
                 .compose(v -> setHeartbeatInPast(topic, "dead-group", 10))
@@ -168,21 +155,14 @@ public class ConsumerGroupMetricsIntegrationTest extends BaseIntegrationTest {
                 .compose(v -> setHeartbeatInPast(topic, "dead-group", 10))
                 .compose(v -> detector.detectDeadSubscriptions(topic))
                 .compose(v -> consumerGroupMetrics.refresh())
-                .onSuccess(v -> {
-                    try {
-                        double deadCount = getGaugeValue("peegeeq.subscriptions.dead");
+                .onSuccess(v -> testContext.verify(() -> {
+                double deadCount = getGaugeValue("peegeeq.subscriptions.dead");
                         assertTrue(deadCount >= 1,
                                 "Dead subscription gauge should be >= 1 after marking a subscription DEAD, but was " + deadCount);
                         logger.info("Dead subscription gauge verified: dead={}", deadCount);
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                })
-                .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     /**
@@ -192,27 +172,18 @@ public class ConsumerGroupMetricsIntegrationTest extends BaseIntegrationTest {
     @Test
     void testPausedSubscriptionGaugeAfterRefresh(VertxTestContext testContext) throws Exception {
         String topic = uniqueTopic("metrics-paused");
-
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         createTopic(topic)
                 .compose(v -> subscribeWithDefaults(topic, "pause-group"))
                 .compose(v -> subscriptionManager.pause(topic, "pause-group"))
                 .compose(v -> consumerGroupMetrics.refresh())
-                .onSuccess(v -> {
-                    try {
-                        double pausedCount = getGaugeValue("peegeeq.subscriptions.paused");
+                .onSuccess(v -> testContext.verify(() -> {
+                double pausedCount = getGaugeValue("peegeeq.subscriptions.paused");
                         assertTrue(pausedCount >= 1,
                                 "Paused subscription gauge should be >= 1 after pausing a subscription, but was " + pausedCount);
                         logger.info("Paused subscription gauge verified: paused={}", pausedCount);
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                })
-                .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     /**
@@ -223,28 +194,19 @@ public class ConsumerGroupMetricsIntegrationTest extends BaseIntegrationTest {
     void testTopicsGaugeReflectsDistinctTopicCount(VertxTestContext testContext) throws Exception {
         String topic1 = uniqueTopic("metrics-t1");
         String topic2 = uniqueTopic("metrics-t2");
-
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         createTopic(topic1)
                 .compose(v -> createTopic(topic2))
                 .compose(v -> subscribeWithDefaults(topic1, "group-a"))
                 .compose(v -> subscribeWithDefaults(topic2, "group-b"))
                 .compose(v -> consumerGroupMetrics.refresh())
-                .onSuccess(v -> {
-                    try {
-                        double topicCount = getGaugeValue("peegeeq.subscriptions.topics");
+                .onSuccess(v -> testContext.verify(() -> {
+                double topicCount = getGaugeValue("peegeeq.subscriptions.topics");
                         assertTrue(topicCount >= 2,
                                 "Topics gauge should be >= 2 after subscribing to 2 topics, but was " + topicCount);
                         logger.info("Topics gauge verified: topics={}", topicCount);
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                })
-                .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     /**
@@ -254,32 +216,23 @@ public class ConsumerGroupMetricsIntegrationTest extends BaseIntegrationTest {
     @Test
     void testRefreshReplacesGaugeValues(VertxTestContext testContext) throws Exception {
         String topic = uniqueTopic("metrics-replace");
-
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
-        AtomicReference<Double> firstReadRef = new AtomicReference<>();
+        double[] firstReadRef = new double[1];
         createTopic(topic)
                 .compose(v -> subscribeWithDefaults(topic, "group-1"))
                 .compose(v -> consumerGroupMetrics.refresh())
                 .compose(v -> {
-                    firstReadRef.set(getGaugeValue("peegeeq.subscriptions.active"));
+                    firstReadRef[0] = getGaugeValue("peegeeq.subscriptions.active");
                     return subscribeWithDefaults(topic, "group-2");
                 })
                 .compose(v -> consumerGroupMetrics.refresh())
-                .onSuccess(v -> {
-                    try {
-                        double secondRead = getGaugeValue("peegeeq.subscriptions.active");
-                        assertTrue(secondRead > firstReadRef.get(),
-                                "Gauge should increase after adding subscription: first=" + firstReadRef.get() + " second=" + secondRead);
-                        logger.info("Gauge replacement verified: first={}, second={}", firstReadRef.get(), secondRead);
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                })
-                .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+                .onSuccess(v -> testContext.verify(() -> {
+                double secondRead = getGaugeValue("peegeeq.subscriptions.active");
+                        assertTrue(secondRead > firstReadRef[0],
+                                "Gauge should increase after adding subscription: first=" + firstReadRef[0] + " second=" + secondRead);
+                        logger.info("Gauge replacement verified: first={}, second={}", firstReadRef[0], secondRead);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     /**
@@ -288,26 +241,17 @@ public class ConsumerGroupMetricsIntegrationTest extends BaseIntegrationTest {
     @Test
     void testDetectionRunCountGauge(VertxTestContext testContext) throws Exception {
         String topic = uniqueTopic("metrics-runs");
-
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         createTopic(topic)
                 .compose(v -> subscribeWithShortTimeout(topic, "run-group"))
                 .compose(v -> detector.detectDeadSubscriptions(topic))
                 .compose(v -> consumerGroupMetrics.refresh())
-                .onSuccess(v -> {
-                    try {
-                        double activeCount = getGaugeValue("peegeeq.subscriptions.active");
+                .onSuccess(v -> testContext.verify(() -> {
+                double activeCount = getGaugeValue("peegeeq.subscriptions.active");
                         assertTrue(activeCount >= 0, "Active count should be non-negative");
                         logger.info("Detection-related gauge verified");
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                })
-                .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     // ========================================================================

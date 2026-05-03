@@ -25,8 +25,6 @@ import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.*;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -54,7 +52,7 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
     private PartitionedOffsetManager offsetManager;
 
     @BeforeEach
-    public void setUp() throws Exception {
+    public void setUp(VertxTestContext testContext) {
         // super.setUpBaseIntegration(); // Removed: JUnit 5 automatically executes @BeforeEach from superclasses
 
         connectionManager = new PgConnectionManager(manager.getVertx(), null);
@@ -82,13 +80,15 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
         offsetManager = new PartitionedOffsetManager(connectionManager, "peegeeq-main");
 
         // Clean up test data from prior runs
-        VertxTestContext cleanupCtx = new VertxTestContext();
         cleanupTestData()
-                .onSuccess(v -> cleanupCtx.completeNow())
-                .onFailure(t -> cleanupCtx.completeNow());
-        cleanupCtx.awaitCompletion(10, TimeUnit.SECONDS);
-
-        logger.info("PartitionAssignment test setup complete");
+                .onSuccess(v -> {
+                    logger.info("PartitionAssignment test setup complete");
+                    testContext.completeNow();
+                })
+                .onFailure(t -> {
+                    logger.info("PartitionAssignment test setup complete (cleanup skipped: {})", t.getMessage());
+                    testContext.completeNow();
+                });
     }
 
     @AfterEach
@@ -108,13 +108,12 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
     // ========================================================================
 
     @Test
-    public void testJoinGroup_firstInstance_getsAllPartitions(VertxTestContext testContext) throws Exception {
+    public void testJoinGroup_firstInstance_getsAllPartitions(VertxTestContext testContext) {
         logger.info("=== TEST: testJoinGroup_firstInstance_getsAllPartitions STARTED ===");
 
         String topic = "test-join-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
         String instanceId = "instance-1";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         // Setup: create topic config, subscription, and messages with 3 partitions
         createTopic(topic)
@@ -148,15 +147,8 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
+                .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testJoinGroup_firstInstance_getsAllPartitions COMPLETED ===");
     }
 
@@ -168,14 +160,13 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
     // ========================================================================
 
     @Test
-    public void testJoinGroup_secondInstance_triggersRebalance(VertxTestContext testContext) throws Exception {
+    public void testJoinGroup_secondInstance_triggersRebalance(VertxTestContext testContext) {
         logger.info("=== TEST: testJoinGroup_secondInstance_triggersRebalance STARTED ===");
 
         String topic = "test-rebal-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
         String instanceA = "instance-A";
         String instanceB = "instance-B";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic)
                 .compose(v -> createSubscription(topic, groupName))
@@ -214,15 +205,8 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
                             });
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
+                .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testJoinGroup_secondInstance_triggersRebalance COMPLETED ===");
     }
 
@@ -234,13 +218,12 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
     // ========================================================================
 
     @Test
-    public void testJoinGroup_incrementsGeneration(VertxTestContext testContext) throws Exception {
+    public void testJoinGroup_incrementsGeneration(VertxTestContext testContext) {
         logger.info("=== TEST: testJoinGroup_incrementsGeneration STARTED ===");
 
         String topic = "test-gen-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
         String instanceId = "instance-1";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic)
                 .compose(v -> createSubscription(topic, groupName))
@@ -269,15 +252,8 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
+                .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testJoinGroup_incrementsGeneration COMPLETED ===");
     }
 
@@ -289,14 +265,13 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
     // ========================================================================
 
     @Test
-    public void testLeaveGroup_triggersRebalance(VertxTestContext testContext) throws Exception {
+    public void testLeaveGroup_triggersRebalance(VertxTestContext testContext) {
         logger.info("=== TEST: testLeaveGroup_triggersRebalance STARTED ===");
 
         String topic = "test-leave-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
         String instanceA = "instance-A";
         String instanceB = "instance-B";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic)
                 .compose(v -> createSubscription(topic, groupName))
@@ -324,15 +299,8 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
+                .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testLeaveGroup_triggersRebalance COMPLETED ===");
     }
 
@@ -343,13 +311,12 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
     // ========================================================================
 
     @Test
-    public void testLeaveGroup_lastInstance_cleansUp(VertxTestContext testContext) throws Exception {
+    public void testLeaveGroup_lastInstance_cleansUp(VertxTestContext testContext) {
         logger.info("=== TEST: testLeaveGroup_lastInstance_cleansUp STARTED ===");
 
         String topic = "test-last-leave-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
         String instanceId = "instance-1";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic)
                 .compose(v -> createSubscription(topic, groupName))
@@ -377,15 +344,8 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
+                .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testLeaveGroup_lastInstance_cleansUp COMPLETED ===");
     }
 
@@ -397,12 +357,11 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
     // ========================================================================
 
     @Test
-    public void testRebalance_minimizesMovement(VertxTestContext testContext) throws Exception {
+    public void testRebalance_minimizesMovement(VertxTestContext testContext) {
         logger.info("=== TEST: testRebalance_minimizesMovement STARTED ===");
 
         String topic = "test-movement-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         // Setup: 12 partitions gives enough granularity to measure movement
         Future<Void> setup = createTopic(topic)
@@ -449,15 +408,8 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
                             });
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
+                .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testRebalance_minimizesMovement COMPLETED ===");
     }
 
@@ -470,12 +422,11 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
     // ========================================================================
 
     @Test
-    public void testRebalance_serializedUnderConcurrency(VertxTestContext testContext) throws Exception {
+    public void testRebalance_serializedUnderConcurrency(VertxTestContext testContext) {
         logger.info("=== TEST: testRebalance_serializedUnderConcurrency STARTED ===");
 
         String topic = "test-concurrent-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic)
                 .compose(v -> createSubscription(topic, groupName))
@@ -513,15 +464,8 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
+                .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testRebalance_serializedUnderConcurrency COMPLETED ===");
     }
 
@@ -532,14 +476,13 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
     // ========================================================================
 
     @Test
-    public void testGetAssignments_returnsCorrectPartitions(VertxTestContext testContext) throws Exception {
+    public void testGetAssignments_returnsCorrectPartitions(VertxTestContext testContext) {
         logger.info("=== TEST: testGetAssignments_returnsCorrectPartitions STARTED ===");
 
         String topic = "test-getassign-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
         String instanceA = "instance-A";
         String instanceB = "instance-B";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic)
                 .compose(v -> createSubscription(topic, groupName))
@@ -570,15 +513,8 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
+                .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testGetAssignments_returnsCorrectPartitions COMPLETED ===");
     }
 
@@ -590,13 +526,12 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
     // ========================================================================
 
     @Test
-    public void testHeartbeat_updatesTimestamp(VertxTestContext testContext) throws Exception {
+    public void testHeartbeat_updatesTimestamp(VertxTestContext testContext) {
         logger.info("=== TEST: testHeartbeat_updatesTimestamp STARTED ===");
 
         String topic = "test-heartbeat-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
         String instanceId = "instance-1";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic)
                 .compose(v -> createSubscription(topic, groupName))
@@ -615,15 +550,8 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
                             });
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
+                .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testHeartbeat_updatesTimestamp COMPLETED ===");
     }
 
@@ -634,12 +562,11 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
     // ========================================================================
 
     @Test
-    public void testStaleAssignment_cleanedOnRebalance(VertxTestContext testContext) throws Exception {
+    public void testStaleAssignment_cleanedOnRebalance(VertxTestContext testContext) {
         logger.info("=== TEST: testStaleAssignment_cleanedOnRebalance STARTED ===");
 
         String topic = "test-stale-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic)
                 .compose(v -> createSubscription(topic, groupName))
@@ -660,15 +587,8 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
+                .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testStaleAssignment_cleanedOnRebalance COMPLETED ===");
     }
 
@@ -680,11 +600,10 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
     // ========================================================================
 
     @Test
-    public void testDiscoverPartitions_includesDefaultForNullGroup(VertxTestContext testContext) throws Exception {
+    public void testDiscoverPartitions_includesDefaultForNullGroup(VertxTestContext testContext) {
         logger.info("=== TEST: testDiscoverPartitions_includesDefaultForNullGroup STARTED ===");
 
         String topic = "test-nullgrp-" + UUID.randomUUID().toString().substring(0, 8);
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic)
                 .compose(v -> insertOutboxMessageNullGroup(topic))
@@ -700,15 +619,8 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
+                .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testDiscoverPartitions_includesDefaultForNullGroup COMPLETED ===");
     }
 
@@ -719,11 +631,10 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
     // ========================================================================
 
     @Test
-    public void testDiscoverPartitions_dynamicAsMessagesArrive(VertxTestContext testContext) throws Exception {
+    public void testDiscoverPartitions_dynamicAsMessagesArrive(VertxTestContext testContext) {
         logger.info("=== TEST: testDiscoverPartitions_dynamicAsMessagesArrive STARTED ===");
 
         String topic = "test-dynamic-" + UUID.randomUUID().toString().substring(0, 8);
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic)
                 .compose(v -> insertOutboxMessage(topic, "part-initial"))
@@ -742,15 +653,8 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
+                .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testDiscoverPartitions_dynamicAsMessagesArrive COMPLETED ===");
     }
 
@@ -914,12 +818,11 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
     // ========================================================================
 
     @Test
-    public void testRebalanceStorm_rapidJoinLeave_generationsMonotonic(VertxTestContext testContext) throws Exception {
+    public void testRebalanceStorm_rapidJoinLeave_generationsMonotonic(VertxTestContext testContext) {
         logger.info("=== TEST: testRebalanceStorm_rapidJoinLeave_generationsMonotonic STARTED ===");
 
         String topic = "test-storm-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         // Setup: create topic, subscription, and 6 partitions
         Future<Void> setup = createTopic(topic)
@@ -978,15 +881,8 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
             return Future.succeededFuture();
         })
         .onSuccess(v -> testContext.completeNow())
-        .onFailure(throwable -> {
-            errorRef.set(throwable);
-            testContext.completeNow();
-        });
+        .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testRebalanceStorm_rapidJoinLeave_generationsMonotonic COMPLETED ===");
     }
 
@@ -997,12 +893,11 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
     // ========================================================================
 
     @Test
-    public void testConcurrentJoinAndLeave_noOrphanAssignments(VertxTestContext testContext) throws Exception {
+    public void testConcurrentJoinAndLeave_noOrphanAssignments(VertxTestContext testContext) {
         logger.info("=== TEST: testConcurrentJoinAndLeave_noOrphanAssignments STARTED ===");
 
         String topic = "test-orphan-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic)
                 .compose(v -> createSubscription(topic, groupName))
@@ -1044,15 +939,8 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
+                .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testConcurrentJoinAndLeave_noOrphanAssignments COMPLETED ===");
     }
 
@@ -1064,13 +952,12 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
     // ========================================================================
 
     @Test
-    public void testRebalance_whileOffsetCommitInFlight(VertxTestContext testContext) throws Exception {
+    public void testRebalance_whileOffsetCommitInFlight(VertxTestContext testContext) {
         logger.info("=== TEST: testRebalance_whileOffsetCommitInFlight STARTED ===");
 
         String topic = "test-fence-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
         String partition = "part-1";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic)
                 .compose(v -> createSubscription(topic, groupName))
@@ -1112,15 +999,8 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
+                .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testRebalance_whileOffsetCommitInFlight COMPLETED ===");
     }
 }

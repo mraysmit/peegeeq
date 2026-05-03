@@ -33,7 +33,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -69,20 +68,20 @@ public class PeeGeeQExampleTest {
     }
     
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws InterruptedException {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down PeeGeeQ Example Test");
         
         if (manager != null) {
             manager.closeReactive()
-                .onComplete(v -> {
-                    logger.info("✓ PeeGeeQ Example Test teardown completed");
+                .onSuccess(v -> {
+                    logger.info("\u2713 PeeGeeQ Example Test teardown completed");
                     testContext.completeNow();
-                });
+                })
+                .onFailure(testContext::failNow);
         } else {
-            logger.info("✓ PeeGeeQ Example Test teardown completed");
+            logger.info("\u2713 PeeGeeQ Example Test teardown completed");
             testContext.completeNow();
         }
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -90,7 +89,7 @@ public class PeeGeeQExampleTest {
      * Validates health checks, metrics, and monitoring capabilities
      */
     @Test
-    void testProductionReadinessFeatures(VertxTestContext testContext) throws InterruptedException {
+    void testProductionReadinessFeatures(VertxTestContext testContext) {
         logger.info("=== Testing Production Readiness Features ===");
         
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
@@ -113,8 +112,6 @@ public class PeeGeeQExampleTest {
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -177,7 +174,7 @@ public class PeeGeeQExampleTest {
      * Validates all PeeGeeQ capabilities in a production-like environment
      */
     @Test
-    void testFeatureDemonstrations(VertxTestContext testContext) throws InterruptedException {
+    void testFeatureDemonstrations(VertxTestContext testContext) {
         logger.info("=== Testing Feature Demonstrations ===");
         
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
@@ -201,8 +198,6 @@ public class PeeGeeQExampleTest {
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     // Helper methods that replicate the original example's functionality

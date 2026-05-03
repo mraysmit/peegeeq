@@ -22,8 +22,6 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -60,48 +58,29 @@ public class DetectionJobTracingTest {
     }
 
     @Test
-    void runDetection_createsTraceForEachRun(VertxTestContext testContext) throws InterruptedException {
+    void runDetection_createsTraceForEachRun(VertxTestContext testContext) {
         DeadConsumerDetector stubDetector = new StubDetector(
                 new DetectionResult(List.of(), 0, 0, 0),
                 new SubscriptionSummary(0, 0, 0, 0, 0, 0));
         DeadConsumerGroupCleanup stubCleanup = new StubCleanup();
         DeadConsumerDetectionJob job = new DeadConsumerDetectionJob(
                 vertx, stubDetector, stubCleanup, 60_000);
-
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         // Chain two sequential detection runs
         job.runDetectionOnce()
                 .compose(firstResult -> {
-                    try {
-                        assertEquals(0, firstResult, "Healthy run should return 0 dead consumers");
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    }
+                    assertEquals(0, firstResult, "Healthy run should return 0 dead consumers");
                     return job.runDetectionOnce();
                 })
-                .onSuccess(secondResult -> {
-                    try {
-                        assertEquals(0, secondResult, "Second healthy run should also return 0");
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                })
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
+                .onSuccess(secondResult -> testContext.verify(() -> {
+                    assertEquals(0, secondResult, "Second healthy run should also return 0");
                     testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
+                }))
+                .onFailure(testContext::failNow);
     }
 
     @Test
-    void runDetection_mdcCleanAfterCompletion(VertxTestContext testContext) throws InterruptedException {
+    void runDetection_mdcCleanAfterCompletion(VertxTestContext testContext) {
         DeadConsumerDetector stubDetector = new StubDetector(
                 new DetectionResult(List.of(), 0, 0, 0),
                 new SubscriptionSummary(0, 0, 0, 0, 0, 0));
@@ -109,33 +88,17 @@ public class DetectionJobTracingTest {
         DeadConsumerDetectionJob job = new DeadConsumerDetectionJob(
                 vertx, stubDetector, stubCleanup, 60_000);
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
-
         job.runDetectionOnce()
-                .onSuccess(result -> {
-                    try {
-                        assertNull(MDC.get("traceId"), "traceId should not leak into MDC after detection");
-                        assertNull(MDC.get("spanId"), "spanId should not leak into MDC after detection");
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                })
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
+                .onSuccess(result -> testContext.verify(() -> {
+                    assertNull(MDC.get("traceId"), "traceId should not leak into MDC after detection");
+                    assertNull(MDC.get("spanId"), "spanId should not leak into MDC after detection");
                     testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
+                }))
+                .onFailure(testContext::failNow);
     }
 
     @Test
-    void runDetection_withDeadConsumers_tracesPropagatedThroughCleanup(VertxTestContext testContext)
-            throws InterruptedException {
+    void runDetection_withDeadConsumers_tracesPropagatedThroughCleanup(VertxTestContext testContext) {
         DetectionResult resultWithDead = new DetectionResult(
                 List.of(new DeadSubscriptionInfo(
                         "test-topic", "dead-group",
@@ -149,60 +112,29 @@ public class DetectionJobTracingTest {
         DeadConsumerDetectionJob job = new DeadConsumerDetectionJob(
                 vertx, stubDetector, stubCleanup, 60_000);
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
-
         job.runDetectionOnce()
-                .onSuccess(deadCount -> {
-                    try {
-                        assertEquals(1, deadCount, "Should detect 1 dead consumer");
-                        assertTrue(stubCleanup.wasCleanupCalled(), "Cleanup should have been called");
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                })
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
+                .onSuccess(deadCount -> testContext.verify(() -> {
+                    assertEquals(1, deadCount, "Should detect 1 dead consumer");
+                    assertTrue(stubCleanup.wasCleanupCalled(), "Cleanup should have been called");
                     testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
+                }))
+                .onFailure(testContext::failNow);
     }
 
     @Test
-    void runDetection_failurePreservesTraceInErrorLog(VertxTestContext testContext)
-            throws InterruptedException {
+    void runDetection_failurePreservesTraceInErrorLog(VertxTestContext testContext) {
         DeadConsumerDetector failingDetector = new StubDetector(true);
         DeadConsumerGroupCleanup stubCleanup = new StubCleanup();
         DeadConsumerDetectionJob job = new DeadConsumerDetectionJob(
                 vertx, failingDetector, stubCleanup, 60_000);
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
-
         job.runDetectionOnceWithDetails()
-                .onSuccess(result -> {
-                    errorRef.set(new AssertionError("Expected failure from failing detector"));
+                .onSuccess(result -> testContext.failNow(new AssertionError("Expected failure from failing detector")))
+                .onFailure(throwable -> testContext.verify(() -> {
+                    assertTrue(throwable.getMessage().contains("Simulated detection failure"));
+                    assertNull(MDC.get("traceId"), "traceId should not leak after failed detection");
                     testContext.completeNow();
-                })
-                .onFailure(throwable -> {
-                    try {
-                        assertTrue(throwable.getMessage().contains("Simulated detection failure"));
-                        assertNull(MDC.get("traceId"), "traceId should not leak after failed detection");
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                });
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
+                }));
     }
 
     @Test

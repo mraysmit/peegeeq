@@ -29,7 +29,6 @@ import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -55,7 +54,7 @@ public class CancelCleanupIntegrationTest extends BaseIntegrationTest {
     private PgConnectionManager connectionManager;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp() {
         connectionManager = new PgConnectionManager(manager.getVertx(), null);
 
         PostgreSQLContainer postgres = getPostgres();
@@ -95,7 +94,7 @@ public class CancelCleanupIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testCancelCleansUpOrphanedRowsAndDecrementsRequiredGroups(VertxTestContext testContext) throws Exception {
+    void testCancelCleansUpOrphanedRowsAndDecrementsRequiredGroups(VertxTestContext testContext) {
         logger.info("=== Testing cancel() cleans up messages ===");
 
         String topic = "test-cancel-cleanup-" + UUID.randomUUID().toString().substring(0, 8);
@@ -104,7 +103,6 @@ public class CancelCleanupIntegrationTest extends BaseIntegrationTest {
         int messageCount = 5;
 
         AtomicReference<List<Long>> messageIdsRef = new AtomicReference<>(new ArrayList<>());
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         topicConfigService.createTopic(TopicConfig.builder()
                 .topic(topic)
@@ -151,30 +149,22 @@ public class CancelCleanupIntegrationTest extends BaseIntegrationTest {
                     "After cancel, messages should require 1 consumer group (decremented from 2)");
                 return countConsumerGroupRows(topic, groupB);
             })
-            .onSuccess(groupBRowsAfter -> {
-                try {
-                    assertEquals(0, groupBRowsAfter,
-                        "Cancelled group's outbox_consumer_groups rows should be removed");
-                    logger.info("Cancel cleanup test passed");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(groupBRowsAfter -> testContext.verify(() -> {
+                assertEquals(0, groupBRowsAfter,
+                    "Cancelled group's outbox_consumer_groups rows should be removed");
+                logger.info("Cancel cleanup test passed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testCancelWithoutCleanupServiceStillSucceeds(VertxTestContext testContext) throws Exception {
+    void testCancelWithoutCleanupServiceStillSucceeds(VertxTestContext testContext) {
         logger.info("=== Testing cancel without DeadConsumerGroupCleanup still works ===");
 
         String topic = "test-cancel-nocleanup-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "no-cleanup-group";
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(TopicConfig.builder()
                 .topic(topic)
                 .semantics(TopicSemantics.PUB_SUB)
@@ -182,20 +172,13 @@ public class CancelCleanupIntegrationTest extends BaseIntegrationTest {
             .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.defaults()))
             .compose(v -> subscriptionManager.cancel(topic, groupName))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(cancelled -> {
-                try {
-                    assertEquals(SubscriptionState.CANCELLED, cancelled.state(),
-                        "Cancel should succeed even without cleanup service configured");
-                    logger.info("Cancel without cleanup service test passed");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(cancelled -> testContext.verify(() -> {
+                assertEquals(SubscriptionState.CANCELLED, cancelled.state(),
+                    "Cancel should succeed even without cleanup service configured");
+                logger.info("Cancel without cleanup service test passed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     /**
@@ -211,14 +194,13 @@ public class CancelCleanupIntegrationTest extends BaseIntegrationTest {
      * rather than being silently swallowed.</p>
      */
     @Test
-    void testCancelCleanupFailurePropagates(VertxTestContext testContext) throws Exception {
+    void testCancelCleanupFailurePropagates(VertxTestContext testContext) {
         logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Cancel cleanup failed') is EXPECTED — this test deliberately uses a broken connection manager to verify cleanup failure propagates from cancel");
         logger.info("=== Testing cancel cleanup failure propagates ===");
 
         String topic = "test-cancel-fail-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "cancel-fail-group";
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(TopicConfig.builder()
                 .topic(topic)
                 .semantics(TopicSemantics.PUB_SUB)
@@ -244,13 +226,11 @@ public class CancelCleanupIntegrationTest extends BaseIntegrationTest {
                 return Future.succeededFuture();
             })
             .onSuccess(v -> testContext.completeNow())
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testForceRemoveBehaviourUnchanged(VertxTestContext testContext) throws Exception {
+    void testForceRemoveBehaviourUnchanged(VertxTestContext testContext) {
         logger.info("=== Testing forceRemoveConsumerGroup still works correctly ===");
 
         String topic = "test-forcerm-unchanged-" + UUID.randomUUID().toString().substring(0, 8);
@@ -258,7 +238,6 @@ public class CancelCleanupIntegrationTest extends BaseIntegrationTest {
         String groupB = "group-b";
         int messageCount = 3;
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(TopicConfig.builder()
                 .topic(topic)
                 .semantics(TopicSemantics.PUB_SUB)
@@ -283,20 +262,13 @@ public class CancelCleanupIntegrationTest extends BaseIntegrationTest {
                 assertEquals(SubscriptionState.CANCELLED, removed.state());
                 return countMessagesWithRequiredGroups(topic, 1);
             })
-            .onSuccess(oneGroupMsgs -> {
-                try {
-                    assertEquals(messageCount, oneGroupMsgs,
-                        "forceRemove should still decrement required_consumer_groups");
-                    logger.info("forceRemove behaviour unchanged test passed");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(oneGroupMsgs -> testContext.verify(() -> {
+                assertEquals(messageCount, oneGroupMsgs,
+                    "forceRemove should still decrement required_consumer_groups");
+                logger.info("forceRemove behaviour unchanged test passed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     // --- Helper methods ---

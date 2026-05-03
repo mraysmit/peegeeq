@@ -18,6 +18,9 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
@@ -32,6 +35,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.CORE)
+@ExtendWith(VertxExtension.class)
 @Execution(ExecutionMode.SAME_THREAD)
 public class PgConnectionProviderCoreTest extends BaseIntegrationTest {
 
@@ -40,122 +44,126 @@ public class PgConnectionProviderCoreTest extends BaseIntegrationTest {
     private PgConnectionProvider connectionProvider;
 
     @BeforeEach
-    void setUp() throws Exception {
-        connectionManager = new PgConnectionManager(manager.getVertx());
-        clientFactory = new PgClientFactory(connectionManager);
-        
-        PostgreSQLContainer postgres = getPostgres();
-        PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
-            .host(postgres.getHost())
-            .port(postgres.getFirstMappedPort())
-            .database(postgres.getDatabaseName())
-            .username(postgres.getUsername())
-            .password(postgres.getPassword())
-            .build();
+    void setUp(VertxTestContext testContext) {
+        try {
+            connectionManager = new PgConnectionManager(manager.getVertx());
+            clientFactory = new PgClientFactory(connectionManager);
+            
+            PostgreSQLContainer postgres = getPostgres();
+            PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
+                .host(postgres.getHost())
+                .port(postgres.getFirstMappedPort())
+                .database(postgres.getDatabaseName())
+                .username(postgres.getUsername())
+                .password(postgres.getPassword())
+                .build();
 
-        PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
-        clientFactory.createClient("test-client", connectionConfig, poolConfig);
-        
-        connectionProvider = new PgConnectionProvider(clientFactory);
+            PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
+            clientFactory.createClient("test-client", connectionConfig, poolConfig);
+            
+            connectionProvider = new PgConnectionProvider(clientFactory);
+            testContext.completeNow();
+        } catch (Exception e) {
+            testContext.failNow(e);
+        }
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         if (connectionManager != null) {
-            connectionManager.close().toCompletionStage().toCompletableFuture().get();
+            connectionManager.close().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
     }
 
     @Test
-    void testPgConnectionProviderCreation() {
+    void testPgConnectionProviderCreation(VertxTestContext testContext) {
         assertNotNull(connectionProvider);
+        testContext.completeNow();
     }
 
     @Test
-    void testGetReactivePool() throws Exception {
-        Pool pool = connectionProvider.getReactivePool("test-client")
-            .toCompletionStage().toCompletableFuture().get();
-        assertNotNull(pool);
+    void testGetReactivePool(VertxTestContext testContext) {
+        connectionProvider.getReactivePool("test-client")
+            .onSuccess(pool -> {
+                assertNotNull(pool);
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testGetReactivePoolNonExistentClient() throws Exception {
-        try {
-            connectionProvider.getReactivePool("non-existent-client")
-                .toCompletionStage().toCompletableFuture().get();
-            fail("Expected IllegalArgumentException");
-        } catch (Exception e) {
-            assertTrue(e.getCause() instanceof IllegalArgumentException);
-        }
+    void testGetReactivePoolNonExistentClient(VertxTestContext testContext) {
+        connectionProvider.getReactivePool("non-existent-client")
+            .onSuccess(pool -> testContext.failNow("Expected Exception"))
+            .onFailure(err -> {
+                assertTrue(err instanceof IllegalArgumentException);
+                testContext.completeNow();
+            });
     }
 
     @Test
-    void testGetConnection() throws Exception {
-        SqlConnection connection = connectionProvider.getConnection("test-client")
-            .toCompletionStage().toCompletableFuture().get();
-        assertNotNull(connection);
-        connection.close();
+    void testGetConnection(VertxTestContext testContext) {
+        connectionProvider.getConnection("test-client")
+            .onSuccess(connection -> {
+                assertNotNull(connection);
+                connection.close().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+            })
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testGetConnectionNonExistentClient() throws Exception {
-        try {
-            connectionProvider.getConnection("non-existent-client")
-                .toCompletionStage().toCompletableFuture().get();
-            fail("Expected exception");
-        } catch (Exception e) {
-            // Expected
-        }
+    void testGetConnectionNonExistentClient(VertxTestContext testContext) {
+        connectionProvider.getConnection("non-existent-client")
+            .onSuccess(pool -> testContext.failNow("Expected Exception"))
+            .onFailure(err -> testContext.completeNow());
     }
 
     @Test
-    void testWithConnection() throws Exception {
-        Integer result = connectionProvider.withConnection("test-client", connection ->
+    void testWithConnection(VertxTestContext testContext) {
+        connectionProvider.withConnection("test-client", connection ->
             connection.query("SELECT 1 as value")
                 .execute()
                 .map(rowSet -> rowSet.iterator().next().getInteger("value"))
-        ).toCompletionStage().toCompletableFuture().get();
-        
-        assertEquals(1, result);
+        ).onSuccess(result -> {
+            assertEquals(1, result);
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
     }
 
     @Test
-    void testWithConnectionNonExistentClient() throws Exception {
-        try {
-            connectionProvider.withConnection("non-existent-client", connection ->
-                connection.query("SELECT 1")
-                    .execute()
-                    .map(rowSet -> 1)
-            ).toCompletionStage().toCompletableFuture().get();
-            fail("Expected exception");
-        } catch (Exception e) {
-            // Expected
-        }
+    void testWithConnectionNonExistentClient(VertxTestContext testContext) {
+        connectionProvider.withConnection("non-existent-client", connection ->
+            connection.query("SELECT 1")
+                .execute()
+                .map(rowSet -> 1)
+        )
+        .onSuccess(result -> testContext.failNow("Expected exception"))
+        .onFailure(err -> testContext.completeNow());
     }
 
     @Test
-    void testWithTransaction() throws Exception {
-        Integer result = connectionProvider.withTransaction("test-client", connection ->
+    void testWithTransaction(VertxTestContext testContext) {
+        connectionProvider.withTransaction("test-client", connection ->
             connection.query("SELECT 1 as value")
                 .execute()
                 .map(rowSet -> rowSet.iterator().next().getInteger("value"))
-        ).toCompletionStage().toCompletableFuture().get();
-        
-        assertEquals(1, result);
+        ).onSuccess(result -> {
+            assertEquals(1, result);
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
     }
 
     @Test
-    void testWithTransactionNonExistentClient() throws Exception {
-        try {
-            connectionProvider.withTransaction("non-existent-client", connection ->
-                connection.query("SELECT 1")
-                    .execute()
-                    .map(rowSet -> 1)
-            ).toCompletionStage().toCompletableFuture().get();
-            fail("Expected exception");
-        } catch (Exception e) {
-            // Expected
-        }
+    void testWithTransactionNonExistentClient(VertxTestContext testContext) {
+        connectionProvider.withTransaction("non-existent-client", connection ->
+            connection.query("SELECT 1")
+                .execute()
+                .map(rowSet -> 1)
+        )
+        .onSuccess(result -> testContext.failNow("Expected exception"))
+        .onFailure(err -> testContext.completeNow());
     }
 }
 

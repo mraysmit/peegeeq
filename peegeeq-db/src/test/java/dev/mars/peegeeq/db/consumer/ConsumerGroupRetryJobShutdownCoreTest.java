@@ -20,7 +20,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
 
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -58,7 +57,7 @@ class ConsumerGroupRetryJobShutdownCoreTest {
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws InterruptedException {
+    void tearDown(VertxTestContext testContext) {
         Future<Void> chain = Future.succeededFuture();
         if (job != null) {
             chain = chain.compose(v -> job.stop().transform(ar -> Future.succeededFuture()));
@@ -67,12 +66,12 @@ class ConsumerGroupRetryJobShutdownCoreTest {
             chain = chain.compose(v -> noOpPool.close().transform(ar -> Future.succeededFuture()));
         }
 
-        chain.onComplete(ar -> testContext.completeNow());
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
+        chain.onSuccess(v -> testContext.completeNow())
+             .onFailure(testContext::failNow);
     }
 
     @Test
-    void stopWaitsForInFlightProcessing(VertxTestContext testContext) throws InterruptedException {
+    void stopWaitsForInFlightProcessing(VertxTestContext testContext) {
         Promise<ConsumerGroupRetryService.RetryResult> gate = Promise.promise();
         retryService.setDeferred(gate);
 
@@ -93,8 +92,6 @@ class ConsumerGroupRetryJobShutdownCoreTest {
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test
@@ -104,7 +101,7 @@ class ConsumerGroupRetryJobShutdownCoreTest {
     }
 
     @Test
-    void stopSucceedsWhenInFlightRunFails(VertxTestContext testContext) throws InterruptedException {
+    void stopSucceedsWhenInFlightRunFails(VertxTestContext testContext) {
         Promise<ConsumerGroupRetryService.RetryResult> gate = Promise.promise();
         retryService.setDeferred(gate);
 
@@ -121,8 +118,6 @@ class ConsumerGroupRetryJobShutdownCoreTest {
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     private static final class ControlledRetryService extends ConsumerGroupRetryService {

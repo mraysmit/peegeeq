@@ -68,7 +68,7 @@ public class P2_FanoutScalingTest extends BaseIntegrationTest {
     private CleanupService cleanupService;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp() {
         connectionManager = new PgConnectionManager(manager.getVertx(), null);
 
         PostgreSQLContainer postgres = getPostgres();
@@ -113,7 +113,7 @@ public class P2_FanoutScalingTest extends BaseIntegrationTest {
      * Measures throughput degradation and validates sub-linear CPU scaling.
      */
     @Test
-    void testFanoutScaling() throws Exception {
+    void testFanoutScaling(VertxTestContext testContext) {
         logger.info("=== P2: FANOUT SCALING TEST ===");
 
         int[] groupCounts = {1, 2, 4, 8, 16};
@@ -125,107 +125,137 @@ public class P2_FanoutScalingTest extends BaseIntegrationTest {
         logger.info("Payload Size: {} bytes", payloadSizeBytes);
         logger.info("Group Counts: {}", groupCounts);
 
+        Future<Void> chain = Future.succeededFuture();
         for (int groupCount : groupCounts) {
-            logger.info("=== Testing with {} consumer groups ===", groupCount);
-            testWithGroupCount(groupCount, messageCount, payloadSizeBytes);
+            final int gc = groupCount;
+            chain = chain.compose(v -> testWithGroupCount(gc, messageCount, payloadSizeBytes));
         }
-
-        logger.info("=== P2: FANOUT SCALING TEST COMPLETE ===");
+        chain
+            .onSuccess(v -> {
+                logger.info("=== P2: FANOUT SCALING TEST COMPLETE ===");
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
-    private void testWithGroupCount(int groupCount, int messageCount, int payloadSizeBytes) throws Exception {
-        // Use unique topic name to avoid conflicts in parallel test execution
+    private Future<Void> testWithGroupCount(int groupCount, int messageCount, int payloadSizeBytes) {
         String topic = "perf-test-scaling-" + groupCount + "-" + UUID.randomUUID().toString().substring(0, 8);
 
-        // Step 1: Create PUB_SUB topic
+        List<String> consumerGroups = new ArrayList<>();
+        for (int i = 0; i < groupCount; i++) {
+            consumerGroups.add("group-" + i);
+        }
+
         TopicConfig topicConfig = TopicConfig.builder()
             .topic(topic)
             .semantics(TopicSemantics.PUB_SUB)
             .messageRetentionHours(1)
             .build();
-        topicConfigService.createTopic(topicConfig)
-            .toCompletionStage().toCompletableFuture().get();
 
-        // Step 2: Create N consumer group subscriptions
-        List<String> consumerGroups = new ArrayList<>();
-        for (int i = 0; i < groupCount; i++) {
-            String groupName = "group-" + i;
-            consumerGroups.add(groupName);
-            subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.defaults())
-                .toCompletionStage().toCompletableFuture().get();
-        }
-
-        // Step 3: Publish messages and measure throughput
-        long publishStartTime = System.currentTimeMillis();
-        int batchSize = 50;
-        Long firstMessageId = null;
-
-        for (int batchStart = 0; batchStart < messageCount; batchStart += batchSize) {
-            int batchEnd = Math.min(batchStart + batchSize, messageCount);
-            List<Future<Long>> batchFutures = new ArrayList<>();
-
-            for (int i = batchStart; i < batchEnd; i++) {
-                JsonObject payload = generatePayload(i, payloadSizeBytes);
-                batchFutures.add(insertMessage(topic, payload));
-            }
-
-            Future.all(batchFutures)
-                .toCompletionStage().toCompletableFuture().get();
-
-            if (firstMessageId == null && !batchFutures.isEmpty()) {
-                firstMessageId = batchFutures.get(0).result();
-            }
-        }
-
-        long publishEndTime = System.currentTimeMillis();
-        long publishDurationMs = publishEndTime - publishStartTime;
-        double publishThroughput = (messageCount * 1000.0) / publishDurationMs;
-
-        // Step 4: Consume messages from all groups and measure throughput
-        long consumeStartTime = System.currentTimeMillis();
+        long[] publishStart = {0};
+        long[] publishEnd = {0};
+        long[] consumeStart = {0};
+        long[] consumeEnd = {0};
         AtomicInteger totalConsumed = new AtomicInteger(0);
 
-        for (String groupName : consumerGroups) {
-            int consumed = 0;
-            while (consumed < messageCount) {
-                List<OutboxMessage> messages = fetcher.fetchMessages(topic, groupName, 100)
-                    .toCompletionStage().toCompletableFuture().get();
+        logger.info("=== Testing with {} consumer groups ===", groupCount);
 
-                if (messages.isEmpty()) {
-                    break;
+        return topicConfigService.createTopic(topicConfig)
+            .compose(v -> {
+                Future<Void> subscribeChain = Future.succeededFuture();
+                for (String groupName : consumerGroups) {
+                    subscribeChain = subscribeChain.compose(ignored ->
+                        subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.defaults())
+                    );
                 }
+                return subscribeChain;
+            })
+            .compose(v -> {
+                publishStart[0] = System.currentTimeMillis();
+                return publishInBatches(topic, messageCount, payloadSizeBytes, 50);
+            })
+            .compose(v -> {
+                publishEnd[0] = System.currentTimeMillis();
+                consumeStart[0] = System.currentTimeMillis();
+                Future<Void> consumeChain = Future.succeededFuture();
+                for (String groupName : consumerGroups) {
+                    consumeChain = consumeChain.compose(ignored ->
+                        consumeGroupMessages(topic, groupName, messageCount, totalConsumed)
+                    );
+                }
+                return consumeChain;
+            })
+            .compose(v -> {
+                consumeEnd[0] = System.currentTimeMillis();
+                int expectedCompletions = messageCount * groupCount;
+                assertEquals(expectedCompletions, totalConsumed.get(),
+                    "Should have consumed " + expectedCompletions + " messages across " + groupCount + " groups");
+                return cleanupService.cleanupCompletedMessages(topic, 100);
+            })
+            .map(deletedCount -> {
+                long publishDurationMs = publishEnd[0] - publishStart[0];
+                long consumeDurationMs = consumeEnd[0] - consumeStart[0];
+                double publishThroughput = (messageCount * 1000.0) / publishDurationMs;
+                double consumeThroughput = (totalConsumed.get() * 1000.0) / consumeDurationMs;
+                logger.info("=== PERFORMANCE SUMMARY (N={} groups) ===", groupCount);
+                logger.info("Publish Throughput: {} msg/sec", String.format("%.2f", publishThroughput));
+                logger.info("Consume Throughput: {} msg/sec", String.format("%.2f", consumeThroughput));
+                logger.info("Total Messages: {}", messageCount);
+                logger.info("Total Completions: {}", totalConsumed.get());
+                logger.info("Messages Cleaned: {}", deletedCount);
+                logger.info("Publish Duration: {} ms", publishDurationMs);
+                logger.info("Consume Duration: {} ms", consumeDurationMs);
+                return (Void) null;
+            });
+    }
 
-                for (OutboxMessage message : messages) {
-                    completionTracker.markCompleted(message.getId(), groupName, topic)
-                        .toCompletionStage().toCompletableFuture().get();
-                    consumed++;
-                    totalConsumed.incrementAndGet();
-                }
-            }
+    private Future<Void> publishInBatches(String topic, int messageCount, int payloadSizeBytes, int batchSize) {
+        return publishBatchLoop(topic, messageCount, payloadSizeBytes, batchSize, 0);
+    }
+
+    private Future<Void> publishBatchLoop(String topic, int messageCount, int payloadSizeBytes,
+                                          int batchSize, int batchStart) {
+        if (batchStart >= messageCount) {
+            return Future.succeededFuture();
         }
+        int batchEnd = Math.min(batchStart + batchSize, messageCount);
+        List<Future<Long>> batchFutures = new ArrayList<>();
+        for (int i = batchStart; i < batchEnd; i++) {
+            batchFutures.add(insertMessage(topic, generatePayload(i, payloadSizeBytes)));
+        }
+        return Future.all(batchFutures)
+            .compose(ignored -> publishBatchLoop(topic, messageCount, payloadSizeBytes, batchSize, batchStart + batchSize));
+    }
 
-        long consumeEndTime = System.currentTimeMillis();
-        long consumeDurationMs = consumeEndTime - consumeStartTime;
-        double consumeThroughput = (totalConsumed.get() * 1000.0) / consumeDurationMs;
+    private Future<Void> consumeGroupMessages(String topic, String groupName, int expected,
+                                              AtomicInteger totalConsumed) {
+        return consumeGroupLoop(topic, groupName, expected, new AtomicInteger(0), totalConsumed);
+    }
 
-        // Step 5: Verify all messages completed
-        int expectedCompletions = messageCount * groupCount;
-        assertEquals(expectedCompletions, totalConsumed.get(),
-            "Should have consumed " + expectedCompletions + " messages across " + groupCount + " groups");
-
-        // Step 6: Run cleanup
-        int deletedCount = cleanupService.cleanupCompletedMessages(topic, 100)
-            .toCompletionStage().toCompletableFuture().get();
-
-        // Log performance summary
-        logger.info("=== PERFORMANCE SUMMARY (N={} groups) ===", groupCount);
-        logger.info("Publish Throughput: {:.2f} msg/sec", publishThroughput);
-        logger.info("Consume Throughput: {:.2f} msg/sec", consumeThroughput);
-        logger.info("Total Messages: {}", messageCount);
-        logger.info("Total Completions: {}", totalConsumed.get());
-        logger.info("Messages Cleaned: {}", deletedCount);
-        logger.info("Publish Duration: {} ms", publishDurationMs);
-        logger.info("Consume Duration: {} ms", consumeDurationMs);
+    private Future<Void> consumeGroupLoop(String topic, String groupName, int expected,
+                                          AtomicInteger consumed, AtomicInteger totalConsumed) {
+        if (consumed.get() >= expected) {
+            return Future.succeededFuture();
+        }
+        return fetcher.fetchMessages(topic, groupName, 100)
+            .compose(messages -> {
+                if (messages.isEmpty()) {
+                    return Future.succeededFuture();
+                }
+                Future<Void> markChain = Future.succeededFuture();
+                for (OutboxMessage message : messages) {
+                    markChain = markChain.compose(v ->
+                        completionTracker.markCompleted(message.getId(), groupName, topic)
+                            .map(r -> {
+                                consumed.incrementAndGet();
+                                totalConsumed.incrementAndGet();
+                                return (Void) null;
+                            })
+                    );
+                }
+                return markChain;
+            })
+            .compose(v -> consumeGroupLoop(topic, groupName, expected, consumed, totalConsumed));
     }
 
     private Future<Long> insertMessage(String topic, JsonObject payload) {
