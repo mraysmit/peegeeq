@@ -39,7 +39,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
 import java.util.Properties;
-import java.util.concurrent.TimeUnit;
+
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -101,17 +101,24 @@ public class PeeGeeQManagerIntegrationTest {
     }
 
     @AfterEach
-    void tearDown() {
+    void tearDown(VertxTestContext testContext) {
         if (manager != null) {
-            try {
-                manager.closeReactive()
-                    .onFailure(t -> logger.warn("Error during manager teardown: {}", t.getMessage()));
-            } catch (Exception e) {
-                logger.warn("Exception during tearDown: {}", e.getMessage());
-            }
+            manager.closeReactive()
+                .recover(t -> {
+                    logger.warn("Error during manager teardown: {}", t.getMessage());
+                    return Future.succeededFuture();
+                })
+                .onSuccess(v -> {
+                    System.getProperties().entrySet().removeIf(entry ->
+                        entry.getKey().toString().startsWith("peegeeq."));
+                    testContext.completeNow();
+                })
+                .onFailure(testContext::failNow);
+        } else {
+            System.getProperties().entrySet().removeIf(entry ->
+                entry.getKey().toString().startsWith("peegeeq."));
+            testContext.completeNow();
         }
-        System.getProperties().entrySet().removeIf(entry ->
-            entry.getKey().toString().startsWith("peegeeq."));
     }
 
     @Test
@@ -127,7 +134,7 @@ public class PeeGeeQManagerIntegrationTest {
     }
 
     @Test
-    void testStartAndStop(VertxTestContext testContext) throws InterruptedException {
+    void testStartAndStop(VertxTestContext testContext) {
         manager.start()
             .compose(v -> manager.getVertx().timer(2000))
             .compose(v -> {
@@ -142,12 +149,10 @@ public class PeeGeeQManagerIntegrationTest {
             })
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testDatabaseMigration(VertxTestContext testContext) throws InterruptedException {
+    void testDatabaseMigration(VertxTestContext testContext) {
         manager.start()
             .compose(v -> manager.getDatabaseService().getConnectionProvider()
                 .withConnection("peegeeq-main", connection ->
@@ -162,12 +167,10 @@ public class PeeGeeQManagerIntegrationTest {
                 ))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     @Test
-    void testHealthChecks(VertxTestContext testContext) throws InterruptedException {
+    void testHealthChecks(VertxTestContext testContext) {
         manager.start()
             .compose(v -> manager.getVertx().timer(3000))
             .compose(v -> {
@@ -184,12 +187,10 @@ public class PeeGeeQManagerIntegrationTest {
             })
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     @Test
-    void testMetrics(VertxTestContext testContext) throws InterruptedException {
+    void testMetrics(VertxTestContext testContext) {
         manager.start()
             .compose(v -> {
                 PeeGeeQMetrics metrics = manager.getMetrics();
@@ -208,33 +209,31 @@ public class PeeGeeQManagerIntegrationTest {
             })
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     @Test
-    void testCircuitBreaker(VertxTestContext testContext) throws InterruptedException {
+    void testCircuitBreaker(VertxTestContext testContext) {
         manager.start()
             .compose(v -> {
                 var circuitBreakerManager = manager.getCircuitBreakerManager();
                 assertNotNull(circuitBreakerManager);
 
-                String result = circuitBreakerManager.executeSupplier("test-operation", () -> "success");
-                assertEquals("success", result);
+                var cb = circuitBreakerManager.getCircuitBreaker("test-operation");
+                assertNotNull(cb);
+                assertTrue(circuitBreakerManager.getCircuitBreakerNames().contains("test-operation"));
 
                 var metrics = circuitBreakerManager.getMetrics("test-operation");
                 assertNotNull(metrics);
                 assertTrue(metrics.isEnabled());
+                assertEquals("CLOSED", metrics.getState());
                 return Future.succeededFuture();
             })
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     @Test
-    void testBackpressure(VertxTestContext testContext) throws InterruptedException {
+    void testBackpressure(VertxTestContext testContext) {
         manager.start()
             .compose(v -> {
                 try {
@@ -255,12 +254,10 @@ public class PeeGeeQManagerIntegrationTest {
             })
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     @Test
-    void testDeadLetterQueue(VertxTestContext testContext) throws InterruptedException {
+    void testDeadLetterQueue(VertxTestContext testContext) {
         manager.start()
             .compose(v -> {
                 var dlqManager = manager.getDeadLetterQueueManager();
@@ -277,8 +274,6 @@ public class PeeGeeQManagerIntegrationTest {
             })
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     @Test
@@ -307,7 +302,7 @@ public class PeeGeeQManagerIntegrationTest {
     }
 
     @Test
-    void testSystemStatusReporting(VertxTestContext testContext) throws InterruptedException {
+    void testSystemStatusReporting(VertxTestContext testContext) {
         manager.start()
             .compose(v -> manager.getVertx().timer(2000))
             .compose(v -> manager.getSystemStatus())
@@ -329,12 +324,10 @@ public class PeeGeeQManagerIntegrationTest {
             })
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     @Test
-    void testResourceCleanup(VertxTestContext testContext) throws InterruptedException {
+    void testResourceCleanup(VertxTestContext testContext) {
         manager.start()
             .compose(v -> manager.getSystemStatus())
             .compose(statusBeforeClose -> {
@@ -344,7 +337,5 @@ public class PeeGeeQManagerIntegrationTest {
             })
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 }

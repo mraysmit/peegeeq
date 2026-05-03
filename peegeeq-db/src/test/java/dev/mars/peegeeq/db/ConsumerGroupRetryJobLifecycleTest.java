@@ -80,21 +80,29 @@ public class ConsumerGroupRetryJobLifecycleTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         if (manager != null) {
-            try {
-                manager.closeReactive()
-                    .toCompletionStage().toCompletableFuture().get(30, java.util.concurrent.TimeUnit.SECONDS);
-            } catch (Exception e) {
-                logger.warn("Exception during tearDown: {}", e.getMessage());
-            }
+            manager.closeReactive()
+                .onSuccess(v -> {
+                    System.getProperties().entrySet().removeIf(entry ->
+                        entry.getKey().toString().startsWith("peegeeq."));
+                    testContext.completeNow();
+                })
+                .onFailure(e -> {
+                    logger.warn("Exception during tearDown: {}", e.getMessage());
+                    System.getProperties().entrySet().removeIf(entry ->
+                        entry.getKey().toString().startsWith("peegeeq."));
+                    testContext.completeNow();
+                });
+        } else {
+            System.getProperties().entrySet().removeIf(entry ->
+                entry.getKey().toString().startsWith("peegeeq."));
+            testContext.completeNow();
         }
-        System.getProperties().entrySet().removeIf(entry ->
-            entry.getKey().toString().startsWith("peegeeq."));
     }
 
     @Test
-    void testRetryJobStartsWithManager(VertxTestContext testContext) throws InterruptedException {
+    void testRetryJobStartsWithManager(VertxTestContext testContext) {
         logger.info("=== Testing retry job starts with manager ===");
 
         manager.start()
@@ -111,12 +119,10 @@ public class ConsumerGroupRetryJobLifecycleTest {
             })
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testRetryJobStopsWithManager(VertxTestContext testContext) throws InterruptedException {
+    void testRetryJobStopsWithManager(VertxTestContext testContext) {
         logger.info("=== Testing retry job stops with manager ===");
 
         manager.start()
@@ -135,12 +141,10 @@ public class ConsumerGroupRetryJobLifecycleTest {
             })
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testRetryJobDisabledByConfig(VertxTestContext testContext) throws InterruptedException {
+    void testRetryJobDisabledByConfig(VertxTestContext testContext) {
         logger.info("=== Testing retry job disabled by config ===");
 
         // Override to disable retry job
@@ -162,7 +166,5 @@ public class ConsumerGroupRetryJobLifecycleTest {
             })
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 }

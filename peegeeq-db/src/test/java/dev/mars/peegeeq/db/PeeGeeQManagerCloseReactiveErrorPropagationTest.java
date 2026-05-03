@@ -34,7 +34,6 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.util.Properties;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -77,7 +76,7 @@ class PeeGeeQManagerCloseReactiveErrorPropagationTest {
 
     @Test
     @DisplayName("closeReactive must propagate startup failure when start is in-flight and fails")
-    void closeReactive_propagates_startup_failure(VertxTestContext testContext) throws InterruptedException {
+    void closeReactive_propagates_startup_failure(VertxTestContext testContext) {
         logger.info("[propagates_startup_failure] Step 1: Setting system properties for empty database (no schema tables)");
         setSystemPropertiesFor(postgres);
 
@@ -98,23 +97,27 @@ class PeeGeeQManagerCloseReactiveErrorPropagationTest {
         //         the original error must propagate.
         logger.info("[propagates_startup_failure] Step 4: Calling closeReactive() while start is in-flight");
         manager.closeReactive()
-            .onComplete(ar -> testContext.verify(() -> {
+            .transform(ar -> {
                 logger.info("[propagates_startup_failure] Step 5: closeReactive() completed — failed={}, cause={}",
                         ar.failed(), ar.cause() != null ? ar.cause().getMessage() : "none");
-                assertTrue(ar.failed(),
-                    "closeReactive() must propagate the startup failure, not swallow it. " +
-                    "Expected a failed future but got succeeded.");
-                assertNotNull(ar.cause(), "The failure cause must be present");
+                if (!ar.failed()) {
+                    return Future.failedFuture(new AssertionError(
+                        "closeReactive() must propagate the startup failure, not swallow it. " +
+                        "Expected a failed future but got succeeded."));
+                }
+                if (ar.cause() == null) {
+                    return Future.failedFuture(new AssertionError("The failure cause must be present"));
+                }
                 logger.info("[propagates_startup_failure] PASSED: startup error propagated through closeReactive()");
-                testContext.completeNow();
-            }));
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+                return Future.succeededFuture();
+            })
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     @Test
     @DisplayName("closeReactive runs full cleanup chain even when propagating startup failure")
-    void closeReactive_runs_cleanup_despite_propagating_failure(VertxTestContext testContext) throws InterruptedException {
+    void closeReactive_runs_cleanup_despite_propagating_failure(VertxTestContext testContext) {
         logger.info("[cleanup_despite_failure] Step 1: Setting system properties for empty database (no schema tables)");
         setSystemPropertiesFor(postgres);
 
@@ -131,24 +134,20 @@ class PeeGeeQManagerCloseReactiveErrorPropagationTest {
         // calling closeReactive again should not throw or hang — resources are cleaned up.
         logger.info("[cleanup_despite_failure] Step 4: First closeReactive() call — expecting cleanup + error propagation");
         manager.closeReactive()
-            .onComplete(ar -> {
+            .transform(ar -> {
                 logger.info("[cleanup_despite_failure] Step 5: First closeReactive() completed — failed={}, cause={}",
                         ar.failed(), ar.cause() != null ? ar.cause().getMessage() : "none");
-                // After close completes (with failure propagated), verify resources are cleaned.
-                // Calling closeReactive a second time should be safe and fast.
                 logger.info("[cleanup_despite_failure] Step 6: Second closeReactive() call — proving resources already cleaned up");
-                manager.closeReactive()
-                    .onComplete(ar2 -> testContext.verify(() -> {
-                        logger.info("[cleanup_despite_failure] Step 7: Second closeReactive() completed — failed={}, cause={}",
-                                ar2.failed(), ar2.cause() != null ? ar2.cause().getMessage() : "none");
-                        // Second close should succeed (already cleaned up) or
-                        // at minimum not hang — proving cleanup ran during the first call
-                        logger.info("[cleanup_despite_failure] PASSED: cleanup ran fully, second close did not hang");
-                        testContext.completeNow();
-                    }));
-            });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+                return manager.closeReactive();
+            })
+            .transform(ar2 -> {
+                logger.info("[cleanup_despite_failure] Step 7: Second closeReactive() completed — failed={}, cause={}",
+                        ar2.failed(), ar2.cause() != null ? ar2.cause().getMessage() : "none");
+                logger.info("[cleanup_despite_failure] PASSED: cleanup ran fully, second close did not hang");
+                return Future.succeededFuture();
+            })
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     // --- Helpers ---

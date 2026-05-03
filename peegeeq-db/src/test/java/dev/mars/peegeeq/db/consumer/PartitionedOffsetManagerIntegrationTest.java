@@ -26,8 +26,6 @@ import java.time.Duration;
 
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -53,7 +51,7 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
     private PartitionedOffsetManager offsetManager;
 
     @BeforeEach
-    public void setUp() throws Exception {
+    public void setUp(VertxTestContext testContext) {
         // super.setUpBaseIntegration(); // Removed: JUnit 5 automatically executes @BeforeEach from superclasses
 
         connectionManager = new PgConnectionManager(manager.getVertx(), null);
@@ -80,13 +78,12 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
         offsetManager = new PartitionedOffsetManager(connectionManager, "peegeeq-main");
 
         // Clean up offset data from prior test runs
-        VertxTestContext cleanupCtx = new VertxTestContext();
         cleanupTestData()
-                .onSuccess(v -> cleanupCtx.completeNow())
-                .onFailure(t -> cleanupCtx.completeNow());
-        cleanupCtx.awaitCompletion(10, TimeUnit.SECONDS);
-
-        logger.info("PartitionedOffsetManager test setup complete");
+                .onSuccess(v -> {
+                    logger.info("PartitionedOffsetManager test setup complete");
+                    testContext.completeNow();
+                })
+                .onFailure(t -> testContext.completeNow());
     }
 
     @AfterEach
@@ -105,14 +102,13 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
     // ========================================================================
 
     @Test
-    public void testInitializeOffset_createsRowWithZeroOffset(VertxTestContext testContext) throws Exception {
+    public void testInitializeOffset_createsRowWithZeroOffset(VertxTestContext testContext) {
         logger.info("=== TEST: testInitializeOffset_createsRowWithZeroOffset STARTED ===");
 
         String topic = "test-init-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
         String partitionKey = "account-123";
         int generation = 1;
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         offsetManager.initializeOffset(topic, groupName, partitionKey, generation)
                 .compose(offset -> {
@@ -132,15 +128,7 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
+                .onFailure(testContext::failNow);
         logger.info("=== TEST: testInitializeOffset_createsRowWithZeroOffset COMPLETED ===");
     }
 
@@ -151,14 +139,13 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
     // ========================================================================
 
     @Test
-    public void testInitializeOffset_idempotent(VertxTestContext testContext) throws Exception {
+    public void testInitializeOffset_idempotent(VertxTestContext testContext) {
         logger.info("=== TEST: testInitializeOffset_idempotent STARTED ===");
 
         String topic = "test-idempotent-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
         String partitionKey = "account-456";
         int generation = 1;
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         offsetManager.initializeOffset(topic, groupName, partitionKey, generation)
                 .compose(first -> offsetManager.initializeOffset(topic, groupName, partitionKey, generation)
@@ -170,15 +157,7 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
                             return (Void) null;
                         }))
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
+                .onFailure(testContext::failNow);
         logger.info("=== TEST: testInitializeOffset_idempotent COMPLETED ===");
     }
 
@@ -189,14 +168,13 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
     // ========================================================================
 
     @Test
-    public void testCommitOffset_advancesForward(VertxTestContext testContext) throws Exception {
+    public void testCommitOffset_advancesForward(VertxTestContext testContext) {
         logger.info("=== TEST: testCommitOffset_advancesForward STARTED ===");
 
         String topic = "test-commit-fwd-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
         String partitionKey = "account-789";
         int generation = 1;
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         offsetManager.initializeOffset(topic, groupName, partitionKey, generation)
                 .compose(init -> offsetManager.commitOffset(topic, groupName, partitionKey, 10L, generation))
@@ -218,15 +196,7 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
+                .onFailure(testContext::failNow);
         logger.info("=== TEST: testCommitOffset_advancesForward COMPLETED ===");
     }
 
@@ -237,14 +207,13 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
     // ========================================================================
 
     @Test
-    public void testCommitOffset_rejectsBackwardMove(VertxTestContext testContext) throws Exception {
+    public void testCommitOffset_rejectsBackwardMove(VertxTestContext testContext) {
         logger.info("=== TEST: testCommitOffset_rejectsBackwardMove STARTED ===");
 
         String topic = "test-commit-back-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
         String partitionKey = "account-back";
         int generation = 1;
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         offsetManager.initializeOffset(topic, groupName, partitionKey, generation)
                 .compose(init -> offsetManager.commitOffset(topic, groupName, partitionKey, 20L, generation))
@@ -265,15 +234,7 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
+                .onFailure(testContext::failNow);
         logger.info("=== TEST: testCommitOffset_rejectsBackwardMove COMPLETED ===");
     }
 
@@ -284,14 +245,13 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
     // ========================================================================
 
     @Test
-    public void testCommitOffset_rejectsStaleGeneration(VertxTestContext testContext) throws Exception {
+    public void testCommitOffset_rejectsStaleGeneration(VertxTestContext testContext) {
         logger.info("=== TEST: testCommitOffset_rejectsStaleGeneration STARTED ===");
 
         String topic = "test-commit-stale-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
         String partitionKey = "account-stale";
         int generation = 1;
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         offsetManager.initializeOffset(topic, groupName, partitionKey, generation)
                 // Externally bump generation to 2 (simulating a rebalance)
@@ -313,15 +273,7 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
+                .onFailure(testContext::failNow);
         logger.info("=== TEST: testCommitOffset_rejectsStaleGeneration COMPLETED ===");
     }
 
@@ -332,14 +284,13 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
     // ========================================================================
 
     @Test
-    public void testGetOffset_returnsCurrentState(VertxTestContext testContext) throws Exception {
+    public void testGetOffset_returnsCurrentState(VertxTestContext testContext) {
         logger.info("=== TEST: testGetOffset_returnsCurrentState STARTED ===");
 
         String topic = "test-getoffset-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
         String partitionKey = "account-get";
         int generation = 1;
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         offsetManager.initializeOffset(topic, groupName, partitionKey, generation)
                 .compose(init -> offsetManager.commitOffset(topic, groupName, partitionKey, 42L, generation))
@@ -363,15 +314,7 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
+                .onFailure(testContext::failNow);
         logger.info("=== TEST: testGetOffset_returnsCurrentState COMPLETED ===");
     }
 
@@ -382,11 +325,10 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
     // ========================================================================
 
     @Test
-    public void testGetOffset_notFound_returnsEmpty(VertxTestContext testContext) throws Exception {
+    public void testGetOffset_notFound_returnsEmpty(VertxTestContext testContext) {
         logger.info("=== TEST: testGetOffset_notFound_returnsEmpty STARTED ===");
 
         String topic = "test-nonexistent-" + UUID.randomUUID().toString().substring(0, 8);
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         offsetManager.getOffset(topic, "no-such-group", "no-such-partition")
                 .compose(optOffset -> {
@@ -395,15 +337,7 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
+                .onFailure(testContext::failNow);
         logger.info("=== TEST: testGetOffset_notFound_returnsEmpty COMPLETED ===");
     }
 
@@ -414,14 +348,13 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
     // ========================================================================
 
     @Test
-    public void testSetPendingOffset_tracksInFlightBatch(VertxTestContext testContext) throws Exception {
+    public void testSetPendingOffset_tracksInFlightBatch(VertxTestContext testContext) {
         logger.info("=== TEST: testSetPendingOffset_tracksInFlightBatch STARTED ===");
 
         String topic = "test-pending-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
         String partitionKey = "account-pending";
         int generation = 1;
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         offsetManager.initializeOffset(topic, groupName, partitionKey, generation)
                 .compose(init -> offsetManager.setPendingOffset(topic, groupName, partitionKey, 50L, generation))
@@ -441,15 +374,7 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
+                .onFailure(testContext::failNow);
         logger.info("=== TEST: testSetPendingOffset_tracksInFlightBatch COMPLETED ===");
     }
 
@@ -460,14 +385,13 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
     // ========================================================================
 
     @Test
-    public void testCommitOffset_clearsPending(VertxTestContext testContext) throws Exception {
+    public void testCommitOffset_clearsPending(VertxTestContext testContext) {
         logger.info("=== TEST: testCommitOffset_clearsPending STARTED ===");
 
         String topic = "test-clr-pending-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
         String partitionKey = "account-clrpend";
         int generation = 1;
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         offsetManager.initializeOffset(topic, groupName, partitionKey, generation)
                 .compose(init -> offsetManager.setPendingOffset(topic, groupName, partitionKey, 50L, generation))
@@ -491,15 +415,7 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
+                .onFailure(testContext::failNow);
         logger.info("=== TEST: testCommitOffset_clearsPending COMPLETED ===");
     }
 
@@ -510,14 +426,13 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
     // ========================================================================
 
     @Test
-    public void testSetPendingOffset_rejectsStaleGeneration(VertxTestContext testContext) throws Exception {
+    public void testSetPendingOffset_rejectsStaleGeneration(VertxTestContext testContext) {
         logger.info("=== TEST: testSetPendingOffset_rejectsStaleGeneration STARTED ===");
 
         String topic = "test-pending-stale-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
         String partitionKey = "account-pstale";
         int generation = 1;
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         offsetManager.initializeOffset(topic, groupName, partitionKey, generation)
                 // Externally bump generation to 2
@@ -536,15 +451,7 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
+                .onFailure(testContext::failNow);
         logger.info("=== TEST: testSetPendingOffset_rejectsStaleGeneration COMPLETED ===");
     }
 
@@ -555,7 +462,7 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
     // ========================================================================
 
     @Test
-    public void testMultiplePartitions_independentOffsets(VertxTestContext testContext) throws Exception {
+    public void testMultiplePartitions_independentOffsets(VertxTestContext testContext) {
         logger.info("=== TEST: testMultiplePartitions_independentOffsets STARTED ===");
 
         String topic = "test-multi-part-" + UUID.randomUUID().toString().substring(0, 8);
@@ -563,7 +470,6 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
         String partA = "partition-A";
         String partB = "partition-B";
         int generation = 1;
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         offsetManager.initializeOffset(topic, groupName, partA, generation)
                 .compose(a -> offsetManager.initializeOffset(topic, groupName, partB, generation))
@@ -583,15 +489,7 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
+                .onFailure(testContext::failNow);
         logger.info("=== TEST: testMultiplePartitions_independentOffsets COMPLETED ===");
     }
 
@@ -602,7 +500,7 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
     // ========================================================================
 
     @Test
-    public void testMultipleGroups_independentOffsets(VertxTestContext testContext) throws Exception {
+    public void testMultipleGroups_independentOffsets(VertxTestContext testContext) {
         logger.info("=== TEST: testMultipleGroups_independentOffsets STARTED ===");
 
         String topic = "test-multi-grp-" + UUID.randomUUID().toString().substring(0, 8);
@@ -610,7 +508,6 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
         String group2 = "group-2";
         String partitionKey = "shared-partition";
         int generation = 1;
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         offsetManager.initializeOffset(topic, group1, partitionKey, generation)
                 .compose(a -> offsetManager.initializeOffset(topic, group2, partitionKey, generation))
@@ -630,15 +527,7 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
+                .onFailure(testContext::failNow);
         logger.info("=== TEST: testMultipleGroups_independentOffsets COMPLETED ===");
     }
 
@@ -649,14 +538,13 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
     // ========================================================================
 
     @Test
-    public void testBumpGeneration_incrementsAndReturns(VertxTestContext testContext) throws Exception {
+    public void testBumpGeneration_incrementsAndReturns(VertxTestContext testContext) {
         logger.info("=== TEST: testBumpGeneration_incrementsAndReturns STARTED ===");
 
         String topic = "test-bumpgen-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
         String partitionKey = "account-bump";
         int generation = 1;
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         offsetManager.initializeOffset(topic, groupName, partitionKey, generation)
                 .compose(init -> {
@@ -675,15 +563,7 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
+                .onFailure(testContext::failNow);
         logger.info("=== TEST: testBumpGeneration_incrementsAndReturns COMPLETED ===");
     }
 
@@ -694,14 +574,13 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
     // ========================================================================
 
     @Test
-    public void testBumpGeneration_invalidatesStalePending(VertxTestContext testContext) throws Exception {
+    public void testBumpGeneration_invalidatesStalePending(VertxTestContext testContext) {
         logger.info("=== TEST: testBumpGeneration_invalidatesStalePending STARTED ===");
 
         String topic = "test-bumpgen-pend-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
         String partitionKey = "account-bp";
         int generation = 1;
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         offsetManager.initializeOffset(topic, groupName, partitionKey, generation)
                 .compose(init -> offsetManager.setPendingOffset(topic, groupName, partitionKey, 50L, generation))
@@ -725,15 +604,7 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
+                .onFailure(testContext::failNow);
         logger.info("=== TEST: testBumpGeneration_invalidatesStalePending COMPLETED ===");
     }
 
@@ -744,14 +615,13 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
     // ========================================================================
 
     @Test
-    public void testCommitOffset_rejectsSameOffset(VertxTestContext testContext) throws Exception {
+    public void testCommitOffset_rejectsSameOffset(VertxTestContext testContext) {
         logger.info("=== TEST: testCommitOffset_rejectsSameOffset STARTED ===");
 
         String topic = "test-same-offset-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
         String partitionKey = "account-same";
         int generation = 1;
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         offsetManager.initializeOffset(topic, groupName, partitionKey, generation)
                 .compose(init -> offsetManager.commitOffset(topic, groupName, partitionKey, 20L, generation))
@@ -772,15 +642,7 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
+                .onFailure(testContext::failNow);
         logger.info("=== TEST: testCommitOffset_rejectsSameOffset COMPLETED ===");
     }
 
@@ -791,14 +653,13 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
     // ========================================================================
 
     @Test
-    public void testInitializeOffset_afterCommit_preservesExistingState(VertxTestContext testContext) throws Exception {
+    public void testInitializeOffset_afterCommit_preservesExistingState(VertxTestContext testContext) {
         logger.info("=== TEST: testInitializeOffset_afterCommit_preservesExistingState STARTED ===");
 
         String topic = "test-init-after-commit-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
         String partitionKey = "account-reinit";
         int generation = 1;
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         offsetManager.initializeOffset(topic, groupName, partitionKey, generation)
                 .compose(init -> offsetManager.commitOffset(topic, groupName, partitionKey, 42L, generation))
@@ -815,15 +676,7 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
+                .onFailure(testContext::failNow);
         logger.info("=== TEST: testInitializeOffset_afterCommit_preservesExistingState COMPLETED ===");
     }
 
@@ -834,11 +687,10 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
     // ========================================================================
 
     @Test
-    public void testCommitOffset_withoutInit_returnsFalse(VertxTestContext testContext) throws Exception {
+    public void testCommitOffset_withoutInit_returnsFalse(VertxTestContext testContext) {
         logger.info("=== TEST: testCommitOffset_withoutInit_returnsFalse STARTED ===");
 
         String topic = "test-no-init-commit-" + UUID.randomUUID().toString().substring(0, 8);
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         offsetManager.commitOffset(topic, "no-group", "no-partition", 10L, 1)
                 .compose(committed -> {
@@ -847,15 +699,7 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
+                .onFailure(testContext::failNow);
         logger.info("=== TEST: testCommitOffset_withoutInit_returnsFalse COMPLETED ===");
     }
 
@@ -866,11 +710,10 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
     // ========================================================================
 
     @Test
-    public void testBumpGeneration_nonExistentRow_returnsEmpty(VertxTestContext testContext) throws Exception {
+    public void testBumpGeneration_nonExistentRow_returnsEmpty(VertxTestContext testContext) {
         logger.info("=== TEST: testBumpGeneration_nonExistentRow_returnsEmpty STARTED ===");
 
         String topic = "test-bump-norow-" + UUID.randomUUID().toString().substring(0, 8);
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         offsetManager.bumpGeneration(topic, "no-group", "no-partition")
                 .compose(optGen -> {
@@ -879,15 +722,7 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
+                .onFailure(testContext::failNow);
         logger.info("=== TEST: testBumpGeneration_nonExistentRow_returnsEmpty COMPLETED ===");
     }
 
@@ -898,14 +733,13 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
     // ========================================================================
 
     @Test
-    public void testCommitOffset_withNewGenerationAfterBump_succeeds(VertxTestContext testContext) throws Exception {
+    public void testCommitOffset_withNewGenerationAfterBump_succeeds(VertxTestContext testContext) {
         logger.info("=== TEST: testCommitOffset_withNewGenerationAfterBump_succeeds STARTED ===");
 
         String topic = "test-commit-newgen-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
         String partitionKey = "account-newgen";
         int generation = 1;
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         offsetManager.initializeOffset(topic, groupName, partitionKey, generation)
                 .compose(init -> offsetManager.bumpGeneration(topic, groupName, partitionKey))
@@ -927,15 +761,7 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
+                .onFailure(testContext::failNow);
         logger.info("=== TEST: testCommitOffset_withNewGenerationAfterBump_succeeds COMPLETED ===");
     }
 
@@ -946,14 +772,13 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
     // ========================================================================
 
     @Test
-    public void testSetPendingOffset_overwritesPreviousPending(VertxTestContext testContext) throws Exception {
+    public void testSetPendingOffset_overwritesPreviousPending(VertxTestContext testContext) {
         logger.info("=== TEST: testSetPendingOffset_overwritesPreviousPending STARTED ===");
 
         String topic = "test-pend-overwrite-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
         String partitionKey = "account-overwrite";
         int generation = 1;
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         offsetManager.initializeOffset(topic, groupName, partitionKey, generation)
                 .compose(init -> offsetManager.setPendingOffset(topic, groupName, partitionKey, 50L, generation))
@@ -974,15 +799,7 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
+                .onFailure(testContext::failNow);
         logger.info("=== TEST: testSetPendingOffset_overwritesPreviousPending COMPLETED ===");
     }
 
@@ -993,13 +810,12 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
     // ========================================================================
 
     @Test
-    public void testInitializeOffset_differentGeneration_returnsExistingGen(VertxTestContext testContext) throws Exception {
+    public void testInitializeOffset_differentGeneration_returnsExistingGen(VertxTestContext testContext) {
         logger.info("=== TEST: testInitializeOffset_differentGeneration_returnsExistingGen STARTED ===");
 
         String topic = "test-init-diffgen-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
         String partitionKey = "account-diffgen";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         offsetManager.initializeOffset(topic, groupName, partitionKey, 1)
                 .compose(first -> {
@@ -1015,15 +831,7 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
+                .onFailure(testContext::failNow);
         logger.info("=== TEST: testInitializeOffset_differentGeneration_returnsExistingGen COMPLETED ===");
     }
 

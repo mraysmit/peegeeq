@@ -29,10 +29,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.junit.jupiter.api.Tag;
+import dev.mars.peegeeq.test.categories.TestCategories;
 
-import java.util.concurrent.TimeUnit;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * Base class for integration tests that provides proper database connection management,
@@ -58,7 +57,7 @@ import java.util.concurrent.atomic.AtomicReference;
  * @version 2.0
  */
 @ExtendWith({SharedPostgresTestExtension.class, VertxExtension.class})
-@Tag("integration")
+@Tag(TestCategories.INTEGRATION)
 public abstract class BaseIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(BaseIntegrationTest.class);
@@ -108,7 +107,8 @@ public abstract class BaseIntegrationTest {
                 manager = null;
                 if (failedManager != null) {
                     failedManager.closeReactive()
-                        .onComplete(ar -> testContext.failNow(e));
+                        .onSuccess(ignored -> testContext.failNow(e))
+                        .onFailure(ignored -> testContext.failNow(e));
                 } else {
                     testContext.failNow(e);
                 }
@@ -230,57 +230,11 @@ public abstract class BaseIntegrationTest {
     }
     
     /**
-     * Wait for manager to be fully started and healthy
-     */
-    protected void waitForManagerReady() throws InterruptedException {
-        if (manager == null) {
-            throw new IllegalStateException("Manager is not initialized");
-        }
-        
-        // Wait for health checks to stabilize
-        awaitFuture(manager.getVertx().timer(1000).mapEmpty());
-
-        // Verify manager is healthy
-        var healthStatus = manager.getHealthCheckManager().getOverallHealthInternal();
-        if (!healthStatus.isHealthy()) {
-            logger.warn("Manager is not healthy after startup: {}", healthStatus.getComponents());
-        }
-    }
-    
-    /**
      * Get the test profile name for this test instance
      */
     protected String getTestProfile() {
         return testProfile;
     }
 
-    protected <T> T awaitFuture(Future<T> future) {
-        VertxTestContext testContext = new VertxTestContext();
-        AtomicReference<T> result = new AtomicReference<>();
-        AtomicReference<Throwable> failure = new AtomicReference<>();
-
-        future
-            .onSuccess(result::set)
-            .onFailure(failure::set)
-            .eventually(() -> {
-                testContext.completeNow();
-                return Future.succeededFuture();
-            });
-
-        try {
-            if (!testContext.awaitCompletion(10, TimeUnit.SECONDS)) {
-                throw new RuntimeException("Timed out waiting for Future completion");
-            }
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new RuntimeException("Interrupted while waiting for Future completion", e);
-        }
-
-        if (failure.get() != null) {
-            throw new RuntimeException(failure.get());
-        }
-        return result.get();
-    }
 }
-
 

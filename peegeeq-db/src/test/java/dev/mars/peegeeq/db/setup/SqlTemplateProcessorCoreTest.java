@@ -5,6 +5,7 @@ import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -18,10 +19,8 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
-
 import java.util.HashMap;
 import java.util.Map;
-import java.util.concurrent.ExecutionException;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -37,7 +36,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-11-27
- * @version 1.0
+ * @version 2.0
  */
 @Tag(TestCategories.CORE)
 public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
@@ -78,9 +77,13 @@ public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         if (connectionManager != null) {
-            awaitFuture(connectionManager.close());
+            connectionManager.close()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
     }
 
@@ -90,59 +93,63 @@ public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testApplyTemplateWithSimpleTable() throws Exception {
+    void testApplyTemplateWithSimpleTable(VertxTestContext testContext) {
         // Apply the test-simple-table template
         Map<String, String> parameters = new HashMap<>();
         parameters.put("TABLE_NAME", "test_simple_table");
 
         reactivePool.withConnection(connection ->
             sqlTemplateProcessor.applyTemplate(connection, "test-simple-table.sql", parameters)
-        ).toCompletionStage().toCompletableFuture().get();
-
+        )
         // Verify table was created
-        Boolean tableExists = reactivePool.withConnection(connection ->
+        .compose(v -> reactivePool.withConnection(connection ->
             connection.preparedQuery("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'test_simple_table')")
                 .execute()
                 .map(rowSet -> rowSet.iterator().next().getBoolean(0))
-        ).toCompletionStage().toCompletableFuture().get();
-
-        assertTrue(tableExists);
-
-        // Clean up
-        reactivePool.withConnection(connection ->
-            connection.query("DROP TABLE IF EXISTS test_simple_table").execute()
-                .map(rowSet -> (Void) null)
-        ).toCompletionStage().toCompletableFuture().get();
+        ))
+        .onSuccess(tableExists -> {
+            assertTrue(tableExists);
+            // Clean up
+            reactivePool.withConnection(connection ->
+                connection.query("DROP TABLE IF EXISTS test_simple_table").execute()
+                    .map(rowSet -> (Void) null)
+            )
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
+        })
+        .onFailure(testContext::failNow);
     }
 
     @Test
-    void testApplyTemplateWithMultipleParameters() throws Exception {
+    void testApplyTemplateWithMultipleParameters(VertxTestContext testContext) {
         // Create a table with a different name using the same template
         Map<String, String> parameters = new HashMap<>();
         parameters.put("TABLE_NAME", "test_another_table");
 
         reactivePool.withConnection(connection ->
             sqlTemplateProcessor.applyTemplate(connection, "test-simple-table.sql", parameters)
-        ).toCompletionStage().toCompletableFuture().get();
-
+        )
         // Verify table was created
-        Boolean tableExists = reactivePool.withConnection(connection ->
+        .compose(v -> reactivePool.withConnection(connection ->
             connection.preparedQuery("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_name = 'test_another_table')")
                 .execute()
                 .map(rowSet -> rowSet.iterator().next().getBoolean(0))
-        ).toCompletionStage().toCompletableFuture().get();
-
-        assertTrue(tableExists);
-
-        // Clean up
-        reactivePool.withConnection(connection ->
-            connection.query("DROP TABLE IF EXISTS test_another_table").execute()
-                .map(rowSet -> (Void) null)
-        ).toCompletionStage().toCompletableFuture().get();
+        ))
+        .onSuccess(tableExists -> {
+            assertTrue(tableExists);
+            // Clean up
+            reactivePool.withConnection(connection ->
+                connection.query("DROP TABLE IF EXISTS test_another_table").execute()
+                    .map(rowSet -> (Void) null)
+            )
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
+        })
+        .onFailure(testContext::failNow);
     }
 
     @Test
-    void testApplyTemplateWithNonExistentTemplate() {
+    void testApplyTemplateWithNonExistentTemplate(VertxTestContext testContext) {
         // Capture log output from SqlTemplateProcessor instead of printing it.
         // This keeps test output clean while still verifying the error was logged.
         ch.qos.logback.classic.Logger stpLogger = (ch.qos.logback.classic.Logger)
@@ -155,27 +162,36 @@ public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
         // Detach console appenders so the expected error doesn't pollute test output
         stpLogger.setAdditive(false);
 
-        try {
-            Map<String, String> parameters = new HashMap<>();
+        Map<String, String> parameters = new HashMap<>();
 
-            assertThrows(Exception.class, () -> {
-                reactivePool.withConnection(connection ->
-                    sqlTemplateProcessor.applyTemplate(connection, "non-existent-template.sql", parameters)
-                ).toCompletionStage().toCompletableFuture().get();
-            });
-
-            // Verify the expected error was actually logged
-            assertEquals(1, listAppender.list.size(), "Expected exactly one log event");
-            ILoggingEvent event = listAppender.list.get(0);
-            assertEquals(Level.ERROR, event.getLevel());
-            assertTrue(event.getFormattedMessage().contains("Failed to load template"),
-                "Expected log message to contain 'Failed to load template'");
-        } finally {
+        reactivePool.withConnection(connection ->
+            sqlTemplateProcessor.applyTemplate(connection, "non-existent-template.sql", parameters)
+        )
+        .onSuccess(v -> {
             stpLogger.detachAppender(listAppender);
             stpLogger.setAdditive(true);
             stpLogger.setLevel(originalLevel);
             listAppender.stop();
-        }
+            testContext.failNow(new AssertionError("Should have thrown an exception"));
+        })
+        .onFailure(cause -> {
+            try {
+                // Verify the expected error was actually logged
+                assertEquals(1, listAppender.list.size(), "Expected exactly one log event");
+                ILoggingEvent event = listAppender.list.get(0);
+                assertEquals(Level.ERROR, event.getLevel());
+                assertTrue(event.getFormattedMessage().contains("Failed to load template"),
+                    "Expected log message to contain 'Failed to load template'");
+                testContext.completeNow();
+            } catch (Throwable t) {
+                testContext.failNow(t);
+            } finally {
+                stpLogger.detachAppender(listAppender);
+                stpLogger.setAdditive(true);
+                stpLogger.setLevel(originalLevel);
+                listAppender.stop();
+            }
+        });
     }
 
     // ========================================
@@ -183,55 +199,74 @@ public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
     // ========================================
 
     @Test
-    void testApplyTemplateRejectsParameterWithSingleQuote() {
+    void testApplyTemplateRejectsParameterWithSingleQuote(VertxTestContext testContext) {
         Map<String, String> parameters = new HashMap<>();
         parameters.put("TABLE_NAME", "test'; DROP TABLE users;--");
 
-        ExecutionException ex = assertThrows(ExecutionException.class, () ->
-            reactivePool.withConnection(connection ->
-                sqlTemplateProcessor.applyTemplate(connection, "test-simple-table.sql", parameters)
-            ).toCompletionStage().toCompletableFuture().get()
-        );
-        assertInstanceOf(IllegalArgumentException.class, ex.getCause());
+        reactivePool.withConnection(connection ->
+            sqlTemplateProcessor.applyTemplate(connection, "test-simple-table.sql", parameters)
+        )
+        .onSuccess(v -> testContext.failNow(new AssertionError("Should have thrown IllegalArgumentException")))
+        .onFailure(cause -> {
+            if (cause instanceof IllegalArgumentException) {
+                testContext.completeNow();
+            } else {
+                testContext.failNow(cause);
+            }
+        });
     }
 
     @Test
-    void testApplyTemplateRejectsParameterWithSemicolon() {
+    void testApplyTemplateRejectsParameterWithSemicolon(VertxTestContext testContext) {
         Map<String, String> parameters = new HashMap<>();
         parameters.put("TABLE_NAME", "test; DROP TABLE users");
 
-        ExecutionException ex = assertThrows(ExecutionException.class, () ->
-            reactivePool.withConnection(connection ->
-                sqlTemplateProcessor.applyTemplate(connection, "test-simple-table.sql", parameters)
-            ).toCompletionStage().toCompletableFuture().get()
-        );
-        assertInstanceOf(IllegalArgumentException.class, ex.getCause());
+        reactivePool.withConnection(connection ->
+            sqlTemplateProcessor.applyTemplate(connection, "test-simple-table.sql", parameters)
+        )
+        .onSuccess(v -> testContext.failNow(new AssertionError("Should have thrown IllegalArgumentException")))
+        .onFailure(cause -> {
+            if (cause instanceof IllegalArgumentException) {
+                testContext.completeNow();
+            } else {
+                testContext.failNow(cause);
+            }
+        });
     }
 
     @Test
-    void testApplyTemplateRejectsParameterWithSqlComment() {
+    void testApplyTemplateRejectsParameterWithSqlComment(VertxTestContext testContext) {
         Map<String, String> parameters = new HashMap<>();
         parameters.put("TABLE_NAME", "test--drop");
 
-        ExecutionException ex = assertThrows(ExecutionException.class, () ->
-            reactivePool.withConnection(connection ->
-                sqlTemplateProcessor.applyTemplate(connection, "test-simple-table.sql", parameters)
-            ).toCompletionStage().toCompletableFuture().get()
-        );
-        assertInstanceOf(IllegalArgumentException.class, ex.getCause());
+        reactivePool.withConnection(connection ->
+            sqlTemplateProcessor.applyTemplate(connection, "test-simple-table.sql", parameters)
+        )
+        .onSuccess(v -> testContext.failNow(new AssertionError("Should have thrown IllegalArgumentException")))
+        .onFailure(cause -> {
+            if (cause instanceof IllegalArgumentException) {
+                testContext.completeNow();
+            } else {
+                testContext.failNow(cause);
+            }
+        });
     }
 
     @Test
-    void testApplyTemplateRejectsParameterWithBlockComment() {
+    void testApplyTemplateRejectsParameterWithBlockComment(VertxTestContext testContext) {
         Map<String, String> parameters = new HashMap<>();
         parameters.put("TABLE_NAME", "test/*injection*/");
 
-        ExecutionException ex = assertThrows(ExecutionException.class, () ->
-            reactivePool.withConnection(connection ->
-                sqlTemplateProcessor.applyTemplate(connection, "test-simple-table.sql", parameters)
-            ).toCompletionStage().toCompletableFuture().get()
-        );
-        assertInstanceOf(IllegalArgumentException.class, ex.getCause());
+        reactivePool.withConnection(connection ->
+            sqlTemplateProcessor.applyTemplate(connection, "test-simple-table.sql", parameters)
+        )
+        .onSuccess(v -> testContext.failNow(new AssertionError("Should have thrown IllegalArgumentException")))
+        .onFailure(cause -> {
+            if (cause instanceof IllegalArgumentException) {
+                testContext.completeNow();
+            } else {
+                testContext.failNow(cause);
+            }
+        });
     }
 }
-

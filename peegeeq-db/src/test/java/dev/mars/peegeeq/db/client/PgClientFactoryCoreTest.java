@@ -23,8 +23,6 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import java.time.Duration;
 import java.util.Optional;
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -65,24 +63,22 @@ public class PgClientFactoryCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testPgClientFactoryCreationWithVertx(VertxTestContext testContext) throws Exception {
+    void testPgClientFactoryCreationWithVertx(VertxTestContext testContext) {
         PgClientFactory f = new PgClientFactory(manager.getVertx());
         assertNotNull(f);
         f.closeAsync()
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testPgClientFactoryCreationWithConnectionManager(VertxTestContext testContext) throws Exception {
+    void testPgClientFactoryCreationWithConnectionManager(VertxTestContext testContext) {
         PgConnectionManager cm = new PgConnectionManager(manager.getVertx());
         PgClientFactory f = new PgClientFactory(cm);
         assertNotNull(f);
         f.closeAsync()
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
@@ -398,7 +394,7 @@ public class PgClientFactoryCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testRemoveClient(VertxTestContext testContext) throws Exception {
+    void testRemoveClient(VertxTestContext testContext) {
         PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
@@ -412,34 +408,25 @@ public class PgClientFactoryCoreTest extends BaseIntegrationTest {
 
         factory.createClient("test-client", connectionConfig, poolConfig);
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         factory.removeClient("test-client")
-                .onSuccess(v -> {
-                    try {
-                        Optional<PgClient> client = factory.getClient("test-client");
-                        assertFalse(client.isPresent());
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                })
-                .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+                .onSuccess(v -> testContext.verify(() -> {
+                    Optional<PgClient> client = factory.getClient("test-client");
+                    assertFalse(client.isPresent());
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 
     @Test
-    void testRemoveClientNonExistent(VertxTestContext testContext) throws Exception {
+    void testRemoveClientNonExistent(VertxTestContext testContext) {
         // Should not throw exception
         factory.removeClient("non-existent")
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testCloseAsync(VertxTestContext testContext) throws Exception {
+    void testCloseAsync(VertxTestContext testContext) {
         PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
@@ -453,21 +440,13 @@ public class PgClientFactoryCoreTest extends BaseIntegrationTest {
 
         factory.createClient("test-client", connectionConfig, poolConfig);
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         factory.closeAsync()
-                .onSuccess(v -> {
-                    try {
-                        Set<String> clients = factory.getAvailableClients();
-                        assertEquals(0, clients.size());
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                })
-                .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+                .onSuccess(v -> testContext.verify(() -> {
+                    Set<String> clients = factory.getAvailableClients();
+                    assertEquals(0, clients.size());
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 }
 

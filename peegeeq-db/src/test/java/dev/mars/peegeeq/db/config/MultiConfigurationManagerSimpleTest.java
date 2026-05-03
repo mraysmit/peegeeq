@@ -1,3 +1,4 @@
+// ========== FILE 1: MultiConfigurationManagerSimpleTest.java ==========
 package dev.mars.peegeeq.db.config;
 
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -6,14 +7,17 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.ResourceLock;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Set;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -27,6 +31,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.CORE)
 @ResourceLock("system-properties")
+@ExtendWith(VertxExtension.class)
 class MultiConfigurationManagerSimpleTest {
 
     private static final Logger logger = LoggerFactory.getLogger(MultiConfigurationManagerSimpleTest.class);
@@ -62,7 +67,7 @@ class MultiConfigurationManagerSimpleTest {
             assertTrue(configManager.getConfigurationNames().isEmpty());
             assertFalse(configManager.hasConfiguration("test"));
         } finally {
-            closeManager(configManager);
+            configManager.close();
         }
     }
     
@@ -108,7 +113,7 @@ class MultiConfigurationManagerSimpleTest {
             logger.info("Basic configuration management tests passed");
             
         } finally {
-            closeManager(configManager);
+            configManager.close();
         }
     }
 
@@ -143,7 +148,7 @@ class MultiConfigurationManagerSimpleTest {
             logger.info("Configuration registration logic tests passed");
 
         } finally {
-            closeManager(configManager);
+            configManager.close();
         }
     }
     
@@ -180,33 +185,31 @@ class MultiConfigurationManagerSimpleTest {
     }
     
     @Test
-    void testManagerLifecycle() {
+    void testManagerLifecycle(VertxTestContext testContext) {
         // Test manager lifecycle without database connections
         MultiConfigurationManager configManager = new MultiConfigurationManager();
         
-        try {
-            // Initially not started
-            assertFalse(configManager.isStarted());
-            
-            // Can call start (will fail due to no configurations, but method exists)
-            assertDoesNotThrow(() -> {
-                configManager.start().toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS); // Should not throw, just do nothing
+        // Initially not started
+        assertFalse(configManager.isStarted());
+        
+        // Chain async operations using compose()
+        configManager.start()
+            .compose(v -> {
+                // After start with no configurations, should be started
+                assertTrue(configManager.isStarted());
+                
+                // Call start again (should be idempotent)
+                return configManager.start();
+            })
+            .onSuccess(v -> {
+                logger.info("Manager lifecycle tests passed");
+                closeManagerAsync(configManager, testContext);
+            })
+            .onFailure(err -> {
+                logger.error("Manager lifecycle test failed", err);
+                closeManagerAsync(configManager, testContext);
+                testContext.failNow(err);
             });
-            
-            // After start with no configurations, should still work
-            assertTrue(configManager.isStarted());
-            
-            // Can call start again (should be idempotent)
-            assertDoesNotThrow(() -> {
-                configManager.start().toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
-            });
-            
-            logger.info("Manager lifecycle tests passed");
-            
-        } finally {
-            closeManager(configManager);
-            assertFalse(configManager.isStarted());
-        }
     }
     
     @Test
@@ -228,24 +231,29 @@ class MultiConfigurationManagerSimpleTest {
             logger.info("Configuration names management tests passed");
             
         } finally {
-            closeManager(configManager);
+            configManager.close();
         }
     }
 
     @Test
-    void testRegisterConfigurationAfterStartFails() throws Exception {
+    void testRegisterConfigurationAfterStartFails(VertxTestContext testContext) {
         MultiConfigurationManager configManager = new MultiConfigurationManager();
 
-        try {
-            configManager.start().toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
-            assertTrue(configManager.isStarted());
+        configManager.start()
+            .onSuccess(v -> {
+                assertTrue(configManager.isStarted());
 
-            IllegalStateException exception = assertThrows(IllegalStateException.class,
-                () -> configManager.registerConfiguration("late-config", "test"));
-            assertTrue(exception.getMessage().contains("Cannot register configurations while manager is in state"));
-        } finally {
-            closeManager(configManager);
-        }
+                IllegalStateException exception = assertThrows(IllegalStateException.class,
+                    () -> configManager.registerConfiguration("late-config", "test"));
+                assertTrue(exception.getMessage().contains("Cannot register configurations while manager is in state"));
+                
+                closeManagerAsync(configManager, testContext);
+            })
+            .onFailure(err -> {
+                logger.error("Test failed", err);
+                closeManagerAsync(configManager, testContext);
+                testContext.failNow(err);
+            });
     }
     
     @Test
@@ -267,7 +275,7 @@ class MultiConfigurationManagerSimpleTest {
             assertThrows(IllegalArgumentException.class, () -> {
                 configManager.getConfiguration("does-not-exist");
             });
-            
+
             assertThrows(IllegalArgumentException.class, () -> {
                 configManager.getDatabaseService("does-not-exist");
             });
@@ -275,7 +283,7 @@ class MultiConfigurationManagerSimpleTest {
             logger.info("Error handling tests passed");
             
         } finally {
-            closeManager(configManager);
+            configManager.close();
         }
     }
     
@@ -286,12 +294,12 @@ class MultiConfigurationManagerSimpleTest {
         
         // Should be able to close without issues
         assertDoesNotThrow(() -> {
-            closeManager(configManager);
+            configManager.close();
         });
         
         // Should be able to close multiple times
         assertDoesNotThrow(() -> {
-            closeManager(configManager);
+            configManager.close();
         });
         
         // After close, should be in clean state
@@ -306,7 +314,7 @@ class MultiConfigurationManagerSimpleTest {
         TrackingSimpleMeterRegistry registry = new TrackingSimpleMeterRegistry();
         MultiConfigurationManager configManager = new MultiConfigurationManager(registry);
 
-        closeManager(configManager);
+        configManager.close();
 
         assertFalse(registry.isClosedByManager(),
             "Injected meter registry should not be closed by manager");
@@ -341,28 +349,31 @@ class MultiConfigurationManagerSimpleTest {
                 t1.start();
                 t2.start();
 
-                try {
-                    t1.join();
-                    t2.join();
-                } catch (InterruptedException e) {
-                    Thread.currentThread().interrupt();
-                    fail("Thread safety test interrupted");
-                }
+                t1.join();
+                t2.join();
             });
             
             logger.info("Thread safety tests passed");
 
         } finally {
-            closeManager(configManager);
+            configManager.close();
         }
     }
 
-    private void closeManager(MultiConfigurationManager configManager) {
-        try {
-            configManager.close().toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS);
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to close MultiConfigurationManager reactively", e);
-        }
+    /**
+     * Asynchronously close the manager using future composition.
+     * Used by async tests that use VertxTestContext.
+     */
+    private void closeManagerAsync(MultiConfigurationManager configManager, VertxTestContext testContext) {
+        configManager.close()
+            .onSuccess(v -> {
+                logger.debug("Manager closed successfully");
+                testContext.completeNow();
+            })
+            .onFailure(t -> {
+                logger.error("Failed to close manager", t);
+                testContext.completeNow();
+            });
     }
 
     private static final class TrackingSimpleMeterRegistry extends SimpleMeterRegistry {

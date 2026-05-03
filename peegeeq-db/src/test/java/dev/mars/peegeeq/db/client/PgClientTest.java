@@ -35,8 +35,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 
 import java.time.Duration;
-import java.util.concurrent.TimeUnit;
-
+import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -52,17 +51,15 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.INTEGRATION)
-@ExtendWith(SharedPostgresTestExtension.class)
+@ExtendWith({SharedPostgresTestExtension.class, VertxExtension.class})
 public class PgClientTest {
 
     private PgClientFactory clientFactory;
     private PgClient pgClient;
-    private Vertx vertx;
 
     @BeforeEach
-    void setUp() {
+    void setUp(Vertx vertx) {
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
-        vertx = Vertx.vertx();
         clientFactory = new PgClientFactory(vertx);
 
         // Create connection config from TestContainer
@@ -87,19 +84,14 @@ public class PgClientTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown() {
         if (clientFactory != null) {
             clientFactory.close();
-        }
-        if (vertx != null) {
-            vertx.close();
         }
     }
 
     @Test
-    void testGetReactiveConnection() throws Exception {
-        VertxTestContext testContext = new VertxTestContext();
-
+    void testGetReactiveConnection(VertxTestContext testContext) {
         pgClient.getReactiveConnection()
             .compose(connection -> {
                 return connection.preparedQuery("SELECT 1")
@@ -108,7 +100,7 @@ public class PgClientTest {
                         Row row = rowSet.iterator().next();
                         return row.getInteger(0);
                     })
-                    .onComplete(ar -> connection.close());
+                    .eventually(() -> connection.close());
             })
             .onSuccess(value -> testContext.verify(() -> {
                 assertNotNull(value);
@@ -116,19 +108,10 @@ public class PgClientTest {
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        if (testContext.failed()) {
-            Throwable cause = testContext.causeOfFailure();
-            if (cause instanceof Exception ex) throw ex;
-            throw new RuntimeException(cause);
-        }
     }
 
     @Test
-    void testWithReactiveConnectionResultInteger() throws Exception {
-        VertxTestContext testContext = new VertxTestContext();
-
+    void testWithReactiveConnectionResultInteger(VertxTestContext testContext) {
         pgClient.withReactiveConnectionResult(connection -> {
             return connection.preparedQuery("SELECT 1")
                 .execute()
@@ -143,19 +126,10 @@ public class PgClientTest {
             testContext.completeNow();
         }))
         .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        if (testContext.failed()) {
-            Throwable cause = testContext.causeOfFailure();
-            if (cause instanceof Exception ex) throw ex;
-            throw new RuntimeException(cause);
-        }
     }
 
     @Test
-    void testWithReactiveConnectionResultString() throws Exception {
-        VertxTestContext testContext = new VertxTestContext();
-
+    void testWithReactiveConnectionResultString(VertxTestContext testContext) {
         pgClient.withReactiveConnectionResult(connection -> {
             return connection.preparedQuery("SELECT 'test' as message")
                 .execute()
@@ -170,17 +144,10 @@ public class PgClientTest {
             testContext.completeNow();
         }))
         .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        if (testContext.failed()) {
-            Throwable cause = testContext.causeOfFailure();
-            if (cause instanceof Exception ex) throw ex;
-            throw new RuntimeException(cause);
-        }
     }
 
     @Test
-    void testReactiveMethodsWork() throws Exception {
+    void testReactiveMethodsWork() {
         // Test reactive connection methods work
         assertDoesNotThrow(() -> {
             Future<SqlConnection> connectionFuture = pgClient.getReactiveConnection();
@@ -201,11 +168,9 @@ public class PgClientTest {
     }
 
     @Test
-    void testGetReactivePool() throws Exception {
+    void testGetReactivePool(VertxTestContext testContext) {
         Pool pool = pgClient.getReactivePool();
         assertNotNull(pool, "Pool should not be null");
-
-        VertxTestContext testContext = new VertxTestContext();
 
         pool.getConnection()
             .compose(connection -> {
@@ -215,19 +180,12 @@ public class PgClientTest {
                         Row row = rowSet.iterator().next();
                         return row.getInteger("answer");
                     })
-                    .onComplete(ar -> connection.close());
+                    .eventually(() -> connection.close());
             })
             .onSuccess(answer -> testContext.verify(() -> {
                 assertEquals(42, answer, "Pool should be functional");
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        if (testContext.failed()) {
-            Throwable cause = testContext.causeOfFailure();
-            if (cause instanceof Exception ex) throw ex;
-            throw new RuntimeException(cause);
-        }
     }
 }

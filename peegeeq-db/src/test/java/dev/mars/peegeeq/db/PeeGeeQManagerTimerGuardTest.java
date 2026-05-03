@@ -47,7 +47,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
-import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -106,19 +105,24 @@ public class PeeGeeQManagerTimerGuardTest {
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws InterruptedException {
+    void tearDown(VertxTestContext testContext) {
         managerLogger.detachAppender(logCapture);
         logCapture.stop();
         if (manager != null) {
-            manager.closeReactive().onComplete(v -> {
-                clearSystemProperties();
-                testContext.completeNow();
-            });
+            manager.closeReactive()
+                .onSuccess(v -> {
+                    clearSystemProperties();
+                    testContext.completeNow();
+                })
+                .onFailure(t -> {
+                    logger.warn("Error closing manager in tearDown: {}", t.getMessage());
+                    clearSystemProperties();
+                    testContext.completeNow();
+                });
         } else {
             clearSystemProperties();
             testContext.completeNow();
         }
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -127,7 +131,7 @@ public class PeeGeeQManagerTimerGuardTest {
 
     @Test
     @DisplayName("No timer failure logs when DB is alive and manager closes cleanly")
-    void testNoTimerFailuresDuringCleanClose(VertxTestContext testContext) throws InterruptedException {
+    void testNoTimerFailuresDuringCleanClose(VertxTestContext testContext) {
         setSystemPropertiesFor(postgres);
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
         Vertx vertx = manager.getVertx();
@@ -153,8 +157,6 @@ public class PeeGeeQManagerTimerGuardTest {
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -163,7 +165,7 @@ public class PeeGeeQManagerTimerGuardTest {
 
     @Test
     @DisplayName("Timer failures escalate from WARN to ERROR after consecutive-failure threshold")
-    void testTimerFailuresEscalateWarnToError(VertxTestContext testContext) throws InterruptedException {
+    void testTimerFailuresEscalateWarnToError(VertxTestContext testContext) {
         logger.error("===== INTENTIONAL ERROR TEST ===== The next 'Failed to refresh depth cache' " +
                      "ERROR logs are EXPECTED — this test deliberately stops the DB container " +
                      "to verify that consecutive timer failures escalate from WARN to ERROR");
@@ -229,7 +231,6 @@ public class PeeGeeQManagerTimerGuardTest {
                 }))
                 .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -238,7 +239,7 @@ public class PeeGeeQManagerTimerGuardTest {
 
     @Test
     @DisplayName("Closing guard prevents timer callbacks firing after close when DB is alive")
-    void testClosingGuardPreventsTimerCallbacksAfterClose(VertxTestContext testContext) throws InterruptedException {
+    void testClosingGuardPreventsTimerCallbacksAfterClose(VertxTestContext testContext) {
         // This test specifically protects against the race described in the issue:
         //
         //   "timer fires → refreshDepthCache() future starts → cancelTimer() runs →
@@ -278,13 +279,11 @@ public class PeeGeeQManagerTimerGuardTest {
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
     @DisplayName("In-flight background tasks fail fast if manager is closed")
-    void testInFlightTasksFailFast(VertxTestContext testContext) throws InterruptedException {
+    void testInFlightTasksFailFast(VertxTestContext testContext) {
         setSystemPropertiesFor(postgres);
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
 
@@ -314,13 +313,11 @@ public class PeeGeeQManagerTimerGuardTest {
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
     @DisplayName("Fast timers with immediate close do not cause connection refused errors")
-    void testFastTimersWithImmediateClose(VertxTestContext testContext) throws InterruptedException {
+    void testFastTimersWithImmediateClose(VertxTestContext testContext) {
         // This test uses very fast timer intervals (100ms) to maximize the likelihood
         // of a timer callback firing during the close sequence, verifying that the
         // markClosing() defense prevents connection refused errors.
@@ -374,8 +371,6 @@ public class PeeGeeQManagerTimerGuardTest {
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     // ─────────────────────────────────────────────────────────────────

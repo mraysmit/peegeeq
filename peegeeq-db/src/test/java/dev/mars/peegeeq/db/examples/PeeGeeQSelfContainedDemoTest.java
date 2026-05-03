@@ -33,7 +33,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -55,20 +54,20 @@ public class PeeGeeQSelfContainedDemoTest {
     private PeeGeeQManager manager;
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws InterruptedException {
+    void tearDown(VertxTestContext testContext) {
         if (manager != null) {
             manager.closeReactive()
-                .onComplete(v -> {
+                .onSuccess(v -> {
                     System.getProperties().entrySet().removeIf(e ->
                         e.getKey().toString().startsWith("peegeeq."));
                     testContext.completeNow();
-                });
+                })
+                .onFailure(testContext::failNow);
         } else {
             System.getProperties().entrySet().removeIf(e ->
                 e.getKey().toString().startsWith("peegeeq."));
             testContext.completeNow();
         }
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     private PeeGeeQManager createManager() {
@@ -89,7 +88,7 @@ public class PeeGeeQSelfContainedDemoTest {
     }
 
     @Test
-    void testSelfContainedSetup(VertxTestContext testContext) throws InterruptedException {
+    void testSelfContainedSetup(VertxTestContext testContext) {
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
         assertTrue(postgres.isRunning(), "PostgreSQL container should be running");
@@ -104,12 +103,10 @@ public class PeeGeeQSelfContainedDemoTest {
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testFeatureDemonstrations(VertxTestContext testContext) throws InterruptedException {
+    void testFeatureDemonstrations(VertxTestContext testContext) {
         manager = createManager();
         manager.start()
             .compose(v -> {
@@ -140,12 +137,10 @@ public class PeeGeeQSelfContainedDemoTest {
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testSystemMonitoring(VertxTestContext testContext) throws InterruptedException {
+    void testSystemMonitoring(VertxTestContext testContext) {
         manager = createManager();
         manager.start()
             .compose(v -> manager.getVertx().timer(1000).mapEmpty())
@@ -156,8 +151,6 @@ public class PeeGeeQSelfContainedDemoTest {
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test

@@ -20,7 +20,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
 import java.time.Instant;
-import java.util.concurrent.TimeUnit;
+
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -55,7 +55,7 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
     private PgConnectionManager connectionManager;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp() {
         connectionManager = new PgConnectionManager(manager.getVertx(), null);
 
         PostgreSQLContainer postgres = getPostgres();
@@ -93,7 +93,7 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testFromBeginningStoresMessageIdOne(VertxTestContext testContext) throws Exception {
+    void testFromBeginningStoresMessageIdOne(VertxTestContext testContext) {
         logger.info("=== Testing FROM_BEGINNING stores start_from_message_id = 1 ===");
 
         String topic = "test-from-beginning-storage";
@@ -103,32 +103,24 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
             .startPosition(StartPosition.FROM_BEGINNING)
             .build();
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         createTopic(topic)
             .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(subscription -> {
-                try {
-                    assertNotNull(subscription.startFromMessageId(),
-                        "FROM_BEGINNING must store start_from_message_id (not NULL)");
-                    assertEquals(1L, subscription.startFromMessageId().longValue(),
-                        "FROM_BEGINNING MUST store start_from_message_id = 1");
-                    assertNull(subscription.startFromTimestamp(),
-                        "start_from_timestamp should be NULL for FROM_BEGINNING");
-                    logger.info("FROM_BEGINNING verified");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(subscription -> testContext.verify(() -> {
+                assertNotNull(subscription.startFromMessageId(),
+                    "FROM_BEGINNING must store start_from_message_id (not NULL)");
+                assertEquals(1L, subscription.startFromMessageId().longValue(),
+                    "FROM_BEGINNING MUST store start_from_message_id = 1");
+                assertNull(subscription.startFromTimestamp(),
+                    "start_from_timestamp should be NULL for FROM_BEGINNING");
+                logger.info("FROM_BEGINNING verified");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testFromNowStoresNonNullMessageId(VertxTestContext testContext) throws Exception {
+    void testFromNowStoresNonNullMessageId(VertxTestContext testContext) {
         logger.info("=== Testing FROM_NOW stores non-null start_from_message_id ===");
 
         String topic = "test-from-now-storage";
@@ -138,32 +130,24 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
             .startPosition(StartPosition.FROM_NOW)
             .build();
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         createTopic(topic)
             .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(subscription -> {
-                try {
-                    assertNotNull(subscription.startFromMessageId(),
-                        "FROM_NOW must store start_from_message_id (not NULL)");
-                    assertTrue(subscription.startFromMessageId() >= 1L,
-                        "FROM_NOW should store start_from_message_id >= 1");
-                    assertNull(subscription.startFromTimestamp());
-                    logger.info("FROM_NOW verified: start_from_message_id={}",
-                        subscription.startFromMessageId());
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(subscription -> testContext.verify(() -> {
+                assertNotNull(subscription.startFromMessageId(),
+                    "FROM_NOW must store start_from_message_id (not NULL)");
+                assertTrue(subscription.startFromMessageId() >= 1L,
+                    "FROM_NOW should store start_from_message_id >= 1");
+                assertNull(subscription.startFromTimestamp());
+                logger.info("FROM_NOW verified: start_from_message_id={}",
+                    subscription.startFromMessageId());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testFromMessageIdWithExplicitValue(VertxTestContext testContext) throws Exception {
+    void testFromMessageIdWithExplicitValue(VertxTestContext testContext) {
         logger.info("=== Testing FROM_MESSAGE_ID with explicit value ===");
 
         String topic = "test-from-message-id";
@@ -175,30 +159,22 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
             .startFromMessageId(explicitMessageId)
             .build();
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         createTopic(topic)
             .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(subscription -> {
-                try {
-                    assertNotNull(subscription.startFromMessageId());
-                    assertEquals(explicitMessageId, subscription.startFromMessageId(),
-                        "FROM_MESSAGE_ID must store exact provided message ID");
-                    assertNull(subscription.startFromTimestamp());
-                    logger.info("FROM_MESSAGE_ID(42) verified");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(subscription -> testContext.verify(() -> {
+                assertNotNull(subscription.startFromMessageId());
+                assertEquals(explicitMessageId, subscription.startFromMessageId(),
+                    "FROM_MESSAGE_ID must store exact provided message ID");
+                assertNull(subscription.startFromTimestamp());
+                logger.info("FROM_MESSAGE_ID(42) verified");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testFromTimestampWithExplicitValue(VertxTestContext testContext) throws Exception {
+    void testFromTimestampWithExplicitValue(VertxTestContext testContext) {
         logger.info("=== Testing FROM_TIMESTAMP with explicit value ===");
 
         String topic = "test-from-timestamp";
@@ -210,34 +186,26 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
             .startFromTimestamp(explicitTimestamp)
             .build();
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         createTopic(topic)
             .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(subscription -> {
-                try {
-                    assertNull(subscription.startFromMessageId(),
-                        "start_from_message_id should be NULL for FROM_TIMESTAMP");
-                    assertNotNull(subscription.startFromTimestamp());
-                    // Timestamps may lose precision, compare within 1 second tolerance
-                    long diffMillis = Math.abs(explicitTimestamp.toEpochMilli() -
-                                               subscription.startFromTimestamp().toEpochMilli());
-                    assertTrue(diffMillis < 1000,
-                        String.format("Timestamp difference should be < 1 second (was %d ms)", diffMillis));
-                    logger.info("FROM_TIMESTAMP verified (diff: {} ms)", diffMillis);
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(subscription -> testContext.verify(() -> {
+                assertNull(subscription.startFromMessageId(),
+                    "start_from_message_id should be NULL for FROM_TIMESTAMP");
+                assertNotNull(subscription.startFromTimestamp());
+                // Timestamps may lose precision, compare within 1 second tolerance
+                long diffMillis = Math.abs(explicitTimestamp.toEpochMilli() -
+                                           subscription.startFromTimestamp().toEpochMilli());
+                assertTrue(diffMillis < 1000,
+                    String.format("Timestamp difference should be < 1 second (was %d ms)", diffMillis));
+                logger.info("FROM_TIMESTAMP verified (diff: {} ms)", diffMillis);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testUpdateFromNowToFromBeginning(VertxTestContext testContext) throws Exception {
+    void testUpdateFromNowToFromBeginning(VertxTestContext testContext) {
         logger.info("=== Testing update FROM_NOW to FROM_BEGINNING ===");
 
         String topic = "test-update-position";
@@ -251,7 +219,6 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
             .startPosition(StartPosition.FROM_BEGINNING)
             .build();
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         AtomicReference<Long> initialMessageIdRef = new AtomicReference<>();
         createTopic(topic)
             .compose(v -> subscriptionManager.subscribe(topic, groupName, initialOptions))
@@ -263,24 +230,17 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
                 return subscriptionManager.subscribe(topic, groupName, updatedOptions);
             })
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(updatedSub -> {
-                try {
-                    assertEquals(1L, updatedSub.startFromMessageId().longValue(),
-                        "After update, start_from_message_id should be 1 (FROM_BEGINNING)");
-                    logger.info("Update FROM_NOW to FROM_BEGINNING verified");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(updatedSub -> testContext.verify(() -> {
+                assertEquals(1L, updatedSub.startFromMessageId().longValue(),
+                    "After update, start_from_message_id should be 1 (FROM_BEGINNING)");
+                logger.info("Update FROM_NOW to FROM_BEGINNING verified");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testEdgeCaseMessageIdZero(VertxTestContext testContext) throws Exception {
+    void testEdgeCaseMessageIdZero(VertxTestContext testContext) {
         logger.info("=== Testing FROM_MESSAGE_ID with ID = 0 (edge case) ===");
 
         String topic = "test-message-id-zero";
@@ -291,60 +251,43 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
             .startFromMessageId(0L)
             .build();
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         createTopic(topic)
             .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(subscription -> {
-                try {
-                    assertNotNull(subscription.startFromMessageId());
-                    assertEquals(0L, subscription.startFromMessageId().longValue(),
-                        "Should accept and store message ID = 0");
-                    logger.info("Edge case verified: message ID = 0 handled correctly");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(subscription -> testContext.verify(() -> {
+                assertNotNull(subscription.startFromMessageId());
+                assertEquals(0L, subscription.startFromMessageId().longValue(),
+                    "Should accept and store message ID = 0");
+                logger.info("Edge case verified: message ID = 0 handled correctly");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testGetNonExistentSubscription(VertxTestContext testContext) throws Exception {
+    void testGetNonExistentSubscription(VertxTestContext testContext) {
         logger.info("=== Testing get non-existent subscription ===");
 
         String topic = "test-nonexistent";
         String groupName = "group-nonexistent";
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         createTopic(topic)
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(subscription -> {
-                try {
-                    assertNull(subscription, "Non-existent subscription should return null");
-                    logger.info("Non-existent subscription returns null correctly");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(subscription -> testContext.verify(() -> {
+                assertNull(subscription, "Non-existent subscription should return null");
+                logger.info("Non-existent subscription returns null correctly");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testUpdateFromBeginningToMessageId(VertxTestContext testContext) throws Exception {
+    void testUpdateFromBeginningToMessageId(VertxTestContext testContext) {
         logger.info("=== Testing update FROM_BEGINNING to FROM_MESSAGE_ID ===");
 
         String topic = "test-update-beginning-to-id";
         String groupName = "group-update-beg-id";
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         createTopic(topic)
             .compose(v -> subscriptionManager.subscribe(topic, groupName,
                 SubscriptionOptions.builder().startPosition(StartPosition.FROM_BEGINNING).build()))
@@ -358,29 +301,21 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
                         .build());
             })
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(updated -> {
-                try {
-                    assertEquals(100L, updated.startFromMessageId().longValue());
-                    logger.info("Update FROM_BEGINNING to FROM_MESSAGE_ID(100) verified");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(updated -> testContext.verify(() -> {
+                assertEquals(100L, updated.startFromMessageId().longValue());
+                logger.info("Update FROM_BEGINNING to FROM_MESSAGE_ID(100) verified");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testMultipleUpdatesLastWins(VertxTestContext testContext) throws Exception {
+    void testMultipleUpdatesLastWins(VertxTestContext testContext) {
         logger.info("=== Testing multiple updates (last write wins) ===");
 
         String topic = "test-multiple-updates";
         String groupName = "group-multiple-updates";
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         createTopic(topic)
             .compose(v -> subscriptionManager.subscribe(topic, groupName,
                 SubscriptionOptions.builder().startPosition(StartPosition.FROM_BEGINNING).build()))
@@ -395,29 +330,21 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
                     .startFromMessageId(100L)
                     .build()))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(final_sub -> {
-                try {
-                    assertEquals(100L, final_sub.startFromMessageId().longValue(),
-                        "Last update should win");
-                    logger.info("Multiple updates: last write (100) wins");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(final_sub -> testContext.verify(() -> {
+                assertEquals(100L, final_sub.startFromMessageId().longValue(),
+                    "Last update should win");
+                logger.info("Multiple updates: last write (100) wins");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testHeartbeatIntervalEdgeCases(VertxTestContext testContext) throws Exception {
+    void testHeartbeatIntervalEdgeCases(VertxTestContext testContext) {
         logger.info("=== Testing heartbeat interval edge cases ===");
 
         String topic = "test-heartbeat-edge";
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         createTopic(topic)
             .compose(v -> subscriptionManager.subscribe(topic, "group-hb-1",
                 SubscriptionOptions.builder()
@@ -437,20 +364,13 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
                         .build());
             })
             .compose(v -> subscriptionManager.getSubscription(topic, "group-hb-3600"))
-            .onSuccess(sub3600 -> {
-                try {
-                    assertEquals(3600, sub3600.heartbeatIntervalSeconds());
-                    assertEquals(7200, sub3600.heartbeatTimeoutSeconds());
-                    logger.info("Heartbeat edge cases: (1s/2s) and (3600s/7200s) verified");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(sub3600 -> testContext.verify(() -> {
+                assertEquals(3600, sub3600.heartbeatIntervalSeconds());
+                assertEquals(7200, sub3600.heartbeatTimeoutSeconds());
+                logger.info("Heartbeat edge cases: (1s/2s) and (3600s/7200s) verified");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     // Helper method

@@ -24,7 +24,6 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -46,7 +45,7 @@ public class PeeGeeQMetricsCoreTest extends BaseIntegrationTest {
     private SimpleMeterRegistry meterRegistry;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp() {
         connectionManager = new PgConnectionManager(manager.getVertx());
         
         PostgreSQLContainer postgres = getPostgres();
@@ -371,28 +370,21 @@ public class PeeGeeQMetricsCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testIsHealthy(VertxTestContext testContext) throws InterruptedException {
+    void testIsHealthy(VertxTestContext testContext) {
         metrics.isHealthy()
-            .onSuccess(healthy -> {
-                try {
+            .onSuccess(healthy -> testContext.verify(() -> {
                     assertNotNull(healthy);
-                } catch (Throwable t) {
-                    testContext.failNow(t);
-                    return;
-                }
-                testContext.completeNow();
-            })
+                    testContext.completeNow();
+                }))
             .onFailure(testContext::failNow);
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
     @Test
-    void testPersistMetrics(VertxTestContext testContext) throws InterruptedException {
+    void testPersistMetrics(VertxTestContext testContext) {
         logger.warn("===== INTENTIONAL ERROR TEST ===== If the next ERROR log ('Failed to persist metrics to database') appears, it is EXPECTED \u2014 queue_metrics table is absent from the standard test schema");
         metrics.persistMetrics(meterRegistry)
             .onSuccess(v -> testContext.completeNow())
             .onFailure(err -> testContext.completeNow());
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
 
 }

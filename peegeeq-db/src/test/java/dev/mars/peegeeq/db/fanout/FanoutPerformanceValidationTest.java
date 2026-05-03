@@ -35,6 +35,8 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -67,7 +69,7 @@ public class FanoutPerformanceValidationTest extends BaseIntegrationTest {
     private CleanupService cleanupService;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp() {
         logger.info("=== PERFORMANCE TEST SETUP STARTED ===");
 
         // Create connection manager using the shared Vertx instance
@@ -118,130 +120,143 @@ public class FanoutPerformanceValidationTest extends BaseIntegrationTest {
      * This test measures end-to-end throughput including production, fanout, consumption, and cleanup.
      */
     @Test
-    void testBasicThroughputValidation() throws Exception {
+    void testBasicThroughputValidation(VertxTestContext testContext) {
         logger.info("=== TEST METHOD: testBasicThroughputValidation STARTED ===");
-        System.err.flush();
 
-        // Use unique topic name to avoid conflicts in parallel test execution
         String topic = "perf-test-basic-" + UUID.randomUUID().toString().substring(0, 8);
         int messageCount = 1000;
         int consumerGroupCount = 4;
-        int payloadSizeBytes = 2048; // 2KB payload
+        int payloadSizeBytes = 2048;
+        List<String> groups = new ArrayList<>();
+        for (int i = 0; i < consumerGroupCount; i++) {
+            groups.add("perf-group-" + i);
+        }
 
         logger.info("Starting performance validation: {} messages, {} groups, {} byte payload",
             messageCount, consumerGroupCount, payloadSizeBytes);
 
-        // Step 1: Create PUB_SUB topic
         TopicConfig config = TopicConfig.builder()
             .topic(topic)
             .semantics(TopicSemantics.PUB_SUB)
             .messageRetentionHours(1)
             .build();
+
+        // Step 1: Create topic
         topicConfigService.createTopic(config)
-            .toCompletionStage().toCompletableFuture().get();
-
-        logger.info("Topic created: {}", topic);
-
-        // Step 2: Create consumer group subscriptions
-        List<String> groups = new ArrayList<>();
-        for (int i = 0; i < consumerGroupCount; i++) {
-            String groupName = "perf-group-" + i;
-            groups.add(groupName);
-            subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.defaults())
-                .toCompletionStage().toCompletableFuture().get();
-        }
-
-        logger.info("Created {} consumer group subscriptions", consumerGroupCount);
-
-        // Step 3: Publish messages in batches and measure throughput
-        long publishStartTime = System.currentTimeMillis();
-        int batchSize = 50; // Batch size to avoid overwhelming connection pool
-        int totalPublished = 0;
-        Long firstMessageId = null;
-
-        for (int batchStart = 0; batchStart < messageCount; batchStart += batchSize) {
-            int batchEnd = Math.min(batchStart + batchSize, messageCount);
-            List<Future<Long>> batchFutures = new ArrayList<>();
-
-            for (int i = batchStart; i < batchEnd; i++) {
-                JsonObject payload = generatePayload(i, payloadSizeBytes);
-                batchFutures.add(insertMessage(topic, payload));
-            }
-
-            // Wait for this batch to complete
-            Future.all(batchFutures)
-                .toCompletionStage().toCompletableFuture().get();
-
-            // Capture first message ID for verification
-            if (firstMessageId == null && !batchFutures.isEmpty()) {
-                firstMessageId = batchFutures.get(0).result();
-            }
-
-            totalPublished += batchFutures.size();
-        }
-
-        long publishEndTime = System.currentTimeMillis();
-        long publishDurationMs = publishEndTime - publishStartTime;
-        double publishThroughput = (messageCount * 1000.0) / publishDurationMs;
-
-        logger.info("Published {} messages in {} ms ({} msg/sec)",
-            messageCount, publishDurationMs, String.format("%.2f", publishThroughput));
-
-        // Step 4: Verify fanout - each message should have required_consumer_groups = 4
-        Integer requiredGroups = getRequiredConsumerGroups(firstMessageId)
-            .toCompletionStage().toCompletableFuture().get();
-        assertEquals(consumerGroupCount, requiredGroups,
-            "Messages should be fanned out to all consumer groups");
-
-        logger.info("Fanout verified: required_consumer_groups = {}", requiredGroups);
-
-        // Step 5: Consume messages from all groups and measure throughput
-        long consumeStartTime = System.currentTimeMillis();
-        AtomicInteger totalConsumed = new AtomicInteger(0);
-
-        for (String groupName : groups) {
-            int consumed = consumeAllMessages(topic, groupName, messageCount);
-            totalConsumed.addAndGet(consumed);
-            logger.info("Group {} consumed {} messages", groupName, consumed);
-        }
-
-        long consumeEndTime = System.currentTimeMillis();
-        long consumeDurationMs = consumeEndTime - consumeStartTime;
-        double consumeThroughput = (totalConsumed.get() * 1000.0) / consumeDurationMs;
-
-        logger.info("Consumed {} total messages in {} ms ({} msg/sec)",
-            totalConsumed.get(), consumeDurationMs, String.format("%.2f", consumeThroughput));
-
-        // Step 6: Verify all messages are completed
-        int expectedCompletions = messageCount * consumerGroupCount;
-        assertEquals(expectedCompletions, totalConsumed.get(),
-            "All messages should be consumed by all groups");
-
-        // Step 7: Run cleanup and verify messages are deleted
-        long cleanupStartTime = System.currentTimeMillis();
-        int deletedCount = cleanupService.cleanupCompletedMessages(topic, 100)
-            .toCompletionStage().toCompletableFuture().get();
-        long cleanupEndTime = System.currentTimeMillis();
-        long cleanupDurationMs = cleanupEndTime - cleanupStartTime;
-
-        logger.info("Cleanup deleted {} messages in {} ms",
-            deletedCount, cleanupDurationMs);
-
-        // Performance Summary
-        logger.info("=== PERFORMANCE SUMMARY ===");
-        logger.info("Messages: {}", messageCount);
-        logger.info("Consumer Groups: {}", consumerGroupCount);
-        logger.info("Payload Size: {} bytes", payloadSizeBytes);
-        logger.info("Publish Throughput: {} msg/sec", String.format("%.2f", publishThroughput));
-        logger.info("Consume Throughput: {} msg/sec", String.format("%.2f", consumeThroughput));
-        logger.info("Total Duration: {} ms", (cleanupEndTime - publishStartTime));
-        logger.info("========================");
-
-        logger.info("=== TEST METHOD: testBasicThroughputValidation COMPLETED ===");
-        System.err.flush();
+            // Step 2: Create consumer group subscriptions
+            .compose(v -> {
+                Future<Void> subChain = Future.succeededFuture();
+                for (String groupName : groups) {
+                    subChain = subChain.compose(ignored ->
+                        subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.defaults()).mapEmpty());
+                }
+                return subChain;
+            })
+            // Step 3: Publish messages in batches
+            .compose(v -> {
+                AtomicLong publishStart = new AtomicLong(System.currentTimeMillis());
+                AtomicReference<Long> firstMessageId = new AtomicReference<>();
+                return publishInBatches(topic, messageCount, payloadSizeBytes, 50, firstMessageId)
+                    .map(ignored -> {
+                        long elapsed = System.currentTimeMillis() - publishStart.get();
+                        double throughput = (messageCount * 1000.0) / elapsed;
+                        logger.info("Published {} messages in {} ms ({} msg/sec)",
+                            messageCount, elapsed, String.format("%.2f", throughput));
+                        return firstMessageId.get();
+                    });
+            })
+            // Step 4: Verify fanout
+            .compose(firstId -> getRequiredConsumerGroups(firstId).map(req -> {
+                assertEquals(consumerGroupCount, req,
+                    "Messages should be fanned out to all consumer groups");
+                logger.info("Fanout verified: required_consumer_groups = {}", req);
+                return null;
+            }))
+            // Step 5: Consume messages from all groups
+            .compose(v -> {
+                long consumeStart = System.currentTimeMillis();
+                AtomicInteger totalConsumed = new AtomicInteger(0);
+                Future<Void> consumeChain = Future.succeededFuture();
+                for (String groupName : groups) {
+                    consumeChain = consumeChain.compose(ignored ->
+                        consumeAllMessages(topic, groupName, messageCount).map(consumed -> {
+                            totalConsumed.addAndGet(consumed);
+                            logger.info("Group {} consumed {} messages", groupName, consumed);
+                            return null;
+                        })
+                    );
+                }
+                return consumeChain.map(ignored -> {
+                    long elapsed = System.currentTimeMillis() - consumeStart;
+                    double throughput = (totalConsumed.get() * 1000.0) / elapsed;
+                    logger.info("Consumed {} total messages in {} ms ({} msg/sec)",
+                        totalConsumed.get(), elapsed, String.format("%.2f", throughput));
+                    int expected = messageCount * consumerGroupCount;
+                    assertEquals(expected, totalConsumed.get(),
+                        "All messages should be consumed by all groups");
+                    return null;
+                });
+            })
+            // Step 6: Cleanup
+            .compose(v -> cleanupService.cleanupCompletedMessages(topic, 100).map(deleted -> {
+                logger.info("Cleanup deleted {} messages", deleted);
+                logger.info("=== TEST METHOD: testBasicThroughputValidation COMPLETED ===");
+                return null;
+            }))
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
     }
 
     // Helper methods
+
+    private Future<Void> publishInBatches(String topic, int messageCount, int payloadSizeBytes,
+                                          int batchSize, AtomicReference<Long> firstMessageId) {
+        Future<Void> chain = Future.succeededFuture();
+        for (int batchStart = 0; batchStart < messageCount; batchStart += batchSize) {
+            final int start = batchStart;
+            final int end = Math.min(batchStart + batchSize, messageCount);
+            chain = chain.compose(ignored -> {
+                List<Future<Long>> batchFutures = new ArrayList<>();
+                for (int i = start; i < end; i++) {
+                    batchFutures.add(insertMessage(topic, generatePayload(i, payloadSizeBytes)));
+                }
+                return Future.all(batchFutures).map(cf -> {
+                    if (firstMessageId.get() == null && !batchFutures.isEmpty()) {
+                        firstMessageId.set(batchFutures.get(0).result());
+                    }
+                    return null;
+                });
+            });
+        }
+        return chain;
+    }
+
+    private Future<Integer> consumeAllMessages(String topic, String groupName, int expectedCount) {
+        AtomicInteger consumed = new AtomicInteger(0);
+        return consumeLoop(topic, groupName, expectedCount, consumed)
+            .map(ignored -> consumed.get());
+    }
+
+    private Future<Void> consumeLoop(String topic, String groupName, int expectedCount, AtomicInteger consumed) {
+        if (consumed.get() >= expectedCount) {
+            return Future.succeededFuture();
+        }
+        return fetcher.fetchMessages(topic, groupName, 100)
+            .compose(messages -> {
+                if (messages.isEmpty()) {
+                    return Future.succeededFuture();
+                }
+                Future<Void> markChain = Future.succeededFuture();
+                for (OutboxMessage message : messages) {
+                    markChain = markChain.compose(ignored ->
+                        completionTracker.markCompleted(message.getId(), groupName, topic).mapEmpty());
+                }
+                return markChain.compose(ignored -> {
+                    consumed.addAndGet(messages.size());
+                    return consumeLoop(topic, groupName, expectedCount, consumed);
+                });
+            });
+    }
 
     private Future<Long> insertMessage(String topic, JsonObject payload) {
         return connectionManager.withConnection("peegeeq-main", connection -> {
@@ -276,30 +291,6 @@ public class FanoutPerformanceValidationTest extends BaseIntegrationTest {
                     return row.getInteger("required_consumer_groups");
                 });
         });
-    }
-
-    private int consumeAllMessages(String topic, String groupName, int expectedCount) throws Exception {
-        int totalConsumed = 0;
-        int batchSize = 100;
-
-        while (totalConsumed < expectedCount) {
-            List<OutboxMessage> messages = fetcher.fetchMessages(topic, groupName, batchSize)
-                .toCompletionStage().toCompletableFuture().get();
-
-            if (messages.isEmpty()) {
-                break; // No more messages
-            }
-
-            // Mark all messages as completed
-            for (OutboxMessage message : messages) {
-                completionTracker.markCompleted(message.getId(), groupName, topic)
-                    .toCompletionStage().toCompletableFuture().get();
-            }
-
-            totalConsumed += messages.size();
-        }
-
-        return totalConsumed;
     }
 
     private JsonObject generatePayload(int messageIndex, int sizeBytes) {

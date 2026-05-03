@@ -25,7 +25,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -40,7 +39,7 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
     private PgConnectionManager connectionManager;
     
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp() {
         connectionManager = new PgConnectionManager(manager.getVertx(), null);
         
         PostgreSQLContainer postgres = getPostgres();
@@ -80,7 +79,7 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
     }
     
     @Test
-    void testFromBeginningStoresMessageIdOne(VertxTestContext testContext) throws Exception {
+    void testFromBeginningStoresMessageIdOne(VertxTestContext testContext) {
         logger.info("=== Testing FROM_BEGINNING stores start_from_message_id = 1 ===");
 
         String uniqueId = UUID.randomUUID().toString().substring(0, 8);
@@ -90,7 +89,6 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
             .startPosition(StartPosition.FROM_BEGINNING)
             .build();
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         createTopic(topic)
             .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
             .compose(v -> queryDatabaseState(topic, groupName))
@@ -102,26 +100,19 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
                     "start_from_timestamp should be NULL for FROM_BEGINNING");
                 return subscriptionManager.getSubscription(topic, groupName);
             })
-            .onSuccess(subscription -> {
-                try {
-                    assertNotNull(subscription, "Subscription should be retrievable via API");
-                    SubscriptionOptions retrievedOptions = subscriptionToOptions(subscription);
-                    assertEquals(StartPosition.FROM_BEGINNING, retrievedOptions.getStartPosition(),
-                        "Retrieved StartPosition MUST be FROM_BEGINNING");
-                    logger.info("Round-trip verification PASSED: FROM_BEGINNING");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(subscription -> testContext.verify(() -> {
+                assertNotNull(subscription, "Subscription should be retrievable via API");
+                SubscriptionOptions retrievedOptions = subscriptionToOptions(subscription);
+                assertEquals(StartPosition.FROM_BEGINNING, retrievedOptions.getStartPosition(),
+                    "Retrieved StartPosition MUST be FROM_BEGINNING");
+                logger.info("Round-trip verification PASSED: FROM_BEGINNING");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
-    
+
     @Test
-    void testFromNowStoresMaxIdPlusOne(VertxTestContext testContext) throws Exception {
+    void testFromNowStoresMaxIdPlusOne(VertxTestContext testContext) {
         logger.info("=== Testing FROM_NOW stores start_from_message_id = maxId + 1 ===");
 
         String uniqueId = UUID.randomUUID().toString().substring(0, 8);
@@ -129,7 +120,6 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
         String groupName = "group-now-" + uniqueId;
 
         AtomicReference<Long> maxIdRef = new AtomicReference<>();
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         createTopic(topic)
             .compose(v -> insertTestMessage(topic, "message-1"))
             .compose(v -> insertTestMessage(topic, "message-2"))
@@ -149,32 +139,25 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
                 assertNull(dbState.startFromTimestamp);
                 return subscriptionManager.getSubscription(topic, groupName);
             })
-            .onSuccess(subscription -> {
-                try {
-                    SubscriptionOptions retrievedOptions = subscriptionToOptions(subscription);
-                    assertTrue(
-                        retrievedOptions.getStartPosition() == StartPosition.FROM_NOW ||
-                        retrievedOptions.getStartPosition() == StartPosition.FROM_MESSAGE_ID,
-                        "Retrieved position should be FROM_NOW or FROM_MESSAGE_ID"
-                    );
-                    if (retrievedOptions.getStartPosition() == StartPosition.FROM_MESSAGE_ID) {
-                        assertEquals(maxIdRef.get() + 1, retrievedOptions.getStartFromMessageId(),
-                            "Message ID should match maxId + 1");
-                    }
-                    logger.info("Round-trip verification PASSED: FROM_NOW");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
+            .onSuccess(subscription -> testContext.verify(() -> {
+                SubscriptionOptions retrievedOptions = subscriptionToOptions(subscription);
+                assertTrue(
+                    retrievedOptions.getStartPosition() == StartPosition.FROM_NOW ||
+                    retrievedOptions.getStartPosition() == StartPosition.FROM_MESSAGE_ID,
+                    "Retrieved position should be FROM_NOW or FROM_MESSAGE_ID"
+                );
+                if (retrievedOptions.getStartPosition() == StartPosition.FROM_MESSAGE_ID) {
+                    assertEquals(maxIdRef.get() + 1, retrievedOptions.getStartFromMessageId(),
+                        "Message ID should match maxId + 1");
                 }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+                logger.info("Round-trip verification PASSED: FROM_NOW");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
-    
+
     @Test
-    void testFromMessageIdStoresExactValue(VertxTestContext testContext) throws Exception {
+    void testFromMessageIdStoresExactValue(VertxTestContext testContext) {
         logger.info("=== Testing FROM_MESSAGE_ID stores exact message ID ===");
 
         String uniqueId = UUID.randomUUID().toString().substring(0, 8);
@@ -186,7 +169,6 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
             .startFromMessageId(explicitMessageId)
             .build();
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         createTopic(topic)
             .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
             .compose(v -> queryDatabaseState(topic, groupName))
@@ -197,26 +179,19 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
                 assertNull(dbState.startFromTimestamp);
                 return subscriptionManager.getSubscription(topic, groupName);
             })
-            .onSuccess(subscription -> {
-                try {
-                    SubscriptionOptions retrievedOptions = subscriptionToOptions(subscription);
-                    assertEquals(StartPosition.FROM_MESSAGE_ID, retrievedOptions.getStartPosition());
-                    assertEquals(explicitMessageId, retrievedOptions.getStartFromMessageId(),
-                        "Retrieved message ID MUST match stored value");
-                    logger.info("Round-trip verification PASSED: FROM_MESSAGE_ID");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(subscription -> testContext.verify(() -> {
+                SubscriptionOptions retrievedOptions = subscriptionToOptions(subscription);
+                assertEquals(StartPosition.FROM_MESSAGE_ID, retrievedOptions.getStartPosition());
+                assertEquals(explicitMessageId, retrievedOptions.getStartFromMessageId(),
+                    "Retrieved message ID MUST match stored value");
+                logger.info("Round-trip verification PASSED: FROM_MESSAGE_ID");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
     
     @Test
-    void testFromTimestampStoresExactValue(VertxTestContext testContext) throws Exception {
+    void testFromTimestampStoresExactValue(VertxTestContext testContext) {
         logger.info("=== Testing FROM_TIMESTAMP stores exact timestamp ===");
 
         String uniqueId = UUID.randomUUID().toString().substring(0, 8);
@@ -228,7 +203,6 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
             .startFromTimestamp(explicitTimestamp)
             .build();
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         createTopic(topic)
             .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
             .compose(v -> queryDatabaseState(topic, groupName))
@@ -243,29 +217,22 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
                     String.format("Timestamp difference should be < 1 second (was %d ms)", diffMillis));
                 return subscriptionManager.getSubscription(topic, groupName);
             })
-            .onSuccess(subscription -> {
-                try {
-                    SubscriptionOptions retrievedOptions = subscriptionToOptions(subscription);
-                    assertEquals(StartPosition.FROM_TIMESTAMP, retrievedOptions.getStartPosition());
-                    assertNotNull(retrievedOptions.getStartFromTimestamp());
-                    long retrievedDiffMillis = Math.abs(explicitTimestamp.toEpochMilli() -
-                        retrievedOptions.getStartFromTimestamp().toEpochMilli());
-                    assertTrue(retrievedDiffMillis < 1000,
-                        "Retrieved timestamp should match within 1 second");
-                    logger.info("Round-trip verification PASSED: FROM_TIMESTAMP");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(subscription -> testContext.verify(() -> {
+                SubscriptionOptions retrievedOptions = subscriptionToOptions(subscription);
+                assertEquals(StartPosition.FROM_TIMESTAMP, retrievedOptions.getStartPosition());
+                assertNotNull(retrievedOptions.getStartFromTimestamp());
+                long retrievedDiffMillis = Math.abs(explicitTimestamp.toEpochMilli() -
+                    retrievedOptions.getStartFromTimestamp().toEpochMilli());
+                assertTrue(retrievedDiffMillis < 1000,
+                    "Retrieved timestamp should match within 1 second");
+                logger.info("Round-trip verification PASSED: FROM_TIMESTAMP");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
     
     @Test
-    void testEdgeCaseMessageIdZero(VertxTestContext testContext) throws Exception {
+    void testEdgeCaseMessageIdZero(VertxTestContext testContext) {
         logger.info("=== Testing FROM_MESSAGE_ID with ID = 0 (edge case) ===");
 
         String uniqueId = UUID.randomUUID().toString().substring(0, 8);
@@ -276,29 +243,21 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
             .startFromMessageId(0L)
             .build();
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         createTopic(topic)
             .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
             .compose(v -> queryDatabaseState(topic, groupName))
-            .onSuccess(dbState -> {
-                try {
-                    assertNotNull(dbState);
-                    assertEquals(0L, dbState.startFromMessageId,
-                        "Should accept and store message ID = 0");
-                    logger.info("Edge case PASSED: message ID = 0 handled correctly");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(dbState -> testContext.verify(() -> {
+                assertNotNull(dbState);
+                assertEquals(0L, dbState.startFromMessageId,
+                    "Should accept and store message ID = 0");
+                logger.info("Edge case PASSED: message ID = 0 handled correctly");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
     
     @Test
-    void testUpdateSubscriptionChangesStartPosition(VertxTestContext testContext) throws Exception {
+    void testUpdateSubscriptionChangesStartPosition(VertxTestContext testContext) {
         logger.info("=== Testing update subscription changes start position in database ===");
 
         String uniqueId = UUID.randomUUID().toString().substring(0, 8);
@@ -307,7 +266,6 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
 
         AtomicReference<Long> maxIdRef = new AtomicReference<>();
         AtomicReference<Long> initialStartIdRef = new AtomicReference<>();
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         createTopic(topic)
             .compose(v -> insertTestMessage(topic, "{\"test\": \"message1\"}"))
             .compose(v -> insertTestMessage(topic, "{\"test\": \"message2\"}"))
@@ -327,23 +285,16 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
                     SubscriptionOptions.builder().startPosition(StartPosition.FROM_BEGINNING).build());
             })
             .compose(v -> queryDatabaseState(topic, groupName))
-            .onSuccess(updatedState -> {
-                try {
-                    assertEquals(1L, updatedState.startFromMessageId,
-                        "After update to FROM_BEGINNING, database should store start_from_message_id = 1");
-                    assertNotEquals(initialStartIdRef.get(), updatedState.startFromMessageId,
-                        "Start position should have changed in database");
-                    logger.info("Update PASSED: {} -> 1 (FROM_NOW -> FROM_BEGINNING)",
-                        initialStartIdRef.get());
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(updatedState -> testContext.verify(() -> {
+                assertEquals(1L, updatedState.startFromMessageId,
+                    "After update to FROM_BEGINNING, database should store start_from_message_id = 1");
+                assertNotEquals(initialStartIdRef.get(), updatedState.startFromMessageId,
+                    "Start position should have changed in database");
+                logger.info("Update PASSED: {} -> 1 (FROM_NOW -> FROM_BEGINNING)",
+                    initialStartIdRef.get());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
     
     // ==================== Helper Methods ====================

@@ -19,7 +19,6 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.util.Properties;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -67,20 +66,20 @@ public class SecurityConfigurationExampleTest {
     }
     
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws InterruptedException {
+    void tearDown(VertxTestContext testContext) {
         if (manager != null) {
             manager.closeReactive()
-                .onComplete(v -> {
+                .onSuccess(v -> {
                     System.getProperties().entrySet().removeIf(e ->
                         e.getKey().toString().startsWith("peegeeq."));
                     testContext.completeNow();
-                });
+                })
+                .onFailure(testContext::failNow);
         } else {
             System.getProperties().entrySet().removeIf(e ->
                 e.getKey().toString().startsWith("peegeeq."));
             testContext.completeNow();
         }
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -88,7 +87,7 @@ public class SecurityConfigurationExampleTest {
      * Validates basic security configuration principles and properties
      */
     @Test
-    void testBasicSecurityConfiguration(VertxTestContext testContext) throws InterruptedException {
+    void testBasicSecurityConfiguration(VertxTestContext testContext) {
         Properties securityProps = new Properties();
         securityProps.setProperty("peegeeq.database.ssl.enabled", "false");
         securityProps.setProperty("peegeeq.database.ssl.mode", "disable");
@@ -112,8 +111,6 @@ public class SecurityConfigurationExampleTest {
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -121,7 +118,7 @@ public class SecurityConfigurationExampleTest {
      * Validates SSL/TLS configuration patterns (adapted for test environment)
      */
     @Test
-    void testSSLTLSConfiguration(VertxTestContext testContext) throws InterruptedException {
+    void testSSLTLSConfiguration(VertxTestContext testContext) {
         Properties sslProps = new Properties();
         sslProps.setProperty("peegeeq.database.ssl.enabled", "false");
         sslProps.setProperty("peegeeq.database.ssl.mode", "disable");
@@ -140,8 +137,6 @@ public class SecurityConfigurationExampleTest {
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -149,7 +144,7 @@ public class SecurityConfigurationExampleTest {
      * Validates production-ready security configuration
      */
     @Test
-    void testProductionSecuritySetup(VertxTestContext testContext) throws InterruptedException {
+    void testProductionSecuritySetup(VertxTestContext testContext) {
         Properties prodProps = new Properties();
         prodProps.setProperty("peegeeq.database.pool.minimum-idle", "5");
         prodProps.setProperty("peegeeq.database.pool.maximum-pool-size", "20");
@@ -174,8 +169,6 @@ public class SecurityConfigurationExampleTest {
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -183,7 +176,7 @@ public class SecurityConfigurationExampleTest {
      * Validates security monitoring and health check functionality
      */
     @Test
-    void testSecurityMonitoring(VertxTestContext testContext) throws InterruptedException {
+    void testSecurityMonitoring(VertxTestContext testContext) {
         Properties monitoringProps = new Properties();
         monitoringProps.setProperty("peegeeq.monitoring.health.enabled", "true");
         monitoringProps.setProperty("peegeeq.monitoring.health.interval", "PT30S");
@@ -210,8 +203,6 @@ public class SecurityConfigurationExampleTest {
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -219,7 +210,7 @@ public class SecurityConfigurationExampleTest {
      * Validates credential management best practices
      */
     @Test
-    void testCredentialManagement(VertxTestContext testContext) throws InterruptedException {
+    void testCredentialManagement(VertxTestContext testContext) {
         Properties credProps = new Properties();
         credProps.setProperty("peegeeq.credentials.source", "system-properties");
         credProps.setProperty("peegeeq.credentials.encryption.enabled", "false");
@@ -239,8 +230,6 @@ public class SecurityConfigurationExampleTest {
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -248,7 +237,7 @@ public class SecurityConfigurationExampleTest {
      * Validates compliance configuration for enterprise environments
      */
     @Test
-    void testComplianceConfiguration(VertxTestContext testContext) throws InterruptedException {
+    void testComplianceConfiguration(VertxTestContext testContext) {
         Properties complianceProps = new Properties();
         complianceProps.setProperty("peegeeq.compliance.audit.enabled", "true");
         complianceProps.setProperty("peegeeq.compliance.encryption.at-rest", "true");
@@ -270,8 +259,6 @@ public class SecurityConfigurationExampleTest {
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 }
 

@@ -3,6 +3,7 @@ package dev.mars.peegeeq.db.setup;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -78,37 +79,53 @@ class DatabaseTemplateManagerValidationTest {
     }
 
     @Test
-    void testAcceptsNullTemplateAndEncoding() {
+    void testAcceptsNullTemplateAndEncoding(VertxTestContext testContext) {
         // Should not throw on validation — will fail later on actual DB connection
-        // but validation should pass
-        assertDoesNotThrow(() -> {
-            try {
-                manager.createDatabaseFromTemplate(
-                    "localhost", 5432, "user", "pass",
-                    "valid_db", null, null, new HashMap<>()
-                ).toCompletionStage().toCompletableFuture().get();
-            } catch (Exception e) {
-                // Connection failure is expected — we just want no IllegalArgumentException
-                if (e.getCause() instanceof IllegalArgumentException) {
-                    throw (IllegalArgumentException) e.getCause();
-                }
+        // but validation should pass. Test the async path with compose/recover.
+        manager.createDatabaseFromTemplate(
+            "localhost", 5432, "user", "pass",
+            "valid_db", null, null, new HashMap<>()
+        )
+        .recover(throwable -> {
+            // Connection failure is expected — we just want no IllegalArgumentException
+            if (throwable instanceof IllegalArgumentException) {
+                return io.vertx.core.Future.failedFuture(throwable);
+            }
+            // Any other error (like connection refused) is fine for this validation test
+            testContext.completeNow();
+            return io.vertx.core.Future.succeededFuture();
+        })
+        .onSuccess(v -> testContext.completeNow())
+        .onFailure(cause -> {
+            if (cause instanceof IllegalArgumentException) {
+                testContext.failNow(cause);
+            } else {
+                testContext.completeNow();
             }
         });
     }
 
     @Test
-    void testAcceptsValidIdentifiers() {
+    void testAcceptsValidIdentifiers(VertxTestContext testContext) {
         // Should not throw on validation — will fail later on actual DB connection
-        assertDoesNotThrow(() -> {
-            try {
-                manager.createDatabaseFromTemplate(
-                    "localhost", 5432, "user", "pass",
-                    "valid_db_name", "template0", "UTF8", new HashMap<>()
-                ).toCompletionStage().toCompletableFuture().get();
-            } catch (Exception e) {
-                if (e.getCause() instanceof IllegalArgumentException) {
-                    throw (IllegalArgumentException) e.getCause();
-                }
+        manager.createDatabaseFromTemplate(
+            "localhost", 5432, "user", "pass",
+            "valid_db_name", "template0", "UTF8", new HashMap<>()
+        )
+        .recover(throwable -> {
+            // Connection failure is expected
+            if (throwable instanceof IllegalArgumentException) {
+                return io.vertx.core.Future.failedFuture(throwable);
+            }
+            testContext.completeNow();
+            return io.vertx.core.Future.succeededFuture();
+        })
+        .onSuccess(v -> testContext.completeNow())
+        .onFailure(cause -> {
+            if (cause instanceof IllegalArgumentException) {
+                testContext.failNow(cause);
+            } else {
+                testContext.completeNow();
             }
         });
     }

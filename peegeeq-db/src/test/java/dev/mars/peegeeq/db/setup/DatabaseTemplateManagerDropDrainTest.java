@@ -17,7 +17,6 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.util.Map;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -74,8 +73,7 @@ class DatabaseTemplateManagerDropDrainTest extends BaseIntegrationTest {
      * implementation waits for a confirmed zero connection count before dropping.
      */
     @Test
-    void dropDatabase_mustSucceedWhenBackendsAreSlowToDisconnect(VertxTestContext testContext)
-            throws InterruptedException {
+    void dropDatabase_mustSucceedWhenBackendsAreSlowToDisconnect(VertxTestContext testContext) {
 
         String testDbName = "test_drain_" + System.currentTimeMillis();
         Vertx vertx = manager.getVertx();
@@ -122,13 +120,6 @@ class DatabaseTemplateManagerDropDrainTest extends BaseIntegrationTest {
                 testContext.completeNow();
             })
             .onFailure(testContext::failNow);
-
-        assertTrue(
-            testContext.awaitCompletion(30, TimeUnit.SECONDS),
-            "Test did not complete within 30 seconds");
-        if (testContext.failed()) {
-            throw new AssertionError(testContext.causeOfFailure());
-        }
     }
 
     // ------ private helpers -------------------------------------------------------

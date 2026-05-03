@@ -15,7 +15,6 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
-import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -84,46 +83,33 @@ public class TopicConfigServiceIntegrationTest extends BaseIntegrationTest {
     }
     
     @Test
-    void testCreateTopicWithQueueSemantics() throws Exception {
-        logger.info("=== Testing create topic with QUEUE semantics ===");
-        
-        // Use unique topic name to avoid conflicts in parallel test execution
+    void testCreateTopicWithQueueSemantics(VertxTestContext testContext) {
         String topicName = "test-queue-topic-" + UUID.randomUUID().toString().substring(0, 8);
-        
+
         TopicConfig config = TopicConfig.builder()
             .topic(topicName)
             .semantics(TopicSemantics.QUEUE)
             .messageRetentionHours(48)
             .build();
-        
+
         topicConfigService.createTopic(config)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-        
-        // Verify topic was created
-        TopicConfig retrieved = topicConfigService.getTopic(topicName)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-        
-        assertNotNull(retrieved, "Topic should be created");
-        assertEquals(topicName, retrieved.getTopic());
-        assertEquals(TopicSemantics.QUEUE, retrieved.getSemantics());
-        assertEquals(48, retrieved.getMessageRetentionHours());
-        assertTrue(retrieved.isQueue());
-        assertFalse(retrieved.isPubSub());
-        
-        logger.info("Create topic with QUEUE semantics test passed");
+            .compose(v -> topicConfigService.getTopic(topicName))
+            .onSuccess(retrieved -> testContext.verify(() -> {
+                assertNotNull(retrieved, "Topic should be created");
+                assertEquals(topicName, retrieved.getTopic());
+                assertEquals(TopicSemantics.QUEUE, retrieved.getSemantics());
+                assertEquals(48, retrieved.getMessageRetentionHours());
+                assertTrue(retrieved.isQueue());
+                assertFalse(retrieved.isPubSub());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
     
     @Test
-    void testCreateTopicWithPubSubSemantics() throws Exception {
-        logger.info("=== Testing create topic with PUB_SUB semantics ===");
-        
-        // Use unique topic name to avoid conflicts in parallel test execution
+    void testCreateTopicWithPubSubSemantics(VertxTestContext testContext) {
         String topicName = "test-pubsub-topic-" + UUID.randomUUID().toString().substring(0, 8);
-        
+
         TopicConfig config = TopicConfig.builder()
             .topic(topicName)
             .semantics(TopicSemantics.PUB_SUB)
@@ -131,240 +117,146 @@ public class TopicConfigServiceIntegrationTest extends BaseIntegrationTest {
             .zeroSubscriptionRetentionHours(12)
             .blockWritesOnZeroSubscriptions(true)
             .build();
-        
+
         topicConfigService.createTopic(config)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-        
-        // Verify topic was created
-        TopicConfig retrieved = topicConfigService.getTopic(topicName)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-        
-        assertNotNull(retrieved);
-        assertEquals(topicName, retrieved.getTopic());
-        assertEquals(TopicSemantics.PUB_SUB, retrieved.getSemantics());
-        assertEquals(24, retrieved.getMessageRetentionHours());
-        assertEquals(12, retrieved.getZeroSubscriptionRetentionHours());
-        assertTrue(retrieved.isBlockWritesOnZeroSubscriptions());
-        assertTrue(retrieved.isPubSub());
-        assertFalse(retrieved.isQueue());
-        
-        logger.info("Create topic with PUB_SUB semantics test passed");
+            .compose(v -> topicConfigService.getTopic(topicName))
+            .onSuccess(retrieved -> testContext.verify(() -> {
+                assertNotNull(retrieved);
+                assertEquals(topicName, retrieved.getTopic());
+                assertEquals(TopicSemantics.PUB_SUB, retrieved.getSemantics());
+                assertEquals(24, retrieved.getMessageRetentionHours());
+                assertEquals(12, retrieved.getZeroSubscriptionRetentionHours());
+                assertTrue(retrieved.isBlockWritesOnZeroSubscriptions());
+                assertTrue(retrieved.isPubSub());
+                assertFalse(retrieved.isQueue());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
     
     @Test
-    void testUpdateTopicConfiguration() throws Exception {
-        logger.info("=== Testing update topic configuration ===");
-        
-        // Use unique topic name to avoid conflicts in parallel test execution
+    void testUpdateTopicConfiguration(VertxTestContext testContext) {
         String topicName = "test-update-topic-" + UUID.randomUUID().toString().substring(0, 8);
-        
-        // Create initial topic
+
         TopicConfig initialConfig = TopicConfig.builder()
             .topic(topicName)
             .semantics(TopicSemantics.QUEUE)
             .messageRetentionHours(24)
             .build();
-        
-        topicConfigService.createTopic(initialConfig)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-        
-        // Update topic configuration
+
         TopicConfig updatedConfig = TopicConfig.builder()
             .topic(topicName)
             .semantics(TopicSemantics.PUB_SUB)
             .messageRetentionHours(72)
             .zeroSubscriptionRetentionHours(6)
             .build();
-        
-        topicConfigService.updateTopic(updatedConfig)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-        
-        // Verify update
-        TopicConfig retrieved = topicConfigService.getTopic(topicName)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-        
-        assertEquals(TopicSemantics.PUB_SUB, retrieved.getSemantics());
-        assertEquals(72, retrieved.getMessageRetentionHours());
-        assertEquals(6, retrieved.getZeroSubscriptionRetentionHours());
-        
-        logger.info("Update topic configuration test passed");
+
+        topicConfigService.createTopic(initialConfig)
+            .compose(v -> topicConfigService.updateTopic(updatedConfig))
+            .compose(v -> topicConfigService.getTopic(topicName))
+            .onSuccess(retrieved -> testContext.verify(() -> {
+                assertEquals(TopicSemantics.PUB_SUB, retrieved.getSemantics());
+                assertEquals(72, retrieved.getMessageRetentionHours());
+                assertEquals(6, retrieved.getZeroSubscriptionRetentionHours());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
     
     @Test
-    void testListTopics() throws Exception {
-        logger.info("=== Testing list topics ===");
-        
-        // Create multiple topics
+    void testListTopics(VertxTestContext testContext) {
         topicConfigService.createTopic(TopicConfig.builder()
-            .topic("list-topic-1")
-            .semantics(TopicSemantics.QUEUE)
-            .build())
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-        
-        topicConfigService.createTopic(TopicConfig.builder()
-            .topic("list-topic-2")
-            .semantics(TopicSemantics.PUB_SUB)
-            .build())
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-        
-        topicConfigService.createTopic(TopicConfig.builder()
-            .topic("list-topic-3")
-            .semantics(TopicSemantics.QUEUE)
-            .build())
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-        
-        // List all topics
-        List<TopicConfig> topics = topicConfigService.listTopics()
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-        
-        // Should have at least the 3 we just created (may have more from other tests)
-        assertTrue(topics.size() >= 3, "Should have at least 3 topics");
-        
-        // Verify our topics are present
-        assertTrue(topics.stream().anyMatch(t -> t.getTopic().equals("list-topic-1")));
-        assertTrue(topics.stream().anyMatch(t -> t.getTopic().equals("list-topic-2")));
-        assertTrue(topics.stream().anyMatch(t -> t.getTopic().equals("list-topic-3")));
-        
-        logger.info("List topics test passed");
+                .topic("list-topic-1").semantics(TopicSemantics.QUEUE).build())
+            .compose(v -> topicConfigService.createTopic(TopicConfig.builder()
+                .topic("list-topic-2").semantics(TopicSemantics.PUB_SUB).build()))
+            .compose(v -> topicConfigService.createTopic(TopicConfig.builder()
+                .topic("list-topic-3").semantics(TopicSemantics.QUEUE).build()))
+            .compose(v -> topicConfigService.listTopics())
+            .onSuccess(topics -> testContext.verify(() -> {
+                assertTrue(topics.size() >= 3, "Should have at least 3 topics");
+                assertTrue(topics.stream().anyMatch(tc -> tc.getTopic().equals("list-topic-1")));
+                assertTrue(topics.stream().anyMatch(tc -> tc.getTopic().equals("list-topic-2")));
+                assertTrue(topics.stream().anyMatch(tc -> tc.getTopic().equals("list-topic-3")));
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
     
     @Test
-    void testDeleteTopic() throws Exception {
-        logger.info("=== Testing delete topic ===");
-        
-        // Use unique topic name to avoid conflicts in parallel test execution
+    void testDeleteTopic(VertxTestContext testContext) {
         String topicName = "test-delete-topic-" + UUID.randomUUID().toString().substring(0, 8);
-        
-        // Create topic
+
         TopicConfig config = TopicConfig.builder()
             .topic(topicName)
             .semantics(TopicSemantics.QUEUE)
             .build();
-        
+
         topicConfigService.createTopic(config)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-        
-        // Verify it exists
-        assertTrue(topicConfigService.topicExists(topicName)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get());
-        
-        // Delete topic
-        topicConfigService.deleteTopic(topicName)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-        
-        // Verify it's deleted
-        assertFalse(topicConfigService.topicExists(topicName)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get());
-        
-        TopicConfig retrieved = topicConfigService.getTopic(topicName)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-        
-        assertNull(retrieved, "Topic should be deleted");
-        
-        logger.info("Delete topic test passed");
+            .compose(v -> topicConfigService.topicExists(topicName))
+            .compose(exists -> {
+                assertTrue(exists, "Topic should exist after creation");
+                return topicConfigService.deleteTopic(topicName);
+            })
+            .compose(v -> topicConfigService.topicExists(topicName))
+            .compose(existsAfterDelete -> {
+                assertFalse(existsAfterDelete, "Topic should not exist after deletion");
+                return topicConfigService.getTopic(topicName);
+            })
+            .onSuccess(retrieved -> testContext.verify(() -> {
+                assertNull(retrieved, "Topic should be deleted");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
     
     @Test
-    void testTopicExists() throws Exception {
-        logger.info("=== Testing topic exists ===");
-        
+    void testTopicExists(VertxTestContext testContext) {
         String existingTopic = "test-exists-topic";
         String nonExistingTopic = "test-nonexisting-topic";
-        
-        // Create one topic
+
         TopicConfig config = TopicConfig.builder()
             .topic(existingTopic)
             .semantics(TopicSemantics.QUEUE)
             .build();
-        
+
         topicConfigService.createTopic(config)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-        
-        // Check existence
-        assertTrue(topicConfigService.topicExists(existingTopic)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get(), "Existing topic should return true");
-        
-        assertFalse(topicConfigService.topicExists(nonExistingTopic)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get(), "Non-existing topic should return false");
-        
-        logger.info("Topic exists test passed");
+            .compose(v -> topicConfigService.topicExists(existingTopic))
+            .compose(existsForCreated -> {
+                assertTrue(existsForCreated, "Existing topic should return true");
+                return topicConfigService.topicExists(nonExistingTopic);
+            })
+            .onSuccess(existsForNonExisting -> testContext.verify(() -> {
+                assertFalse(existsForNonExisting, "Non-existing topic should return false");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
     
     @Test
-    void testCreateTopicIdempotent() throws Exception {
-        logger.info("=== Testing create topic is idempotent ===");
-        
-        // Use unique topic name to avoid conflicts in parallel test execution
+    void testCreateTopicIdempotent(VertxTestContext testContext) {
         String topicName = "test-idempotent-topic-" + UUID.randomUUID().toString().substring(0, 8);
-        
-        TopicConfig config = TopicConfig.builder()
+
+        TopicConfig initialConfig = TopicConfig.builder()
             .topic(topicName)
             .semantics(TopicSemantics.QUEUE)
             .messageRetentionHours(24)
             .build();
-        
-        // Create topic first time
-        topicConfigService.createTopic(config)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-        
-        // Create same topic again (should update, not fail)
+
         TopicConfig updatedConfig = TopicConfig.builder()
             .topic(topicName)
             .semantics(TopicSemantics.PUB_SUB)
             .messageRetentionHours(48)
             .build();
-        
-        topicConfigService.createTopic(updatedConfig)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-        
-        // Verify it was updated
-        TopicConfig retrieved = topicConfigService.getTopic(topicName)
-            .toCompletionStage()
-            .toCompletableFuture()
-            .get();
-        
-        assertEquals(TopicSemantics.PUB_SUB, retrieved.getSemantics());
-        assertEquals(48, retrieved.getMessageRetentionHours());
-        
-        logger.info("Create topic idempotent test passed");
+
+        topicConfigService.createTopic(initialConfig)
+            .compose(v -> topicConfigService.createTopic(updatedConfig))
+            .compose(v -> topicConfigService.getTopic(topicName))
+            .onSuccess(retrieved -> testContext.verify(() -> {
+                assertEquals(TopicSemantics.PUB_SUB, retrieved.getSemantics());
+                assertEquals(48, retrieved.getMessageRetentionHours());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 }
 

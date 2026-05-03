@@ -22,6 +22,8 @@
     
     <!-- Show close-reactive error propagation test procedure -->
     <logger name="dev.mars.peegeeq.db.PeeGeeQManagerCloseReactiveErrorPropagationTest" level="INFO" />
+    <!-- Show intentional-blocking test procedure: expected-WARN annotations -->
+    <logger name="dev.mars.peegeeq.db.performance.VertxEventLoopBlockingJoinTest" level="INFO" />
     
     <!-- Reduce TestContainers noise -->
     <logger name="org.testcontainers" level="WARN" />

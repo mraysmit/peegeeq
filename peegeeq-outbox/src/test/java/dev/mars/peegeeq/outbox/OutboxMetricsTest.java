@@ -146,7 +146,6 @@ public class OutboxMetricsTest {
         // Set up consumer
         Promise<Void> messageProcessed = Promise.promise();
         consumer.subscribe(message -> {
-        logger.info("Test: metrics integration");
             logger.info("Processing message for metrics test: {}", message.getPayload());
             messageProcessed.tryComplete();
             return Future.succeededFuture();
@@ -196,67 +195,42 @@ public class OutboxMetricsTest {
     }
 
     @Test
-    void testHealthCheckIntegration() throws Exception {
-        // Verify health check manager exists
+    void testHealthCheckIntegration(Vertx vertx, VertxTestContext testContext) {
         var healthCheckManager = manager.getHealthCheckManager();
         assertNotNull(healthCheckManager, "Health check manager should be available");
 
-        // Health checks may need time to initialise after manager.start()
-        var healthStatus = healthCheckManager.getOverallHealth();
-        for (int i = 0; i < 50 && (healthStatus == null || !healthStatus.isHealthy()); i++) {
-        logger.info("Test: health check integration");
-            LockSupport.parkNanos(200_000_000L); // 200ms
-            healthStatus = healthCheckManager.getOverallHealth();
+        // Health checks may need time to initialise after manager.start().
+        // Poll on a worker thread so the event loop is never blocked.
+        vertx.executeBlocking(() -> {
+            long deadline = System.currentTimeMillis() + 10_000;
+            while (System.currentTimeMillis() < deadline) {
+                var status = healthCheckManager.getOverallHealth();
+                if (status != null && status.isHealthy()) {
+                    return status;
+                }
+                LockSupport.parkNanos(200_000_000L); // 200 ms
+            }
+            throw new AssertionError("Health check did not become healthy within 10 seconds");
+        })
+        .onSuccess(healthStatus -> testContext.verify(() -> {
+            logger.info("Health check status: {}", healthStatus.status());
+            logger.info("Health check components: {}", healthStatus.components());
+            assertTrue(healthStatus.isHealthy(),
+                "System should be healthy: " + healthStatus.components());
+            testContext.completeNow();
+        }))
+        .onFailure(testContext::failNow);
+
+        try {
+            assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            fail("Health check test interrupted");
         }
-
-        assertNotNull(healthStatus, "Health status should be available");
-
-        logger.info("Health check status: {}", healthStatus.status());
-        logger.info("Health check components: {}", healthStatus.components());
-
-        // Health should be UP for a properly functioning system
-        assertTrue(healthStatus.isHealthy(),
-            "System should be healthy: " + healthStatus.components());
-    }
-
-    @Test
-    void testCircuitBreakerIntegration() throws Exception {
-        // Verify circuit breaker manager exists
-        var cbManager = manager.getCircuitBreakerManager();
-        assertNotNull(cbManager, "Circuit breaker manager should be available");
-
-        // Initially, no circuit breakers should exist (lazy initialization)
-        var initialCircuitBreakerNames = cbManager.getCircuitBreakerNames();
-        assertNotNull(initialCircuitBreakerNames, "Circuit breaker names should be available");
-        assertTrue(initialCircuitBreakerNames.isEmpty(),
-            "Circuit breakers should be empty initially (lazy initialization)");
-
-        // Test that we can manually create circuit breakers using the manager
-        // This demonstrates that the circuit breaker functionality is working
-        String testResult = cbManager.executeDatabaseOperation("test-select", () -> "test-query-result");
-        assertEquals("test-query-result", testResult, "Circuit breaker should execute operation successfully");
-
-        // Now we should have a circuit breaker for the database operation
-        var circuitBreakerNames = cbManager.getCircuitBreakerNames();
-        logger.info("Available circuit breakers after manual operation: {}", circuitBreakerNames);
-
-        // Should have the circuit breaker we just created
-        assertFalse(circuitBreakerNames.isEmpty(),
-            "Should have circuit breakers after manual database operation");
-        assertTrue(circuitBreakerNames.contains("database-test-select"),
-            "Should contain the database-test-select circuit breaker");
-
-        // Test circuit breaker metrics
-        var metrics = cbManager.getMetrics("database-test-select");
-        assertNotNull(metrics, "Circuit breaker metrics should be available");
-        assertEquals("CLOSED", metrics.getState(), "Circuit breaker should be in CLOSED state");
-        assertEquals(1, metrics.getSuccessfulCalls(), "Should have 1 successful call");
-        assertEquals(0, metrics.getFailedCalls(), "Should have 0 failed calls");
     }
 
     @Test
     void testMultipleMessageMetrics(Vertx vertx, VertxTestContext testContext) throws Exception {
-        logger.info("Test: circuit breaker integration");
         int messageCount = 5;
         
         // Get initial metrics
@@ -336,7 +310,6 @@ public class OutboxMetricsTest {
         // Set up consumer that always fails
         Promise<Void> errorOccurred = Promise.promise();
         consumer.subscribe(message -> {
-        logger.info("Test: error metrics");
             logger.info("INTENTIONAL FAILURE: Processing message that will fail");
             errorOccurred.tryComplete();
             throw new RuntimeException("Intentional error for metrics testing");

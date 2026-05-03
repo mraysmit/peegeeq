@@ -199,7 +199,7 @@ public class PeeGeeQManager implements AutoCloseable {
 
             // Log and create the client to ensure configuration is stored in the factory
             var dbConfig = configuration.getDatabaseConfig();
-            logger.info("DB-DEBUG: Creating client with host={}, port={}, db={}, user={}",
+            logger.info(": Creating client with host={}, port={}, db={}, user={}",
                         dbConfig.getHost(), dbConfig.getPort(), dbConfig.getDatabase(), dbConfig.getUsername());
 
             clientFactory.createClient(PeeGeeQDefaults.DEFAULT_POOL_ID,
@@ -274,7 +274,7 @@ public class PeeGeeQManager implements AutoCloseable {
         }
 
         logger.info("Starting PeeGeeQ Manager with reactive lifecycle events...");
-        logger.debug("DB-DEBUG: PeeGeeQ Manager reactive start initiated with configuration profile: {}", configuration.getProfile());
+        logger.debug(": PeeGeeQ Manager reactive start initiated with configuration profile: {}", configuration.getProfile());
 
         Future<Void> future = Future.succeededFuture()
             .compose(v -> publishLifecycleEvent("database.validating"))
@@ -286,12 +286,12 @@ public class PeeGeeQManager implements AutoCloseable {
             .compose(v -> {
                 started = true;
                 logger.info("PeeGeeQ Manager started successfully");
-                logger.debug("DB-DEBUG: PeeGeeQ Manager reactive startup completed, all components initialized");
+                logger.debug(": PeeGeeQ Manager reactive startup completed, all components initialized");
                 return publishLifecycleEvent("manager.ready");
             })
             .onFailure(throwable -> {
                 logger.error("Failed to start PeeGeeQ Manager reactively", throwable);
-                logger.debug("DB-DEBUG: PeeGeeQ Manager reactive startup failed, error: {}", throwable.getMessage());
+                logger.debug(": PeeGeeQ Manager reactive startup failed, error: {}", throwable.getMessage());
             })
             // On failure ONLY: stop background tasks and health checks to prevent leaks,
             // publish manager.failed, and propagate a wrapped RuntimeException.
@@ -328,22 +328,22 @@ public class PeeGeeQManager implements AutoCloseable {
         }
 
         logger.info("Stopping PeeGeeQ Manager...");
-        logger.debug("DB-DEBUG: PeeGeeQ Manager shutdown initiated");
+        logger.debug(": PeeGeeQ Manager shutdown initiated");
 
         // Stop background tasks first (awaits in-flight operations)
-        logger.debug("DB-DEBUG: Stopping background tasks");
+        logger.debug(": Stopping background tasks");
         return stopBackgroundTasks()
             .compose(v -> {
-                logger.debug("DB-DEBUG: Background tasks stopped successfully");
+                logger.debug(": Background tasks stopped successfully");
                 // Stop health checks asynchronously to avoid blocking event loop
-                logger.debug("DB-DEBUG: Stopping health check manager");
+                logger.debug(": Stopping health check manager");
                 return healthCheckManager.stop();
             })
             .compose(v -> {
-                logger.debug("DB-DEBUG: Health check manager stopped successfully");
+                logger.debug(": Health check manager stopped successfully");
                 started = false;
                 logger.info("PeeGeeQ Manager stopped successfully");
-                logger.debug("DB-DEBUG: PeeGeeQ Manager shutdown completed");
+                logger.debug(": PeeGeeQ Manager shutdown completed");
                 return Future.<Void>succeededFuture();
             })
             .onFailure(throwable -> {
@@ -820,10 +820,10 @@ public class PeeGeeQManager implements AutoCloseable {
      */
     private Future<Void> startHealthChecks() {
         return AsyncTraceUtils.traceAsyncAction(vertx, "manager.start_health_checks", () -> {
-            logger.debug("DB-DEBUG: Starting health check manager reactively");
+            logger.debug(": Starting health check manager reactively");
             return healthCheckManager.start()
-                .onSuccess(v -> logger.debug("DB-DEBUG: Health check manager started successfully"))
-                .onFailure(throwable -> logger.error("DB-DEBUG: Failed to start health check manager", throwable));
+                .onSuccess(v -> logger.debug(": Health check manager started successfully"))
+                .onFailure(throwable -> logger.error(": Failed to start health check manager", throwable));
         });
     }
 
@@ -833,11 +833,11 @@ public class PeeGeeQManager implements AutoCloseable {
     private Future<Void> startMetricsCollection() {
         return AsyncTraceUtils.traceAsyncAction(vertx, "manager.start_metrics", () -> {
             if (!configuration.getMetricsConfig().isEnabled()) {
-                logger.debug("DB-DEBUG: Metrics collection disabled by configuration");
+                logger.debug(": Metrics collection disabled by configuration");
                 return Future.succeededFuture();
             }
 
-            logger.debug("DB-DEBUG: Starting metrics collection reactively");
+            logger.debug(": Starting metrics collection reactively");
 
             long intervalMs = configuration.getMetricsConfig().getReportingInterval().toMillis();
             metricsTimerId = vertx.setPeriodic(intervalMs, id -> {
@@ -850,6 +850,7 @@ public class PeeGeeQManager implements AutoCloseable {
                     })
                     .onFailure(e -> {
                         persistMetricsRunning.set(false);
+                        if (closing) return;
                         long failures = persistMetricsFailures.incrementAndGet();
                         if (failures >= TIMER_FAILURE_ESCALATION_THRESHOLD) {
                             logger.error("Failed to persist metrics ({} consecutive failures): {}",
@@ -872,6 +873,7 @@ public class PeeGeeQManager implements AutoCloseable {
                     })
                     .onFailure(e -> {
                         depthCacheRunning.set(false);
+                        if (closing) return;
                         long failures = depthCacheFailures.incrementAndGet();
                         if (failures >= TIMER_FAILURE_ESCALATION_THRESHOLD) {
                             logger.error("Failed to refresh depth cache ({} consecutive failures): {}",
@@ -883,7 +885,7 @@ public class PeeGeeQManager implements AutoCloseable {
             });
 
             logger.info("Started metrics collection every {}", configuration.getMetricsConfig().getReportingInterval());
-            logger.debug("DB-DEBUG: Metrics collection started successfully");
+            logger.debug(": Metrics collection started successfully");
             return Future.succeededFuture();
         });
     }
@@ -893,7 +895,7 @@ public class PeeGeeQManager implements AutoCloseable {
      */
     private Future<Void> startBackgroundTasks() {
         return AsyncTraceUtils.traceAsyncAction(vertx, "manager.start_background_tasks", () -> {
-            logger.debug("DB-DEBUG: Starting background cleanup tasks");
+            logger.debug(": Starting background cleanup tasks");
 
             // Dead letter queue cleanup every 24 hours
             dlqTimerId = vertx.setPeriodic(TimeUnit.HOURS.toMillis(DLQ_CLEANUP_INTERVAL_HOURS), id -> {
@@ -968,7 +970,7 @@ public class PeeGeeQManager implements AutoCloseable {
                 logger.info("Consumer group retry job disabled by configuration");
             }
 
-            logger.debug("DB-DEBUG: Background cleanup tasks started successfully");
+            logger.debug(": Background cleanup tasks started successfully");
             return Future.succeededFuture();
         });
     }
@@ -1010,7 +1012,7 @@ public class PeeGeeQManager implements AutoCloseable {
                 .transform(ar -> Future.succeededFuture()));
         }
         return jobStop
-            .onSuccess(v -> logger.debug("DB-DEBUG: All background tasks stopped"));
+            .onSuccess(v -> logger.debug(": All background tasks stopped"));
     }
 
 }

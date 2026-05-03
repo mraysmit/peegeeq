@@ -129,9 +129,9 @@ class BackpressureManagerTest {
                 try {
                     startLatch.await();
                     String result = backpressureManager.execute("concurrent-test", () -> {
-                        CompletableFuture<Void> d = new CompletableFuture<>();
-                        vertx.setTimer(500, id -> d.complete(null));
-                        d.join(); // Simulate work
+                        CountDownLatch workLatch = new CountDownLatch(1);
+                        vertx.setTimer(500, id -> workLatch.countDown());
+                        workLatch.await(5, TimeUnit.SECONDS); // Simulate work
                         return "success";
                     });
                     if ("success".equals(result)) {
@@ -159,34 +159,40 @@ class BackpressureManagerTest {
     }
 
     @Test
-    void testOperationTimeout() throws Exception {
+    void testOperationTimeout() throws InterruptedException {
         BackpressureManager shortTimeoutManager = new BackpressureManager(1, Duration.ofMillis(100), true);
-        
-        // Start a long-running operation to consume the permit
-        CompletableFuture<Void> longOperation = CompletableFuture.runAsync(() -> {
+
+        CountDownLatch operationStarted = new CountDownLatch(1);
+        CountDownLatch operationCanRelease = new CountDownLatch(1);
+
+        // Start a long-running operation on a plain thread to consume the permit
+        Thread longOpThread = new Thread(() -> {
             try {
                 shortTimeoutManager.execute("long-operation", () -> {
-                    vertx.timer(1000).toCompletionStage().toCompletableFuture().join();
+                    operationStarted.countDown(); // signal: permit acquired
+                    operationCanRelease.await(5, TimeUnit.SECONDS); // hold permit until test finishes
                     return "long result";
                 });
             } catch (Exception e) {
-                // Expected
+                // Expected (interrupted or BackpressureException)
             }
         });
-        
-        // Wait a bit to ensure the first operation has started
-        vertx.timer(50).toCompletionStage().toCompletableFuture().join();
-        
+        longOpThread.start();
+
+        // Wait until the long operation has acquired the permit
+        operationStarted.await(5, TimeUnit.SECONDS);
+
         // This operation should timeout waiting for a permit
         assertThrows(BackpressureManager.BackpressureException.class, () -> {
             shortTimeoutManager.execute("timeout-test", () -> "should timeout");
         });
-        
+
         BackpressureManager.BackpressureMetrics metrics = shortTimeoutManager.getMetrics();
         assertTrue(metrics.getTimeoutRequests() > 0);
         assertTrue(metrics.getTimeoutRate() > 0);
-        
-        longOperation.cancel(true);
+
+        // Release the long operation
+        operationCanRelease.countDown();
     }
 
     @Test
@@ -279,7 +285,7 @@ class BackpressureManagerTest {
         CountDownLatch operationsCanComplete = new CountDownLatch(1);
         
         for (int i = 0; i < activeOperations; i++) {
-            CompletableFuture.runAsync(() -> {
+            new Thread(() -> {
                 try {
                     backpressureManager.execute("utilization-test", () -> {
                         operationsStarted.countDown();
@@ -289,7 +295,7 @@ class BackpressureManagerTest {
                 } catch (Exception e) {
                     // Handle exceptions
                 }
-            });
+            }).start();
         }
         
         // Wait for operations to start
@@ -314,7 +320,7 @@ class BackpressureManagerTest {
         CountDownLatch operationsCanComplete = new CountDownLatch(1);
 
         for (int i = 0; i < maxOperations; i++) {
-            CompletableFuture.runAsync(() -> {
+            new Thread(() -> {
                 try {
                     quickTimeoutManager.execute("blocking-operation", () -> {
                         operationsStarted.countDown();
@@ -324,7 +330,7 @@ class BackpressureManagerTest {
                 } catch (Exception e) {
                     // Handle exceptions
                 }
-            });
+            }).start();
         }
 
         // Wait for all permits to be consumed
