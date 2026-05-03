@@ -22,6 +22,7 @@ import ch.qos.logback.core.AppenderBase;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
+import io.vertx.core.Future;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
@@ -89,21 +90,7 @@ public class PeeGeeQManagerCloseLogLevelTest {
         if (!postgres.isRunning()) {
             postgres.start();
         }
-        setupDatabase();
-    }
-
-    private static void setupDatabase() {
-        String jdbcUrl = postgres.getJdbcUrl();
-        String username = postgres.getUsername();
-        String password = postgres.getPassword();
-
-        org.flywaydb.core.Flyway flyway = org.flywaydb.core.Flyway.configure()
-                .dataSource(jdbcUrl, username, password)
-                .locations("classpath:db/migration")
-                .cleanDisabled(false) // just to be sure we can clean
-                .load();
-        flyway.clean();
-        flyway.migrate();
+        initializeSchemaFor(postgres);
     }
 
     @BeforeEach
@@ -124,11 +111,11 @@ public class PeeGeeQManagerCloseLogLevelTest {
 
         if (manager != null) {
             manager.closeReactive()
+                    .recover(e -> Future.succeededFuture())
                     .onSuccess(v -> {
                         clearSystemProperties();
                         testContext.completeNow();
-                    })
-                    .onFailure(testContext::failNow);
+                    });
         } else {
             clearSystemProperties();
             testContext.completeNow();

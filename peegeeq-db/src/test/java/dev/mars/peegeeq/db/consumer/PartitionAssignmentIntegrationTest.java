@@ -738,9 +738,6 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
                         .compose(v -> connection.preparedQuery("DELETE FROM outbox_partition_offsets WHERE topic LIKE 'test-%'").execute())
                         .compose(v -> connection.preparedQuery("DELETE FROM outbox_topic_watermarks WHERE topic LIKE 'test-%'").execute())
                         .compose(v -> connection.preparedQuery("DELETE FROM outbox_consumer_groups WHERE message_id IN (SELECT id FROM outbox WHERE topic LIKE 'test-%')").execute())
-                        .compose(v -> connection.preparedQuery("DELETE FROM outbox WHERE topic LIKE 'test-%'").execute())
-                        .compose(v -> connection.preparedQuery("DELETE FROM outbox_topic_subscriptions WHERE topic LIKE 'test-%'").execute())
-                        .compose(v -> connection.preparedQuery("DELETE FROM outbox_topics WHERE topic LIKE 'test-%'").execute())
                         .map(rows -> (Void) null)
         );
     }

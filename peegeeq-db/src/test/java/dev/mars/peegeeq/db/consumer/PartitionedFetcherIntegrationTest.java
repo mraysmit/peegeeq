@@ -961,9 +961,6 @@ public class PartitionedFetcherIntegrationTest extends BaseIntegrationTest {
                 connection.preparedQuery("DELETE FROM outbox_partition_assignments WHERE topic LIKE 'test-%'")
                         .execute()
                         .compose(v -> connection.preparedQuery("DELETE FROM outbox_partition_offsets WHERE topic LIKE 'test-%'").execute())
-                        .compose(v -> connection.preparedQuery("DELETE FROM outbox WHERE topic LIKE 'test-%'").execute())
-                        .compose(v -> connection.preparedQuery("DELETE FROM outbox_topic_subscriptions WHERE topic LIKE 'test-%'").execute())
-                        .compose(v -> connection.preparedQuery("DELETE FROM outbox_topics WHERE topic LIKE 'test-%'").execute())
                         .map(rows -> (Void) null)
         );
     }

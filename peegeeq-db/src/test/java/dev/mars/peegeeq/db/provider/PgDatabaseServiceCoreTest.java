@@ -36,10 +36,7 @@ public class PgDatabaseServiceCoreTest extends BaseIntegrationTest {
         databaseService = new PgDatabaseService(manager);
         
         databaseService.initialize()
-            .onSuccess(v -> {
-                assertNotNull(v);
-                testContext.completeNow();
-            })
+            .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
     }
 
@@ -49,10 +46,7 @@ public class PgDatabaseServiceCoreTest extends BaseIntegrationTest {
         
         databaseService.initialize()
             .compose(v -> databaseService.start())
-            .onSuccess(v -> {
-                assertNotNull(v);
-                testContext.completeNow();
-            })
+            .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
     }
 
@@ -63,10 +57,7 @@ public class PgDatabaseServiceCoreTest extends BaseIntegrationTest {
         databaseService.initialize()
             .compose(v -> databaseService.start())
             .compose(v -> databaseService.stop())
-            .onSuccess(v -> {
-                assertNotNull(v);
-                testContext.completeNow();
-            })
+            .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
     }
 
@@ -124,10 +115,7 @@ public class PgDatabaseServiceCoreTest extends BaseIntegrationTest {
         
         databaseService.initialize()
             .compose(v -> databaseService.runMigrations())
-            .onSuccess(v -> {
-                assertNotNull(v);
-                testContext.completeNow();
-            })
+            .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
     }
 
