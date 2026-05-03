@@ -31,18 +31,14 @@ import dev.mars.peegeeq.db.subscription.TopicSemantics;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
 import io.vertx.sqlclient.Tuple;
-import io.vertx.junit5.VertxTestContext;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
-import org.junit.jupiter.api.parallel.Isolated;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
-import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
@@ -69,7 +65,6 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.PERFORMANCE)
 @Tag(TestCategories.INTEGRATION)
-@Isolated("Performance test requires exclusive database access")
 public class BackfillScopePerformanceTest extends BaseIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(BackfillScopePerformanceTest.class);
@@ -94,10 +89,7 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
                 .build();
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder()
-                .maxSize(5)
-                .shared(false)
-                .idleTimeout(Duration.ofSeconds(5))
-                .connectionTimeout(Duration.ofSeconds(30))
+                .maxSize(20)
                 .build();
 
         connectionManager.getOrCreateReactivePool("peegeeq-main", connectionConfig, poolConfig);
@@ -107,15 +99,6 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
         backfillService = new BackfillService(connectionManager, "peegeeq-main");
 
         logger.info("BackfillScope performance test setup complete");
-    }
-
-    @AfterEach
-    void tearDown(VertxTestContext testContext) {
-        if (connectionManager != null) {
-            connectionManager.close().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
-        } else {
-            testContext.completeNow();
-        }
     }
 
     // ========================================================================

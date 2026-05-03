@@ -60,7 +60,7 @@ class BackpressureManagerTest {
     }
 
     @Test
-    void testBackpressureManagerInitialization() {
+    void testBackpressureManagerInitialization() throws Exception {
         assertNotNull(backpressureManager);
         
         BackpressureManager.BackpressureMetrics metrics = backpressureManager.getMetrics();
@@ -83,7 +83,7 @@ class BackpressureManagerTest {
     }
 
     @Test
-    void testFailedOperation() {
+    void testFailedOperation() throws Exception {
         logger.info("===== RUNNING INTENTIONAL BACKPRESSURE FAILURE TEST =====");
         logger.info("INTENTIONAL TEST: This test deliberately throws an exception to verify backpressure failure handling");
         logger.info("INTENTIONAL TEST FAILURE: Throwing RuntimeException in backpressure operation");
@@ -159,7 +159,7 @@ class BackpressureManagerTest {
     }
 
     @Test
-    void testOperationTimeout() {
+    void testOperationTimeout() throws Exception {
         BackpressureManager shortTimeoutManager = new BackpressureManager(1, Duration.ofMillis(100), true);
         
         // Start a long-running operation to consume the permit
