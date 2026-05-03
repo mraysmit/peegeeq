@@ -326,7 +326,7 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
 
     @Test
     void testUpdateHeartbeat(VertxTestContext testContext) {
-        String topic = "test-topic-heartbeat";
+        String topic = "test-topic-heartbeat-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "test-group-9";
 
         TopicConfig topicConfig = TopicConfig.builder()
