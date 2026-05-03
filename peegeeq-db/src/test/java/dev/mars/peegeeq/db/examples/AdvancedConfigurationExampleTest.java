@@ -19,8 +19,6 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.junit.jupiter.api.parallel.Isolated;
 
-import java.util.concurrent.TimeUnit;
-
 import static org.junit.jupiter.api.Assertions.*;
 
 /**
@@ -75,22 +73,22 @@ public class AdvancedConfigurationExampleTest {
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws InterruptedException {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down Advanced Configuration Example Test");
 
         if (manager != null) {
             manager.closeReactive()
-                .onComplete(v -> {
+                .onSuccess(v -> {
                     clearTestProperties();
-                    logger.info("✓ Advanced Configuration Example Test teardown completed");
+                    logger.info("\u2713 Advanced Configuration Example Test teardown completed");
                     testContext.completeNow();
-                });
+                })
+                .onFailure(testContext::failNow);
         } else {
             clearTestProperties();
-            logger.info("✓ Advanced Configuration Example Test teardown completed");
+            logger.info("\u2713 Advanced Configuration Example Test teardown completed");
             testContext.completeNow();
         }
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -218,7 +216,7 @@ public class AdvancedConfigurationExampleTest {
      * Validates database connection pool optimization and tuning
      */
     @Test
-    void testDatabaseConnectionPooling(VertxTestContext testContext) throws InterruptedException {
+    void testDatabaseConnectionPooling(VertxTestContext testContext) {
         logger.info("=== Testing Database Connection Pooling ===");
 
         String[] environments = {"development", "staging", "production"};
@@ -265,8 +263,6 @@ public class AdvancedConfigurationExampleTest {
                 testContext.completeNow();
             })
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
     }
 
     /**

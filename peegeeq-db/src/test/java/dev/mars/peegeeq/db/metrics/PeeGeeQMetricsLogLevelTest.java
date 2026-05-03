@@ -52,7 +52,6 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -100,23 +99,26 @@ public class PeeGeeQMetricsLogLevelTest {
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws InterruptedException {
+    void tearDown(VertxTestContext testContext) {
         metricsLogger.detachAppender(logCapture);
         logCapture.stop();
 
         if (connectionManager != null) {
             connectionManager.close()
-                    .onComplete(v -> testContext.completeNow());
+                    .onSuccess(v -> testContext.completeNow())
+                    .onFailure(t -> {
+                        logger.warn("Error closing connection manager in tearDown: {}", t.getMessage());
+                        testContext.completeNow();
+                    });
         } else {
             testContext.completeNow();
         }
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     @Test
     @Order(2)
     @DisplayName("Negative: persistMetrics with queue_metrics table present produces no ERROR")
-    void testPersistWithTableNoError(VertxTestContext testContext) throws InterruptedException {
+    void testPersistWithTableNoError(VertxTestContext testContext) {
         // Create queue_metrics table
         createMetricsTable();
 
@@ -137,14 +139,12 @@ public class PeeGeeQMetricsLogLevelTest {
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     @Test
     @Order(1)
     @DisplayName("Positive: persistMetrics without queue_metrics table logs ERROR (non-connection failure)")
-    void testPersistWithoutTableLogsError(VertxTestContext testContext) throws InterruptedException {
+    void testPersistWithoutTableLogsError(VertxTestContext testContext) {
         logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Failed to persist metrics to database') is EXPECTED — this test deliberately persists without a metrics table to verify error logging");
         // Table does not exist — SQL will fail with relation not found
         Pool pool = createPool();
@@ -168,14 +168,12 @@ public class PeeGeeQMetricsLogLevelTest {
                     testContext.completeNow();
                 }))
                 .onSuccess(v -> testContext.failNow("Expected failed future from persistMetrics with missing table"));
-
-        assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
 
     @Test
     @Order(3)
     @DisplayName("Negative: persistMetrics with connection error during shutdown logs at DEBUG, not ERROR")
-    void testPersistConnectionErrorLoggedAsDebug(Vertx vertx, VertxTestContext testContext) throws InterruptedException {
+    void testPersistConnectionErrorLoggedAsDebug(Vertx vertx, VertxTestContext testContext) {
         // Use a separate container we can stop
         @SuppressWarnings("resource")
         PostgreSQLContainer ownContainer = new PostgreSQLContainer(POSTGRES_IMAGE)
@@ -197,9 +195,9 @@ public class PeeGeeQMetricsLogLevelTest {
         logCapture.clear();
 
         ownMetrics.persistMetrics(registry)
-                .eventually(() -> ownConnMgr.close()
-                    .onFailure(t -> { /* expected: container already stopped */ }))
-                .onComplete(ar -> testContext.verify(() -> {
+                .recover(t -> Future.succeededFuture())
+                .eventually(() -> ownConnMgr.close().recover(t -> Future.succeededFuture()))
+                .onSuccess(v -> testContext.verify(() -> {
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
                     boolean hasErrorForPersist = errors.stream()
                             .anyMatch(e -> e.getFormattedMessage().contains("Failed to persist metrics"));
@@ -207,9 +205,8 @@ public class PeeGeeQMetricsLogLevelTest {
                     assertFalse(hasErrorForPersist,
                             "Connection error should be at DEBUG level, not ERROR");
                     testContext.completeNow();
-                }));
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
+                }))
+                .onFailure(testContext::failNow);
     }
 
     // --- Helpers ---

@@ -21,7 +21,6 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.util.Properties;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -94,7 +93,7 @@ public class DeadConsumerDetectionJobLifecycleTest {
     }
 
     @Test
-    void testDetectionJobStartsWithManager(VertxTestContext testContext) throws InterruptedException {
+    void testDetectionJobStartsWithManager(VertxTestContext testContext) {
         logger.info("=== Testing detection job starts with manager ===");
 
         manager.start()
@@ -112,12 +111,10 @@ public class DeadConsumerDetectionJobLifecycleTest {
             })
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testDetectionJobStopsWithManager(VertxTestContext testContext) throws InterruptedException {
+    void testDetectionJobStopsWithManager(VertxTestContext testContext) {
         logger.info("=== Testing detection job stops with manager ===");
 
         manager.start()
@@ -137,12 +134,10 @@ public class DeadConsumerDetectionJobLifecycleTest {
             })
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testDetectionJobDisabledByConfig(VertxTestContext testContext) throws InterruptedException {
+    void testDetectionJobDisabledByConfig(VertxTestContext testContext) {
         logger.info("=== Testing detection job disabled by config ===");
 
         // Override to disable detection
@@ -170,7 +165,5 @@ public class DeadConsumerDetectionJobLifecycleTest {
             })
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 }

@@ -9,7 +9,11 @@ import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -34,7 +38,8 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag(TestCategories.CORE)
 @Execution(ExecutionMode.SAME_THREAD)
 @ResourceLock(value = "dead-consumer-detection", mode = ResourceAccessMode.READ_WRITE)
-public class DeadConsumerDetectorCoreTest extends BaseIntegrationTest {
+public @ExtendWith(VertxExtension.class)
+class DeadConsumerDetectorCoreTest extends BaseIntegrationTest {
 
     private PgConnectionManager connectionManager;
     private DeadConsumerDetector detector;
@@ -91,22 +96,21 @@ public class DeadConsumerDetectorCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testDetectDeadSubscriptionsNoDeadSubscriptions() throws Exception {
-        Integer markedDead = detector.detectDeadSubscriptions("non-existent-topic")
-            .toCompletionStage().toCompletableFuture().get();
-        assertEquals(0, markedDead);
+    void testDetectDeadSubscriptionsNoDeadSubscriptions(VertxTestContext ctx) {
+        detector.detectDeadSubscriptions("non-existent-topic")
+            .onSuccess(markedDead -> { assertEquals(0, markedDead); ctx.completeNow(); })
+            .onFailure(ctx::failNow);
     }
 
     @Test
-    void testDetectAllDeadSubscriptionsNoDeadSubscriptions() throws Exception {
+    void testDetectAllDeadSubscriptionsNoDeadSubscriptions(VertxTestContext ctx) {
         // This test verifies that detectAllDeadSubscriptions works correctly.
         // In a shared database environment with parallel tests, other tests may
         // have created subscriptions that could be marked as dead.
         // The key validation is that the operation completes successfully.
-        Integer markedDead = detector.detectAllDeadSubscriptions()
-            .toCompletionStage().toCompletableFuture().get();
-        // In a shared database, we can only assert non-negative result
-        assertTrue(markedDead >= 0, "Marked dead count should be non-negative");
+        detector.detectAllDeadSubscriptions()
+            .onSuccess(markedDead -> { assertTrue(markedDead >= 0, "Marked dead count should be non-negative"); ctx.completeNow(); })
+            .onFailure(ctx::failNow);
     }
 
     @Test
@@ -116,10 +120,10 @@ public class DeadConsumerDetectorCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testCountDeadSubscriptionsNoSubscriptions() throws Exception {
-        Long count = detector.countDeadSubscriptions("non-existent-topic")
-            .toCompletionStage().toCompletableFuture().get();
-        assertEquals(0L, count);
+    void testCountDeadSubscriptionsNoSubscriptions(VertxTestContext ctx) {
+        detector.countDeadSubscriptions("non-existent-topic")
+            .onSuccess(count -> { assertEquals(0L, count); ctx.completeNow(); })
+            .onFailure(ctx::failNow);
     }
 
     @Test
@@ -129,11 +133,16 @@ public class DeadConsumerDetectorCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testCountEligibleForDeadDetectionNoSubscriptions() throws Exception {
-        Long count = detector.countEligibleForDeadDetection("non-existent-topic")
-            .toCompletionStage().toCompletableFuture().get();
-        assertEquals(0L, count);
+    void testCountEligibleForDeadDetectionNoSubscriptions(VertxTestContext ctx) {
+        detector.countEligibleForDeadDetection("non-existent-topic")
+            .onSuccess(count -> { assertEquals(0L, count); ctx.completeNow(); })
+            .onFailure(ctx::failNow);
     }
 }
+
+
+
+
+
 
 

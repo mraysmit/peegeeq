@@ -3,6 +3,7 @@ package dev.mars.peegeeq.db.performance;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
+import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
@@ -110,18 +111,24 @@ class SimplePerformanceMonitorTest {
     
     @Test
     @DisplayName("Should provide timing context for measurements")
-    void shouldProvideTimingContext(Vertx vertx) throws Exception {
+    void shouldProvideTimingContext(Vertx vertx, VertxTestContext testContext) {
         // Given
         SimplePerformanceMonitor.TimingContext timing = monitor.startTiming();
         
         // When
-        vertx.timer(10).toCompletionStage().toCompletableFuture().get(5, TimeUnit.SECONDS); // Small delay
-        timing.recordAsQuery();
-        
-        // Then
-        assertEquals(1, monitor.getQueryCount());
-        assertTrue(monitor.getAverageQueryTime() >= 10, "Should record at least 10ms");
-        assertTrue(timing.getElapsed().toMillis() >= 10, "Should track elapsed time");
+        // Use 50ms buffer to overcome Windows low-resolution timer jitter (typical 15.6ms ticks)
+        vertx.timer(50)
+            .onSuccess(id -> testContext.verify(() -> {
+                timing.recordAsQuery();
+
+                // Then
+                assertEquals(1, monitor.getQueryCount());
+                // Using 25ms floor instead of 50ms to buffer Windows clock resolution variations
+                assertTrue(monitor.getAverageQueryTime() >= 25, "Should record at least 25ms, got: " + monitor.getAverageQueryTime());
+                assertTrue(timing.getElapsed().toMillis() >= 25, "Should track elapsed time, got: " + timing.getElapsed().toMillis());
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
     
     @Test

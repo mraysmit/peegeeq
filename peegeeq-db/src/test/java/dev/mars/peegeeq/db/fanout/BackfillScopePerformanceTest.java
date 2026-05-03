@@ -30,11 +30,12 @@ import dev.mars.peegeeq.db.subscription.TopicConfigService;
 import dev.mars.peegeeq.db.subscription.TopicSemantics;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
+import io.vertx.junit5.Timeout;
+import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Tuple;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.Timeout;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -42,6 +43,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -110,8 +112,8 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
      * Establishes the baseline throughput for scope-filtered backfill.
      */
     @Test
-    @Timeout(180)
-    void testPendingOnlyScope_50kMessages_Throughput() throws Exception {
+    @Timeout(value = 180, timeUnit = TimeUnit.SECONDS)
+    void testPendingOnlyScope_50kMessages_Throughput(VertxTestContext testContext) {
         String topic = "perf-pending-only-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "perf-pending-only-grp";
         int messageCount = 50_000;
@@ -119,30 +121,31 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
 
         logger.info("=== PENDING_ONLY scope performance: {} messages, batch {} ===", messageCount, batchSize);
 
-        setupTopicAndMessages(topic, messageCount);
-        subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning())
-                .toCompletionStage().toCompletableFuture().get();
-
-        long startMs = System.currentTimeMillis();
-        BackfillResult result = backfillService
-                .startBackfill(topic, groupName, batchSize, 0, BackfillScope.PENDING_ONLY)
-                .toCompletionStage().toCompletableFuture().get();
-        long elapsedMs = System.currentTimeMillis() - startMs;
-        double throughput = messageCount * 1000.0 / elapsedMs;
-
-        assertEquals(BackfillResult.Status.COMPLETED, result.status());
-        assertEquals(messageCount, result.processedMessages());
-
-        // Tracking rows for every message
-        long trackingRows = countTrackingRows(topic, groupName)
-                .toCompletionStage().toCompletableFuture().get();
-        assertEquals(messageCount, trackingRows, "Should have one tracking row per message");
-
-        assertTrue(throughput >= 1000,
-                "PENDING_ONLY throughput should be >= 1000 msgs/s, got " + String.format("%.1f", throughput));
-
-        logger.info("PENDING_ONLY result: {} msgs in {} ms ({} msgs/s)",
-                result.processedMessages(), elapsedMs, String.format("%.1f", throughput));
+        final long[] startMs = {0};
+        setupTopicAndMessages(topic, messageCount)
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
+                .compose(v -> {
+                    startMs[0] = System.currentTimeMillis();
+                    return backfillService.startBackfill(topic, groupName, batchSize, 0, BackfillScope.PENDING_ONLY);
+                })
+                .compose(result -> {
+                    long elapsedMs = System.currentTimeMillis() - startMs[0];
+                    double throughput = messageCount * 1000.0 / elapsedMs;
+                    testContext.verify(() -> {
+                        assertEquals(BackfillResult.Status.COMPLETED, result.status());
+                        assertEquals(messageCount, result.processedMessages());
+                        assertTrue(throughput >= 1000,
+                                "PENDING_ONLY throughput should be >= 1000 msgs/s, got " + String.format("%.1f", throughput));
+                        logger.info("PENDING_ONLY result: {} msgs in {} ms ({} msgs/s)",
+                                result.processedMessages(), elapsedMs, String.format("%.1f", throughput));
+                    });
+                    return countTrackingRows(topic, groupName);
+                })
+                .onSuccess(trackingRows -> testContext.verify(() -> {
+                    assertEquals(messageCount, trackingRows.longValue(), "Should have one tracking row per message");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -154,8 +157,8 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
      * Validates that COMPLETED messages are correctly included and incremented.
      */
     @Test
-    @Timeout(180)
-    void testAllRetainedScope_50kMessages_Throughput() throws Exception {
+    @Timeout(value = 180, timeUnit = TimeUnit.SECONDS)
+    void testAllRetainedScope_50kMessages_Throughput(VertxTestContext testContext) {
         String topic = "perf-all-retained-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "perf-all-retained-grp";
         int messageCount = 50_000;
@@ -165,37 +168,34 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
         logger.info("=== ALL_RETAINED scope performance: {} total, {} completed, batch {} ===",
                 messageCount, completedCount, batchSize);
 
-        setupTopicAndMessages(topic, messageCount);
-
-        // Mark a significant portion as COMPLETED
-        markOldestMessagesCompleted(topic, completedCount)
-                .toCompletionStage().toCompletableFuture().get();
-
-        subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning())
-                .toCompletionStage().toCompletableFuture().get();
-
-        long startMs = System.currentTimeMillis();
-        BackfillResult result = backfillService
-                .startBackfill(topic, groupName, batchSize, 0, BackfillScope.ALL_RETAINED)
-                .toCompletionStage().toCompletableFuture().get();
-        long elapsedMs = System.currentTimeMillis() - startMs;
-        double throughput = messageCount * 1000.0 / elapsedMs;
-
-        assertEquals(BackfillResult.Status.COMPLETED, result.status());
-        assertEquals(messageCount, result.processedMessages(),
-                "ALL_RETAINED should process ALL messages including COMPLETED");
-
-        // Tracking rows for every message (including COMPLETED)
-        long trackingRows = countTrackingRows(topic, groupName)
-                .toCompletionStage().toCompletableFuture().get();
-        assertEquals(messageCount, trackingRows,
-                "Should have one tracking row per message for ALL_RETAINED");
-
-        assertTrue(throughput >= 1000,
-                "ALL_RETAINED throughput should be >= 1000 msgs/s, got " + String.format("%.1f", throughput));
-
-        logger.info("ALL_RETAINED result: {} msgs in {} ms ({} msgs/s)",
-                result.processedMessages(), elapsedMs, String.format("%.1f", throughput));
+        final long[] startMs = {0};
+        setupTopicAndMessages(topic, messageCount)
+                .compose(v -> markOldestMessagesCompleted(topic, completedCount))
+                .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
+                .compose(v -> {
+                    startMs[0] = System.currentTimeMillis();
+                    return backfillService.startBackfill(topic, groupName, batchSize, 0, BackfillScope.ALL_RETAINED);
+                })
+                .compose(result -> {
+                    long elapsedMs = System.currentTimeMillis() - startMs[0];
+                    double throughput = messageCount * 1000.0 / elapsedMs;
+                    testContext.verify(() -> {
+                        assertEquals(BackfillResult.Status.COMPLETED, result.status());
+                        assertEquals(messageCount, result.processedMessages(),
+                                "ALL_RETAINED should process ALL messages including COMPLETED");
+                        assertTrue(throughput >= 1000,
+                                "ALL_RETAINED throughput should be >= 1000 msgs/s, got " + String.format("%.1f", throughput));
+                        logger.info("ALL_RETAINED result: {} msgs in {} ms ({} msgs/s)",
+                                result.processedMessages(), elapsedMs, String.format("%.1f", throughput));
+                    });
+                    return countTrackingRows(topic, groupName);
+                })
+                .onSuccess(trackingRows -> testContext.verify(() -> {
+                    assertEquals(messageCount, trackingRows.longValue(),
+                            "Should have one tracking row per message for ALL_RETAINED");
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -210,8 +210,8 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
      * {@code status IN ('PENDING', 'PROCESSING')} regardless of scope.</p>
      */
     @Test
-    @Timeout(60)
-    void testAllRetainedScope_IncrementsRequiredGroupsOnCompletedMessages() throws Exception {
+    @Timeout(value = 60, timeUnit = TimeUnit.SECONDS)
+    void testAllRetainedScope_IncrementsRequiredGroupsOnCompletedMessages(VertxTestContext testContext) {
         String topic = "perf-incr-completed-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "incr-completed-grp";
         int totalMessages = 100;
@@ -220,40 +220,37 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
         logger.info("=== ALL_RETAINED incrementSql regression test: {} total, {} completed ===",
                 totalMessages, completedMessages);
 
-        setupTopicAndMessages(topic, totalMessages);
-        markOldestMessagesCompleted(topic, completedMessages)
-                .toCompletionStage().toCompletableFuture().get();
-
-        // Capture original required_consumer_groups on COMPLETED rows
-        long originalIncrCount = countCompletedMessagesWithRequiredGroups(topic, 1)
-                .toCompletionStage().toCompletableFuture().get();
-        assertEquals(completedMessages, originalIncrCount,
-                "COMPLETED messages should start with required_consumer_groups = 1");
-
-        subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning())
-                .toCompletionStage().toCompletableFuture().get();
-
-        BackfillResult result = backfillService
-                .startBackfill(topic, groupName, 50, 0, BackfillScope.ALL_RETAINED)
-                .toCompletionStage().toCompletableFuture().get();
-
-        assertEquals(BackfillResult.Status.COMPLETED, result.status());
-        assertEquals(totalMessages, result.processedMessages());
-
-        // COMPLETED messages should now have required_consumer_groups = 2
-        long incrementedCount = countCompletedMessagesWithRequiredGroups(topic, 2)
-                .toCompletionStage().toCompletableFuture().get();
-        assertEquals(completedMessages, incrementedCount,
-                "ALL_RETAINED should increment required_consumer_groups on COMPLETED messages too");
-
-        // PENDING messages should also have required_consumer_groups = 2
-        long pendingIncremented = countPendingMessagesWithRequiredGroups(topic, 2)
-                .toCompletionStage().toCompletableFuture().get();
-        assertEquals(totalMessages - completedMessages, pendingIncremented,
-                "PENDING messages should also have required_consumer_groups incremented");
-
-        logger.info("ALL_RETAINED correctly incremented required_consumer_groups on {} COMPLETED + {} PENDING messages",
-                incrementedCount, pendingIncremented);
+        setupTopicAndMessages(topic, totalMessages)
+                .compose(v -> markOldestMessagesCompleted(topic, completedMessages))
+                .compose(v -> countCompletedMessagesWithRequiredGroups(topic, 1))
+                .compose(originalIncrCount -> {
+                    testContext.verify(() ->
+                            assertEquals(completedMessages, originalIncrCount.longValue(),
+                                    "COMPLETED messages should start with required_consumer_groups = 1"));
+                    return subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning());
+                })
+                .compose(v -> backfillService.startBackfill(topic, groupName, 50, 0, BackfillScope.ALL_RETAINED))
+                .compose(result -> {
+                    testContext.verify(() -> {
+                        assertEquals(BackfillResult.Status.COMPLETED, result.status());
+                        assertEquals(totalMessages, result.processedMessages());
+                    });
+                    return countCompletedMessagesWithRequiredGroups(topic, 2);
+                })
+                .compose(incrementedCount -> {
+                    testContext.verify(() ->
+                            assertEquals(completedMessages, incrementedCount.longValue(),
+                                    "ALL_RETAINED should increment required_consumer_groups on COMPLETED messages too"));
+                    return countPendingMessagesWithRequiredGroups(topic, 2);
+                })
+                .onSuccess(pendingIncremented -> testContext.verify(() -> {
+                    assertEquals(totalMessages - completedMessages, pendingIncremented.longValue(),
+                            "PENDING messages should also have required_consumer_groups incremented");
+                    logger.info("ALL_RETAINED correctly incremented required_consumer_groups on {} COMPLETED + {} PENDING messages",
+                            completedMessages, pendingIncremented);
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -265,8 +262,8 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
      * same dataset. ALL_RETAINED should not be more than 2x slower.
      */
     @Test
-    @Timeout(180)
-    void testScopeComparison_ThroughputParity() throws Exception {
+    @Timeout(value = 180, timeUnit = TimeUnit.SECONDS)
+    void testScopeComparison_ThroughputParity(VertxTestContext testContext) {
         String baseTopic = "perf-compare-" + UUID.randomUUID().toString().substring(0, 8);
         int messageCount = 20_000;
         int completedCount = 8_000;
@@ -274,83 +271,85 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
 
         logger.info("=== Scope comparison: {} total, {} completed ===", messageCount, completedCount);
 
-        // --- PENDING_ONLY ---
         String pendingTopic = baseTopic + "-pending";
         String pendingGroup = "compare-pending-grp";
-
-        setupTopicAndMessages(pendingTopic, messageCount);
-        markOldestMessagesCompleted(pendingTopic, completedCount)
-                .toCompletionStage().toCompletableFuture().get();
-        subscriptionManager.subscribe(pendingTopic, pendingGroup, SubscriptionOptions.fromBeginning())
-                .toCompletionStage().toCompletableFuture().get();
-
-        long pendingStart = System.currentTimeMillis();
-        BackfillResult pendingResult = backfillService
-                .startBackfill(pendingTopic, pendingGroup, batchSize, 0, BackfillScope.PENDING_ONLY)
-                .toCompletionStage().toCompletableFuture().get();
-        long pendingElapsed = System.currentTimeMillis() - pendingStart;
-        double pendingThroughput = pendingResult.processedMessages() * 1000.0 / pendingElapsed;
-
-        int expectedPending = messageCount - completedCount;
-        assertEquals(BackfillResult.Status.COMPLETED, pendingResult.status());
-        assertEquals(expectedPending, pendingResult.processedMessages());
-
-        // --- ALL_RETAINED ---
         String retainedTopic = baseTopic + "-retained";
         String retainedGroup = "compare-retained-grp";
 
-        setupTopicAndMessages(retainedTopic, messageCount);
-        markOldestMessagesCompleted(retainedTopic, completedCount)
-                .toCompletionStage().toCompletableFuture().get();
-        subscriptionManager.subscribe(retainedTopic, retainedGroup, SubscriptionOptions.fromBeginning())
-                .toCompletionStage().toCompletableFuture().get();
+        final long[] pendingElapsed = {0};
+        final long[] retainedElapsed = {0};
+        final long[] pendingProcessed = {0};
 
-        long retainedStart = System.currentTimeMillis();
-        BackfillResult retainedResult = backfillService
-                .startBackfill(retainedTopic, retainedGroup, batchSize, 0, BackfillScope.ALL_RETAINED)
-                .toCompletionStage().toCompletableFuture().get();
-        long retainedElapsed = System.currentTimeMillis() - retainedStart;
-        double retainedThroughput = retainedResult.processedMessages() * 1000.0 / retainedElapsed;
+        // --- PENDING_ONLY ---
+        setupTopicAndMessages(pendingTopic, messageCount)
+                .compose(v -> markOldestMessagesCompleted(pendingTopic, completedCount))
+                .compose(v -> subscriptionManager.subscribe(pendingTopic, pendingGroup, SubscriptionOptions.fromBeginning()))
+                .compose(v -> {
+                    long start = System.currentTimeMillis();
+                    return backfillService.startBackfill(pendingTopic, pendingGroup, batchSize, 0, BackfillScope.PENDING_ONLY)
+                            .map(result -> {
+                                pendingElapsed[0] = System.currentTimeMillis() - start;
+                                return result;
+                            });
+                })
+                .compose(pendingResult -> {
+                    int expectedPending = messageCount - completedCount;
+                    testContext.verify(() -> {
+                        assertEquals(BackfillResult.Status.COMPLETED, pendingResult.status());
+                        assertEquals(expectedPending, pendingResult.processedMessages());
+                    });
+                    pendingProcessed[0] = pendingResult.processedMessages();
+                    // --- ALL_RETAINED ---
+                    return setupTopicAndMessages(retainedTopic, messageCount);
+                })
+                .compose(v -> markOldestMessagesCompleted(retainedTopic, completedCount))
+                .compose(v -> subscriptionManager.subscribe(retainedTopic, retainedGroup, SubscriptionOptions.fromBeginning()))
+                .compose(v -> {
+                    long start = System.currentTimeMillis();
+                    return backfillService.startBackfill(retainedTopic, retainedGroup, batchSize, 0, BackfillScope.ALL_RETAINED)
+                            .map(result -> {
+                                retainedElapsed[0] = System.currentTimeMillis() - start;
+                                return result;
+                            });
+                })
+                .onSuccess(retainedResult -> testContext.verify(() -> {
+                    assertEquals(BackfillResult.Status.COMPLETED, retainedResult.status());
+                    assertEquals(messageCount, retainedResult.processedMessages());
 
-        assertEquals(BackfillResult.Status.COMPLETED, retainedResult.status());
-        assertEquals(messageCount, retainedResult.processedMessages());
+                    double pendingThroughput = pendingProcessed[0] * 1000.0 / pendingElapsed[0];
+                    double retainedThroughput = retainedResult.processedMessages() * 1000.0 / retainedElapsed[0];
+                    double ratio = retainedThroughput / pendingThroughput;
 
-        // ALL_RETAINED processes more rows, so compare per-message throughput
-        double ratio = retainedThroughput / pendingThroughput;
+                    logger.info("=== SCOPE COMPARISON RESULTS ===");
+                    logger.info("PENDING_ONLY : {} msgs in {} ms ({} msgs/s)",
+                            pendingProcessed[0], pendingElapsed[0], String.format("%.1f", pendingThroughput));
+                    logger.info("ALL_RETAINED : {} msgs in {} ms ({} msgs/s)",
+                            retainedResult.processedMessages(), retainedElapsed[0], String.format("%.1f", retainedThroughput));
+                    logger.info("Throughput ratio (ALL_RETAINED / PENDING_ONLY): {}", String.format("%.2f", ratio));
 
-        logger.info("=== SCOPE COMPARISON RESULTS ===");
-        logger.info("PENDING_ONLY : {} msgs in {} ms ({} msgs/s)",
-                pendingResult.processedMessages(), pendingElapsed, String.format("%.1f", pendingThroughput));
-        logger.info("ALL_RETAINED : {} msgs in {} ms ({} msgs/s)",
-                retainedResult.processedMessages(), retainedElapsed, String.format("%.1f", retainedThroughput));
-        logger.info("Throughput ratio (ALL_RETAINED / PENDING_ONLY): {}", String.format("%.2f", ratio));
+                    assertTrue(ratio >= 0.5,
+                            "ALL_RETAINED throughput should be at least 50% of PENDING_ONLY, ratio was " + String.format("%.2f", ratio));
+                    logger.info("Scope throughput parity verified: ratio={}", String.format("%.2f", ratio));
 
-        // ALL_RETAINED should not be dramatically slower (allow up to 2x slower)
-        assertTrue(ratio >= 0.5,
-                "ALL_RETAINED throughput should be at least 50% of PENDING_ONLY, ratio was " + String.format("%.2f", ratio));
-
-        logger.info("Scope throughput parity verified: ratio={}", String.format("%.2f", ratio));
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
     // Helper methods
     // ========================================================================
 
-    private void setupTopicAndMessages(String topic, int messageCount) throws Exception {
-        topicConfigService.createTopic(TopicConfig.builder()
+    private Future<Void> setupTopicAndMessages(String topic, int messageCount) {
+        return topicConfigService.createTopic(TopicConfig.builder()
                         .topic(topic)
                         .semantics(TopicSemantics.PUB_SUB)
                         .messageRetentionHours(24)
                         .build())
-                .toCompletionStage().toCompletableFuture().get();
-
-        // Subscribe initial group so messages get required_consumer_groups = 1
-        subscriptionManager.subscribe(topic, "initial-group-" + UUID.randomUUID().toString().substring(0, 4),
-                        SubscriptionOptions.defaults())
-                .toCompletionStage().toCompletableFuture().get();
-
-        // Bulk insert messages
-        insertMessagesBulk(topic, messageCount).toCompletionStage().toCompletableFuture().get();
+                .compose(v -> subscriptionManager.subscribe(topic,
+                        "initial-group-" + UUID.randomUUID().toString().substring(0, 4),
+                        SubscriptionOptions.defaults()))
+                .compose(v -> insertMessagesBulk(topic, messageCount));
     }
 
     private Future<Void> insertMessagesBulk(String topic, int count) {

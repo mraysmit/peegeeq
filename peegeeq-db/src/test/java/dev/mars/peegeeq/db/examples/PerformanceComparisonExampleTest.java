@@ -38,7 +38,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -77,24 +76,24 @@ public class PerformanceComparisonExampleTest {
     }
     
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws InterruptedException {
+    void tearDown(VertxTestContext testContext) {
         logger.info("Tearing down Performance Comparison Example Test");
 
         if (manager != null) {
             manager.closeReactive()
-                .onComplete(v -> {
+                .onSuccess(v -> {
                     System.getProperties().entrySet().removeIf(entry ->
                         entry.getKey().toString().startsWith("peegeeq."));
                     logger.info("✓ Performance Comparison Example Test teardown completed");
                     testContext.completeNow();
-                });
+                })
+                .onFailure(testContext::failNow);
         } else {
             System.getProperties().entrySet().removeIf(entry ->
                 entry.getKey().toString().startsWith("peegeeq."));
             logger.info("✓ Performance Comparison Example Test teardown completed");
             testContext.completeNow();
         }
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -102,7 +101,7 @@ public class PerformanceComparisonExampleTest {
      * Validates different thread, batch size, and polling configurations
      */
     @Test
-    void testConfigurationTesting(VertxTestContext testContext) throws InterruptedException {
+    void testConfigurationTesting(VertxTestContext testContext) {
         logger.info("=== Testing Configuration Testing ===");
         
         testConfiguration("Single-Threaded", 1, 1, "PT1S")
@@ -122,8 +121,6 @@ public class PerformanceComparisonExampleTest {
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
     }
 
     /**
@@ -131,7 +128,7 @@ public class PerformanceComparisonExampleTest {
      * Validates throughput, latency, and processing time metrics
      */
     @Test
-    void testPerformanceMeasurement(VertxTestContext testContext) throws InterruptedException {
+    void testPerformanceMeasurement(VertxTestContext testContext) {
         logger.info("=== Testing Performance Measurement ===");
         
         testConfiguration("Measurement-Test", 2, 5, "PT0.5S")
@@ -144,8 +141,6 @@ public class PerformanceComparisonExampleTest {
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
     }
 
     /**
@@ -153,7 +148,7 @@ public class PerformanceComparisonExampleTest {
      * Validates side-by-side performance comparison
      */
     @Test
-    void testComparisonAnalysis(VertxTestContext testContext) throws InterruptedException {
+    void testComparisonAnalysis(VertxTestContext testContext) {
         logger.info("=== Testing Comparison Analysis ===");
         
         List<PerformanceResult> results = new ArrayList<>();
@@ -171,8 +166,6 @@ public class PerformanceComparisonExampleTest {
                 testContext.completeNow();
             }))
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
     }
 
     /**
