@@ -17,8 +17,6 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -49,7 +47,7 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
     private PgConnectionManager connectionManager;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp() {
         // Create connection manager using the shared Vertx instance
         connectionManager = new PgConnectionManager(manager.getVertx(), null);
 
@@ -95,39 +93,30 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
      * Test F13: QUEUE topics always allow writes.
      */
     @Test
-    void testQueueTopicAlwaysAllowsWrites(VertxTestContext testContext) throws Exception {
+    void testQueueTopicAlwaysAllowsWrites(VertxTestContext testContext) {
         String topic = "test-queue-allow";
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(TopicConfig.builder()
                 .topic(topic)
                 .semantics(TopicSemantics.QUEUE)
                 .messageRetentionHours(24)
                 .build())
             .compose(v -> validator.isWriteAllowed(topic))
-            .onSuccess(allowed -> {
-                try {
-                    assertTrue(allowed, "QUEUE topics should always allow writes");
-                    logger.info("QUEUE topic write allowed verified");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(allowed -> testContext.verify(() -> {
+                assertTrue(allowed, "QUEUE topics should always allow writes");
+                logger.info("QUEUE topic write allowed verified");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     /**
      * Test F14: PUB_SUB topics with blocking disabled allow writes even with zero subscriptions.
      */
     @Test
-    void testPubSubTopicWithBlockingDisabledAllowsWrites(VertxTestContext testContext) throws Exception {
+    void testPubSubTopicWithBlockingDisabledAllowsWrites(VertxTestContext testContext) {
         String topic = "test-pubsub-blocking-disabled";
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(TopicConfig.builder()
                 .topic(topic)
                 .semantics(TopicSemantics.PUB_SUB)
@@ -135,19 +124,12 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
                 .blockWritesOnZeroSubscriptions(false)
                 .build())
             .compose(v -> validator.isWriteAllowed(topic))
-            .onSuccess(allowed -> {
-                try {
-                    assertTrue(allowed, "PUB_SUB topics with blocking disabled should allow writes");
-                    logger.info("PUB_SUB topic with blocking disabled allows writes verified");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(allowed -> testContext.verify(() -> {
+                assertTrue(allowed, "PUB_SUB topics with blocking disabled should allow writes");
+                logger.info("PUB_SUB topic with blocking disabled allows writes verified");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     /**
@@ -159,10 +141,9 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
      * This warning is the expected behavior being tested and is not an error.
      */
     @Test
-    void testPubSubTopicWithBlockingEnabledBlocksWrites(VertxTestContext testContext) throws Exception {
+    void testPubSubTopicWithBlockingEnabledBlocksWrites(VertxTestContext testContext) {
         String topic = "test-pubsub-blocking-enabled";
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(TopicConfig.builder()
                 .topic(topic)
                 .semantics(TopicSemantics.PUB_SUB)
@@ -170,29 +151,21 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
                 .blockWritesOnZeroSubscriptions(true)
                 .build())
             .compose(v -> validator.isWriteAllowed(topic))
-            .onSuccess(allowed -> {
-                try {
-                    assertFalse(allowed, "PUB_SUB topics with blocking enabled and zero subscriptions should block writes");
-                    logger.info("PUB_SUB topic with blocking enabled blocks writes verified");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(allowed -> testContext.verify(() -> {
+                assertFalse(allowed, "PUB_SUB topics with blocking enabled and zero subscriptions should block writes");
+                logger.info("PUB_SUB topic with blocking enabled blocks writes verified");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     /**
      * Test F16: PUB_SUB topics with blocking enabled and active subscriptions allow writes.
      */
     @Test
-    void testPubSubTopicWithBlockingEnabledAndActiveSubscriptionsAllowsWrites(VertxTestContext testContext) throws Exception {
+    void testPubSubTopicWithBlockingEnabledAndActiveSubscriptionsAllowsWrites(VertxTestContext testContext) {
         String topic = "test-pubsub-blocking-with-subs";
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(TopicConfig.builder()
                 .topic(topic)
                 .semantics(TopicSemantics.PUB_SUB)
@@ -201,43 +174,28 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
                 .build())
             .compose(v -> subscriptionManager.subscribe(topic, "group-a", SubscriptionOptions.defaults()))
             .compose(v -> validator.isWriteAllowed(topic))
-            .onSuccess(allowed -> {
-                try {
-                    assertTrue(allowed, "PUB_SUB topics with blocking enabled and active subscriptions should allow writes");
-                    logger.info("PUB_SUB topic with blocking enabled and active subscriptions allows writes verified");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(allowed -> testContext.verify(() -> {
+                assertTrue(allowed, "PUB_SUB topics with blocking enabled and active subscriptions should allow writes");
+                logger.info("PUB_SUB topic with blocking enabled and active subscriptions allows writes verified");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     /**
      * Test F17: Unconfigured topics default to QUEUE semantics and allow writes.
      */
     @Test
-    void testUnconfiguredTopicAllowsWrites(VertxTestContext testContext) throws Exception {
+    void testUnconfiguredTopicAllowsWrites(VertxTestContext testContext) {
         String topic = "test-unconfigured-topic";
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         validator.isWriteAllowed(topic)
-            .onSuccess(allowed -> {
-                try {
-                    assertTrue(allowed, "Unconfigured topics should default to QUEUE semantics and allow writes");
-                    logger.info("Unconfigured topic allows writes verified");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(allowed -> testContext.verify(() -> {
+                assertTrue(allowed, "Unconfigured topics should default to QUEUE semantics and allow writes");
+                logger.info("Unconfigured topic allows writes verified");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     /**
@@ -249,11 +207,10 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
      * This warning is the expected behavior being tested and is not an error.
      */
     @Test
-    void testValidateWriteAllowedThrowsExceptionWhenBlocked(VertxTestContext testContext) throws Exception {
+    void testValidateWriteAllowedThrowsExceptionWhenBlocked(VertxTestContext testContext) {
         logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Blocking write to topic - zero ACTIVE subscriptions') is EXPECTED — this test verifies writes are blocked when block_writes_on_zero_subscriptions = TRUE");
         String topic = "test-validate-blocked";
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(TopicConfig.builder()
                 .topic(topic)
                 .semantics(TopicSemantics.PUB_SUB)
@@ -277,19 +234,16 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
                 return Future.succeededFuture();
             })
             .onSuccess(v -> testContext.completeNow())
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onFailure(testContext::failNow);
     }
 
     /**
      * Test F19: validateWriteAllowed succeeds when write is allowed.
      */
     @Test
-    void testValidateWriteAllowedSucceedsWhenAllowed(VertxTestContext testContext) throws Exception {
+    void testValidateWriteAllowedSucceedsWhenAllowed(VertxTestContext testContext) {
         String topic = "test-validate-allowed";
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(TopicConfig.builder()
                 .topic(topic)
                 .semantics(TopicSemantics.QUEUE)
@@ -300,9 +254,7 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
                 logger.info("validateWriteAllowed succeeds when allowed verified");
                 testContext.completeNow();
             })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onFailure(testContext::failNow);
     }
 }
 

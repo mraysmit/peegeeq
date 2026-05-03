@@ -41,14 +41,11 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -95,7 +92,7 @@ public class P4_BackfillVsOLTPTest extends BaseIntegrationTest {
     private CleanupService cleanupService;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp() {
         connectionManager = new PgConnectionManager(manager.getVertx(), null);
 
         PostgreSQLContainer postgres = getPostgres();
@@ -137,7 +134,7 @@ public class P4_BackfillVsOLTPTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testBackfillVsOLTP(VertxTestContext testContext) throws Exception {
+    void testBackfillVsOLTP(VertxTestContext testContext) {
         logger.info("=== P4: BACKFILL VS OLTP TEST ===");
 
         String topic = "perf-test-backfill-" + UUID.randomUUID().toString().substring(0, 8);
@@ -233,19 +230,10 @@ public class P4_BackfillVsOLTPTest extends BaseIntegrationTest {
             }))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(180, TimeUnit.SECONDS));
-        if (testContext.failed()) {
-            Throwable cause = testContext.causeOfFailure();
-            if (cause instanceof Exception exception) {
-                throw exception;
-            }
-            throw new RuntimeException(cause);
-        }
     }
 
     @Test
-    void testRegularBackfillDoesNotImpactNormalOLTPThroughput(VertxTestContext testContext) throws Exception {
+    void testRegularBackfillDoesNotImpactNormalOLTPThroughput(VertxTestContext testContext) {
         logger.info("=== P4: REGULAR BACKFILL VS NORMAL OLTP THROUGHPUT ===");
 
         String topic = "perf-regular-backfill-" + UUID.randomUUID().toString().substring(0, 8);
@@ -262,10 +250,6 @@ public class P4_BackfillVsOLTPTest extends BaseIntegrationTest {
         AtomicInteger consumed = new AtomicInteger(0);
         AtomicInteger backfillRuns = new AtomicInteger(0);
         List<Long> oltpLatencies = new CopyOnWriteArrayList<>();
-
-        AtomicReference<Throwable> backfillError = new AtomicReference<>();
-        AtomicReference<Throwable> publisherError = new AtomicReference<>();
-        AtomicReference<Throwable> consumerError = new AtomicReference<>();
 
         AtomicLong testStartRef = new AtomicLong();
 
@@ -285,22 +269,15 @@ public class P4_BackfillVsOLTPTest extends BaseIntegrationTest {
                 testStartRef.set(testStart);
                 long testEnd = testStart + runDurationMs;
 
-                Future<Void> backfillLoop = runRegularBackfillUntil(testEnd, topic, backfillGroup, backfillIntervalMs, backfillRuns)
-                    .onFailure(err -> backfillError.compareAndSet(null, err));
+                Future<Void> backfillLoop = runRegularBackfillUntil(testEnd, topic, backfillGroup, backfillIntervalMs, backfillRuns);
 
-                Future<Void> publisherLoop = publishUntil(testEnd, topic, oltpPayloadSizeBytes, published)
-                    .onFailure(err -> publisherError.compareAndSet(null, err));
+                Future<Void> publisherLoop = publishUntil(testEnd, topic, oltpPayloadSizeBytes, published);
 
-                Future<Void> consumerLoop = consumeUntilDrained(testEnd, topic, oltpGroup, 50, published, consumed, oltpLatencies, 0)
-                    .onFailure(err -> consumerError.compareAndSet(null, err));
+                Future<Void> consumerLoop = consumeUntilDrained(testEnd, topic, oltpGroup, 50, published, consumed, oltpLatencies, 0);
 
                 return Future.all(backfillLoop, publisherLoop, consumerLoop).mapEmpty();
             })
             .compose(v -> cleanupService.cleanupCompletedMessages(topic, 5_000).map(deletedCount -> {
-                assertNull(backfillError.get(), "Backfill loop should not fail");
-                assertNull(publisherError.get(), "Publisher loop should not fail");
-                assertNull(consumerError.get(), "Consumer loop should not fail");
-
                 assertTrue(backfillRuns.get() >= 10,
                     "Regular backfill should run repeatedly during OLTP window");
                 assertTrue(published.get() >= 1_000,
@@ -337,15 +314,6 @@ public class P4_BackfillVsOLTPTest extends BaseIntegrationTest {
             }))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(240, TimeUnit.SECONDS));
-        if (testContext.failed()) {
-            Throwable cause = testContext.causeOfFailure();
-            if (cause instanceof Exception exception) {
-                throw exception;
-            }
-            throw new RuntimeException(cause);
-        }
     }
 
     private Future<Void> createTopicAndSubscriptions(

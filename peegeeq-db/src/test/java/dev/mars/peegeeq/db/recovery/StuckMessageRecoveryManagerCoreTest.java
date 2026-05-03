@@ -20,8 +20,6 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -41,7 +39,7 @@ public class StuckMessageRecoveryManagerCoreTest extends BaseIntegrationTest {
     private StuckMessageRecoveryManager recoveryManager;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp() {
         connectionManager = new PgConnectionManager(manager.getVertx());
         
         PostgreSQLContainer postgres = getPostgres();
@@ -88,103 +86,51 @@ public class StuckMessageRecoveryManagerCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testRecoverStuckMessagesWhenDisabled(VertxTestContext testContext) throws InterruptedException {
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+    void testRecoverStuckMessagesWhenDisabled(VertxTestContext testContext) {
         StuckMessageRecoveryManager disabledManager = new StuckMessageRecoveryManager(pool, Duration.ofMinutes(5), false);
         disabledManager.recoverStuckMessages()
-            .onSuccess(recovered -> {
-                try {
-                    assertEquals(0, (int) recovered);
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> {
-                errorRef.set(e);
+            .onSuccess(recovered -> testContext.verify(() -> {
+                assertEquals(0, (int) recovered);
                 testContext.completeNow();
-            });
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testRecoverStuckMessagesNoStuckMessages(VertxTestContext testContext) throws InterruptedException {
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+    void testRecoverStuckMessagesNoStuckMessages(VertxTestContext testContext) {
         recoveryManager.recoverStuckMessages()
-            .onSuccess(recovered -> {
-                try {
-                    assertEquals(0, (int) recovered);
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> {
-                errorRef.set(e);
+            .onSuccess(recovered -> testContext.verify(() -> {
+                assertEquals(0, (int) recovered);
                 testContext.completeNow();
-            });
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testGetRecoveryStats(VertxTestContext testContext) throws InterruptedException {
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+    void testGetRecoveryStats(VertxTestContext testContext) {
         recoveryManager.getRecoveryStats()
-            .onSuccess(stats -> {
-                try {
-                    assertNotNull(stats);
-                    assertTrue(stats.isEnabled());
-                    assertEquals(0, stats.getStuckMessagesCount());
-                    assertEquals(0, stats.getTotalProcessingCount());
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> {
-                errorRef.set(e);
+            .onSuccess(stats -> testContext.verify(() -> {
+                assertNotNull(stats);
+                assertTrue(stats.isEnabled());
+                assertEquals(0, stats.getStuckMessagesCount());
+                assertEquals(0, stats.getTotalProcessingCount());
                 testContext.completeNow();
-            });
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testGetRecoveryStatsWhenDisabled(VertxTestContext testContext) throws InterruptedException {
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+    void testGetRecoveryStatsWhenDisabled(VertxTestContext testContext) {
         StuckMessageRecoveryManager disabledManager = new StuckMessageRecoveryManager(pool, Duration.ofMinutes(5), false);
         disabledManager.getRecoveryStats()
-            .onSuccess(stats -> {
-                try {
-                    assertNotNull(stats);
-                    assertFalse(stats.isEnabled());
-                    assertEquals(0, stats.getStuckMessagesCount());
-                    assertEquals(0, stats.getTotalProcessingCount());
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> {
-                errorRef.set(e);
+            .onSuccess(stats -> testContext.verify(() -> {
+                assertNotNull(stats);
+                assertFalse(stats.isEnabled());
+                assertEquals(0, stats.getStuckMessagesCount());
+                assertEquals(0, stats.getTotalProcessingCount());
                 testContext.completeNow();
-            });
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
@@ -205,62 +151,35 @@ public class StuckMessageRecoveryManagerCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testRecoverStuckMessagesMultipleCalls(VertxTestContext testContext) throws InterruptedException {
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+    void testRecoverStuckMessagesMultipleCalls(VertxTestContext testContext) {
         recoveryManager.recoverStuckMessages()
             .compose(count1 -> {
                 assertTrue(count1 >= 0);
                 return recoveryManager.recoverStuckMessages();
             })
-            .onSuccess(count2 -> {
-                try {
-                    assertTrue(count2 >= 0);
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> {
-                errorRef.set(e);
+            .onSuccess(count2 -> testContext.verify(() -> {
+                assertTrue(count2 >= 0);
                 testContext.completeNow();
-            });
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testGetRecoveryStatsMultipleCalls(VertxTestContext testContext) throws InterruptedException {
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+    void testGetRecoveryStatsMultipleCalls(VertxTestContext testContext) {
         recoveryManager.getRecoveryStats()
             .compose(stats1 -> {
                 assertNotNull(stats1);
                 return recoveryManager.getRecoveryStats();
             })
-            .onSuccess(stats2 -> {
-                try {
-                    assertNotNull(stats2);
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> {
-                errorRef.set(e);
+            .onSuccess(stats2 -> testContext.verify(() -> {
+                assertNotNull(stats2);
                 testContext.completeNow();
-            });
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testRecoveryManagerWithDifferentTimeouts(VertxTestContext testContext) throws InterruptedException {
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+    void testRecoveryManagerWithDifferentTimeouts(VertxTestContext testContext) {
         StuckMessageRecoveryManager manager1 = new StuckMessageRecoveryManager(pool, Duration.ofMinutes(1), true);
         StuckMessageRecoveryManager manager2 = new StuckMessageRecoveryManager(pool, Duration.ofMinutes(10), true);
         manager1.recoverStuckMessages()
@@ -268,23 +187,11 @@ public class StuckMessageRecoveryManagerCoreTest extends BaseIntegrationTest {
                 assertTrue(count1 >= 0);
                 return manager2.recoverStuckMessages();
             })
-            .onSuccess(count2 -> {
-                try {
-                    assertTrue(count2 >= 0);
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> {
-                errorRef.set(e);
+            .onSuccess(count2 -> testContext.verify(() -> {
+                assertTrue(count2 >= 0);
                 testContext.completeNow();
-            });
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
+            }))
+            .onFailure(testContext::failNow);
     }
 }
 

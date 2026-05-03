@@ -25,7 +25,6 @@ import org.slf4j.LoggerFactory;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import java.util.concurrent.TimeUnit;
 import java.util.UUID;
 
 import io.vertx.junit5.VertxTestContext;
@@ -62,7 +61,7 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
     private SubscriptionManager subscriptionManager;
 
     @BeforeEach
-    public void setUp() throws Exception {
+    public void setUp() {
         // super.setUpBaseIntegration(); // Removed: JUnit 5 automatically executes @BeforeEach from superclasses
 
         // Create connection manager using the shared Vertx instance
@@ -105,7 +104,7 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    public void testCleanupCompletedQueueMessages(VertxTestContext testContext) throws Exception {
+    public void testCleanupCompletedQueueMessages(VertxTestContext testContext) {
         logger.info("=== TEST: testCleanupCompletedQueueMessages STARTED ===");
 
         String topic = "test-cleanup-queue";
@@ -142,13 +141,10 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        logger.info("=== TEST: testCleanupCompletedQueueMessages PASSED ===");
     }
 
     @Test
-    public void testCleanupCompletedPubSubMessages(VertxTestContext testContext) throws Exception {
+    public void testCleanupCompletedPubSubMessages(VertxTestContext testContext) {
         logger.info("=== TEST: testCleanupCompletedPubSubMessages STARTED ===");
 
         String topic = "test-cleanup-pubsub";
@@ -207,13 +203,10 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        logger.info("=== TEST: testCleanupCompletedPubSubMessages PASSED ===");
     }
 
     @Test
-    public void testCleanupRespectsRetentionHours(VertxTestContext testContext) throws Exception {
+    public void testCleanupRespectsRetentionHours(VertxTestContext testContext) {
         logger.info("=== TEST: testCleanupRespectsRetentionHours STARTED ===");
 
         String topic = "test-cleanup-retention";
@@ -250,13 +243,10 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        logger.info("=== TEST: testCleanupRespectsRetentionHours PASSED ===");
     }
 
     @Test
-    public void testCleanupDoesNotDeleteIncompleteMessages(VertxTestContext testContext) throws Exception {
+    public void testCleanupDoesNotDeleteIncompleteMessages(VertxTestContext testContext) {
         logger.info("=== TEST: testCleanupDoesNotDeleteIncompleteMessages STARTED ===");
 
         String topic = "test-cleanup-incomplete";
@@ -314,13 +304,10 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        logger.info("=== TEST: testCleanupDoesNotDeleteIncompleteMessages PASSED ===");
     }
 
     @Test
-    public void testCleanupAllTopics(VertxTestContext testContext) throws Exception {
+    public void testCleanupAllTopics(VertxTestContext testContext) {
         logger.info("=== TEST: testCleanupAllTopics STARTED ===");
 
         String topic1 = "test-cleanup-all-1";
@@ -365,13 +352,10 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        logger.info("=== TEST: testCleanupAllTopics PASSED ===");
     }
 
     @Test
-    public void testCountEligibleForCleanup(VertxTestContext testContext) throws Exception {
+    public void testCountEligibleForCleanup(VertxTestContext testContext) {
         logger.info("=== TEST: testCountEligibleForCleanup STARTED ===");
 
         String topic = "test-cleanup-count";
@@ -410,13 +394,10 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        logger.info("=== TEST: testCountEligibleForCleanup PASSED ===");
     }
 
     @Test
-    public void testCleanupAllTopicsIncludesUnconfiguredTopics(VertxTestContext testContext) throws Exception {
+    public void testCleanupAllTopicsIncludesUnconfiguredTopics(VertxTestContext testContext) {
         logger.info("=== TEST: testCleanupAllTopicsIncludesUnconfiguredTopics STARTED ===");
 
         String configuredTopic = "test-cleanup-configured-" + UUID.randomUUID().toString().substring(0, 8);
@@ -450,13 +431,10 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        logger.info("=== TEST: testCleanupAllTopicsIncludesUnconfiguredTopics PASSED ===");
     }
 
     @Test
-    public void testZeroSubscriptionRetentionUsesZeroSubscriptionHours(VertxTestContext testContext) throws Exception {
+    public void testZeroSubscriptionRetentionUsesZeroSubscriptionHours(VertxTestContext testContext) {
         logger.info("=== TEST: testZeroSubscriptionRetentionUsesZeroSubscriptionHours STARTED ===");
 
         String topic = "test-cleanup-zero-sub-" + UUID.randomUUID().toString().substring(0, 8);
@@ -498,9 +476,6 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
                 })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        logger.info("=== TEST: testZeroSubscriptionRetentionUsesZeroSubscriptionHours PASSED ===");
     }
 }
 

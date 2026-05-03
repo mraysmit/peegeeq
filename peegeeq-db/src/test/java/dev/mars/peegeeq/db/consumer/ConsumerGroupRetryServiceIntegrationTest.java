@@ -34,8 +34,6 @@ import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -71,7 +69,7 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
     private DeadLetterQueueManager deadLetterQueueManager;
 
     @BeforeEach
-    public void setUp() throws Exception {
+    public void setUp(VertxTestContext testContext) {
         // super.setUpBaseIntegration(); // Removed: JUnit 5 automatically executes @BeforeEach from superclasses
 
         connectionManager = new PgConnectionManager(manager.getVertx(), null);
@@ -105,13 +103,15 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
 
         // Clean up stale data from other test runs to ensure isolation.
         // This test class operates on global scans, so it needs a clean slate.
-        VertxTestContext cleanupCtx = new VertxTestContext();
         cleanupTestData()
-                .onSuccess(v -> cleanupCtx.completeNow())
-                .onFailure(t -> cleanupCtx.completeNow());
-        cleanupCtx.awaitCompletion(10, TimeUnit.SECONDS);
-
-        logger.info("ConsumerGroupRetryService test setup complete");
+                .onSuccess(v -> {
+                    logger.info("ConsumerGroupRetryService test setup complete");
+                    testContext.completeNow();
+                })
+                .onFailure(t -> {
+                    logger.info("ConsumerGroupRetryService test setup complete (cleanup skipped: {})", t.getMessage());
+                    testContext.completeNow();
+                });
     }
 
     @AfterEach
@@ -128,12 +128,11 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
     // ========================================================================
 
     @Test
-    public void testRetryResetsFailedToPending(VertxTestContext testContext) throws Exception {
+    public void testRetryResetsFailedToPending(VertxTestContext testContext) {
         logger.info("=== TEST: testRetryResetsFailedToPending STARTED ===");
 
         String topic = "test-retry-reset-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopicAndSubscribe(topic, groupName)
                 .compose(v -> insertMessageWithMaxRetries(topic, new JsonObject().put("test", "retry"), 3))
@@ -145,37 +144,24 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                             assertTrue(retriedCount >= 1, "Should have retried at least 1 message");
                             return getTrackingRowStatus(messageId, groupName);
                         }))
-                .onSuccess(status -> {
-                    try {
-                        assertEquals("PENDING", status.getString("status"),
-                                "Status should be reset to PENDING after retry");
-                        assertNull(status.getString("error_message"),
-                                "Error message should be cleared on retry");
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                })
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
+                .onSuccess(status -> testContext.verify(() -> {
+                    assertEquals("PENDING", status.getString("status"),
+                            "Status should be reset to PENDING after retry");
+                    assertNull(status.getString("error_message"),
+                            "Error message should be cleared on retry");
                     testContext.completeNow();
-                });
+                }))
+                .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testRetryResetsFailedToPending COMPLETED ===");
     }
 
     @Test
-    public void testRetryDoesNotResetWhenRetryCountExhausted(VertxTestContext testContext) throws Exception {
+    public void testRetryDoesNotResetWhenRetryCountExhausted(VertxTestContext testContext) {
         logger.info("=== TEST: testRetryDoesNotResetWhenRetryCountExhausted STARTED ===");
 
         String topic = "test-retry-exhausted-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopicAndSubscribe(topic, groupName)
                 // max_retries=2: retry_count must reach 2 to be exhausted
@@ -199,35 +185,22 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                             // This message should NOT have been retried
                             return getTrackingRowStatus(messageId, groupName);
                         }))
-                .onSuccess(status -> {
-                    try {
-                        assertEquals("FAILED", status.getString("status"),
-                                "Status should stay FAILED when retry count exhausted");
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                })
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
+                .onSuccess(status -> testContext.verify(() -> {
+                    assertEquals("FAILED", status.getString("status"),
+                            "Status should stay FAILED when retry count exhausted");
                     testContext.completeNow();
-                });
+                }))
+                .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testRetryDoesNotResetWhenRetryCountExhausted COMPLETED ===");
     }
 
     @Test
-    public void testRetryReturnsZeroWhenNoFailures(VertxTestContext testContext) throws Exception {
+    public void testRetryReturnsZeroWhenNoFailures(VertxTestContext testContext) {
         logger.info("=== TEST: testRetryReturnsZeroWhenNoFailures STARTED ===");
 
         String topic = "test-retry-nofail-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopicAndSubscribe(topic, groupName)
                 .compose(v -> insertMessageWithMaxRetries(topic, new JsonObject().put("test", "ok"), 3))
@@ -235,37 +208,24 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                     // Mark as completed (not failed)
                     tracker.markCompleted(messageId, groupName, topic)
                         .compose(v -> retryService.retryFailedMessages()))
-                .onSuccess(retriedCount -> {
-                    try {
-                        // No FAILED rows from this test; count may include stale data
-                        // The key assertion is that we get here without error
-                        logger.info("Retry returned count: {}", retriedCount);
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                })
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
+                .onSuccess(retriedCount -> testContext.verify(() -> {
+                    // No FAILED rows from this test; count may include stale data
+                    // The key assertion is that we get here without error
+                    logger.info("Retry returned count: {}", retriedCount);
                     testContext.completeNow();
-                });
+                }))
+                .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testRetryReturnsZeroWhenNoFailures COMPLETED ===");
     }
 
     @Test
-    public void testRetryDoesNotTouchCompletedMessages(VertxTestContext testContext) throws Exception {
+    public void testRetryDoesNotTouchCompletedMessages(VertxTestContext testContext) {
         logger.info("=== TEST: testRetryDoesNotTouchCompletedMessages STARTED ===");
 
         String topic = "test-retry-completed-" + UUID.randomUUID().toString().substring(0, 8);
         String group1 = "group1";
         String group2 = "group2";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         TopicConfig topicConfig = TopicConfig.builder()
                 .topic(topic)
@@ -290,39 +250,26 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                                                     .put("group1", g1Status)
                                                     .put("group2", g2Status)));
                         }))
-                .onSuccess(statuses -> {
-                    try {
-                        JsonObject g1 = statuses.getJsonObject("group1");
-                        JsonObject g2 = statuses.getJsonObject("group2");
-                        assertEquals("COMPLETED", g1.getString("status"),
-                                "group1 should remain COMPLETED");
-                        assertEquals("PENDING", g2.getString("status"),
-                                "group2 should be reset to PENDING");
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                })
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
+                .onSuccess(statuses -> testContext.verify(() -> {
+                    JsonObject g1 = statuses.getJsonObject("group1");
+                    JsonObject g2 = statuses.getJsonObject("group2");
+                    assertEquals("COMPLETED", g1.getString("status"),
+                            "group1 should remain COMPLETED");
+                    assertEquals("PENDING", g2.getString("status"),
+                            "group2 should be reset to PENDING");
                     testContext.completeNow();
-                });
+                }))
+                .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testRetryDoesNotTouchCompletedMessages COMPLETED ===");
     }
 
     @Test
-    public void testRetryPreservesRetryCount(VertxTestContext testContext) throws Exception {
+    public void testRetryPreservesRetryCount(VertxTestContext testContext) {
         logger.info("=== TEST: testRetryPreservesRetryCount STARTED ===");
 
         String topic = "test-retry-count-preserved-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopicAndSubscribe(topic, groupName)
                 .compose(v -> insertMessageWithMaxRetries(topic, new JsonObject().put("test", "count"), 5))
@@ -335,27 +282,15 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                             assertTrue(retriedCount >= 1, "Should have retried");
                             return getTrackingRowStatus(messageId, groupName);
                         }))
-                .onSuccess(status -> {
-                    try {
-                        assertEquals("PENDING", status.getString("status"),
-                                "Should be reset to PENDING");
-                        assertEquals(1, status.getInteger("retry_count"),
-                                "retry_count should be preserved (not reset)");
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                })
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
+                .onSuccess(status -> testContext.verify(() -> {
+                    assertEquals("PENDING", status.getString("status"),
+                            "Should be reset to PENDING");
+                    assertEquals(1, status.getInteger("retry_count"),
+                            "retry_count should be preserved (not reset)");
                     testContext.completeNow();
-                });
+                }))
+                .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testRetryPreservesRetryCount COMPLETED ===");
     }
 
@@ -364,12 +299,11 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
     // ========================================================================
 
     @Test
-    public void testMoveExhaustedToDlq(VertxTestContext testContext) throws Exception {
+    public void testMoveExhaustedToDlq(VertxTestContext testContext) {
         logger.info("=== TEST: testMoveExhaustedToDlq STARTED ===");
 
         String topic = "test-dlq-move-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopicAndSubscribe(topic, groupName)
                 // max_retries=2: after 3 markFailed calls, retry_count=2 = max_retries → exhausted
@@ -387,45 +321,32 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                                                     .put("tracking", trackingStatus)
                                                     .put("dlq", dlqEntry)));
                         }))
-                .onSuccess(result -> {
-                    try {
-                        JsonObject tracking = result.getJsonObject("tracking");
-                        JsonObject dlq = result.getJsonObject("dlq");
+                .onSuccess(result -> testContext.verify(() -> {
+                    JsonObject tracking = result.getJsonObject("tracking");
+                    JsonObject dlq = result.getJsonObject("dlq");
 
-                        assertEquals("DEAD_LETTER", tracking.getString("status"),
-                                "Tracking row should be marked DEAD_LETTER");
+                    assertEquals("DEAD_LETTER", tracking.getString("status"),
+                            "Tracking row should be marked DEAD_LETTER");
 
-                        assertEquals(topic, dlq.getString("topic"),
-                                "DLQ entry should have correct topic");
-                        assertEquals("outbox_consumer_groups", dlq.getString("original_table"),
-                                "DLQ entry should reference outbox_consumer_groups");
-                        assertTrue(dlq.getString("failure_reason").contains("final error"),
-                                "DLQ failure_reason should include last error message");
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                })
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
+                    assertEquals(topic, dlq.getString("topic"),
+                            "DLQ entry should have correct topic");
+                    assertEquals("outbox_consumer_groups", dlq.getString("original_table"),
+                            "DLQ entry should reference outbox_consumer_groups");
+                    assertTrue(dlq.getString("failure_reason").contains("final error"),
+                            "DLQ failure_reason should include last error message");
                     testContext.completeNow();
-                });
+                }))
+                .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testMoveExhaustedToDlq COMPLETED ===");
     }
 
     @Test
-    public void testDlqDoesNotMoveRetryEligible(VertxTestContext testContext) throws Exception {
+    public void testDlqDoesNotMoveRetryEligible(VertxTestContext testContext) {
         logger.info("=== TEST: testDlqDoesNotMoveRetryEligible STARTED ===");
 
         String topic = "test-dlq-noeligible-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopicAndSubscribe(topic, groupName)
                 .compose(v -> insertMessageWithMaxRetries(topic, new JsonObject().put("test", "eligible"), 5))
@@ -433,68 +354,42 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                     // Fail once — retry_count=0, well below max_retries=5
                     tracker.markFailed(messageId, groupName, topic, "transient error")
                         .compose(v -> retryService.moveExhaustedToDlq()))
-                .onSuccess(dlqCount -> {
-                    try {
-                        assertEquals(0, dlqCount, "Should NOT move retry-eligible message to DLQ");
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                })
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
+                .onSuccess(dlqCount -> testContext.verify(() -> {
+                    assertEquals(0, dlqCount, "Should NOT move retry-eligible message to DLQ");
                     testContext.completeNow();
-                });
+                }))
+                .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testDlqDoesNotMoveRetryEligible COMPLETED ===");
     }
 
     @Test
-    public void testDlqDoesNotMoveCompletedMessages(VertxTestContext testContext) throws Exception {
+    public void testDlqDoesNotMoveCompletedMessages(VertxTestContext testContext) {
         logger.info("=== TEST: testDlqDoesNotMoveCompletedMessages STARTED ===");
 
         String topic = "test-dlq-completed-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopicAndSubscribe(topic, groupName)
                 .compose(v -> insertMessageWithMaxRetries(topic, new JsonObject().put("test", "completed"), 3))
                 .compose(messageId ->
                     tracker.markCompleted(messageId, groupName, topic)
                         .compose(v -> retryService.moveExhaustedToDlq()))
-                .onSuccess(dlqCount -> {
-                    try {
-                        assertEquals(0, dlqCount, "Should NOT move completed messages to DLQ");
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                })
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
+                .onSuccess(dlqCount -> testContext.verify(() -> {
+                    assertEquals(0, dlqCount, "Should NOT move completed messages to DLQ");
                     testContext.completeNow();
-                });
+                }))
+                .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testDlqDoesNotMoveCompletedMessages COMPLETED ===");
     }
 
     @Test
-    public void testDlqDoesNotMoveSameMessageTwice(VertxTestContext testContext) throws Exception {
+    public void testDlqDoesNotMoveSameMessageTwice(VertxTestContext testContext) {
         logger.info("=== TEST: testDlqDoesNotMoveSameMessageTwice STARTED ===");
 
         String topic = "test-dlq-idempotent-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopicAndSubscribe(topic, groupName)
                 // max_retries=2: after 3 markFailed calls, retry_count=2 = max_retries → exhausted
@@ -510,25 +405,13 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                             // Second DLQ pass — already DEAD_LETTER, should not be picked up
                             return retryService.moveExhaustedToDlq();
                         }))
-                .onSuccess(secondDlqCount -> {
-                    try {
-                        assertEquals(0, secondDlqCount,
-                                "Second pass should move 0 (already DEAD_LETTER)");
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                })
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
+                .onSuccess(secondDlqCount -> testContext.verify(() -> {
+                    assertEquals(0, secondDlqCount,
+                            "Second pass should move 0 (already DEAD_LETTER)");
                     testContext.completeNow();
-                });
+                }))
+                .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testDlqDoesNotMoveSameMessageTwice COMPLETED ===");
     }
 
@@ -537,13 +420,12 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
     // ========================================================================
 
     @Test
-    public void testProcessFailedMessagesRetryAndDlqTogether(VertxTestContext testContext) throws Exception {
+    public void testProcessFailedMessagesRetryAndDlqTogether(VertxTestContext testContext) {
         logger.info("=== TEST: testProcessFailedMessagesRetryAndDlqTogether STARTED ===");
 
         String topic = "test-combined-" + UUID.randomUUID().toString().substring(0, 8);
         String retryGroup = "retry-group";
         String dlqGroup = "dlq-group";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         TopicConfig topicConfig = TopicConfig.builder()
                 .topic(topic)
@@ -573,57 +455,31 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                                                     .put("retry", retryStatus)
                                                     .put("dlq", dlqStatus)));
                         }))
-                .onSuccess(statuses -> {
-                    try {
-                        assertEquals("PENDING", statuses.getJsonObject("retry").getString("status"),
-                                "retryGroup should be PENDING");
-                        assertEquals("DEAD_LETTER", statuses.getJsonObject("dlq").getString("status"),
-                                "dlqGroup should be DEAD_LETTER");
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                })
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
+                .onSuccess(statuses -> testContext.verify(() -> {
+                    assertEquals("PENDING", statuses.getJsonObject("retry").getString("status"),
+                            "retryGroup should be PENDING");
+                    assertEquals("DEAD_LETTER", statuses.getJsonObject("dlq").getString("status"),
+                            "dlqGroup should be DEAD_LETTER");
                     testContext.completeNow();
-                });
+                }))
+                .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testProcessFailedMessagesRetryAndDlqTogether COMPLETED ===");
     }
 
     @Test
-    public void testProcessFailedMessagesWithNoFailures(VertxTestContext testContext) throws Exception {
+    public void testProcessFailedMessagesWithNoFailures(VertxTestContext testContext) {
         logger.info("=== TEST: testProcessFailedMessagesWithNoFailures STARTED ===");
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
-
         retryService.processFailedMessages()
-                .onSuccess(result -> {
-                    try {
-                        // Counts may include leftover data; verify no errors
-                        logger.info("processFailedMessages with clean DB: retried={}, dlq={}",
-                                result.retriedCount(), result.dlqCount());
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                })
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
+                .onSuccess(result -> testContext.verify(() -> {
+                    // Counts may include leftover data; verify no errors
+                    logger.info("processFailedMessages with clean DB: retried={}, dlq={}",
+                            result.retriedCount(), result.dlqCount());
                     testContext.completeNow();
-                });
+                }))
+                .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testProcessFailedMessagesWithNoFailures COMPLETED ===");
     }
 
@@ -632,12 +488,11 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
     // ========================================================================
 
     @Test
-    public void testMaxRetriesOfOneGoesDirectlyToDlq(VertxTestContext testContext) throws Exception {
+    public void testMaxRetriesOfOneGoesDirectlyToDlq(VertxTestContext testContext) {
         logger.info("=== TEST: testMaxRetriesOfOneGoesDirectlyToDlq STARTED ===");
 
         String topic = "test-maxretries-one-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group1";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopicAndSubscribe(topic, groupName)
                 .compose(v -> insertMessageWithMaxRetries(topic, new JsonObject().put("test", "one-retry"), 1))
@@ -655,36 +510,23 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                                     "Should move to DLQ");
                             return getTrackingRowStatus(messageId, groupName);
                         }))
-                .onSuccess(status -> {
-                    try {
-                        assertEquals("DEAD_LETTER", status.getString("status"));
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                })
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
+                .onSuccess(status -> testContext.verify(() -> {
+                    assertEquals("DEAD_LETTER", status.getString("status"));
                     testContext.completeNow();
-                });
+                }))
+                .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testMaxRetriesOfOneGoesDirectlyToDlq COMPLETED ===");
     }
 
     @Test
-    public void testMultipleGroupsOnSameMessageMixedOutcomes(VertxTestContext testContext) throws Exception {
+    public void testMultipleGroupsOnSameMessageMixedOutcomes(VertxTestContext testContext) {
         logger.info("=== TEST: testMultipleGroupsOnSameMessageMixedOutcomes STARTED ===");
 
         String topic = "test-multi-group-mixed-" + UUID.randomUUID().toString().substring(0, 8);
         String completedGroup = "completed-group";
         String retryGroup = "retry-group";
         String dlqGroup = "dlq-group";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         TopicConfig topicConfig = TopicConfig.builder()
                 .topic(topic)
@@ -719,31 +561,19 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                                             .put("retry", rs)
                                             .put("dlq", ds))));
                         }))
-                .onSuccess(statuses -> {
-                    try {
-                        assertEquals("COMPLETED", statuses.getJsonObject("completed").getString("status"));
-                        assertEquals("PENDING", statuses.getJsonObject("retry").getString("status"));
-                        assertEquals("DEAD_LETTER", statuses.getJsonObject("dlq").getString("status"));
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                })
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
+                .onSuccess(statuses -> testContext.verify(() -> {
+                    assertEquals("COMPLETED", statuses.getJsonObject("completed").getString("status"));
+                    assertEquals("PENDING", statuses.getJsonObject("retry").getString("status"));
+                    assertEquals("DEAD_LETTER", statuses.getJsonObject("dlq").getString("status"));
                     testContext.completeNow();
-                });
+                }))
+                .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testMultipleGroupsOnSameMessageMixedOutcomes COMPLETED ===");
     }
 
     @Test
-    public void testDlqEntryContainsOriginalMessageData(VertxTestContext testContext) throws Exception {
+    public void testDlqEntryContainsOriginalMessageData(VertxTestContext testContext) {
         logger.info("=== TEST: testDlqEntryContainsOriginalMessageData STARTED ===");
 
         String topic = "test-dlq-data-" + UUID.randomUUID().toString().substring(0, 8);
@@ -753,7 +583,6 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
         JsonObject payload = new JsonObject()
                 .put("event", "trade.executed")
                 .put("amount", 1500.00);
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopicAndSubscribe(topic, groupName)
                 // max_retries=2: after 3 markFailed calls, retry_count=2 = max_retries → exhausted
@@ -764,30 +593,18 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                         .compose(v -> tracker.markFailed(messageId, groupName, topic, "final error"))
                         .compose(v -> retryService.moveExhaustedToDlq())
                         .compose(dlqCount -> getDlqEntryForTopic(topic)))
-                .onSuccess(dlq -> {
-                    try {
-                        assertNotNull(dlq, "DLQ entry should exist");
-                        assertEquals(topic, dlq.getString("topic"));
-                        assertEquals(correlationId, dlq.getString("correlation_id"));
-                        assertEquals(messageGroup, dlq.getString("message_group"));
-                        assertTrue(dlq.getString("failure_reason").contains("final error"));
-                        assertTrue(dlq.getInteger("retry_count") >= 2,
-                                "DLQ retry_count should reflect exhausted retries");
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                })
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
+                .onSuccess(dlq -> testContext.verify(() -> {
+                    assertNotNull(dlq, "DLQ entry should exist");
+                    assertEquals(topic, dlq.getString("topic"));
+                    assertEquals(correlationId, dlq.getString("correlation_id"));
+                    assertEquals(messageGroup, dlq.getString("message_group"));
+                    assertTrue(dlq.getString("failure_reason").contains("final error"));
+                    assertTrue(dlq.getInteger("retry_count") >= 2,
+                            "DLQ retry_count should reflect exhausted retries");
                     testContext.completeNow();
-                });
+                }))
+                .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testDlqEntryContainsOriginalMessageData COMPLETED ===");
     }
 

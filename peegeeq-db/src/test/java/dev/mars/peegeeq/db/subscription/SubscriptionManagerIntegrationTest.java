@@ -29,7 +29,7 @@ import java.time.ZoneOffset;
 import io.vertx.junit5.VertxTestContext;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
+
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -61,7 +61,7 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
     private PgConnectionManager connectionManager;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp() {
         // Create connection manager using the shared Vertx instance
         connectionManager = new PgConnectionManager(manager.getVertx(), null);
 
@@ -103,7 +103,7 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
     }
     
     @Test
-    void testSubscribeWithDefaultOptions(VertxTestContext testContext) throws Exception {
+    void testSubscribeWithDefaultOptions(VertxTestContext testContext) {
         logger.info("=== Testing subscribe with default options ===");
 
         String topic = "test-topic-default";
@@ -114,32 +114,24 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
             .semantics(TopicSemantics.PUB_SUB)
             .build();
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(topicConfig)
             .compose(v -> subscriptionManager.subscribe(topic, groupName))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(subscription -> {
-                try {
-                    assertNotNull(subscription, "Subscription should be created");
-                    assertEquals(topic, subscription.topic());
-                    assertEquals(groupName, subscription.groupName());
-                    assertEquals(SubscriptionState.ACTIVE, subscription.state());
-                    assertNotNull(subscription.subscribedAt());
-                    assertNotNull(subscription.lastHeartbeatAt());
-                    logger.info("Subscribe with default options test passed");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(subscription -> testContext.verify(() -> {
+                assertNotNull(subscription, "Subscription should be created");
+                assertEquals(topic, subscription.topic());
+                assertEquals(groupName, subscription.groupName());
+                assertEquals(SubscriptionState.ACTIVE, subscription.state());
+                assertNotNull(subscription.subscribedAt());
+                assertNotNull(subscription.lastHeartbeatAt());
+                logger.info("Subscribe with default options test passed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testSubscribeWithCustomOptions(VertxTestContext testContext) throws Exception {
+    void testSubscribeWithCustomOptions(VertxTestContext testContext) {
         logger.info("=== Testing subscribe with custom options ===");
 
         String topic = "test-topic-custom";
@@ -156,29 +148,21 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
             .heartbeatTimeoutSeconds(120)
             .build();
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(topicConfig)
             .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(subscription -> {
-                try {
-                    assertNotNull(subscription);
-                    assertEquals(30, subscription.heartbeatIntervalSeconds());
-                    assertEquals(120, subscription.heartbeatTimeoutSeconds());
-                    logger.info("Subscribe with custom options test passed");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(subscription -> testContext.verify(() -> {
+                assertNotNull(subscription);
+                assertEquals(30, subscription.heartbeatIntervalSeconds());
+                assertEquals(120, subscription.heartbeatTimeoutSeconds());
+                logger.info("Subscribe with custom options test passed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
     
     @Test
-    void testPauseAndResumeSubscription(VertxTestContext testContext) throws Exception {
+    void testPauseAndResumeSubscription(VertxTestContext testContext) {
         logger.info("=== Testing pause and resume subscription ===");
 
         String topic = "test-topic-pause";
@@ -189,7 +173,6 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
             .semantics(TopicSemantics.PUB_SUB)
             .build();
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(topicConfig)
             .compose(v -> subscriptionManager.subscribe(topic, groupName))
             .compose(v -> subscriptionManager.pause(topic, groupName))
@@ -200,24 +183,17 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
                 return subscriptionManager.resume(topic, groupName);
             })
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(resumedSubscription -> {
-                try {
-                    assertEquals(SubscriptionState.ACTIVE, resumedSubscription.state());
-                    assertTrue(resumedSubscription.isActive());
-                    logger.info("Pause and resume subscription test passed");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(resumedSubscription -> testContext.verify(() -> {
+                assertEquals(SubscriptionState.ACTIVE, resumedSubscription.state());
+                assertTrue(resumedSubscription.isActive());
+                logger.info("Pause and resume subscription test passed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
     
     @Test
-    void testCancelSubscription(VertxTestContext testContext) throws Exception {
+    void testCancelSubscription(VertxTestContext testContext) {
         logger.info("=== Testing cancel subscription ===");
 
         String topic = "test-topic-cancel";
@@ -228,29 +204,21 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
             .semantics(TopicSemantics.PUB_SUB)
             .build();
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(topicConfig)
             .compose(v -> subscriptionManager.subscribe(topic, groupName))
             .compose(v -> subscriptionManager.cancel(topic, groupName))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(cancelledSubscription -> {
-                try {
-                    assertEquals(SubscriptionState.CANCELLED, cancelledSubscription.state());
-                    assertFalse(cancelledSubscription.isActive());
-                    logger.info("Cancel subscription test passed");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(cancelledSubscription -> testContext.verify(() -> {
+                assertEquals(SubscriptionState.CANCELLED, cancelledSubscription.state());
+                assertFalse(cancelledSubscription.isActive());
+                logger.info("Cancel subscription test passed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testUpdateHeartbeat(VertxTestContext testContext) throws Exception {
+    void testUpdateHeartbeat(VertxTestContext testContext) {
         logger.info("=== Testing update heartbeat ===");
 
         String topic = "test-topic-heartbeat";
@@ -262,7 +230,6 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
             .build();
 
         AtomicReference<Instant> initialHeartbeatRef = new AtomicReference<>();
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(topicConfig)
             .compose(v -> subscriptionManager.subscribe(topic, groupName))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
@@ -272,24 +239,17 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
             })
             .compose(v -> subscriptionManager.updateHeartbeat(topic, groupName))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(updatedSubscription -> {
-                try {
-                    assertTrue(updatedSubscription.lastHeartbeatAt().isAfter(initialHeartbeatRef.get()),
-                        "Heartbeat timestamp should be updated");
-                    logger.info("Update heartbeat test passed");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(updatedSubscription -> testContext.verify(() -> {
+                assertTrue(updatedSubscription.lastHeartbeatAt().isAfter(initialHeartbeatRef.get()),
+                    "Heartbeat timestamp should be updated");
+                logger.info("Update heartbeat test passed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testListSubscriptions(VertxTestContext testContext) throws Exception {
+    void testListSubscriptions(VertxTestContext testContext) {
         logger.info("=== Testing list subscriptions ===");
 
         String topic = "test-topic-list";
@@ -299,32 +259,24 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
             .semantics(TopicSemantics.PUB_SUB)
             .build();
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(topicConfig)
             .compose(v -> subscriptionManager.subscribe(topic, "group-a"))
             .compose(v -> subscriptionManager.subscribe(topic, "group-b"))
             .compose(v -> subscriptionManager.subscribe(topic, "group-c"))
             .compose(v -> subscriptionManager.listSubscriptions(topic))
-            .onSuccess(subscriptions -> {
-                try {
-                    assertEquals(3, subscriptions.size(), "Should have 3 subscriptions");
-                    assertTrue(subscriptions.stream().anyMatch(s -> s.groupName().equals("group-a")));
-                    assertTrue(subscriptions.stream().anyMatch(s -> s.groupName().equals("group-b")));
-                    assertTrue(subscriptions.stream().anyMatch(s -> s.groupName().equals("group-c")));
-                    logger.info("List subscriptions test passed");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(subscriptions -> testContext.verify(() -> {
+                assertEquals(3, subscriptions.size(), "Should have 3 subscriptions");
+                assertTrue(subscriptions.stream().anyMatch(s -> s.groupName().equals("group-a")));
+                assertTrue(subscriptions.stream().anyMatch(s -> s.groupName().equals("group-b")));
+                assertTrue(subscriptions.stream().anyMatch(s -> s.groupName().equals("group-c")));
+                logger.info("List subscriptions test passed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testHeartbeatResurrectsDeadSubscription(VertxTestContext testContext) throws Exception {
+    void testHeartbeatResurrectsDeadSubscription(VertxTestContext testContext) {
         logger.info("=== Testing heartbeat auto-resurrects DEAD subscription ===");
 
         String topic = "test-topic-resurrect";
@@ -336,7 +288,6 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
             .build();
 
         AtomicReference<Instant> deadHeartbeatRef = new AtomicReference<>();
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(topicConfig)
             .compose(v -> subscriptionManager.subscribe(topic, groupName))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
@@ -352,26 +303,19 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
             })
             .compose(v -> subscriptionManager.updateHeartbeat(topic, groupName))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(resurrected -> {
-                try {
-                    assertEquals(SubscriptionState.ACTIVE, resurrected.state(),
-                        "Should be ACTIVE after heartbeat resurrects DEAD subscription");
-                    assertTrue(resurrected.lastHeartbeatAt().isAfter(deadHeartbeatRef.get()),
-                        "Heartbeat timestamp should be updated");
-                    logger.info("Heartbeat auto-resurrection test passed");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(resurrected -> testContext.verify(() -> {
+                assertEquals(SubscriptionState.ACTIVE, resurrected.state(),
+                    "Should be ACTIVE after heartbeat resurrects DEAD subscription");
+                assertTrue(resurrected.lastHeartbeatAt().isAfter(deadHeartbeatRef.get()),
+                    "Heartbeat timestamp should be updated");
+                logger.info("Heartbeat auto-resurrection test passed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testHeartbeatDoesNotResurrectCancelledSubscription(VertxTestContext testContext) throws Exception {
+    void testHeartbeatDoesNotResurrectCancelledSubscription(VertxTestContext testContext) {
         logger.info("=== Testing heartbeat does NOT resurrect CANCELLED subscription ===");
 
         String topic = "test-topic-no-resurrect";
@@ -382,7 +326,6 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
             .semantics(TopicSemantics.PUB_SUB)
             .build();
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(topicConfig)
             .compose(v -> subscriptionManager.subscribe(topic, groupName))
             .compose(v -> subscriptionManager.cancel(topic, groupName))
@@ -392,24 +335,17 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
                 return subscriptionManager.updateHeartbeat(topic, groupName);
             })
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(stillCancelled -> {
-                try {
-                    assertEquals(SubscriptionState.CANCELLED, stillCancelled.state(),
-                        "CANCELLED subscription should NOT be resurrected by heartbeat");
-                    logger.info("Heartbeat does not resurrect CANCELLED test passed");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(stillCancelled -> testContext.verify(() -> {
+                assertEquals(SubscriptionState.CANCELLED, stillCancelled.state(),
+                    "CANCELLED subscription should NOT be resurrected by heartbeat");
+                logger.info("Heartbeat does not resurrect CANCELLED test passed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testHeartbeatKeepsPausedSubscriptionPaused(VertxTestContext testContext) throws Exception {
+    void testHeartbeatKeepsPausedSubscriptionPaused(VertxTestContext testContext) {
         logger.info("=== Testing heartbeat keeps PAUSED subscription PAUSED ===");
 
         String topic = "test-topic-paused-hb";
@@ -420,7 +356,6 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
             .semantics(TopicSemantics.PUB_SUB)
             .build();
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(topicConfig)
             .compose(v -> subscriptionManager.subscribe(topic, groupName))
             .compose(v -> subscriptionManager.pause(topic, groupName))
@@ -430,32 +365,24 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
                 return subscriptionManager.updateHeartbeat(topic, groupName);
             })
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(stillPaused -> {
-                try {
-                    assertEquals(SubscriptionState.PAUSED, stillPaused.state(),
-                        "PAUSED subscription should remain PAUSED after heartbeat");
-                    logger.info("Heartbeat keeps PAUSED subscription PAUSED test passed");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(stillPaused -> testContext.verify(() -> {
+                assertEquals(SubscriptionState.PAUSED, stillPaused.state(),
+                    "PAUSED subscription should remain PAUSED after heartbeat");
+                logger.info("Heartbeat keeps PAUSED subscription PAUSED test passed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
     // --- Backfill Lifecycle Integration Tests (H2) ---
 
     @Test
-    void testSubscribeFromBeginningAutoTriggersBackfill(VertxTestContext testContext) throws Exception {
+    void testSubscribeFromBeginningAutoTriggersBackfill(VertxTestContext testContext) {
         logger.info("=== Testing subscribe FROM_BEGINNING auto-triggers backfill ===");
 
         String topic = "test-backfill-auto-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "backfill-auto-group";
         int messageCount = 5;
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(TopicConfig.builder()
                 .topic(topic)
                 .semantics(TopicSemantics.PUB_SUB)
@@ -486,30 +413,22 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
                     "All " + messageCount + " messages should have been backfilled");
                 return countMessagesWithRequiredGroups(topic, 2);
             })
-            .onSuccess(incrementedCount -> {
-                try {
-                    assertTrue(incrementedCount > 0,
-                        "Messages should have required_consumer_groups incremented to 2");
-                    logger.info("Subscribe FROM_BEGINNING auto-triggers backfill test passed");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(incrementedCount -> testContext.verify(() -> {
+                assertTrue(incrementedCount > 0,
+                    "Messages should have required_consumer_groups incremented to 2");
+                logger.info("Subscribe FROM_BEGINNING auto-triggers backfill test passed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testSubscribeFromNowDoesNotTriggerBackfill(VertxTestContext testContext) throws Exception {
+    void testSubscribeFromNowDoesNotTriggerBackfill(VertxTestContext testContext) {
         logger.info("=== Testing subscribe FROM_NOW does NOT trigger backfill ===");
 
         String topic = "test-no-backfill-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "no-backfill-group";
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(TopicConfig.builder()
                 .topic(topic)
                 .semantics(TopicSemantics.PUB_SUB)
@@ -530,53 +449,38 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
                 return subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.defaults());
             })
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(info -> {
-                try {
-                    assertNotNull(info, "Subscription should exist");
-                    assertEquals(SubscriptionState.ACTIVE, info.state(), "Subscription should be ACTIVE");
-                    assertTrue(info.backfillStatus() == null || "NONE".equals(info.backfillStatus()),
-                        "Backfill should NOT have been triggered for FROM_NOW, got: " + info.backfillStatus());
-                    logger.info("Subscribe FROM_NOW does not trigger backfill test passed");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(info -> testContext.verify(() -> {
+                assertNotNull(info, "Subscription should exist");
+                assertEquals(SubscriptionState.ACTIVE, info.state(), "Subscription should be ACTIVE");
+                assertTrue(info.backfillStatus() == null || "NONE".equals(info.backfillStatus()),
+                    "Backfill should NOT have been triggered for FROM_NOW, got: " + info.backfillStatus());
+                logger.info("Subscribe FROM_NOW does not trigger backfill test passed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testSubscribeFromBeginningWithoutBackfillServiceStillWorks(VertxTestContext testContext) throws Exception {
+    void testSubscribeFromBeginningWithoutBackfillServiceStillWorks(VertxTestContext testContext) {
         logger.info("=== Testing subscribe FROM_BEGINNING without BackfillService ===");
 
         String topic = "test-no-svc-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "no-svc-group";
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(TopicConfig.builder()
                 .topic(topic)
                 .semantics(TopicSemantics.PUB_SUB)
                 .build())
             .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(info -> {
-                try {
-                    assertNotNull(info, "Subscription should exist");
-                    assertEquals(SubscriptionState.ACTIVE, info.state(), "Subscription should be ACTIVE");
-                    assertEquals(1L, info.startFromMessageId(), "start_from_message_id should be 1 for FROM_BEGINNING");
-                    logger.info("Subscribe FROM_BEGINNING without BackfillService test passed");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(info -> testContext.verify(() -> {
+                assertNotNull(info, "Subscription should exist");
+                assertEquals(SubscriptionState.ACTIVE, info.state(), "Subscription should be ACTIVE");
+                assertEquals(1L, info.startFromMessageId(), "start_from_message_id should be 1 for FROM_BEGINNING");
+                logger.info("Subscribe FROM_BEGINNING without BackfillService test passed");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
     // --- Helper methods ---
 

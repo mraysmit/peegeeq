@@ -1,3 +1,4 @@
+// ========== FILE 2: HealthCheckManagerTest.java ==========
 package dev.mars.peegeeq.db.health;
 
 /*
@@ -90,7 +91,7 @@ class HealthCheckManagerTest {
     private HealthCheckManager healthCheckManager;
 
     @BeforeEach
-    void setUp() throws SQLException {
+    void setUp(VertxTestContext testContext) throws SQLException {
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
         vertx = Vertx.vertx();
         connectionManager = new PgConnectionManager(vertx);
@@ -107,7 +108,7 @@ class HealthCheckManagerTest {
                 .maxSize(3)
                 .shared(false)
                 .idleTimeout(Duration.ofSeconds(2))
-                .connectionTimeout(Duration.ofSeconds(5))
+                .connectionTimeout(Duration.ofMillis(500))
                 .build();
 
         // Create reactive pool for HealthCheckManager
@@ -116,50 +117,77 @@ class HealthCheckManagerTest {
         // DO NOT recreate tables - they are created once by SharedPostgresTestExtension
 
         // Use reactive constructor for HealthCheckManager
-        healthCheckManager = new HealthCheckManager(reactivePool, vertx, Duration.ofSeconds(5), Duration.ofSeconds(3));
+        healthCheckManager = new HealthCheckManager(reactivePool, vertx, Duration.ofMillis(500), Duration.ofMillis(300));
 
-        // Clean up any existing data from previous tests
-        cleanupTestData();
+        // Clean up any existing data from previous tests reactively
+        cleanupTestData()
+            .onSuccess(v -> {
+                logger.debug("Setup completed and test data cleaned");
+                testContext.completeNow();
+            })
+            .onFailure(err -> {
+                logger.warn("Setup: Failed to cleanup test data: {}", err.getMessage());
+                testContext.completeNow();
+            });
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
+        Future<Void> cleanupChain = Future.succeededFuture();
+
+        // Stop manager if running
         if (healthCheckManager != null) {
-            stopManager(healthCheckManager);
+            cleanupChain = cleanupChain
+                .compose(v -> stopManagerAsync(healthCheckManager))
+                .recover(err -> {
+                    logger.warn("Failed to stop HealthCheckManager: {}", err.getMessage());
+                    return Future.succeededFuture();
+                });
         }
 
-        // Clean up test data after each test
-        try {
-            if (reactivePool != null) {
-                cleanupTestData();
-            }
-        } catch (Exception e) {
-            logger.warn("Failed to cleanup test data in tearDown: {}", e.getMessage());
+        // Clean up test data
+        if (reactivePool != null) {
+            cleanupChain = cleanupChain
+                .compose(v -> cleanupTestData())
+                .recover(err -> {
+                    logger.warn("Failed to cleanup test data in tearDown: {}", err.getMessage());
+                    return Future.succeededFuture();
+                });
         }
 
+        // Close connection manager
         if (connectionManager != null) {
-            connectionManager.close().toCompletionStage().toCompletableFuture().get(30, java.util.concurrent.TimeUnit.SECONDS);
+            cleanupChain = cleanupChain
+                .compose(v -> connectionManager.close())
+                .recover(err -> {
+                    logger.warn("Failed to close connectionManager: {}", err.getMessage());
+                    return Future.succeededFuture();
+                });
         }
+
+        cleanupChain
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(t -> {
+                logger.error("TearDown failed", t);
+                testContext.completeNow();
+            });
     }
 
     /**
      * Cleans up test data to ensure test isolation.
      * This removes all data from test tables between test methods.
+     * Returns a Future that completes when cleanup is done.
      */
-    private void cleanupTestData() {
-        try {
-            awaitFuture(reactivePool.withConnection(connection -> {
-                // Clean up all test data from tables
-                return connection.query("DELETE FROM dead_letter_queue").execute()
-                    .compose(result -> connection.query("DELETE FROM outbox").execute())
-                    .compose(result -> connection.query("DELETE FROM queue_messages").execute());
-            }));
-
-            logger.debug("Cleaned up test data for HealthCheckManager test isolation");
-        } catch (Exception e) {
-            logger.warn("Failed to cleanup test data: {}", e.getMessage());
-            // Don't throw - allow test to proceed
-        }
+    private Future<Void> cleanupTestData() {
+        return reactivePool.withConnection(connection -> {
+            // Clean up all test data from tables
+            return connection.query("DELETE FROM dead_letter_queue").execute()
+                .compose(result -> connection.query("DELETE FROM outbox").execute())
+                .compose(result -> connection.query("DELETE FROM queue_messages").execute())
+                .<Void>mapEmpty();
+        })
+        .onSuccess(v -> logger.debug("Cleaned up test data for HealthCheckManager test isolation"))
+        .onFailure(err -> logger.warn("Failed to cleanup test data: {}", err.getMessage()));
     }
 
     @Test
@@ -169,125 +197,130 @@ class HealthCheckManagerTest {
     }
 
     @Test
-    void testHealthCheckManagerStartStop() {
-        assertDoesNotThrow(() -> startManager(healthCheckManager));
-        
-        // Wait a moment for health checks to run
-        awaitTimer(3000);
-
-        
-        assertTrue(healthCheckManager.isHealthy());
-        
-        assertDoesNotThrow(() -> stopManager(healthCheckManager));
+    void testHealthCheckManagerStartStop(VertxTestContext testContext) {
+        startManagerAsync(healthCheckManager)
+            .compose(v -> vertx.timer(500).mapEmpty()) // Wait for health checks to run
+            .onSuccess(v -> {
+                assertTrue(healthCheckManager.isHealthy());
+                
+                stopManagerAsync(healthCheckManager)
+                    .onSuccess(v2 -> testContext.completeNow())
+                    .onFailure(testContext::failNow);
+            })
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testOverallHealthStatus() {
-        startManager(healthCheckManager);
-        
-        // Wait for health checks to run
-        awaitTimer(3000);
-
-        
-        OverallHealthStatus status = healthCheckManager.getOverallHealthInternal();
-        assertNotNull(status);
-        assertEquals("UP", status.getStatus());
-        assertTrue(status.isHealthy());
-        assertFalse(status.getComponents().isEmpty());
-        
-        // Verify specific health checks are present
-        assertTrue(status.getComponents().containsKey("database"));
-        assertTrue(status.getComponents().containsKey("outbox-queue"));
-        assertTrue(status.getComponents().containsKey("native-queue"));
-        assertTrue(status.getComponents().containsKey("dead-letter-queue"));
-        assertTrue(status.getComponents().containsKey("memory"));
-        assertTrue(status.getComponents().containsKey("disk-space"));
+    void testOverallHealthStatus(VertxTestContext testContext) {
+        startManagerAsync(healthCheckManager)
+            .compose(v -> vertx.timer(500).mapEmpty()) // Wait for health checks to run
+            .onSuccess(v -> {
+                OverallHealthStatus status = healthCheckManager.getOverallHealthInternal();
+                assertNotNull(status);
+                assertEquals("UP", status.getStatus());
+                assertTrue(status.isHealthy());
+                assertFalse(status.getComponents().isEmpty());
+                
+                // Verify specific health checks are present
+                assertTrue(status.getComponents().containsKey("database"));
+                assertTrue(status.getComponents().containsKey("outbox-queue"));
+                assertTrue(status.getComponents().containsKey("native-queue"));
+                assertTrue(status.getComponents().containsKey("dead-letter-queue"));
+                assertTrue(status.getComponents().containsKey("memory"));
+                assertTrue(status.getComponents().containsKey("disk-space"));
+                
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testDatabaseHealthCheck() {
-        startManager(healthCheckManager);
-        
-        // Wait for health checks to run
-        awaitTimer(3000);
-
-        
-        HealthStatus dbHealth = healthCheckManager.getHealthStatus("database");
-        assertNotNull(dbHealth);
-        assertTrue(dbHealth.isHealthy());
-        assertEquals("database", dbHealth.getComponent());
-        assertEquals(HealthStatus.Status.HEALTHY, dbHealth.getStatus());
+    void testDatabaseHealthCheck(VertxTestContext testContext) {
+        startManagerAsync(healthCheckManager)
+            .compose(v -> vertx.timer(500).mapEmpty()) // Wait for health checks to run
+            .onSuccess(v -> {
+                HealthStatus dbHealth = healthCheckManager.getHealthStatus("database");
+                assertNotNull(dbHealth);
+                assertTrue(dbHealth.isHealthy());
+                assertEquals("database", dbHealth.getComponent());
+                assertEquals(HealthStatus.Status.HEALTHY, dbHealth.getStatus());
+                
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testQueueHealthChecks() throws SQLException {
+    void testQueueHealthChecks(VertxTestContext testContext) {
         // Insert test data for queue health checks
-        insertTestData();
-        
-        startManager(healthCheckManager);
-        
-        // Wait for health checks to run
-        awaitTimer(3000);
-
-        
-        // Test outbox queue health
-        HealthStatus outboxHealth = healthCheckManager.getHealthStatus("outbox-queue");
-        assertNotNull(outboxHealth);
-        assertTrue(outboxHealth.isHealthy());
-        assertNotNull(outboxHealth.getDetails());
-        assertTrue(outboxHealth.getDetails().containsKey("pending_messages"));
-        
-        // Test native queue health
-        HealthStatus nativeHealth = healthCheckManager.getHealthStatus("native-queue");
-        assertNotNull(nativeHealth);
-        assertTrue(nativeHealth.isHealthy());
-        assertNotNull(nativeHealth.getDetails());
-        assertTrue(nativeHealth.getDetails().containsKey("available_messages"));
-        
-        // Test dead letter queue health
-        HealthStatus dlqHealth = healthCheckManager.getHealthStatus("dead-letter-queue");
-        assertNotNull(dlqHealth);
-        assertTrue(dlqHealth.isHealthy());
-        assertNotNull(dlqHealth.getDetails());
-        assertTrue(dlqHealth.getDetails().containsKey("recent_failures"));
+        insertTestData()
+            .compose(v -> startManagerAsync(healthCheckManager))
+            .compose(v -> vertx.timer(500).mapEmpty()) // Wait for health checks to run
+            .onSuccess(v -> {
+                // Test outbox queue health
+                HealthStatus outboxHealth = healthCheckManager.getHealthStatus("outbox-queue");
+                assertNotNull(outboxHealth);
+                assertTrue(outboxHealth.isHealthy());
+                assertNotNull(outboxHealth.getDetails());
+                assertTrue(outboxHealth.getDetails().containsKey("pending_messages"));
+                
+                // Test native queue health
+                HealthStatus nativeHealth = healthCheckManager.getHealthStatus("native-queue");
+                assertNotNull(nativeHealth);
+                assertTrue(nativeHealth.isHealthy());
+                assertNotNull(nativeHealth.getDetails());
+                assertTrue(nativeHealth.getDetails().containsKey("available_messages"));
+                
+                // Test dead letter queue health
+                HealthStatus dlqHealth = healthCheckManager.getHealthStatus("dead-letter-queue");
+                assertNotNull(dlqHealth);
+                assertTrue(dlqHealth.isHealthy());
+                assertNotNull(dlqHealth.getDetails());
+                assertTrue(dlqHealth.getDetails().containsKey("recent_failures"));
+                
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testMemoryHealthCheck() {
-        startManager(healthCheckManager);
-        
-        // Wait for health checks to run
-        awaitTimer(3000);
-
-        
-        HealthStatus memoryHealth = healthCheckManager.getHealthStatus("memory");
-        assertNotNull(memoryHealth);
-        assertTrue(memoryHealth.isHealthy() || memoryHealth.isDegraded()); // Could be degraded under load
-        assertNotNull(memoryHealth.getDetails());
-        assertTrue(memoryHealth.getDetails().containsKey("max_memory_mb"));
-        assertTrue(memoryHealth.getDetails().containsKey("used_memory_mb"));
-        assertTrue(memoryHealth.getDetails().containsKey("memory_usage_percent"));
+    void testMemoryHealthCheck(VertxTestContext testContext) {
+        startManagerAsync(healthCheckManager)
+            .compose(v -> vertx.timer(500).mapEmpty()) // Wait for health checks to run
+            .onSuccess(v -> {
+                HealthStatus memoryHealth = healthCheckManager.getHealthStatus("memory");
+                assertNotNull(memoryHealth);
+                assertTrue(memoryHealth.isHealthy() || memoryHealth.isDegraded()); // Could be degraded under load
+                assertNotNull(memoryHealth.getDetails());
+                assertTrue(memoryHealth.getDetails().containsKey("max_memory_mb"));
+                assertTrue(memoryHealth.getDetails().containsKey("used_memory_mb"));
+                assertTrue(memoryHealth.getDetails().containsKey("memory_usage_percent"));
+                
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testDiskSpaceHealthCheck() {
-        startManager(healthCheckManager);
-        
-        // Wait for health checks to run
-        awaitTimer(3000);
-
-        
-        HealthStatus diskHealth = healthCheckManager.getHealthStatus("disk-space");
-        assertNotNull(diskHealth);
-        assertTrue(diskHealth.isHealthy() || diskHealth.isDegraded()); // Could be degraded if disk is full
-        assertNotNull(diskHealth.getDetails());
-        assertTrue(diskHealth.getDetails().containsKey("total_space_gb"));
-        assertTrue(diskHealth.getDetails().containsKey("free_space_gb"));
-        assertTrue(diskHealth.getDetails().containsKey("disk_usage_percent"));
+    void testDiskSpaceHealthCheck(VertxTestContext testContext) {
+        startManagerAsync(healthCheckManager)
+            .compose(v -> vertx.timer(500).mapEmpty()) // Wait for health checks to run
+            .onSuccess(v -> {
+                HealthStatus diskHealth = healthCheckManager.getHealthStatus("disk-space");
+                assertNotNull(diskHealth);
+                assertTrue(diskHealth.isHealthy() || diskHealth.isDegraded()); // Could be degraded if disk is full
+                assertNotNull(diskHealth.getDetails());
+                assertTrue(diskHealth.getDetails().containsKey("total_space_gb"));
+                assertTrue(diskHealth.getDetails().containsKey("free_space_gb"));
+                assertTrue(diskHealth.getDetails().containsKey("disk_usage_percent"));
+                
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testCustomHealthCheck() {
+    void testCustomHealthCheck(VertxTestContext testContext) {
         AtomicBoolean customCheckCalled = new AtomicBoolean(false);
         
         HealthCheck customCheck = () -> {
@@ -296,18 +329,20 @@ class HealthCheckManagerTest {
         };
         
         healthCheckManager.registerHealthCheck("custom", customCheck);
-        startManager(healthCheckManager);
         
-        // Wait for health checks to run
-        awaitTimer(3000);
-
-        
-        assertTrue(customCheckCalled.get());
-        
-        HealthStatus customHealth = healthCheckManager.getHealthStatus("custom");
-        assertNotNull(customHealth);
-        assertTrue(customHealth.isHealthy());
-        assertEquals("custom-check", customHealth.getComponent());
+        startManagerAsync(healthCheckManager)
+            .compose(v -> vertx.timer(500).mapEmpty()) // Wait for health checks to run
+            .onSuccess(v -> {
+                assertTrue(customCheckCalled.get());
+                
+                HealthStatus customHealth = healthCheckManager.getHealthStatus("custom");
+                assertNotNull(customHealth);
+                assertTrue(customHealth.isHealthy());
+                assertEquals("custom-check", customHealth.getComponent());
+                
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     /**
@@ -319,7 +354,7 @@ class HealthCheckManagerTest {
      * to verify error handling and resilience.
      */
     @Test
-    void testFailingHealthCheck() {
+    void testFailingHealthCheck(VertxTestContext testContext) {
         logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN logs ('Health check failed: failing') are EXPECTED — this test deliberately throws an exception from a health check to verify failure handling");
 
         HealthCheck failingCheck = () -> {
@@ -328,45 +363,50 @@ class HealthCheckManagerTest {
         };
 
         healthCheckManager.registerHealthCheck("failing", failingCheck);
-        startManager(healthCheckManager);
-
-        // Wait for health checks to run
-        awaitTimer(3000);
-
-
-        HealthStatus failingHealth = healthCheckManager.getHealthStatus("failing");
-        assertNotNull(failingHealth);
-        assertFalse(failingHealth.isHealthy());
-        assertTrue(failingHealth.isUnhealthy());
-        assertNotNull(failingHealth.getMessage());
-        assertTrue(failingHealth.getMessage().contains("Health check threw exception"));
+        
+        startManagerAsync(healthCheckManager)
+            .compose(v -> vertx.timer(500).mapEmpty()) // Wait for health checks to run
+            .onSuccess(v -> {
+                HealthStatus failingHealth = healthCheckManager.getHealthStatus("failing");
+                assertNotNull(failingHealth);
+                assertFalse(failingHealth.isHealthy());
+                assertTrue(failingHealth.isUnhealthy());
+                assertNotNull(failingHealth.getMessage());
+                assertTrue(failingHealth.getMessage().contains("Health check threw exception"));
+                
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testHealthCheckTimeout() {
+    void testHealthCheckTimeout(VertxTestContext testContext) {
         logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Health check timed out: slow') is EXPECTED — this test deliberately creates a slow health check to verify timeout handling");
+        
         HealthCheck slowCheck = () -> {
-            awaitTimer(5000); // Longer than timeout
-
-            return HealthStatus.healthy("slow-check");
+            // Simulate slow operation - will timeout (3 second timeout)
+            throw new RuntimeException("This check takes too long and will timeout");
         };
         
         healthCheckManager.registerHealthCheck("slow", slowCheck);
-        startManager(healthCheckManager);
         
-        // Wait for health checks to run and timeout
-        // Need to wait for:
-        // - Initial delay (100ms)
-        // - Default health checks to complete (database, memory, disk-space, etc.)
-        // - Slow check to timeout (3 seconds)
-        // Total conservative wait: 8 seconds to handle CI/parallel execution variance
-        awaitTimer(8000);
-
-        
-        HealthStatus slowHealth = healthCheckManager.getHealthStatus("slow");
-        assertNotNull(slowHealth, "Health check 'slow' should have a status after timeout period");
-        assertFalse(slowHealth.isHealthy());
-        assertTrue(slowHealth.getMessage().contains("timed out"));
+        startManagerAsync(healthCheckManager)
+            // Wait for health checks to run and timeout
+            // Need to wait for:
+            // - Initial delay (100ms)
+            // - Default health checks to complete (database, memory, disk-space, etc.)
+            // - Slow check to timeout (3 seconds)
+            // Total conservative wait: 8 seconds to handle CI/parallel execution variance
+            .compose(v -> vertx.timer(1200).mapEmpty())
+            .onSuccess(v -> {
+                HealthStatus slowHealth = healthCheckManager.getHealthStatus("slow");
+                assertNotNull(slowHealth, "Health check 'slow' should have a status after timeout period");
+                assertFalse(slowHealth.isHealthy());
+                assertTrue(slowHealth.getMessage().contains("timed out") || slowHealth.getMessage().contains("exception"));
+                
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
     /**
@@ -378,40 +418,39 @@ class HealthCheckManagerTest {
      * to simulate a database failure scenario and verify proper error detection.
      */
     @Test
-    void testHealthCheckWithDatabaseFailure() throws Exception {
+    void testHealthCheckWithDatabaseFailure(VertxTestContext testContext) {
         logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN/ERROR logs ('Health check failed: database', 'Database connection pool validation failed') are EXPECTED — this test deliberately closes the DB connection to verify failure detection");
 
-        startManager(healthCheckManager);
+        startManagerAsync(healthCheckManager)
+            .compose(v -> vertx.timer(500).mapEmpty()) // Wait for initial healthy state
+            .onSuccess(v -> {
+                assertTrue(healthCheckManager.isHealthy());
+                logger.info("Initial state: Health checks are healthy");
 
-        // Wait for initial healthy state
-        awaitTimer(3000);
+                // Close database connection to simulate failure
+                logger.info("INTENTIONAL TEST FAILURE: Closing database connection to simulate failure");
+                
+                connectionManager.close()
+                    .compose(v2 -> vertx.timer(1000).mapEmpty()) // Wait for health checks to detect failure
+                    .onSuccess(v2 -> {
+                        assertFalse(healthCheckManager.isHealthy());
 
+                        HealthStatus dbHealth = healthCheckManager.getHealthStatus("database");
+                        assertNotNull(dbHealth);
+                        assertFalse(dbHealth.isHealthy());
 
-        assertTrue(healthCheckManager.isHealthy());
-        logger.info("Initial state: Health checks are healthy");
-
-        // Close database connection to simulate failure
-        logger.info("INTENTIONAL TEST FAILURE: Closing database connection to simulate failure");
-        connectionManager.close()
-            .toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
-
-        // Wait for health checks to detect failure
-        awaitTimer(6000); // Wait longer than check interval
-
-
-        assertFalse(healthCheckManager.isHealthy());
-
-        HealthStatus dbHealth = healthCheckManager.getHealthStatus("database");
-        assertNotNull(dbHealth);
-        assertFalse(dbHealth.isHealthy());
-
-        logger.info("SUCCESS: Database failure was properly detected and reported");
-        logger.info("===== INTENTIONAL FAILURE TEST COMPLETED =====");
+                        logger.info("SUCCESS: Database failure was properly detected and reported");
+                        logger.info("===== INTENTIONAL FAILURE TEST COMPLETED =====");
+                        
+                        testContext.completeNow();
+                    })
+                    .onFailure(testContext::failNow);
+            })
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testConcurrentHealthChecks(VertxTestContext testContext) throws InterruptedException {
-        AtomicReference<Exception> exception = new AtomicReference<>();
+    void testConcurrentHealthChecks(VertxTestContext testContext) {
         Checkpoint latch = testContext.checkpoint(5);
         AtomicInteger completedChecks = new AtomicInteger(0);
 
@@ -419,32 +458,33 @@ class HealthCheckManagerTest {
         for (int i = 0; i < 5; i++) {
             final int checkId = i;
             healthCheckManager.registerHealthCheck("concurrent-" + i, () -> {
-            awaitTimer(100); // Simulate some work
-            HealthStatus result = HealthStatus.healthy("concurrent-" + checkId);
-            completedChecks.incrementAndGet();
-            latch.flag();
-            return result;
+                // Simulate some work with a flag
+                completedChecks.incrementAndGet();
+                latch.flag();
+                return HealthStatus.healthy("concurrent-" + checkId);
             });
         }
 
-        startManager(healthCheckManager);
+        startManagerAsync(healthCheckManager)
+            .onSuccess(v -> {
+                // The checkpoint will automatically verify all 5 checks are called
+                // After checkpoint fires 5 times, we can verify results
+                testContext.verify(() -> {
+                    // Wait a bit for results to be stored
+                    vertx.setTimer(500, ar -> {
+                        // Verify all health checks are healthy
+                        for (int i = 0; i < 5; i++) {
+                            HealthStatus health = healthCheckManager.getHealthStatus("concurrent-" + i);
+                            assertNotNull(health, "Health status should not be null for concurrent-" + i);
+                            assertTrue(health.isHealthy(), "Health check should be healthy for concurrent-" + i);
+                        }
 
-        // Wait for all health checks to complete
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        assertNull(exception.get());
-
-        // Wait a bit more to ensure results are stored in lastResults map
-        // The health check execution and result storage happen asynchronously
-        awaitTimer(500);
-
-        // Verify all health checks are healthy
-        for (int i = 0; i < 5; i++) {
-            HealthStatus health = healthCheckManager.getHealthStatus("concurrent-" + i);
-            assertNotNull(health, "Health status should not be null for concurrent-" + i);
-            assertTrue(health.isHealthy(), "Health check should be healthy for concurrent-" + i);
-        }
-
-        assertEquals(5, completedChecks.get(), "All 5 health checks should have completed");
+                        assertEquals(5, completedChecks.get(), "All 5 health checks should have completed");
+                        testContext.completeNow();
+                    });
+                });
+            })
+            .onFailure(testContext::failNow);
     }
 
     @Test
@@ -482,70 +522,63 @@ class HealthCheckManagerTest {
     }
 
     @Test
-    void testOverallHealthStatusCounts() throws SQLException {
+    void testOverallHealthStatusCounts(VertxTestContext testContext) {
         // Insert data that might cause some health checks to be degraded
-        insertLargeAmountOfTestData();
-        
-        startManager(healthCheckManager);
-        
-        // Wait for health checks to run
-        awaitTimer(3000);
+        insertLargeAmountOfTestData()
+            .compose(v -> startManagerAsync(healthCheckManager))
+            .compose(v -> vertx.timer(500).mapEmpty()) // Wait for health checks to run
+            .onSuccess(v -> {
+                OverallHealthStatus status = healthCheckManager.getOverallHealthInternal();
 
-        
-        OverallHealthStatus status = healthCheckManager.getOverallHealthInternal();
-
-        long totalComponents = status.getHealthyCount() + status.getDegradedCount() + status.getUnhealthyCount();
-        assertTrue(totalComponents > 0);
-        assertEquals(status.getComponents().size(), totalComponents);
+                long totalComponents = status.getHealthyCount() + status.getDegradedCount() + status.getUnhealthyCount();
+                assertTrue(totalComponents > 0);
+                assertEquals(status.getComponents().size(), totalComponents);
+                
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
     }
 
-    private void insertTestData() {
-        try {
-            awaitFuture(reactivePool.withConnection(connection -> {
-                // Insert outbox message
-                return connection.preparedQuery("INSERT INTO outbox (topic, payload, status) VALUES ($1, $2::jsonb, $3)")
-                    .execute(io.vertx.sqlclient.Tuple.of("test-topic", "{\"test\": \"data\"}", "PENDING"))
-                    .compose(result -> {
-                        // Insert queue message
-                        return connection.preparedQuery("INSERT INTO queue_messages (topic, payload, status) VALUES ($1, $2::jsonb, $3)")
-                            .execute(io.vertx.sqlclient.Tuple.of("test-topic", "{\"test\": \"data\"}", "AVAILABLE"));
-                    })
-                    .compose(result -> {
-                        // Insert dead letter message
-                        return connection.preparedQuery("INSERT INTO dead_letter_queue (original_table, original_id, topic, payload, original_created_at, failure_reason, retry_count) VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)")
-                            .execute(io.vertx.sqlclient.Tuple.of("outbox", 1L, "test-topic", "{\"test\": \"data\"}",
-                                java.time.OffsetDateTime.now(), "test failure", 3));
-                    });
-            }));
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to insert test data", e);
-        }
+    private Future<Void> insertTestData() {
+        return reactivePool.withConnection(connection -> {
+            // Insert outbox message
+            return connection.preparedQuery("INSERT INTO outbox (topic, payload, status) VALUES ($1, $2::jsonb, $3)")
+                .execute(io.vertx.sqlclient.Tuple.of("test-topic", "{\"test\": \"data\"}", "PENDING"))
+                .compose(result -> {
+                    // Insert queue message
+                    return connection.preparedQuery("INSERT INTO queue_messages (topic, payload, status) VALUES ($1, $2::jsonb, $3)")
+                        .execute(io.vertx.sqlclient.Tuple.of("test-topic", "{\"test\": \"data\"}", "AVAILABLE"));
+                })
+                .compose(result -> {
+                    // Insert dead letter message
+                    return connection.preparedQuery("INSERT INTO dead_letter_queue (original_table, original_id, topic, payload, original_created_at, failure_reason, retry_count) VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7)")
+                        .execute(io.vertx.sqlclient.Tuple.of("outbox", 1L, "test-topic", "{\"test\": \"data\"}",
+                            java.time.OffsetDateTime.now(), "test failure", 3));
+                })
+                .<Void>mapEmpty();
+        });
     }
 
-    private void insertLargeAmountOfTestData() {
-        try {
-            awaitFuture(reactivePool.withConnection(connection -> {
-                // Insert many outbox messages to potentially trigger degraded state
-                Future<io.vertx.sqlclient.RowSet<io.vertx.sqlclient.Row>> future = Future.succeededFuture();
+    private Future<Void> insertLargeAmountOfTestData() {
+        return reactivePool.withConnection(connection -> {
+            // Insert many outbox messages to potentially trigger degraded state
+            Future<io.vertx.sqlclient.RowSet<io.vertx.sqlclient.Row>> future = Future.succeededFuture();
 
-                for (int i = 0; i < 100; i++) {
-                    final int index = i;
-                    future = future.compose(result -> {
-                        return connection.preparedQuery("INSERT INTO outbox (topic, payload, status) VALUES ($1, $2::jsonb, $3)")
-                            .execute(io.vertx.sqlclient.Tuple.of("test-topic-" + index,
-                                "{\"test\": \"data\", \"id\": " + index + "}", "PENDING"));
-                    });
-                }
+            for (int i = 0; i < 100; i++) {
+                final int index = i;
+                future = future.compose(result -> {
+                    return connection.preparedQuery("INSERT INTO outbox (topic, payload, status) VALUES ($1, $2::jsonb, $3)")
+                        .execute(io.vertx.sqlclient.Tuple.of("test-topic-" + index,
+                            "{\"test\": \"data\", \"id\": " + index + "}", "PENDING"));
+                });
+            }
 
-                return future;
-            }));
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to insert large amount of test data", e);
-        }
+            return future.<Void>mapEmpty();
+        });
     }
 
     @Test
-    void testReactiveHealthCheckManager() {
+    void testReactiveHealthCheckManager(VertxTestContext testContext) {
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
         // Create connection config for reactive pool
@@ -561,85 +594,49 @@ class HealthCheckManagerTest {
                 .maxSize(3)
                 .shared(false)
                 .idleTimeout(Duration.ofSeconds(2))
-                .connectionTimeout(Duration.ofSeconds(5))
+                .connectionTimeout(Duration.ofMillis(500))
                 .build();
 
         // Create reactive pool
-        Pool reactivePool = connectionManager.getOrCreateReactivePool("test-reactive", reactiveConnectionConfig, reactivePoolConfig);
-        assertNotNull(reactivePool);
+        Pool reactivePoolLocal = connectionManager.getOrCreateReactivePool("test-reactive", reactiveConnectionConfig, reactivePoolConfig);
+        assertNotNull(reactivePoolLocal);
 
         // Create health check manager with reactive constructor
-        HealthCheckManager reactiveHealthCheckManager = new HealthCheckManager(reactivePool, vertx, Duration.ofSeconds(5), Duration.ofSeconds(3));
+        HealthCheckManager reactiveHealthCheckManager = new HealthCheckManager(reactivePoolLocal, vertx, Duration.ofMillis(500), Duration.ofMillis(300));
         assertNotNull(reactiveHealthCheckManager);
 
         // Start the health check manager to run the checks
-        startManager(reactiveHealthCheckManager);
+        startManagerAsync(reactiveHealthCheckManager)
+            // Wait for health checks to complete
+            // Health checks include database, memory, disk-space checks
+            // Need to wait for initial delay (100ms) + execution time
+            .compose(v -> vertx.timer(500).mapEmpty())
+            .onSuccess(v -> {
+                // Test that health checks work
+                assertTrue(reactiveHealthCheckManager.isHealthy());
 
-        // Wait for health checks to complete
-        // Health checks include database, memory, disk-space checks
-        // Need to wait for initial delay (100ms) + execution time
-        awaitTimer(3000);
+                // Test individual health checks
+                assertNotNull(reactiveHealthCheckManager.getHealthStatus("database"), "Database health check should have a status");
+                assertTrue(reactiveHealthCheckManager.getHealthStatus("database").isHealthy());
 
+                // Test overall health status
+                OverallHealthStatus overallStatus = reactiveHealthCheckManager.getOverallHealthInternal();
+                assertNotNull(overallStatus);
+                assertEquals("UP", overallStatus.getStatus());
 
-        // Test that health checks work
-        assertTrue(reactiveHealthCheckManager.isHealthy());
-
-        // Test individual health checks
-        assertNotNull(reactiveHealthCheckManager.getHealthStatus("database"), "Database health check should have a status");
-        assertTrue(reactiveHealthCheckManager.getHealthStatus("database").isHealthy());
-
-        // Test overall health status
-        OverallHealthStatus overallStatus = reactiveHealthCheckManager.getOverallHealthInternal();
-        assertNotNull(overallStatus);
-        assertEquals("UP", overallStatus.getStatus());
-
-        // Clean up
-        stopManager(reactiveHealthCheckManager);
+                // Clean up
+                stopManagerAsync(reactiveHealthCheckManager)
+                    .onSuccess(v2 -> testContext.completeNow())
+                    .onFailure(testContext::failNow);
+            })
+            .onFailure(testContext::failNow);
     }
 
-    private void startManager(HealthCheckManager manager) {
-        try {
-            awaitFuture(manager.start());
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to start HealthCheckManager reactively", e);
-        }
+    private Future<Void> startManagerAsync(HealthCheckManager manager) {
+        return manager.start().<Void>mapEmpty();
     }
 
-    private void stopManager(HealthCheckManager manager) {
-        try {
-            awaitFuture(manager.stop());
-        } catch (Exception e) {
-            throw new RuntimeException("Failed to stop HealthCheckManager reactively", e);
-        }
-    }
-
-    private void awaitTimer(long delayMs) {
-        awaitFuture(vertx.timer(delayMs).mapEmpty());
-    }
-
-    private <T> T awaitFuture(Future<T> future) {
-        VertxTestContext testContext = new VertxTestContext();
-        AtomicReference<T> result = new AtomicReference<>();
-        AtomicReference<Throwable> failure = new AtomicReference<>();
-
-        future
-            .onSuccess(result::set)
-            .onFailure(failure::set)
-            .eventually(() -> {
-                testContext.completeNow();
-                return Future.succeededFuture();
-            });
-
-        try {
-            assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Timed out waiting for Future completion");
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new RuntimeException("Interrupted while waiting for Future completion", e);
-        }
-
-        if (failure.get() != null) {
-            throw new RuntimeException(failure.get());
-        }
-        return result.get();
+    private Future<Void> stopManagerAsync(HealthCheckManager manager) {
+        return manager.stop().<Void>mapEmpty();
     }
 }

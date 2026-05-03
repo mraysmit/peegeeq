@@ -26,7 +26,6 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -53,7 +52,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
     private DeadConsumerDetector detector;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp() {
         connectionManager = new PgConnectionManager(manager.getVertx(), null);
 
         PostgreSQLContainer postgres = getPostgres();
@@ -103,7 +102,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
      * subscription transitions to DEAD.</p>
      */
     @Test
-    void testSingleHeartbeatTimeoutDoesNotMarkDead(VertxTestContext testContext) throws InterruptedException {
+    void testSingleHeartbeatTimeoutDoesNotMarkDead(VertxTestContext testContext) {
         String topic = uniqueTopic("flap-single-miss");
         String groupName = "flapping-consumer";
 
@@ -130,8 +129,6 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -142,7 +139,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
      * heartbeat recovery.</p>
      */
     @Test
-    void testHeartbeatRecoveryResetsConsecutiveMisses(VertxTestContext testContext) throws InterruptedException {
+    void testHeartbeatRecoveryResetsConsecutiveMisses(VertxTestContext testContext) {
         String topic = uniqueTopic("flap-recovery");
         String groupName = "recovering-consumer";
 
@@ -175,8 +172,6 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -188,7 +183,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
      * only after the threshold is exceeded.</p>
      */
     @Test
-    void testMarkedDeadOnlyAfterConsecutiveMissThreshold(VertxTestContext testContext) throws InterruptedException {
+    void testMarkedDeadOnlyAfterConsecutiveMissThreshold(VertxTestContext testContext) {
         logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Marked N subscriptions as DEAD') is EXPECTED — this test deliberately exceeds the consecutive miss threshold to trigger DEAD marking");
         String topic = uniqueTopic("flap-threshold");
         String groupName = "threshold-consumer";
@@ -223,8 +218,6 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -233,7 +226,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
      * Detection runs topic-wide, so isolation must be per-consumer-group.
      */
     @Test
-    void testMultiConsumerIsolation(VertxTestContext testContext) throws InterruptedException {
+    void testMultiConsumerIsolation(VertxTestContext testContext) {
         String topic = uniqueTopic("flap-isolation");
         String flappingGroup = "flapping-group";
         String healthyGroup = "healthy-group";
@@ -264,8 +257,6 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -275,7 +266,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
      * should remain PAUSED, not jump to DEAD.
      */
     @Test
-    void testPausedSubscriptionFlappingProtection(VertxTestContext testContext) throws InterruptedException {
+    void testPausedSubscriptionFlappingProtection(VertxTestContext testContext) {
         String topic = uniqueTopic("flap-paused");
         String groupName = "paused-consumer";
 
@@ -306,8 +297,6 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -320,7 +309,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
      * killed.</p>
      */
     @Test
-    void testIntermittentFlappingNeverReachesThreshold(VertxTestContext testContext) throws InterruptedException {
+    void testIntermittentFlappingNeverReachesThreshold(VertxTestContext testContext) {
         String topic = uniqueTopic("flap-intermittent");
         String groupName = "intermittent-consumer";
 
@@ -358,8 +347,6 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -373,7 +360,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
      * This test proves the miss count must be reset on resubscription.</p>
      */
     @Test
-    void testResubscribeAfterDeadResetsMissCount(VertxTestContext testContext) throws InterruptedException {
+    void testResubscribeAfterDeadResetsMissCount(VertxTestContext testContext) {
         logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN logs ('Marked N subscriptions as DEAD') are EXPECTED — this test marks a subscription DEAD then resubscribes to verify miss count reset");
         String topic = uniqueTopic("flap-resub");
         String groupName = "resub-consumer";
@@ -410,8 +397,6 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -420,7 +405,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
      * reset to zero. This is a different code path from resubscribe().
      */
     @Test
-    void testHeartbeatAutoResurrectionResetsMissCount(VertxTestContext testContext) throws InterruptedException {
+    void testHeartbeatAutoResurrectionResetsMissCount(VertxTestContext testContext) {
         String topic = uniqueTopic("flap-resurrect");
         String groupName = "resurrect-consumer";
 
@@ -455,8 +440,6 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -468,7 +451,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
      * detection pass.</p>
      */
     @Test
-    void testDifferentialMissCountsInSingleDetection(VertxTestContext testContext) throws InterruptedException {
+    void testDifferentialMissCountsInSingleDetection(VertxTestContext testContext) {
         String topic = uniqueTopic("flap-differential");
         String groupA = "advanced-miss-group";
         String groupB = "fresh-group";
@@ -503,8 +486,6 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -517,7 +498,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
      * miss state.</p>
      */
     @Test
-    void testMissCountPersistedAcrossDetectorInstances(VertxTestContext testContext) throws InterruptedException {
+    void testMissCountPersistedAcrossDetectorInstances(VertxTestContext testContext) {
         String topic = uniqueTopic("flap-persist");
         String groupName = "persistent-consumer";
 
@@ -545,8 +526,6 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -556,7 +535,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
      * not mark a subscription DEAD.
      */
     @Test
-    void testAllTopicsDetectionRespectsFlappingProtection(VertxTestContext testContext) throws InterruptedException {
+    void testAllTopicsDetectionRespectsFlappingProtection(VertxTestContext testContext) {
         String topic = uniqueTopic("flap-all-topics");
         String groupName = "all-topics-consumer";
 
@@ -581,8 +560,6 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
@@ -591,7 +568,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
      * must not contribute to the count on topic B.
      */
     @Test
-    void testCrossTopicMissIsolation(VertxTestContext testContext) throws InterruptedException {
+    void testCrossTopicMissIsolation(VertxTestContext testContext) {
         String topicA = uniqueTopic("flap-topic-a");
         String topicB = uniqueTopic("flap-topic-b");
         String groupName = "cross-topic-consumer";
@@ -622,8 +599,6 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     // ========================================================================

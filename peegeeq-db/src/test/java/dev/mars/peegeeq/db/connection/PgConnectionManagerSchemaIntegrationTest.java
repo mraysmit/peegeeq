@@ -38,7 +38,6 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -126,9 +125,8 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
 
     @Test
     @DisplayName("Test schema enforcement via getReactiveConnection()")
-    void testSchemaEnforcementViaGetConnection(VertxTestContext testContext) throws Exception {
+    void testSchemaEnforcementViaGetConnection(VertxTestContext testContext) {
         logger.info("TEST: Schema enforcement via getReactiveConnection()");
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
@@ -159,27 +157,18 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
                         return name;
                     })
             )
-            .onSuccess(result -> {
-                try {
-                    assertEquals("schema_a_data", result, "Should query from schema_a");
-                    logger.info("getReactiveConnection() correctly applied schema_a");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(result -> testContext.verify(() -> {
+                assertEquals("schema_a_data", result, "Should query from schema_a");
+                logger.info("getReactiveConnection() correctly applied schema_a");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
     @DisplayName("Test schema enforcement via withConnection()")
-    void testSchemaEnforcementViaWithConnection(VertxTestContext testContext) throws Exception {
+    void testSchemaEnforcementViaWithConnection(VertxTestContext testContext) {
         logger.info("TEST: Schema enforcement via withConnection()");
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
@@ -205,27 +194,18 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
             conn.query("SELECT name FROM test_table WHERE id = 2").execute()
                 .map(rows -> rows.iterator().next().getString("name"))
         )
-        .onSuccess(result -> {
-            try {
-                assertEquals("schema_b_data", result, "Should query from schema_b");
-                logger.info("withConnection() correctly applied schema_b");
-            } catch (Throwable t) {
-                errorRef.set(t);
-            } finally {
-                testContext.completeNow();
-            }
-        })
-        .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        .onSuccess(result -> testContext.verify(() -> {
+            assertEquals("schema_b_data", result, "Should query from schema_b");
+            logger.info("withConnection() correctly applied schema_b");
+            testContext.completeNow();
+        }))
+        .onFailure(testContext::failNow);
     }
 
     @Test
     @DisplayName("withTransaction() enforces schema: INSERT and SELECT within transaction resolve unqualified table to configured schema")
-    void testSchemaEnforcementViaWithTransaction(VertxTestContext testContext) throws Exception {
+    void testSchemaEnforcementViaWithTransaction(VertxTestContext testContext) {
         logger.info("TEST: Schema enforcement via withTransaction()");
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
@@ -252,27 +232,18 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
                 .compose(v -> conn.query("SELECT name FROM test_table WHERE id = 10").execute())
                 .map(rows -> rows.iterator().next().getString("name"))
         )
-        .onSuccess(result -> {
-            try {
-                assertEquals("txn_test", result, "Should insert and query from schema_a");
-                logger.info("withTransaction() correctly applied schema_a");
-            } catch (Throwable t) {
-                errorRef.set(t);
-            } finally {
-                testContext.completeNow();
-            }
-        })
-        .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        .onSuccess(result -> testContext.verify(() -> {
+            assertEquals("txn_test", result, "Should insert and query from schema_a");
+            logger.info("withTransaction() correctly applied schema_a");
+            testContext.completeNow();
+        }))
+        .onFailure(testContext::failNow);
     }
 
     @Test
     @DisplayName("withTransaction() resolves unqualified SELECT to schema_b when schema_b is configured")
-    void testSchemaEnforcementWithTransactionSchemaB(VertxTestContext testContext) throws Exception {
+    void testSchemaEnforcementWithTransactionSchemaB(VertxTestContext testContext) {
         logger.info("TEST: Schema enforcement with withTransaction using schema_b");
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
@@ -298,27 +269,18 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
             conn.query("SELECT name FROM test_table WHERE id = 2").execute()
                 .map(rows -> rows.iterator().next().getString("name"))
         )
-        .onSuccess(result -> {
-            try {
-                assertEquals("schema_b_data", result, "Should query from schema_b");
-                logger.info("withTransaction() correctly applied schema_b");
-            } catch (Throwable t) {
-                errorRef.set(t);
-            } finally {
-                testContext.completeNow();
-            }
-        })
-        .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        .onSuccess(result -> testContext.verify(() -> {
+            assertEquals("schema_b_data", result, "Should query from schema_b");
+            logger.info("withTransaction() correctly applied schema_b");
+            testContext.completeNow();
+        }))
+        .onFailure(testContext::failNow);
     }
 
     @Test
     @DisplayName("Test health check respects configured schema")
-    void testHealthCheckRespectsSchema(VertxTestContext testContext) throws Exception {
+    void testHealthCheckRespectsSchema(VertxTestContext testContext) {
         logger.info("TEST: Health check respects configured schema");
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
@@ -341,27 +303,18 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
         connectionManager.getOrCreateReactivePool("test-health", config, poolConfig);
 
         connectionManager.checkHealth("test-health")
-            .onSuccess(isHealthy -> {
-                try {
-                    assertTrue(isHealthy, "Health check should pass with valid schema");
-                    logger.info("Health check correctly applied schema_a");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(isHealthy -> testContext.verify(() -> {
+                assertTrue(isHealthy, "Health check should pass with valid schema");
+                logger.info("Health check correctly applied schema_a");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
     @DisplayName("Test multiple services with different schemas")
-    void testMultipleServicesWithDifferentSchemas(VertxTestContext testContext) throws Exception {
+    void testMultipleServicesWithDifferentSchemas(VertxTestContext testContext) {
         logger.info("TEST: Multiple services with different schemas");
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         AtomicReference<String> resultARef = new AtomicReference<>();
 
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
@@ -405,21 +358,13 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
                     .map(rows -> rows.iterator().next().getString("name"))
             );
         })
-        .onSuccess(resultB -> {
-            try {
-                assertEquals("schema_a_data", resultARef.get(), "Service A should query from schema_a");
-                assertEquals("schema_b_data", resultB, "Service B should query from schema_b");
-                logger.info("Multiple services correctly isolated by schema");
-            } catch (Throwable t) {
-                errorRef.set(t);
-            } finally {
-                testContext.completeNow();
-            }
-        })
-        .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        .onSuccess(resultB -> testContext.verify(() -> {
+            assertEquals("schema_a_data", resultARef.get(), "Service A should query from schema_a");
+            assertEquals("schema_b_data", resultB, "Service B should query from schema_b");
+            logger.info("Multiple services correctly isolated by schema");
+            testContext.completeNow();
+        }))
+        .onFailure(testContext::failNow);
     }
 
     @Test
@@ -472,9 +417,8 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
 
     @Test
     @DisplayName("Test no schema configured uses default search_path")
-    void testNoSchemaConfiguredUsesDefault(VertxTestContext testContext) throws Exception {
+    void testNoSchemaConfiguredUsesDefault(VertxTestContext testContext) {
         logger.info("TEST: No schema configured uses default search_path");
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
@@ -500,27 +444,18 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
             conn.query("SELECT 1").execute()
                 .map(rows -> rows.iterator().hasNext())
         )
-        .onSuccess(result -> {
-            try {
-                assertTrue(result, "Should successfully query with default search_path");
-                logger.info("No schema configuration correctly uses default search_path");
-            } catch (Throwable t) {
-                errorRef.set(t);
-            } finally {
-                testContext.completeNow();
-            }
-        })
-        .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+        .onSuccess(result -> testContext.verify(() -> {
+            assertTrue(result, "Should successfully query with default search_path");
+            logger.info("No schema configuration correctly uses default search_path");
+            testContext.completeNow();
+        }))
+        .onFailure(testContext::failNow);
     }
 
     @Test
     @DisplayName("closePool() removes the named pool from the manager registry")
-    void testSchemaCleanupOnPoolClose(VertxTestContext testContext) throws Exception {
+    void testSchemaCleanupOnPoolClose(VertxTestContext testContext) {
         logger.info("TEST: Schema cleanup on pool close");
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
@@ -545,19 +480,11 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
         assertNotNull(connectionManager.getExistingPool("test-cleanup"), "Pool should exist");
 
         connectionManager.closePool("test-cleanup")
-            .onSuccess(v -> {
-                try {
-                    assertNull(connectionManager.getExistingPool("test-cleanup"), "Pool should be removed");
-                    logger.info("Schema configuration correctly cleaned up on pool close");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(v -> testContext.verify(() -> {
+                assertNull(connectionManager.getExistingPool("test-cleanup"), "Pool should be removed");
+                logger.info("Schema configuration correctly cleaned up on pool close");
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 }

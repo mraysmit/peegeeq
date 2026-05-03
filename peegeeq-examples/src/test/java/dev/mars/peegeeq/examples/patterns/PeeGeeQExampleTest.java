@@ -305,28 +305,22 @@ class PeeGeeQExampleTest {
         logger.info("=== Circuit Breaker Demo ===");
 
         var circuitBreakerManager = manager.getCircuitBreakerManager();
+        var cb = circuitBreakerManager.getCircuitBreaker("demo-operation");
 
-        // Simulate successful operations
+        // Simulate successful operations using the production caller pattern:
+        // tryAcquirePermission() → execute → onSuccess() / onError()
         for (int i = 0; i < 5; i++) {
-            final int index = i;
-            try {
-                String result = circuitBreakerManager.executeSupplier("demo-operation",
-                    () -> "Success " + index);
-                logger.info("Circuit breaker result: {}", result);
-            } catch (Exception e) {
-                logger.warn("Circuit breaker operation failed: {}", e.getMessage());
+            if (cb.tryAcquirePermission()) {
+                cb.onSuccess(1, java.util.concurrent.TimeUnit.NANOSECONDS);
+                logger.info("Circuit breaker: success recorded");
             }
         }
 
         // Simulate some failures
         for (int i = 0; i < 3; i++) {
-            final int index = i;
-            try {
-                circuitBreakerManager.executeSupplier("demo-operation", () -> {
-                    throw new RuntimeException("Simulated failure " + index);
-                });
-            } catch (Exception e) {
-                logger.info("Circuit breaker caught failure: {}", e.getMessage());
+            if (cb.tryAcquirePermission()) {
+                cb.onError(1, java.util.concurrent.TimeUnit.NANOSECONDS, new RuntimeException("Simulated failure " + i));
+                logger.info("Circuit breaker: failure recorded");
             }
         }
 

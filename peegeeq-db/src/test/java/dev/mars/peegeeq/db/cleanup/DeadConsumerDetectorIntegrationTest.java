@@ -27,7 +27,6 @@ import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 
 import io.vertx.junit5.VertxTestContext;
 
@@ -62,7 +61,7 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
     private SubscriptionManager subscriptionManager;
 
     @BeforeEach
-    public void setUp() throws Exception {
+    public void setUp() {
         // super.setUpBaseIntegration(); // Removed: JUnit 5 automatically executes @BeforeEach from superclasses
 
         // Create connection manager using the shared Vertx instance
@@ -105,7 +104,7 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    public void testDetectDeadSubscription(VertxTestContext testContext) throws Exception {
+    public void testDetectDeadSubscription(VertxTestContext testContext) {
         logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Marked N subscriptions as DEAD') is EXPECTED — this test deliberately expires a heartbeat to verify dead subscription detection");
         logger.info("=== TEST: testDetectDeadSubscription STARTED ===");
 
@@ -160,13 +159,10 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        logger.info("=== TEST: testDetectDeadSubscription PASSED ===");
     }
 
     @Test
-    public void testDoesNotMarkActiveSubscription(VertxTestContext testContext) throws Exception {
+    public void testDoesNotMarkActiveSubscription(VertxTestContext testContext) {
         logger.info("=== TEST: testDoesNotMarkActiveSubscription STARTED ===");
 
         String topic = "test-active-subscription-" + UUID.randomUUID().toString().substring(0, 8);
@@ -209,13 +205,10 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        logger.info("=== TEST: testDoesNotMarkActiveSubscription PASSED ===");
     }
 
     @Test
-    public void testDetectAllDeadSubscriptions(VertxTestContext testContext) throws Exception {
+    public void testDetectAllDeadSubscriptions(VertxTestContext testContext) {
         logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN logs ('Marked N subscriptions as DEAD') are EXPECTED — this test deliberately expires heartbeats across multiple topics to verify bulk dead detection");
         logger.info("=== TEST: testDetectAllDeadSubscriptions STARTED ===");
 
@@ -291,13 +284,10 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        logger.info("=== TEST: testDetectAllDeadSubscriptions PASSED ===");
     }
 
     @Test
-    public void testCountDeadSubscriptions(VertxTestContext testContext) throws Exception {
+    public void testCountDeadSubscriptions(VertxTestContext testContext) {
         logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Marked N subscriptions as DEAD') is EXPECTED — this test deliberately expires heartbeats to verify dead subscription counting");
         logger.info("=== TEST: testCountDeadSubscriptions STARTED ===");
 
@@ -358,9 +348,6 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        logger.info("=== TEST: testCountDeadSubscriptions PASSED ===");
     }
 }
 

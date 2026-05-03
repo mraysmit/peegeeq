@@ -5,6 +5,7 @@ import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -15,9 +16,7 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
-
 import java.util.HashMap;
-import java.util.concurrent.ExecutionException;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -33,7 +32,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-11-27
- * @version 1.0
+ * @version 2.0
  */
 @Tag(TestCategories.CORE)
 @Execution(ExecutionMode.SAME_THREAD)  // Run tests sequentially to avoid database conflicts
@@ -74,9 +73,13 @@ public class DatabaseTemplateManagerCoreTest extends BaseIntegrationTest {
     }
 
     @AfterEach
-    void tearDown() throws Exception {
+    void tearDown(VertxTestContext testContext) {
         if (connectionManager != null) {
-            awaitFuture(connectionManager.close());
+            connectionManager.close()
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
         }
     }
 
@@ -86,66 +89,77 @@ public class DatabaseTemplateManagerCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testDatabaseExists() throws Exception {
+    void testDatabaseExists(VertxTestContext testContext) {
         // Check if the test database exists
-        Boolean exists = reactivePool.withConnection(connection ->
+        reactivePool.withConnection(connection ->
             databaseTemplateManager.databaseExists(connection, postgres.getDatabaseName())
-        ).toCompletionStage().toCompletableFuture().get();
-
-        assertTrue(exists);
+        )
+        .onSuccess(exists -> {
+            assertTrue(exists);
+            testContext.completeNow();
+        })
+        .onFailure(testContext::failNow);
     }
 
     @Test
-    void testDatabaseDoesNotExist() throws Exception {
+    void testDatabaseDoesNotExist(VertxTestContext testContext) {
         // Check if a non-existent database exists
-        Boolean exists = reactivePool.withConnection(connection ->
+        reactivePool.withConnection(connection ->
             databaseTemplateManager.databaseExists(connection, "non_existent_database_12345")
-        ).toCompletionStage().toCompletableFuture().get();
-
-        assertFalse(exists);
+        )
+        .onSuccess(exists -> {
+            assertFalse(exists);
+            testContext.completeNow();
+        })
+        .onFailure(testContext::failNow);
     }
 
     @Test
-    void testCreateDatabaseFromTemplate() throws Exception {
+    void testCreateDatabaseFromTemplate(VertxTestContext testContext) {
         String testDbName = "test_db_" + System.currentTimeMillis();
 
-        try {
-            // Create database from template
-            databaseTemplateManager.createDatabaseFromTemplate(
+        databaseTemplateManager.createDatabaseFromTemplate(
+            postgres.getHost(),
+            postgres.getFirstMappedPort(),
+            postgres.getUsername(),
+            postgres.getPassword(),
+            testDbName,
+            "template0",
+            "UTF8",
+            new HashMap<>()
+        )
+        .compose(v -> reactivePool.withConnection(connection ->
+            databaseTemplateManager.databaseExists(connection, testDbName)
+        ))
+        .onSuccess(exists -> {
+            assertTrue(exists);
+            // Clean up - drop the test database
+            databaseTemplateManager.dropDatabaseFromAdmin(
                 postgres.getHost(),
                 postgres.getFirstMappedPort(),
                 postgres.getUsername(),
                 postgres.getPassword(),
-                testDbName,
-                "template0",
-                "UTF8",
-                new HashMap<>()
-            ).toCompletionStage().toCompletableFuture().get();
-
-            // Verify database was created
-            Boolean exists = reactivePool.withConnection(connection ->
-                databaseTemplateManager.databaseExists(connection, testDbName)
-            ).toCompletionStage().toCompletableFuture().get();
-
-            assertTrue(exists);
-        } finally {
-            // Clean up - drop the test database
-            try {
-                databaseTemplateManager.dropDatabaseFromAdmin(
-                    postgres.getHost(),
-                    postgres.getFirstMappedPort(),
-                    postgres.getUsername(),
-                    postgres.getPassword(),
-                    testDbName
-                ).toCompletionStage().toCompletableFuture().get();
-            } catch (Exception e) {
-                // Ignore cleanup errors
-            }
-        }
+                testDbName
+            )
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
+        })
+        .onFailure(cause -> {
+            // Attempt cleanup on failure
+            databaseTemplateManager.dropDatabaseFromAdmin(
+                postgres.getHost(),
+                postgres.getFirstMappedPort(),
+                postgres.getUsername(),
+                postgres.getPassword(),
+                testDbName
+            )
+            .onSuccess(v -> testContext.failNow(cause))
+            .onFailure(e -> testContext.failNow(cause));
+        });
     }
 
     @Test
-    void testDropDatabase() throws Exception {
+    void testDropDatabase(VertxTestContext testContext) {
         String testDbName = "test_db_drop_" + System.currentTimeMillis();
 
         // First create a database
@@ -158,28 +172,31 @@ public class DatabaseTemplateManagerCoreTest extends BaseIntegrationTest {
             "template0",
             "UTF8",
             new HashMap<>()
-        ).toCompletionStage().toCompletableFuture().get();
-
+        )
         // Verify it exists
-        Boolean existsBefore = reactivePool.withConnection(connection ->
+        .compose(v -> reactivePool.withConnection(connection ->
             databaseTemplateManager.databaseExists(connection, testDbName)
-        ).toCompletionStage().toCompletableFuture().get();
-        assertTrue(existsBefore);
-
-        // Drop the database
-        reactivePool.withConnection(connection ->
-            databaseTemplateManager.dropDatabase(connection, testDbName)
-        ).toCompletionStage().toCompletableFuture().get();
-
-        // Verify it no longer exists
-        Boolean existsAfter = reactivePool.withConnection(connection ->
-            databaseTemplateManager.databaseExists(connection, testDbName)
-        ).toCompletionStage().toCompletableFuture().get();
-        assertFalse(existsAfter);
+        ))
+        .onSuccess(existsBefore -> {
+            assertTrue(existsBefore);
+            // Drop the database
+            reactivePool.withConnection(connection ->
+                databaseTemplateManager.dropDatabase(connection, testDbName)
+            )
+            .compose(v -> reactivePool.withConnection(connection ->
+                databaseTemplateManager.databaseExists(connection, testDbName)
+            ))
+            .onSuccess(existsAfter -> {
+                assertFalse(existsAfter);
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
+        })
+        .onFailure(testContext::failNow);
     }
 
     @Test
-    void testDropDatabaseFromAdmin() throws Exception {
+    void testDropDatabaseFromAdmin(VertxTestContext testContext) {
         String testDbName = "test_db_drop_admin_" + System.currentTimeMillis();
 
         // First create a database
@@ -192,106 +209,121 @@ public class DatabaseTemplateManagerCoreTest extends BaseIntegrationTest {
             "template0",
             "UTF8",
             new HashMap<>()
-        ).toCompletionStage().toCompletableFuture().get();
-
+        )
         // Verify it exists
-        Boolean existsBefore = reactivePool.withConnection(connection ->
+        .compose(v -> reactivePool.withConnection(connection ->
             databaseTemplateManager.databaseExists(connection, testDbName)
-        ).toCompletionStage().toCompletableFuture().get();
-        assertTrue(existsBefore);
+        ))
+        .onSuccess(existsBefore -> {
+            assertTrue(existsBefore);
+            // Drop the database using admin method
+            databaseTemplateManager.dropDatabaseFromAdmin(
+                postgres.getHost(),
+                postgres.getFirstMappedPort(),
+                postgres.getUsername(),
+                postgres.getPassword(),
+                testDbName
+            )
+            .compose(v -> reactivePool.withConnection(connection ->
+                databaseTemplateManager.databaseExists(connection, testDbName)
+            ))
+            .onSuccess(existsAfter -> {
+                assertFalse(existsAfter);
+                testContext.completeNow();
+            })
+            .onFailure(testContext::failNow);
+        })
+        .onFailure(testContext::failNow);
+    }
 
-        // Drop the database using admin method
-        databaseTemplateManager.dropDatabaseFromAdmin(
+    @Test
+    void testCreateDatabaseFromTemplateWithNullTemplate(VertxTestContext testContext) {
+        String testDbName = "test_db_null_template_" + System.currentTimeMillis();
+
+        databaseTemplateManager.createDatabaseFromTemplate(
             postgres.getHost(),
             postgres.getFirstMappedPort(),
             postgres.getUsername(),
             postgres.getPassword(),
-            testDbName
-        ).toCompletionStage().toCompletableFuture().get();
-
-        // Verify it no longer exists
-        Boolean existsAfter = reactivePool.withConnection(connection ->
+            testDbName,
+            null,  // null template
+            "UTF8",
+            new HashMap<>()
+        )
+        // Verify database was created
+        .compose(v -> reactivePool.withConnection(connection ->
             databaseTemplateManager.databaseExists(connection, testDbName)
-        ).toCompletionStage().toCompletableFuture().get();
-        assertFalse(existsAfter);
-    }
-
-    @Test
-    void testCreateDatabaseFromTemplateWithNullTemplate() throws Exception {
-        String testDbName = "test_db_null_template_" + System.currentTimeMillis();
-
-        try {
-            // Create database without specifying a template
-            databaseTemplateManager.createDatabaseFromTemplate(
+        ))
+        .onSuccess(exists -> {
+            assertTrue(exists);
+            // Clean up
+            databaseTemplateManager.dropDatabaseFromAdmin(
                 postgres.getHost(),
                 postgres.getFirstMappedPort(),
                 postgres.getUsername(),
                 postgres.getPassword(),
-                testDbName,
-                null,  // null template
-                "UTF8",
-                new HashMap<>()
-            ).toCompletionStage().toCompletableFuture().get();
-
-            // Verify database was created
-            Boolean exists = reactivePool.withConnection(connection ->
-                databaseTemplateManager.databaseExists(connection, testDbName)
-            ).toCompletionStage().toCompletableFuture().get();
-
-            assertTrue(exists);
-        } finally {
-            // Clean up
-            try {
-                databaseTemplateManager.dropDatabaseFromAdmin(
-                    postgres.getHost(),
-                    postgres.getFirstMappedPort(),
-                    postgres.getUsername(),
-                    postgres.getPassword(),
-                    testDbName
-                ).toCompletionStage().toCompletableFuture().get();
-            } catch (Exception e) {
-                // Ignore cleanup errors
-            }
-        }
+                testDbName
+            )
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
+        })
+        .onFailure(cause -> {
+            // Attempt cleanup on failure
+            databaseTemplateManager.dropDatabaseFromAdmin(
+                postgres.getHost(),
+                postgres.getFirstMappedPort(),
+                postgres.getUsername(),
+                postgres.getPassword(),
+                testDbName
+            )
+            .onSuccess(v -> testContext.failNow(cause))
+            .onFailure(e -> testContext.failNow(cause));
+        });
     }
 
     @Test
-    void testCreateDatabaseFromTemplateWithNullEncoding() throws Exception {
+    void testCreateDatabaseFromTemplateWithNullEncoding(VertxTestContext testContext) {
         String testDbName = "test_db_null_encoding_" + System.currentTimeMillis();
 
-        try {
-            // Create database without specifying encoding
-            databaseTemplateManager.createDatabaseFromTemplate(
+        databaseTemplateManager.createDatabaseFromTemplate(
+            postgres.getHost(),
+            postgres.getFirstMappedPort(),
+            postgres.getUsername(),
+            postgres.getPassword(),
+            testDbName,
+            "template0",
+            null,  // null encoding
+            new HashMap<>()
+        )
+        // Verify database was created
+        .compose(v -> reactivePool.withConnection(connection ->
+            databaseTemplateManager.databaseExists(connection, testDbName)
+        ))
+        .onSuccess(exists -> {
+            assertTrue(exists);
+            // Clean up
+            databaseTemplateManager.dropDatabaseFromAdmin(
                 postgres.getHost(),
                 postgres.getFirstMappedPort(),
                 postgres.getUsername(),
                 postgres.getPassword(),
-                testDbName,
-                "template0",
-                null,  // null encoding
-                new HashMap<>()
-            ).toCompletionStage().toCompletableFuture().get();
-
-            // Verify database was created
-            Boolean exists = reactivePool.withConnection(connection ->
-                databaseTemplateManager.databaseExists(connection, testDbName)
-            ).toCompletionStage().toCompletableFuture().get();
-
-            assertTrue(exists);
-        } finally {
-            // Clean up
-            try {
-                databaseTemplateManager.dropDatabaseFromAdmin(
-                    postgres.getHost(),
-                    postgres.getFirstMappedPort(),
-                    postgres.getUsername(),
-                    postgres.getPassword(),
-                    testDbName
-                ).toCompletionStage().toCompletableFuture().get();
-            } catch (Exception e) {
-                // Ignore cleanup errors
-            }
-        }
+                testDbName
+            )
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
+        })
+        .onFailure(cause -> {
+            // Attempt cleanup on failure
+            databaseTemplateManager.dropDatabaseFromAdmin(
+                postgres.getHost(),
+                postgres.getFirstMappedPort(),
+                postgres.getUsername(),
+                postgres.getPassword(),
+                testDbName
+            )
+            .onSuccess(v -> testContext.failNow(cause))
+            .onFailure(e -> testContext.failNow(cause));
+        });
     }
 
     // ========================================
@@ -332,37 +364,48 @@ public class DatabaseTemplateManagerCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testDropDatabaseRejectsInjection() {
-        ExecutionException ex = assertThrows(ExecutionException.class, () ->
-            reactivePool.withConnection(connection ->
-                databaseTemplateManager.dropDatabase(connection, "db; DROP TABLE users;--")
-            ).toCompletionStage().toCompletableFuture().get()
-        );
-        assertInstanceOf(IllegalArgumentException.class, ex.getCause());
+    void testDropDatabaseRejectsInjection(VertxTestContext testContext) {
+        reactivePool.withConnection(connection ->
+            databaseTemplateManager.dropDatabase(connection, "db; DROP TABLE users;--")
+        )
+        .onSuccess(v -> testContext.failNow(new AssertionError("Should have thrown IllegalArgumentException")))
+        .onFailure(cause -> {
+            if (cause instanceof IllegalArgumentException) {
+                testContext.completeNow();
+            } else {
+                testContext.failNow(cause);
+            }
+        });
     }
 
     @Test
-    void testCreateDatabaseAcceptsValidEncoding() throws Exception {
+    void testCreateDatabaseAcceptsValidEncoding(VertxTestContext testContext) {
         String testDbName = "test_db_encoding_" + System.currentTimeMillis();
-        try {
-            // UTF8 is in the whitelist
-            databaseTemplateManager.createDatabaseFromTemplate(
-                postgres.getHost(), postgres.getFirstMappedPort(),
-                postgres.getUsername(), postgres.getPassword(),
-                testDbName, "template0", "UTF8", new HashMap<>()
-            ).toCompletionStage().toCompletableFuture().get();
-
-            Boolean exists = reactivePool.withConnection(connection ->
-                databaseTemplateManager.databaseExists(connection, testDbName)
-            ).toCompletionStage().toCompletableFuture().get();
+        
+        databaseTemplateManager.createDatabaseFromTemplate(
+            postgres.getHost(), postgres.getFirstMappedPort(),
+            postgres.getUsername(), postgres.getPassword(),
+            testDbName, "template0", "UTF8", new HashMap<>()
+        )
+        .compose(v -> reactivePool.withConnection(connection ->
+            databaseTemplateManager.databaseExists(connection, testDbName)
+        ))
+        .onSuccess(exists -> {
             assertTrue(exists);
-        } finally {
-            try {
-                databaseTemplateManager.dropDatabaseFromAdmin(
-                    postgres.getHost(), postgres.getFirstMappedPort(),
-                    postgres.getUsername(), postgres.getPassword(), testDbName
-                ).toCompletionStage().toCompletableFuture().get();
-            } catch (Exception e) { /* cleanup */ }
-        }
+            databaseTemplateManager.dropDatabaseFromAdmin(
+                postgres.getHost(), postgres.getFirstMappedPort(),
+                postgres.getUsername(), postgres.getPassword(), testDbName
+            )
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
+        })
+        .onFailure(cause -> {
+            databaseTemplateManager.dropDatabaseFromAdmin(
+                postgres.getHost(), postgres.getFirstMappedPort(),
+                postgres.getUsername(), postgres.getPassword(), testDbName
+            )
+            .onSuccess(v -> testContext.failNow(cause))
+            .onFailure(e -> testContext.failNow(cause));
+        });
     }
 }

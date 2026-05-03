@@ -9,7 +9,9 @@ import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -31,6 +33,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.CORE)
 @Execution(ExecutionMode.SAME_THREAD)
+@ExtendWith(VertxExtension.class)
 public class CleanupServiceCoreTest extends BaseIntegrationTest {
 
     private PgConnectionManager connectionManager;
@@ -88,32 +91,24 @@ public class CleanupServiceCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testCleanupCompletedMessagesWithInvalidBatchSize() throws Exception {
-        try {
-            cleanupService.cleanupCompletedMessages("test-topic", 0)
-                .toCompletionStage().toCompletableFuture().get();
-            fail("Expected IllegalArgumentException");
-        } catch (Exception e) {
-            assertTrue(e.getCause() instanceof IllegalArgumentException);
-        }
+    void testCleanupCompletedMessagesWithInvalidBatchSize(VertxTestContext ctx) {
+        cleanupService.cleanupCompletedMessages("test-topic", 0)
+            .onFailure(e -> ctx.verify(() -> { assertTrue(e instanceof IllegalArgumentException); ctx.completeNow(); }))
+            .onSuccess(v -> ctx.failNow(new AssertionError("Expected IllegalArgumentException")));
     }
 
     @Test
-    void testCleanupCompletedMessagesWithNegativeBatchSize() throws Exception {
-        try {
-            cleanupService.cleanupCompletedMessages("test-topic", -1)
-                .toCompletionStage().toCompletableFuture().get();
-            fail("Expected IllegalArgumentException");
-        } catch (Exception e) {
-            assertTrue(e.getCause() instanceof IllegalArgumentException);
-        }
+    void testCleanupCompletedMessagesWithNegativeBatchSize(VertxTestContext ctx) {
+        cleanupService.cleanupCompletedMessages("test-topic", -1)
+            .onFailure(e -> ctx.verify(() -> { assertTrue(e instanceof IllegalArgumentException); ctx.completeNow(); }))
+            .onSuccess(v -> ctx.failNow(new AssertionError("Expected IllegalArgumentException")));
     }
 
     @Test
-    void testCleanupCompletedMessagesNoMessages() throws Exception {
-        Integer deleted = cleanupService.cleanupCompletedMessages("non-existent-topic", 100)
-            .toCompletionStage().toCompletableFuture().get();
-        assertEquals(0, deleted);
+    void testCleanupCompletedMessagesNoMessages(VertxTestContext ctx) {
+        cleanupService.cleanupCompletedMessages("non-existent-topic", 100)
+            .onSuccess(deleted -> ctx.verify(() -> { assertEquals(0, deleted); ctx.completeNow(); }))
+            .onFailure(ctx::failNow);
     }
 
     @Test
@@ -123,36 +118,34 @@ public class CleanupServiceCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testCountEligibleForCleanupNoMessages() throws Exception {
-        Long count = cleanupService.countEligibleForCleanup("non-existent-topic")
-            .toCompletionStage().toCompletableFuture().get();
-        assertEquals(0L, count);
+    void testCountEligibleForCleanupNoMessages(VertxTestContext ctx) {
+        cleanupService.countEligibleForCleanup("non-existent-topic")
+            .onSuccess(count -> ctx.verify(() -> { assertEquals(0L, count); ctx.completeNow(); }))
+            .onFailure(ctx::failNow);
     }
 
     @Test
-    void testCleanupAllTopicsWithInvalidBatchSize() throws Exception {
-        try {
-            cleanupService.cleanupAllTopics(0)
-                .toCompletionStage().toCompletableFuture().get();
-            fail("Expected IllegalArgumentException");
-        } catch (Exception e) {
-            assertTrue(e.getCause() instanceof IllegalArgumentException);
-        }
+    void testCleanupAllTopicsWithInvalidBatchSize(VertxTestContext ctx) {
+        cleanupService.cleanupAllTopics(0)
+            .onFailure(e -> ctx.verify(() -> { assertTrue(e instanceof IllegalArgumentException); ctx.completeNow(); }))
+            .onSuccess(v -> ctx.failNow(new AssertionError("Expected IllegalArgumentException")));
     }
 
     @Test
-    void testCleanupAllTopicsNoMessages() throws Exception {
+    void testCleanupAllTopicsNoMessages(VertxTestContext ctx) {
         // This test verifies that cleanupAllTopics returns 0 when there are no
         // completed messages eligible for cleanup.
         // Note: In parallel test execution, other tests may have created topics,
         // but as long as they don't have completed messages past retention, 
         // this should return 0.
         // The test validates the cleanup logic works correctly, not global database state.
-        Integer deleted = cleanupService.cleanupAllTopics(100)
-            .toCompletionStage().toCompletableFuture().get();
-        // In a shared database environment, we can only assert non-negative result
-        // as other tests may have data. The key validation is that no exception occurs.
-        assertTrue(deleted >= 0, "Deleted count should be non-negative");
+        cleanupService.cleanupAllTopics(100)
+            .onSuccess(deleted -> ctx.verify(() -> { assertTrue(deleted >= 0, "Deleted count should be non-negative"); ctx.completeNow(); }))
+            .onFailure(ctx::failNow);
     }
 }
+
+
+
+
 

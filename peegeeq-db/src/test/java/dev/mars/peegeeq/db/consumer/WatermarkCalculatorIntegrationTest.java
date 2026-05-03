@@ -26,7 +26,6 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -54,7 +53,7 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
     private PartitionedOffsetManager offsetManager;
 
     @BeforeEach
-    public void setUp() throws Exception {
+    public void setUp(VertxTestContext testContext) {
         // super.setUpBaseIntegration(); // Removed: JUnit 5 automatically executes @BeforeEach from superclasses
 
         connectionManager = new PgConnectionManager(manager.getVertx(), null);
@@ -82,11 +81,9 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
         offsetManager = new PartitionedOffsetManager(connectionManager, "peegeeq-main");
 
         // Clean up test data from prior runs
-        VertxTestContext cleanupCtx = new VertxTestContext();
         cleanupTestData()
-                .onSuccess(v -> cleanupCtx.completeNow())
-                .onFailure(t -> cleanupCtx.completeNow());
-        cleanupCtx.awaitCompletion(10, TimeUnit.SECONDS);
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(testContext::failNow);
 
         logger.info("WatermarkCalculator test setup complete");
     }
@@ -106,13 +103,12 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
     // ========================================================================
 
     @Test
-    public void testCalculateWatermark_singleGroup_returnsMinOffset(VertxTestContext testContext) throws Exception {
+    public void testCalculateWatermark_singleGroup_returnsMinOffset(VertxTestContext testContext) {
         logger.info("=== TEST 4.1: testCalculateWatermark_singleGroup_returnsMinOffset STARTED ===");
 
         String topic = "test-wm-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group-A";
         int generation = 1;
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic)
                 .compose(v -> createSubscription(topic, groupName, "ACTIVE"))
@@ -128,15 +124,7 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test failed with error", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -145,12 +133,11 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
     // ========================================================================
 
     @Test
-    public void testCalculateWatermark_multipleGroups_returnsGlobalMin(VertxTestContext testContext) throws Exception {
+    public void testCalculateWatermark_multipleGroups_returnsGlobalMin(VertxTestContext testContext) {
         logger.info("=== TEST 4.2: testCalculateWatermark_multipleGroups_returnsGlobalMin STARTED ===");
 
         String topic = "test-wm-" + UUID.randomUUID().toString().substring(0, 8);
         int generation = 1;
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic)
                 // Group A: partitions at 100, 200 → min = 100
@@ -171,15 +158,7 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test failed with error", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -188,12 +167,11 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
     // ========================================================================
 
     @Test
-    public void testCalculateWatermark_excludesDeadGroups(VertxTestContext testContext) throws Exception {
+    public void testCalculateWatermark_excludesDeadGroups(VertxTestContext testContext) {
         logger.info("=== TEST 4.3: testCalculateWatermark_excludesDeadGroups STARTED ===");
 
         String topic = "test-wm-" + UUID.randomUUID().toString().substring(0, 8);
         int generation = 1;
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic)
                 // Active group at offset 100
@@ -211,15 +189,7 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test failed with error", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -228,11 +198,10 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
     // ========================================================================
 
     @Test
-    public void testCalculateWatermark_noActiveGroups_returnsZero(VertxTestContext testContext) throws Exception {
+    public void testCalculateWatermark_noActiveGroups_returnsZero(VertxTestContext testContext) {
         logger.info("=== TEST 4.4: testCalculateWatermark_noActiveGroups_returnsZero STARTED ===");
 
         String topic = "test-wm-" + UUID.randomUUID().toString().substring(0, 8);
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic)
                 .compose(v -> calculator.calculateWatermark(topic))
@@ -242,15 +211,7 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test failed with error", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -259,11 +220,10 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
     // ========================================================================
 
     @Test
-    public void testAdvanceWatermark_onlyMovesForward(VertxTestContext testContext) throws Exception {
+    public void testAdvanceWatermark_onlyMovesForward(VertxTestContext testContext) {
         logger.info("=== TEST 4.5: testAdvanceWatermark_onlyMovesForward STARTED ===");
 
         String topic = "test-wm-" + UUID.randomUUID().toString().substring(0, 8);
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic)
                 // First, advance watermark to 100
@@ -278,15 +238,7 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test failed with error", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -295,11 +247,10 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
     // ========================================================================
 
     @Test
-    public void testAdvanceWatermark_updatesTimestamp(VertxTestContext testContext) throws Exception {
+    public void testAdvanceWatermark_updatesTimestamp(VertxTestContext testContext) {
         logger.info("=== TEST 4.6: testAdvanceWatermark_updatesTimestamp STARTED ===");
 
         String topic = "test-wm-" + UUID.randomUUID().toString().substring(0, 8);
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         OffsetDateTime beforeAdvance = OffsetDateTime.now(ZoneOffset.UTC).minusSeconds(5);
 
@@ -316,15 +267,7 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test failed with error", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -333,11 +276,10 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
     // ========================================================================
 
     @Test
-    public void testSweep_marksMessagesBelowWatermarkCompleted(VertxTestContext testContext) throws Exception {
+    public void testSweep_marksMessagesBelowWatermarkCompleted(VertxTestContext testContext) {
         logger.info("=== TEST 4.7: testSweep_marksMessagesBelowWatermarkCompleted STARTED ===");
 
         String topic = "test-wm-" + UUID.randomUUID().toString().substring(0, 8);
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         AtomicReference<List<Long>> idsRef = new AtomicReference<>();
 
         createTopic(topic)
@@ -375,15 +317,7 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
                     return chain;
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test failed with error", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -392,11 +326,10 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
     // ========================================================================
 
     @Test
-    public void testSweep_idempotent(VertxTestContext testContext) throws Exception {
+    public void testSweep_idempotent(VertxTestContext testContext) {
         logger.info("=== TEST 4.8: testSweep_idempotent STARTED ===");
 
         String topic = "test-wm-" + UUID.randomUUID().toString().substring(0, 8);
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic)
                 .compose(v -> insertMessages(topic, "part-1", 10))
@@ -415,15 +348,7 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
                             });
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test failed with error", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -432,12 +357,11 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
     // ========================================================================
 
     @Test
-    public void testSweep_doesNotTouchOtherTopics(VertxTestContext testContext) throws Exception {
+    public void testSweep_doesNotTouchOtherTopics(VertxTestContext testContext) {
         logger.info("=== TEST 4.9: testSweep_doesNotTouchOtherTopics STARTED ===");
 
         String topicA = "test-wm-A-" + UUID.randomUUID().toString().substring(0, 8);
         String topicB = "test-wm-B-" + UUID.randomUUID().toString().substring(0, 8);
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         AtomicReference<List<Long>> topicBIdsRef = new AtomicReference<>();
 
         createTopic(topicA)
@@ -466,15 +390,7 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
                     return chain;
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test failed with error", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -483,11 +399,10 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
     // ========================================================================
 
     @Test
-    public void testSweep_preservesCompletedMessages(VertxTestContext testContext) throws Exception {
+    public void testSweep_preservesCompletedMessages(VertxTestContext testContext) {
         logger.info("=== TEST 4.10: testSweep_preservesCompletedMessages STARTED ===");
 
         String topic = "test-wm-" + UUID.randomUUID().toString().substring(0, 8);
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic)
                 // Insert 5 COMPLETED messages and 5 PENDING messages
@@ -517,15 +432,7 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test failed with error", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -534,13 +441,12 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
     // ========================================================================
 
     @Test
-    public void testWatermarkJob_runsPeriodicSweep(VertxTestContext testContext) throws Exception {
+    public void testWatermarkJob_runsPeriodicSweep(VertxTestContext testContext) {
         logger.info("=== TEST 4.11: testWatermarkJob_runsPeriodicSweep STARTED ===");
 
         String topic = "test-wm-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group-A";
         int generation = 1;
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic)
                 .compose(v -> createSubscription(topic, groupName, "ACTIVE"))
@@ -576,15 +482,7 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
                     return promise.future();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test failed with error", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -593,11 +491,10 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
     // ========================================================================
 
     @Test
-    public void testWatermarkJob_stopCancelsTimer(VertxTestContext testContext) throws Exception {
+    public void testWatermarkJob_stopCancelsTimer(VertxTestContext testContext) {
         logger.info("=== TEST 4.12: testWatermarkJob_stopCancelsTimer STARTED ===");
 
         String topic = "test-wm-" + UUID.randomUUID().toString().substring(0, 8);
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic)
                 .compose(v -> {
@@ -632,15 +529,7 @@ public class WatermarkCalculatorIntegrationTest extends BaseIntegrationTest {
                     return promise.future();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test failed with error", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================

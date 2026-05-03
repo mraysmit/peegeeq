@@ -32,7 +32,6 @@ import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -59,7 +58,7 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
     private BackfillService backfillService;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp() {
         connectionManager = new PgConnectionManager(manager.getVertx(), null);
 
         PostgreSQLContainer postgres = getPostgres();
@@ -101,7 +100,7 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
      * Test backfill of a small number of messages end-to-end.
      */
     @Test
-    void testBackfillSmallBatch(VertxTestContext testContext) throws InterruptedException {
+    void testBackfillSmallBatch(VertxTestContext testContext) {
         String topic = "test-backfill-small-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "backfill-group-1";
         int messageCount = 5;
@@ -140,15 +139,13 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
      * Test backfill with multiple batches (batch size < total messages).
      */
     @Test
-    void testBackfillMultipleBatches(VertxTestContext testContext) throws InterruptedException {
+    void testBackfillMultipleBatches(VertxTestContext testContext) {
         String topic = "test-backfill-multi-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "backfill-batch-group";
         int messageCount = 25;
@@ -170,15 +167,13 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
      * Test backfill with max messages limit.
      */
     @Test
-    void testBackfillWithMaxLimit(VertxTestContext testContext) throws InterruptedException {
+    void testBackfillWithMaxLimit(VertxTestContext testContext) {
         String topic = "test-backfill-max-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "backfill-max-group";
 
@@ -199,15 +194,13 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
      * Test that backfill of an already-completed subscription returns immediately.
      */
     @Test
-    void testBackfillAlreadyCompleted(VertxTestContext testContext) throws InterruptedException {
+    void testBackfillAlreadyCompleted(VertxTestContext testContext) {
         String topic = "test-backfill-done-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "backfill-done-group";
 
@@ -228,15 +221,13 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
      * Test backfill with no messages to process.
      */
     @Test
-    void testBackfillNoMessages(VertxTestContext testContext) throws InterruptedException {
+    void testBackfillNoMessages(VertxTestContext testContext) {
         String topic = "test-backfill-empty-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "backfill-empty-group";
 
@@ -254,15 +245,13 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
      * Test backfill cancellation.
      */
     @Test
-    void testBackfillCancellation(VertxTestContext testContext) throws InterruptedException {
+    void testBackfillCancellation(VertxTestContext testContext) {
         String topic = "test-backfill-cancel-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "backfill-cancel-group";
 
@@ -294,15 +283,13 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
      * Test that backfill fails for non-ACTIVE subscriptions.
      */
     @Test
-    void testBackfillFailsForNonActiveSubscription(VertxTestContext testContext) throws InterruptedException {
+    void testBackfillFailsForNonActiveSubscription(VertxTestContext testContext) {
         String topic = "test-backfill-paused-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "backfill-paused-group";
 
@@ -321,15 +308,13 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                     logger.info("Backfill validation for non-ACTIVE subscription verified");
                     testContext.completeNow();
                 }));
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
      * Test that backfill fails for non-existent subscription.
      */
     @Test
-    void testBackfillFailsForMissingSubscription(VertxTestContext testContext) throws InterruptedException {
+    void testBackfillFailsForMissingSubscription(VertxTestContext testContext) {
         backfillService.startBackfill("nonexistent-topic", "nonexistent-group")
                 .onSuccess(result -> testContext.failNow("Backfill should fail for non-existent subscription"))
                 .onFailure(err -> testContext.verify(() -> {
@@ -338,15 +323,13 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                     logger.info("Backfill validation for missing subscription verified");
                     testContext.completeNow();
                 }));
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
      * Test backfill progress tracking.
      */
     @Test
-    void testBackfillProgressTracking(VertxTestContext testContext) throws InterruptedException {
+    void testBackfillProgressTracking(VertxTestContext testContext) {
         String topic = "test-backfill-progress-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "backfill-progress-group";
 
@@ -376,15 +359,13 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     /**
      * Test that backfill scope changes which message statuses are included.
      */
     @Test
-    void testBackfillScopePendingOnlyVsAllRetained(VertxTestContext testContext) throws InterruptedException {
+    void testBackfillScopePendingOnlyVsAllRetained(VertxTestContext testContext) {
         String topic = "test-backfill-scope-" + UUID.randomUUID().toString().substring(0, 8);
         String pendingOnlyGroup = "scope-pending-only";
         String allRetainedGroup = "scope-all-retained";
@@ -427,8 +408,6 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     // Helper methods

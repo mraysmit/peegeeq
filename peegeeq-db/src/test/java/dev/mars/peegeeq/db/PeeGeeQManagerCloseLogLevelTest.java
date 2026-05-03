@@ -22,7 +22,6 @@ import ch.qos.logback.core.AppenderBase;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import io.vertx.core.Future;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
@@ -45,6 +44,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
+import io.vertx.junit5.Timeout;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -65,14 +65,14 @@ import static org.junit.jupiter.api.Assertions.*;
  * Negative tests: clean close → verify no ERROR logged in cleanup chain.
  */
 @Tag(TestCategories.INTEGRATION)
-@Testcontainers
+@Testcontainers(disabledWithoutDocker = true)
 @ExtendWith(VertxExtension.class)
+@Timeout(value = 10, timeUnit = TimeUnit.SECONDS)
 public class PeeGeeQManagerCloseLogLevelTest {
 
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQManagerCloseLogLevelTest.class);
     private static final String POSTGRES_IMAGE = PgTestImageConstant.POSTGRES_IMAGE;
 
-    @SuppressWarnings("resource")
     @Container
     static PostgreSQLContainer postgres = new PostgreSQLContainer(POSTGRES_IMAGE)
             .withDatabaseName("peegeeq_test")
@@ -86,7 +86,24 @@ public class PeeGeeQManagerCloseLogLevelTest {
 
     @org.junit.jupiter.api.BeforeAll
     static void initDb() {
-        initializeSchemaFor(postgres);
+        if (!postgres.isRunning()) {
+            postgres.start();
+        }
+        setupDatabase();
+    }
+
+    private static void setupDatabase() {
+        String jdbcUrl = postgres.getJdbcUrl();
+        String username = postgres.getUsername();
+        String password = postgres.getPassword();
+
+        org.flywaydb.core.Flyway flyway = org.flywaydb.core.Flyway.configure()
+                .dataSource(jdbcUrl, username, password)
+                .locations("classpath:db/migration")
+                .cleanDisabled(false) // just to be sure we can clean
+                .load();
+        flyway.clean();
+        flyway.migrate();
     }
 
     @BeforeEach
@@ -101,26 +118,26 @@ public class PeeGeeQManagerCloseLogLevelTest {
     }
 
     @AfterEach
-    void tearDown(VertxTestContext testContext) throws InterruptedException {
+    void tearDown(VertxTestContext testContext) {
         managerLogger.detachAppender(logCapture);
         logCapture.stop();
 
         if (manager != null) {
             manager.closeReactive()
-                    .onComplete(v -> {
+                    .onSuccess(v -> {
                         clearSystemProperties();
                         testContext.completeNow();
-                    });
+                    })
+                    .onFailure(testContext::failNow);
         } else {
             clearSystemProperties();
             testContext.completeNow();
         }
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
     @DisplayName("Negative: clean close with DB alive produces no ERROR from cleanup chain")
-    void testCleanCloseNoErrorLogs(VertxTestContext testContext) throws InterruptedException {
+    void testCleanCloseNoErrorLogs(VertxTestContext testContext) {
         setSystemProperties();
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
 
@@ -152,13 +169,12 @@ public class PeeGeeQManagerCloseLogLevelTest {
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
+    @Timeout(value = 5, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Positive: close after DB shutdown logs ERROR for client factory close failure")
-    void testCloseAfterDbShutdownLogsErrorForClientFactoryFailure(VertxTestContext testContext) throws InterruptedException {
+    void testCloseAfterDbShutdownLogsErrorForClientFactoryFailure(VertxTestContext testContext) {
         logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR logs ('Error closing client factory', 'Error closing PeeGeeQManager') are EXPECTED — this test deliberately stops the DB container to verify error-level close failure logging");
         // Use a separate container that we can stop
         @SuppressWarnings("resource")
@@ -200,13 +216,11 @@ public class PeeGeeQManagerCloseLogLevelTest {
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
     }
 
     @Test
     @DisplayName("Positive: close without start produces no ERROR (stop() is a no-op when not started)")
-    void testCloseWithoutStartNoStopError(VertxTestContext testContext) throws InterruptedException {
+    void testCloseWithoutStartNoStopError(VertxTestContext testContext) {
         setSystemProperties();
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
 
@@ -223,13 +237,11 @@ public class PeeGeeQManagerCloseLogLevelTest {
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
     @DisplayName("Negative: Vert.x close with RejectedExecutionException stays at WARN/DEBUG, not ERROR")
-    void testVertxCloseExpectedExceptionNotLoggedAsError(VertxTestContext testContext) throws InterruptedException {
+    void testVertxCloseExpectedExceptionNotLoggedAsError(VertxTestContext testContext) {
         setSystemProperties();
         // Manager owns its own Vert.x (default constructor path)
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
@@ -252,8 +264,6 @@ public class PeeGeeQManagerCloseLogLevelTest {
                     testContext.completeNow();
                 }))
                 .onFailure(testContext::failNow);
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     // --- Helpers ---

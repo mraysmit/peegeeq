@@ -37,7 +37,6 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -121,7 +120,6 @@ public class RemainingPrometheusMetricsIntegrationTest extends BaseIntegrationTe
         String groupName = "counter-group";
         CompletionTracker tracker = new CompletionTracker(connectionManager, SERVICE_ID, meterRegistry);
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(TopicConfig.builder()
                         .topic(topic)
                         .semantics(TopicSemantics.PUB_SUB)
@@ -130,7 +128,7 @@ public class RemainingPrometheusMetricsIntegrationTest extends BaseIntegrationTe
             .compose(v -> insertMessage(topic, new JsonObject().put("test", true)))
             .compose(messageId -> tracker.markCompleted(messageId, groupName, topic))
             .onSuccess(v -> {
-                try {
+                testContext.verify(() -> {
                     Counter counter = meterRegistry.find("peegeeq.completions.total")
                             .tag("topic", topic)
                             .tag("group", groupName)
@@ -138,15 +136,10 @@ public class RemainingPrometheusMetricsIntegrationTest extends BaseIntegrationTe
                     assertNotNull(counter, "Completion counter should be registered");
                     assertEquals(1.0, counter.count(), "Counter should be 1 after one completion");
                     logger.info("Completion counter test passed: count={}", counter.count());
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
                     testContext.completeNow();
-                }
+                });
             })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onFailure(testContext::failNow);
     }
 
     @Test
@@ -157,7 +150,6 @@ public class RemainingPrometheusMetricsIntegrationTest extends BaseIntegrationTe
         String groupName = "no-registry-group";
         CompletionTracker tracker = new CompletionTracker(connectionManager, SERVICE_ID);
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(TopicConfig.builder()
                         .topic(topic)
                         .semantics(TopicSemantics.PUB_SUB)
@@ -166,17 +158,10 @@ public class RemainingPrometheusMetricsIntegrationTest extends BaseIntegrationTe
             .compose(v -> insertMessage(topic, new JsonObject().put("test", true)))
             .compose(messageId -> tracker.markCompleted(messageId, groupName, topic))
             .onSuccess(v -> {
-                try {
-                    logger.info("Completion tracker without registry test passed");
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
+                logger.info("Completion tracker without registry test passed");
+                testContext.completeNow();
             })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -192,7 +177,6 @@ public class RemainingPrometheusMetricsIntegrationTest extends BaseIntegrationTe
         ConsumerGroupMetrics metrics = new ConsumerGroupMetrics(detector);
         metrics.bindTo(meterRegistry);
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         topicConfigService.createTopic(TopicConfig.builder()
                         .topic(topic)
                         .semantics(TopicSemantics.PUB_SUB)
@@ -210,7 +194,7 @@ public class RemainingPrometheusMetricsIntegrationTest extends BaseIntegrationTe
             .compose(v -> setSubscriptionDead(topic, groupName))
             .compose(v -> metrics.refresh())
             .onSuccess(v -> {
-                try {
+                testContext.verify(() -> {
                     Gauge blockedGauge = meterRegistry.find("peegeeq.blocked.messages")
                             .tag("topic", topic)
                             .tag("group", groupName)
@@ -219,15 +203,10 @@ public class RemainingPrometheusMetricsIntegrationTest extends BaseIntegrationTe
                     assertTrue(blockedGauge.value() >= 3,
                             "Blocked messages gauge should be >= 3, actual: " + blockedGauge.value());
                     logger.info("Blocked messages gauge test passed: value={}", blockedGauge.value());
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
                     testContext.completeNow();
-                }
+                });
             })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -248,11 +227,10 @@ public class RemainingPrometheusMetricsIntegrationTest extends BaseIntegrationTe
 
         job.start();
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
-        manager.getVertx().timer(2000).mapEmpty()
+        job.runDetectionOnce()
             .compose(v -> metrics.refresh())
             .onSuccess(v -> {
-                try {
+                testContext.verify(() -> {
                     Gauge durationGauge = meterRegistry.find("peegeeq.detection.run.duration.seconds")
                             .gauge();
                     assertNotNull(durationGauge, "Detection run duration gauge should exist");
@@ -268,15 +246,11 @@ public class RemainingPrometheusMetricsIntegrationTest extends BaseIntegrationTe
                     job.stop();
                     logger.info("Detection run duration gauge test passed: duration={}s, runs={}",
                             durationGauge.value(), runCountGauge.value());
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
+                    
                     testContext.completeNow();
-                }
+                });
             })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onFailure(testContext::failNow);
     }
 
     // ========================================================================

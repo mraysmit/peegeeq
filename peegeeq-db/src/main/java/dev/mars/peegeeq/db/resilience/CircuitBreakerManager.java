@@ -29,7 +29,6 @@ import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.function.Supplier;
 
 /**
  * Manages circuit breakers for PeeGeeQ operations.
@@ -107,49 +106,6 @@ public class CircuitBreakerManager {
             logger.info("Created circuit breaker: {}", key);
             return cb;
         });
-    }
-    
-    /**
-     * Executes a supplier with circuit breaker protection.
-     */
-    public <T> T executeSupplier(String circuitBreakerName, Supplier<T> supplier) {
-        if (!enabled) {
-            return supplier.get();
-        }
-        
-        CircuitBreaker circuitBreaker = getCircuitBreaker(circuitBreakerName);
-        Supplier<T> decoratedSupplier = CircuitBreaker.decorateSupplier(circuitBreaker, supplier);
-        
-        return decoratedSupplier.get();
-    }
-    
-    /**
-     * Executes a runnable with circuit breaker protection.
-     */
-    public void executeRunnable(String circuitBreakerName, Runnable runnable) {
-        if (!enabled) {
-            runnable.run();
-            return;
-        }
-        
-        CircuitBreaker circuitBreaker = getCircuitBreaker(circuitBreakerName);
-        Runnable decoratedRunnable = CircuitBreaker.decorateRunnable(circuitBreaker, runnable);
-        
-        decoratedRunnable.run();
-    }
-    
-    /**
-     * Database operation circuit breaker.
-     */
-    public <T> T executeDatabaseOperation(String operation, Supplier<T> supplier) {
-        return executeSupplier("database-" + operation, supplier);
-    }
-    
-    /**
-     * Queue operation circuit breaker.
-     */
-    public <T> T executeQueueOperation(String queueType, String operation, Supplier<T> supplier) {
-        return executeSupplier(queueType + "-" + operation, supplier);
     }
     
     /**

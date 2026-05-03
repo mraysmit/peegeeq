@@ -29,9 +29,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
-
 import io.vertx.junit5.VertxTestContext;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -64,7 +61,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
     private SubscriptionManager subscriptionManager;
 
     @BeforeEach
-    public void setUp() throws Exception {
+    public void setUp() {
         // super.setUpBaseIntegration(); // Removed: JUnit 5 automatically executes @BeforeEach from superclasses
 
         // Create connection manager using the shared Vertx instance
@@ -108,7 +105,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
     }
 
     @Test
-    public void testFetchMessagesBasic(VertxTestContext testContext) throws Exception {
+    public void testFetchMessagesBasic(VertxTestContext testContext) {
         logger.info("=== TEST: testFetchMessagesBasic STARTED ===");
 
         String topic = "test-fetch-basic-" + UUID.randomUUID().toString().substring(0, 8);
@@ -122,7 +119,6 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
 
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder()
                 .build();
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         topicConfigService.createTopic(topicConfig)
                 .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
@@ -130,36 +126,26 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message2")))
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message3")))
                 .compose(v -> fetcher.fetchMessages(topic, groupName, 10))
-                .onSuccess(messages -> {
-                    try {
-                        logger.info("Fetched {} messages", messages.size());
-                        assertEquals(3, messages.size(), "Should fetch 3 messages");
+                .onSuccess(messages -> testContext.verify(() -> {
+                    logger.info("Fetched {} messages", messages.size());
+                    assertEquals(3, messages.size(), "Should fetch 3 messages");
 
-                        // Verify FIFO ordering
-                        assertEquals("message1", messages.get(0).getPayload().getString("test"));
-                        assertEquals("message2", messages.get(1).getPayload().getString("test"));
-                        assertEquals("message3", messages.get(2).getPayload().getString("test"));
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                })
+                    // Verify FIFO ordering
+                    assertEquals("message1", messages.get(0).getPayload().getString("test"));
+                    assertEquals("message2", messages.get(1).getPayload().getString("test"));
+                    assertEquals("message3", messages.get(2).getPayload().getString("test"));
+                    testContext.completeNow();
+                }))
                 .onFailure(throwable -> {
                     logger.error("Test failed", throwable);
-                    errorRef.set(throwable);
-                    testContext.completeNow();
+                    testContext.failNow(throwable);
                 });
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testFetchMessagesBasic COMPLETED ===");
     }
 
     @Test
-    public void testFetchMessagesBatchSize(VertxTestContext testContext) throws Exception {
+    public void testFetchMessagesBatchSize(VertxTestContext testContext) {
         logger.info("=== TEST: testFetchMessagesBatchSize STARTED ===");
 
         String topic = "test-fetch-batch-" + UUID.randomUUID().toString().substring(0, 8);
@@ -173,7 +159,6 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
 
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder()
                 .build();
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         topicConfigService.createTopic(topicConfig)
                 .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
@@ -183,31 +168,21 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message4")))
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message5")))
                 .compose(v -> fetcher.fetchMessages(topic, groupName, 2))  // Batch size = 2
-                .onSuccess(messages -> {
-                    try {
-                        logger.info("Fetched {} messages with batch size 2", messages.size());
-                        assertEquals(2, messages.size(), "Should fetch only 2 messages (batch size limit)");
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                })
+                .onSuccess(messages -> testContext.verify(() -> {
+                    logger.info("Fetched {} messages with batch size 2", messages.size());
+                    assertEquals(2, messages.size(), "Should fetch only 2 messages (batch size limit)");
+                    testContext.completeNow();
+                }))
                 .onFailure(throwable -> {
                     logger.error("Test failed", throwable);
-                    errorRef.set(throwable);
-                    testContext.completeNow();
+                    testContext.failNow(throwable);
                 });
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testFetchMessagesBatchSize COMPLETED ===");
     }
 
     @Test
-    public void testFetchMessagesFiltersByGroup(VertxTestContext testContext) throws Exception {
+    public void testFetchMessagesFiltersByGroup(VertxTestContext testContext) {
         logger.info("=== TEST: testFetchMessagesFiltersByGroup STARTED ===");
 
         String topic = "test-fetch-filter-" + UUID.randomUUID().toString().substring(0, 8);
@@ -222,7 +197,6 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
 
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder()
                 .build();
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         topicConfigService.createTopic(topicConfig)
                 .compose(v -> subscriptionManager.subscribe(topic, group1, subscriptionOptions))
@@ -240,31 +214,21 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                     // Group2 should still see the message
                     return fetcher.fetchMessages(topic, group2, 10);
                 })
-                .onSuccess(group2Messages -> {
-                    try {
-                        logger.info("Group2 fetched {} messages", group2Messages.size());
-                        assertEquals(1, group2Messages.size(), "Group2 should fetch the message");
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                })
+                .onSuccess(group2Messages -> testContext.verify(() -> {
+                    logger.info("Group2 fetched {} messages", group2Messages.size());
+                    assertEquals(1, group2Messages.size(), "Group2 should fetch the message");
+                    testContext.completeNow();
+                }))
                 .onFailure(throwable -> {
                     logger.error("Test failed", throwable);
-                    errorRef.set(throwable);
-                    testContext.completeNow();
+                    testContext.failNow(throwable);
                 });
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testFetchMessagesFiltersByGroup COMPLETED ===");
     }
 
     @Test
-    public void testFetchMessagesEmptyResult(VertxTestContext testContext) throws Exception {
+    public void testFetchMessagesEmptyResult(VertxTestContext testContext) {
         logger.info("=== TEST: testFetchMessagesEmptyResult STARTED ===");
 
         String topic = "test-fetch-empty-" + UUID.randomUUID().toString().substring(0, 8);
@@ -278,36 +242,25 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
 
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder()
                 .build();
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         topicConfigService.createTopic(topicConfig)
                 .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
                 .compose(v -> fetcher.fetchMessages(topic, groupName, 10))
-                .onSuccess(messages -> {
-                    try {
-                        logger.info("Fetched {} messages (expected 0)", messages.size());
-                        assertEquals(0, messages.size(), "Should fetch 0 messages when none exist");
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                })
+                .onSuccess(messages -> testContext.verify(() -> {
+                    logger.info("Fetched {} messages (expected 0)", messages.size());
+                    assertEquals(0, messages.size(), "Should fetch 0 messages when none exist");
+                    testContext.completeNow();
+                }))
                 .onFailure(throwable -> {
                     logger.error("Test failed", throwable);
-                    errorRef.set(throwable);
-                    testContext.completeNow();
+                    testContext.failNow(throwable);
                 });
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testFetchMessagesEmptyResult COMPLETED ===");
     }
 
     @Test
-    public void testConcurrentFetchContentionSameGroupOnlyOneFetcherClaimsMessage(VertxTestContext testContext) throws Exception {
+    public void testConcurrentFetchContentionSameGroupOnlyOneFetcherClaimsMessage(VertxTestContext testContext) {
         logger.info("=== TEST: testConcurrentFetchContentionSameGroupOnlyOneFetcherClaimsMessage STARTED ===");
 
         String topic = "test-fetch-concurrency-" + UUID.randomUUID().toString().substring(0, 8);
@@ -319,7 +272,6 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                 .build();
 
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         topicConfigService.createTopic(topicConfig)
                 .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
@@ -329,36 +281,24 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                     Future<List<OutboxMessage>> fetch2 = fetcher.fetchMessages(topic, groupName, 1);
                     return Future.all(fetch1, fetch2);
                 })
-                .onSuccess(result -> {
-                    try {
-                        @SuppressWarnings("unchecked")
-                        List<OutboxMessage> messages1 = (List<OutboxMessage>) result.resultAt(0);
-                        @SuppressWarnings("unchecked")
-                        List<OutboxMessage> messages2 = (List<OutboxMessage>) result.resultAt(1);
+                .onSuccess(result -> testContext.verify(() -> {
+                    @SuppressWarnings("unchecked")
+                    List<OutboxMessage> messages1 = (List<OutboxMessage>) result.resultAt(0);
+                    @SuppressWarnings("unchecked")
+                    List<OutboxMessage> messages2 = (List<OutboxMessage>) result.resultAt(1);
 
-                        int totalClaimed = messages1.size() + messages2.size();
-                        assertEquals(1, totalClaimed,
-                                "Concurrent fetches for same group should claim a message exactly once");
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                })
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
+                    int totalClaimed = messages1.size() + messages2.size();
+                    assertEquals(1, totalClaimed,
+                            "Concurrent fetches for same group should claim a message exactly once");
                     testContext.completeNow();
-                });
+                }))
+                .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testConcurrentFetchContentionSameGroupOnlyOneFetcherClaimsMessage COMPLETED ===");
     }
 
     @Test
-    public void testFailedMessageIsRefetchableForSameGroup(VertxTestContext testContext) throws Exception {
+    public void testFailedMessageIsRefetchableForSameGroup(VertxTestContext testContext) {
         logger.info("=== TEST: testFailedMessageIsRefetchableForSameGroup STARTED ===");
 
         String topic = "test-refetch-failed-" + UUID.randomUUID().toString().substring(0, 8);
@@ -369,7 +309,6 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                 .semantics(TopicSemantics.PUB_SUB)
                 .build();
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         topicConfigService.createTopic(topicConfig)
                 .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
@@ -386,32 +325,20 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                                                     .put("secondFetchSize", secondFetch.size())
                                                     .put("secondFetchId", secondFetch.isEmpty() ? null : secondFetch.get(0).getId())));
                         }))
-                .onSuccess(result -> {
-                    try {
-                        assertEquals(1, result.getInteger("secondFetchSize"),
-                                "Failed message should be available for refetch");
-                        assertEquals(result.getLong("messageId"), result.getLong("secondFetchId"),
-                                "Refetched message should match original claimed message");
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                })
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
+                .onSuccess(result -> testContext.verify(() -> {
+                    assertEquals(1, result.getInteger("secondFetchSize"),
+                            "Failed message should be available for refetch");
+                    assertEquals(result.getLong("messageId"), result.getLong("secondFetchId"),
+                            "Refetched message should match original claimed message");
                     testContext.completeNow();
-                });
+                }))
+                .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testFailedMessageIsRefetchableForSameGroup COMPLETED ===");
     }
 
     @Test
-    public void testStuckProcessingRequiresRecoveryTransitionBeforeRefetch(VertxTestContext testContext) throws Exception {
+    public void testStuckProcessingRequiresRecoveryTransitionBeforeRefetch(VertxTestContext testContext) {
         logger.info("=== TEST: testStuckProcessingRequiresRecoveryTransitionBeforeRefetch STARTED ===");
 
         String topic = "test-recover-stuck-processing-" + UUID.randomUUID().toString().substring(0, 8);
@@ -422,7 +349,6 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                 .semantics(TopicSemantics.PUB_SUB)
                 .build();
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         topicConfigService.createTopic(topicConfig)
                 .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
@@ -448,32 +374,20 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                                                                         ? null : afterRecoveryFetch.get(0).getId())));
                                     });
                         }))
-                .onSuccess(result -> {
-                    try {
-                        assertEquals(1, result.getInteger("afterRecoverySize"),
-                                "Message should be reclaimable after recovery transition to FAILED");
-                        assertEquals(result.getLong("messageId"), result.getLong("afterRecoveryId"),
-                                "Reclaimed message should match the original stuck message");
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                })
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
+                .onSuccess(result -> testContext.verify(() -> {
+                    assertEquals(1, result.getInteger("afterRecoverySize"),
+                            "Message should be reclaimable after recovery transition to FAILED");
+                    assertEquals(result.getLong("messageId"), result.getLong("afterRecoveryId"),
+                            "Reclaimed message should match the original stuck message");
                     testContext.completeNow();
-                });
+                }))
+                .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testStuckProcessingRequiresRecoveryTransitionBeforeRefetch COMPLETED ===");
     }
 
     @Test
-    public void testConcurrentFailRefetchCompleteMaintainsCrossTableConsistency(VertxTestContext testContext) throws Exception {
+    public void testConcurrentFailRefetchCompleteMaintainsCrossTableConsistency(VertxTestContext testContext) {
         logger.info("=== TEST: testConcurrentFailRefetchCompleteMaintainsCrossTableConsistency STARTED ===");
 
         String topic = "test-cross-cutting-consistency-" + UUID.randomUUID().toString().substring(0, 8);
@@ -488,7 +402,6 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                 .build();
 
         SubscriptionOptions subscriptionOptions = SubscriptionOptions.builder().build();
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         topicConfigService.createTopic(topicConfig)
                 .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
@@ -527,31 +440,19 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                                         .compose(x -> queryCrossTableConsistency(topic, groupName, messageCount));
                             });
                 })
-                .onSuccess(result -> {
-                    try {
-                        assertEquals(0, result.getInteger("mismatched_outbox_count"),
-                                "No outbox rows should violate completion counters");
-                        assertEquals(0, result.getInteger("non_completed_tracking_count"),
-                                "All tracking rows for the consumer group should be COMPLETED");
-                        assertEquals(messageCount, result.getInteger("completed_outbox_count"),
-                                "All topic messages should be COMPLETED in outbox");
-                        assertEquals(messageCount, result.getInteger("tracking_row_count"),
-                                "Tracking row count should equal message count");
-                    } catch (Throwable t) {
-                        errorRef.set(t);
-                    } finally {
-                        testContext.completeNow();
-                    }
-                })
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
+                .onSuccess(result -> testContext.verify(() -> {
+                    assertEquals(0, result.getInteger("mismatched_outbox_count"),
+                            "No outbox rows should violate completion counters");
+                    assertEquals(0, result.getInteger("non_completed_tracking_count"),
+                            "All tracking rows for the consumer group should be COMPLETED");
+                    assertEquals(messageCount, result.getInteger("completed_outbox_count"),
+                            "All topic messages should be COMPLETED in outbox");
+                    assertEquals(messageCount, result.getInteger("tracking_row_count"),
+                            "Tracking row count should equal message count");
                     testContext.completeNow();
-                });
+                }))
+                .onFailure(testContext::failNow);
 
-        assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
-        if (errorRef.get() != null) {
-            fail("Test failed: " + errorRef.get().getMessage(), errorRef.get());
-        }
         logger.info("=== TEST: testConcurrentFailRefetchCompleteMaintainsCrossTableConsistency COMPLETED ===");
     }
 

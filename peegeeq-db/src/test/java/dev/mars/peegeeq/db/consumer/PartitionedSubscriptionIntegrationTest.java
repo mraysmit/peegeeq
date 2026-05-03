@@ -30,8 +30,6 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -58,7 +56,7 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
     private SubscriptionManager subscriptionManager;
 
     @BeforeEach
-    public void setUp() throws Exception {
+    public void setUp(VertxTestContext testContext) {
         // super.setUpBaseIntegration(); // Removed: JUnit 5 automatically executes @BeforeEach from superclasses
 
         connectionManager = new PgConnectionManager(manager.getVertx(), null);
@@ -91,11 +89,9 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
         subscriptionManager.setPartitionedConsumptionServices(assignmentService, fetcher, offsetManager);
 
         // Clean up test data from prior runs
-        VertxTestContext cleanupCtx = new VertxTestContext();
         cleanupTestData()
-                .onSuccess(v -> cleanupCtx.completeNow())
-                .onFailure(t -> cleanupCtx.completeNow());
-        cleanupCtx.awaitCompletion(10, TimeUnit.SECONDS);
+                .onSuccess(v -> testContext.completeNow())
+                .onFailure(t -> testContext.completeNow());
 
         logger.info("PartitionedSubscription test setup complete");
     }
@@ -115,13 +111,12 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
     // ========================================================================
 
     @Test
-    public void testJoinPartitionedGroup_returnsAssignments(VertxTestContext testContext) throws Exception {
+    public void testJoinPartitionedGroup_returnsAssignments(VertxTestContext testContext) {
         logger.info("=== TEST 5.1: testJoinPartitionedGroup_returnsAssignments STARTED ===");
 
         String topic = "test-ps-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group-A";
         String instanceId = "instance-1";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic, "OFFSET_WATERMARK")
                 .compose(v -> createSubscription(topic, groupName))
@@ -149,15 +144,7 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test failed with error", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -166,13 +153,12 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
     // ========================================================================
 
     @Test
-    public void testJoinPartitionedGroup_rejectsReferenceCountingTopic(VertxTestContext testContext) throws Exception {
+    public void testJoinPartitionedGroup_rejectsReferenceCountingTopic(VertxTestContext testContext) {
         logger.info("=== TEST 5.2: testJoinPartitionedGroup_rejectsReferenceCountingTopic STARTED ===");
 
         String topic = "test-ps-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group-A";
         String instanceId = "instance-1";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic, "REFERENCE_COUNTING")
                 .compose(v -> createSubscription(topic, groupName))
@@ -190,15 +176,7 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
                             return Future.succeededFuture();
                         })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test failed with error", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -207,12 +185,11 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
     // ========================================================================
 
     @Test
-    public void testLeavePartitionedGroup_triggersRebalance(VertxTestContext testContext) throws Exception {
+    public void testLeavePartitionedGroup_triggersRebalance(VertxTestContext testContext) {
         logger.info("=== TEST 5.3: testLeavePartitionedGroup_triggersRebalance STARTED ===");
 
         String topic = "test-ps-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group-A";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic, "OFFSET_WATERMARK")
                 .compose(v -> createSubscription(topic, groupName))
@@ -234,15 +211,7 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test failed with error", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -251,13 +220,12 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
     // ========================================================================
 
     @Test
-    public void testFetchPartitioned_returnsOrderedMessages(VertxTestContext testContext) throws Exception {
+    public void testFetchPartitioned_returnsOrderedMessages(VertxTestContext testContext) {
         logger.info("=== TEST 5.4: testFetchPartitioned_returnsOrderedMessages STARTED ===");
 
         String topic = "test-ps-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group-A";
         String instanceId = "instance-1";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic, "OFFSET_WATERMARK")
                 .compose(v -> createSubscription(topic, groupName))
@@ -284,15 +252,7 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
                             return Future.succeededFuture();
                         }))
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test failed with error", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -301,13 +261,12 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
     // ========================================================================
 
     @Test
-    public void testFetchPartitioned_rejectsUnassignedPartition(VertxTestContext testContext) throws Exception {
+    public void testFetchPartitioned_rejectsUnassignedPartition(VertxTestContext testContext) {
         logger.info("=== TEST 5.5: testFetchPartitioned_rejectsUnassignedPartition STARTED ===");
 
         String topic = "test-ps-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group-A";
         String instanceId = "instance-1";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic, "OFFSET_WATERMARK")
                 .compose(v -> createSubscription(topic, groupName))
@@ -331,15 +290,7 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
                             return Future.succeededFuture();
                         })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test failed with error", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -348,13 +299,12 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
     // ========================================================================
 
     @Test
-    public void testCommitOffset_advancesAndReturnsTrue(VertxTestContext testContext) throws Exception {
+    public void testCommitOffset_advancesAndReturnsTrue(VertxTestContext testContext) {
         logger.info("=== TEST 5.6: testCommitOffset_advancesAndReturnsTrue STARTED ===");
 
         String topic = "test-ps-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group-A";
         String instanceId = "instance-1";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic, "OFFSET_WATERMARK")
                 .compose(v -> createSubscription(topic, groupName))
@@ -375,15 +325,7 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
                             return Future.succeededFuture();
                         }))
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test failed with error", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -392,12 +334,11 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
     // ========================================================================
 
     @Test
-    public void testCommitOffset_staleGeneration_returnsFalse(VertxTestContext testContext) throws Exception {
+    public void testCommitOffset_staleGeneration_returnsFalse(VertxTestContext testContext) {
         logger.info("=== TEST 5.7: testCommitOffset_staleGeneration_returnsFalse STARTED ===");
 
         String topic = "test-ps-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group-A";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic, "OFFSET_WATERMARK")
                 .compose(v -> createSubscription(topic, groupName))
@@ -426,15 +367,7 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test failed with error", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -443,12 +376,11 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
     // ========================================================================
 
     @Test
-    public void testGetAssignments_returnsInstancePartitions(VertxTestContext testContext) throws Exception {
+    public void testGetAssignments_returnsInstancePartitions(VertxTestContext testContext) {
         logger.info("=== TEST 5.8: testGetAssignments_returnsInstancePartitions STARTED ===");
 
         String topic = "test-ps-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group-A";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic, "OFFSET_WATERMARK")
                 .compose(v -> createSubscription(topic, groupName))
@@ -477,15 +409,7 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
                     return Future.succeededFuture();
                 })
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test failed with error", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================
@@ -494,13 +418,12 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
     // ========================================================================
 
     @Test
-    public void testEndToEnd_joinFetchCommitLeave(VertxTestContext testContext) throws Exception {
+    public void testEndToEnd_joinFetchCommitLeave(VertxTestContext testContext) {
         logger.info("=== TEST 5.9: testEndToEnd_joinFetchCommitLeave STARTED ===");
 
         String topic = "test-ps-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "group-A";
         String instanceId = "instance-1";
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
 
         createTopic(topic, "OFFSET_WATERMARK")
                 .compose(v -> createSubscription(topic, groupName))
@@ -535,15 +458,7 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
                                     });
                         }))
                 .onSuccess(v -> testContext.completeNow())
-                .onFailure(throwable -> {
-                    errorRef.set(throwable);
-                    testContext.completeNow();
-                });
-
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), "Test timed out");
-        if (errorRef.get() != null) {
-            throw new AssertionError("Test failed with error", errorRef.get());
-        }
+                .onFailure(testContext::failNow);
     }
 
     // ========================================================================

@@ -69,7 +69,7 @@ public class P3_MixedTopicsTest extends BaseIntegrationTest {
     private CleanupService cleanupService;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp() {
         connectionManager = new PgConnectionManager(manager.getVertx(), null);
 
         PostgreSQLContainer postgres = getPostgres();
@@ -114,169 +114,146 @@ public class P3_MixedTopicsTest extends BaseIntegrationTest {
      * Validates correct distribution vs replication semantics.
      */
     @Test
-    void testMixedTopicsConcurrent() throws Exception {
+    void testMixedTopicsConcurrent(VertxTestContext testContext) {
         logger.info("=== P3: MIXED TOPICS TEST ===");
 
-        // Use unique topic names to avoid conflicts in parallel test execution
         String uniqueId = UUID.randomUUID().toString().substring(0, 8);
         String queueTopic = "perf-test-queue-" + uniqueId;
         String pubsubTopic = "perf-test-pubsub-" + uniqueId;
-        int messageCount = 300;  // Per topic
+        int messageCount = 300;
         int payloadSizeBytes = 2048;
-
-        logger.info("=== TEST CONFIGURATION ===");
-        logger.info("QUEUE Topic: {}", queueTopic);
-        logger.info("PUB_SUB Topic: {}", pubsubTopic);
-        logger.info("Messages per topic: {}", messageCount);
-        logger.info("Payload Size: {} bytes", payloadSizeBytes);
-
-        // Step 1: Create QUEUE topic with 3 consumer groups (competing consumers)
-        TopicConfig queueConfig = TopicConfig.builder()
-            .topic(queueTopic)
-            .semantics(TopicSemantics.QUEUE)
-            .messageRetentionHours(1)
-            .build();
-        topicConfigService.createTopic(queueConfig)
-            .toCompletionStage().toCompletableFuture().get();
-
         List<String> queueGroups = List.of("queue-consumer-1", "queue-consumer-2", "queue-consumer-3");
-        for (String groupName : queueGroups) {
-            subscriptionManager.subscribe(queueTopic, groupName, SubscriptionOptions.defaults())
-                .toCompletionStage().toCompletableFuture().get();
-        }
-
-        // Step 2: Create PUB_SUB topic with 3 consumer groups (all receive all messages)
-        TopicConfig pubsubConfig = TopicConfig.builder()
-            .topic(pubsubTopic)
-            .semantics(TopicSemantics.PUB_SUB)
-            .messageRetentionHours(1)
-            .build();
-        topicConfigService.createTopic(pubsubConfig)
-            .toCompletionStage().toCompletableFuture().get();
-
         List<String> pubsubGroups = List.of("pubsub-group-1", "pubsub-group-2", "pubsub-group-3");
-        for (String groupName : pubsubGroups) {
-            subscriptionManager.subscribe(pubsubTopic, groupName, SubscriptionOptions.defaults())
-                .toCompletionStage().toCompletableFuture().get();
+
+        logger.info("QUEUE Topic: {}, PUB_SUB Topic: {}, {} messages, {} bytes",
+            queueTopic, pubsubTopic, messageCount, payloadSizeBytes);
+
+        // Step 1: Create QUEUE topic + subscriptions
+        topicConfigService.createTopic(TopicConfig.builder()
+                .topic(queueTopic).semantics(TopicSemantics.QUEUE).messageRetentionHours(1).build())
+            .compose(v -> {
+                Future<Void> chain = Future.succeededFuture();
+                for (String g : queueGroups) {
+                    chain = chain.compose(ignored ->
+                        subscriptionManager.subscribe(queueTopic, g, SubscriptionOptions.defaults()).mapEmpty());
+                }
+                return chain;
+            })
+            // Step 2: Create PUB_SUB topic + subscriptions
+            .compose(v -> topicConfigService.createTopic(TopicConfig.builder()
+                    .topic(pubsubTopic).semantics(TopicSemantics.PUB_SUB).messageRetentionHours(1).build()))
+            .compose(v -> {
+                Future<Void> chain = Future.succeededFuture();
+                for (String g : pubsubGroups) {
+                    chain = chain.compose(ignored ->
+                        subscriptionManager.subscribe(pubsubTopic, g, SubscriptionOptions.defaults()).mapEmpty());
+                }
+                return chain;
+            })
+            // Step 3: Publish to both topics
+            .compose(v -> {
+                long start = System.currentTimeMillis();
+                return publishInBatches(queueTopic, messageCount, payloadSizeBytes, 50)
+                    .compose(ignored -> publishInBatches(pubsubTopic, messageCount, payloadSizeBytes, 50))
+                    .map(ignored -> {
+                        logger.info("Publish done in {} ms", System.currentTimeMillis() - start);
+                        return null;
+                    });
+            })
+            // Step 4: Consume QUEUE topic (distributed — total = messageCount)
+            .compose(v -> {
+                AtomicInteger queueTotal = new AtomicInteger(0);
+                Future<Void> chain = Future.succeededFuture();
+                for (String g : queueGroups) {
+                    chain = chain.compose(ignored ->
+                        consumeUntilEmpty(queueTopic, g).map(n -> {
+                            queueTotal.addAndGet(n);
+                            logger.info("QUEUE consumer '{}' consumed {} messages", g, n);
+                            return null;
+                        })
+                    );
+                }
+                return chain.map(ignored -> queueTotal.get());
+            })
+            .compose(queueTotal -> {
+                assertEquals(messageCount, queueTotal,
+                    "QUEUE topic should distribute " + messageCount + " messages across all consumers");
+                // Step 5: Consume PUB_SUB topic (replicated — total = messageCount * groups)
+                AtomicInteger pubsubTotal = new AtomicInteger(0);
+                Future<Void> chain = Future.succeededFuture();
+                for (String g : pubsubGroups) {
+                    chain = chain.compose(ignored ->
+                        consumeUntilEmpty(pubsubTopic, g).map(n -> {
+                            pubsubTotal.addAndGet(n);
+                            logger.info("PUB_SUB consumer '{}' consumed {} messages", g, n);
+                            return null;
+                        })
+                    );
+                }
+                int expectedPubsub = messageCount * pubsubGroups.size();
+                return chain.map(ignored -> {
+                    assertEquals(expectedPubsub, pubsubTotal.get(),
+                        "PUB_SUB topic should replicate to all groups");
+                    return null;
+                });
+            })
+            // Step 6: Cleanup
+            .compose(v -> cleanupService.cleanupCompletedMessages(queueTopic, 100)
+                .compose(qDel -> cleanupService.cleanupCompletedMessages(pubsubTopic, 100)
+                    .map(pDel -> {
+                        logger.info("Cleaned {} QUEUE, {} PUB_SUB messages", qDel, pDel);
+                        logger.info("=== P3: MIXED TOPICS TEST COMPLETE ===");
+                        return null;
+                    })))
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
+    }
+
+    private Future<Void> publishInBatches(String topic, int count, int payloadSizeBytes, int batchSize) {
+        Future<Void> chain = Future.succeededFuture();
+        for (int batchStart = 0; batchStart < count; batchStart += batchSize) {
+            final int start = batchStart;
+            final int end = Math.min(batchStart + batchSize, count);
+            chain = chain.compose(ignored -> {
+                List<Future<Long>> batch = new ArrayList<>();
+                for (int i = start; i < end; i++) {
+                    batch.add(insertMessage(topic, generatePayload(i, payloadSizeBytes)));
+                }
+                return Future.all(batch).mapEmpty();
+            });
         }
+        return chain;
+    }
 
-        // Step 3: Publish messages to both topics concurrently
-        long publishStartTime = System.currentTimeMillis();
+    private Future<Integer> consumeUntilEmpty(String topic, String groupName) {
+        AtomicInteger consumed = new AtomicInteger(0);
+        return consumeLoop(topic, groupName, consumed);
+    }
 
-        // Publish to QUEUE topic
-        List<Future<Long>> queueFutures = publishMessages(queueTopic, messageCount, payloadSizeBytes);
-        Future.all(queueFutures).toCompletionStage().toCompletableFuture().get();
-
-        // Publish to PUB_SUB topic
-        List<Future<Long>> pubsubFutures = publishMessages(pubsubTopic, messageCount, payloadSizeBytes);
-        Future.all(pubsubFutures).toCompletionStage().toCompletableFuture().get();
-
-        long publishEndTime = System.currentTimeMillis();
-        long publishDurationMs = publishEndTime - publishStartTime;
-
-        // Step 4: Consume from QUEUE topic (messages distributed across 3 groups)
-        long queueConsumeStart = System.currentTimeMillis();
-        AtomicInteger queueTotalConsumed = new AtomicInteger(0);
-
-        for (String groupName : queueGroups) {
-            int consumed = 0;
-            while (true) {
-                List<OutboxMessage> messages = fetcher.fetchMessages(queueTopic, groupName, 50)
-                    .toCompletionStage().toCompletableFuture().get();
-
+    private Future<Integer> consumeLoop(String topic, String groupName, AtomicInteger consumed) {
+        return fetcher.fetchMessages(topic, groupName, 50)
+            .compose(messages -> {
                 if (messages.isEmpty()) {
-                    break;
+                    return Future.succeededFuture(consumed.get());
                 }
-
+                Future<Void> markChain = Future.succeededFuture();
                 for (OutboxMessage message : messages) {
-                    completionTracker.markCompleted(message.getId(), groupName, queueTopic)
-                        .toCompletionStage().toCompletableFuture().get();
-                    consumed++;
-                    queueTotalConsumed.incrementAndGet();
+                    markChain = markChain.compose(ignored ->
+                        completionTracker.markCompleted(message.getId(), groupName, topic).mapEmpty());
                 }
-            }
-            logger.info("QUEUE consumer '{}' consumed {} messages", groupName, consumed);
-        }
-
-        long queueConsumeEnd = System.currentTimeMillis();
-        long queueConsumeDurationMs = queueConsumeEnd - queueConsumeStart;
-
-        // Step 5: Consume from PUB_SUB topic (all groups receive all messages)
-        long pubsubConsumeStart = System.currentTimeMillis();
-        AtomicInteger pubsubTotalConsumed = new AtomicInteger(0);
-
-        for (String groupName : pubsubGroups) {
-            int consumed = 0;
-            while (consumed < messageCount) {
-                List<OutboxMessage> messages = fetcher.fetchMessages(pubsubTopic, groupName, 50)
-                    .toCompletionStage().toCompletableFuture().get();
-
-                if (messages.isEmpty()) {
-                    break;
-                }
-
-                for (OutboxMessage message : messages) {
-                    completionTracker.markCompleted(message.getId(), groupName, pubsubTopic)
-                        .toCompletionStage().toCompletableFuture().get();
-                    consumed++;
-                    pubsubTotalConsumed.incrementAndGet();
-                }
-            }
-            logger.info("PUB_SUB consumer '{}' consumed {} messages", groupName, consumed);
-        }
-
-        long pubsubConsumeEnd = System.currentTimeMillis();
-        long pubsubConsumeDurationMs = pubsubConsumeEnd - pubsubConsumeStart;
-
-        // Step 6: Validate semantics
-        // QUEUE: Total consumed should equal messageCount (distributed)
-        assertEquals(messageCount, queueTotalConsumed.get(),
-            "QUEUE topic should distribute " + messageCount + " messages across all consumers");
-
-        // PUB_SUB: Total consumed should equal messageCount * groupCount (replicated)
-        int expectedPubsubConsumed = messageCount * pubsubGroups.size();
-        assertEquals(expectedPubsubConsumed, pubsubTotalConsumed.get(),
-            "PUB_SUB topic should replicate " + messageCount + " messages to all " + pubsubGroups.size() + " groups");
-
-        // Step 7: Cleanup
-        int queueDeleted = cleanupService.cleanupCompletedMessages(queueTopic, 100)
-            .toCompletionStage().toCompletableFuture().get();
-        int pubsubDeleted = cleanupService.cleanupCompletedMessages(pubsubTopic, 100)
-            .toCompletionStage().toCompletableFuture().get();
-
-        // Log performance summary
-        logger.info("=== PERFORMANCE SUMMARY ===");
-        logger.info("Total Publish Duration: {} ms", publishDurationMs);
-        logger.info("QUEUE Consume Duration: {} ms", queueConsumeDurationMs);
-        logger.info("PUB_SUB Consume Duration: {} ms", pubsubConsumeDurationMs);
-        logger.info("QUEUE Messages Consumed: {} (expected: {})", queueTotalConsumed.get(), messageCount);
-        logger.info("PUB_SUB Messages Consumed: {} (expected: {})", pubsubTotalConsumed.get(), expectedPubsubConsumed);
-        logger.info("QUEUE Messages Cleaned: {}", queueDeleted);
-        logger.info("PUB_SUB Messages Cleaned: {}", pubsubDeleted);
-        logger.info("=== P3: MIXED TOPICS TEST COMPLETE ===");
+                return markChain.compose(ignored -> {
+                    consumed.addAndGet(messages.size());
+                    return consumeLoop(topic, groupName, consumed);
+                });
+            });
     }
 
     private List<Future<Long>> publishMessages(String topic, int count, int payloadSizeBytes) {
+        // Retained for compatibility; prefer publishInBatches for reactive use.
         List<Future<Long>> futures = new ArrayList<>();
-        int batchSize = 50;
-
-        for (int batchStart = 0; batchStart < count; batchStart += batchSize) {
-            int batchEnd = Math.min(batchStart + batchSize, count);
-
-            for (int i = batchStart; i < batchEnd; i++) {
-                JsonObject payload = generatePayload(i, payloadSizeBytes);
-                futures.add(insertMessage(topic, payload));
-            }
-
-            // Wait for batch to complete to avoid connection pool exhaustion
-            try {
-                Future.all(futures.subList(batchStart, Math.min(batchEnd, futures.size())))
-                    .toCompletionStage().toCompletableFuture().get();
-            } catch (Exception e) {
-                throw new RuntimeException("Failed to publish batch", e);
-            }
+        for (int i = 0; i < count; i++) {
+            futures.add(insertMessage(topic, generatePayload(i, payloadSizeBytes)));
         }
-
         return futures;
     }
 

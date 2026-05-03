@@ -21,8 +21,6 @@ import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicReference;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -48,7 +46,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
     private SimpleMeterRegistry meterRegistry;
 
     @BeforeEach
-    void setUp() throws Exception {
+    void setUp() {
         meterRegistry = new SimpleMeterRegistry();
         connectionManager = new PgConnectionManager(manager.getVertx(), meterRegistry);
     }
@@ -156,7 +154,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testGetReactiveConnection(VertxTestContext testContext) throws Exception {
+    void testGetReactiveConnection(VertxTestContext testContext) {
         PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
@@ -170,7 +168,6 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
         PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
         connectionManager.getOrCreateReactivePool("test-service", connectionConfig, poolConfig);
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         connectionManager.getReactiveConnection("test-service")
             .compose(connection -> {
                 assertNotNull(connection);
@@ -183,35 +180,22 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
                     });
             })
             .onSuccess(v -> testContext.completeNow())
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testGetReactiveConnectionWithNonExistentService(VertxTestContext testContext) throws Exception {
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+    void testGetReactiveConnectionWithNonExistentService(VertxTestContext testContext) {
         connectionManager.getReactiveConnection("non-existent-service")
-            .onSuccess(v -> {
-                errorRef.set(new AssertionError("Expected exception for non-existent service"));
+            .onSuccess(v -> testContext.failNow(new AssertionError("Expected exception for non-existent service")))
+            .onFailure(e -> testContext.verify(() -> {
+                assertTrue(e instanceof IllegalStateException);
+                assertTrue(e.getMessage().contains("No reactive pool found"));
                 testContext.completeNow();
-            })
-            .onFailure(e -> {
-                try {
-                    assertTrue(e instanceof IllegalStateException);
-                    assertTrue(e.getMessage().contains("No reactive pool found"));
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            }));
     }
 
     @Test
-    void testWithConnection(VertxTestContext testContext) throws Exception {
+    void testWithConnection(VertxTestContext testContext) {
         PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
@@ -225,52 +209,33 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
         PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
         connectionManager.getOrCreateReactivePool("test-service", connectionConfig, poolConfig);
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         connectionManager.withConnection("test-service", conn ->
             conn.query("SELECT 42 as value")
                 .execute()
                 .map(rowSet -> rowSet.iterator().next().getInteger("value"))
         )
-        .onSuccess(result -> {
-            try {
-                assertEquals(42, result);
-            } catch (Throwable t) {
-                errorRef.set(t);
-            } finally {
-                testContext.completeNow();
-            }
-        })
-        .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+        .onSuccess(result -> testContext.verify(() -> {
+            assertEquals(42, result);
+            testContext.completeNow();
+        }))
+        .onFailure(testContext::failNow);
     }
 
     @Test
-    void testWithConnectionNonExistentService(VertxTestContext testContext) throws Exception {
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+    void testWithConnectionNonExistentService(VertxTestContext testContext) {
         connectionManager.withConnection("non-existent-service", conn ->
             conn.query("SELECT 1").execute().map(rs -> 1)
         )
-        .onSuccess(v -> {
-            errorRef.set(new AssertionError("Expected exception for non-existent service"));
+        .onSuccess(v -> testContext.failNow(new AssertionError("Expected exception for non-existent service")))
+        .onFailure(e -> testContext.verify(() -> {
+            assertTrue(e instanceof IllegalStateException);
+            assertTrue(e.getMessage().contains("No reactive pool found"));
             testContext.completeNow();
-        })
-        .onFailure(e -> {
-            try {
-                assertTrue(e instanceof IllegalStateException);
-                assertTrue(e.getMessage().contains("No reactive pool found"));
-            } catch (Throwable t) {
-                errorRef.set(t);
-            } finally {
-                testContext.completeNow();
-            }
-        });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+        }));
     }
 
     @Test
-    void testWithTransaction(VertxTestContext testContext) throws Exception {
+    void testWithTransaction(VertxTestContext testContext) {
         PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
@@ -283,52 +248,33 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
         PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
         connectionManager.getOrCreateReactivePool("test-service", connectionConfig, poolConfig);
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         connectionManager.withTransaction("test-service", conn ->
             conn.query("SELECT 99 as value")
                 .execute()
                 .map(rowSet -> rowSet.iterator().next().getInteger("value"))
         )
-        .onSuccess(result -> {
-            try {
-                assertEquals(99, result);
-            } catch (Throwable t) {
-                errorRef.set(t);
-            } finally {
-                testContext.completeNow();
-            }
-        })
-        .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+        .onSuccess(result -> testContext.verify(() -> {
+            assertEquals(99, result);
+            testContext.completeNow();
+        }))
+        .onFailure(testContext::failNow);
     }
 
     @Test
-    void testWithTransactionNonExistentService(VertxTestContext testContext) throws Exception {
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+    void testWithTransactionNonExistentService(VertxTestContext testContext) {
         connectionManager.withTransaction("non-existent-service", conn ->
             conn.query("SELECT 1").execute().map(rs -> 1)
         )
-        .onSuccess(v -> {
-            errorRef.set(new AssertionError("Expected exception for non-existent service"));
+        .onSuccess(v -> testContext.failNow(new AssertionError("Expected exception for non-existent service")))
+        .onFailure(e -> testContext.verify(() -> {
+            assertTrue(e instanceof IllegalStateException);
+            assertTrue(e.getMessage().contains("No reactive pool found"));
             testContext.completeNow();
-        })
-        .onFailure(e -> {
-            try {
-                assertTrue(e instanceof IllegalStateException);
-                assertTrue(e.getMessage().contains("No reactive pool found"));
-            } catch (Throwable t) {
-                errorRef.set(t);
-            } finally {
-                testContext.completeNow();
-            }
-        });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+        }));
     }
 
     @Test
-    void testCheckHealth(VertxTestContext testContext) throws Exception {
+    void testCheckHealth(VertxTestContext testContext) {
         PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
@@ -341,38 +287,22 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
         PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
         connectionManager.getOrCreateReactivePool("test-service", connectionConfig, poolConfig);
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         connectionManager.checkHealth("test-service")
-            .onSuccess(healthy -> {
-                try {
-                    assertTrue(healthy);
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(healthy -> testContext.verify(() -> {
+                assertTrue(healthy);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testCheckHealthNonExistentService(VertxTestContext testContext) throws Exception {
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
+    void testCheckHealthNonExistentService(VertxTestContext testContext) {
         connectionManager.checkHealth("non-existent-service")
-            .onSuccess(healthy -> {
-                try {
-                    assertFalse(healthy);
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(healthy -> testContext.verify(() -> {
+                assertFalse(healthy);
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
@@ -399,7 +329,7 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testClosePool(VertxTestContext testContext) throws Exception {
+    void testClosePool(VertxTestContext testContext) {
         PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
@@ -415,32 +345,23 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
         // Verify pool exists
         assertNotNull(connectionManager.getExistingPool("test-service"));
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         connectionManager.closePool("test-service")
-            .onSuccess(v -> {
-                try {
-                    assertNull(connectionManager.getExistingPool("test-service"));
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(v -> testContext.verify(() -> {
+                assertNull(connectionManager.getExistingPool("test-service"));
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testClosePoolNonExistentService(VertxTestContext testContext) throws Exception {
+    void testClosePoolNonExistentService(VertxTestContext testContext) {
         connectionManager.closePool("non-existent-service")
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testCloseAsync(VertxTestContext testContext) throws Exception {
+    void testCloseAsync(VertxTestContext testContext) {
         PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
@@ -458,33 +379,24 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
         assertNotNull(connectionManager.getExistingPool("test-service-1"));
         assertNotNull(connectionManager.getExistingPool("test-service-2"));
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         connectionManager.close()
-            .onSuccess(v -> {
-                try {
-                    assertNull(connectionManager.getExistingPool("test-service-1"));
-                    assertNull(connectionManager.getExistingPool("test-service-2"));
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(v -> testContext.verify(() -> {
+                assertNull(connectionManager.getExistingPool("test-service-1"));
+                assertNull(connectionManager.getExistingPool("test-service-2"));
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
-    void testCloseAsyncWithNoPools(VertxTestContext testContext) throws Exception {
+    void testCloseAsyncWithNoPools(VertxTestContext testContext) {
         connectionManager.close()
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
     @Test
-    void testClose(VertxTestContext testContext) throws Exception {
+    void testClose(VertxTestContext testContext) {
         PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
@@ -500,20 +412,12 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
         // Verify pool exists
         assertNotNull(connectionManager.getExistingPool("test-service"));
 
-        AtomicReference<Throwable> errorRef = new AtomicReference<>();
         connectionManager.close()
-            .onSuccess(v -> {
-                try {
-                    assertNull(connectionManager.getExistingPool("test-service"));
-                } catch (Throwable t) {
-                    errorRef.set(t);
-                } finally {
-                    testContext.completeNow();
-                }
-            })
-            .onFailure(e -> { errorRef.set(e); testContext.completeNow(); });
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-        if (errorRef.get() != null) fail(errorRef.get().getMessage(), errorRef.get());
+            .onSuccess(v -> testContext.verify(() -> {
+                assertNull(connectionManager.getExistingPool("test-service"));
+                testContext.completeNow();
+            }))
+            .onFailure(testContext::failNow);
     }
 
     @Test
