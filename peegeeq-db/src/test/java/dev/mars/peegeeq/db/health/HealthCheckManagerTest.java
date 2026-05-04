@@ -170,10 +170,10 @@ class HealthCheckManagerTest {
      */
     private Future<Void> cleanupTestData() {
         return reactivePool.withConnection(connection -> {
-            // Clean up all test data from tables
-            return connection.query("DELETE FROM dead_letter_queue").execute()
-                .compose(result -> connection.query("DELETE FROM outbox").execute())
-                .compose(result -> connection.query("DELETE FROM queue_messages").execute())
+            // Clean up only rows inserted by this test class to avoid interfering with concurrent tests
+            return connection.query("DELETE FROM dead_letter_queue WHERE topic LIKE 'test-topic%'").execute()
+                .compose(result -> connection.query("DELETE FROM outbox WHERE topic LIKE 'test-topic%'").execute())
+                .compose(result -> connection.query("DELETE FROM queue_messages WHERE topic LIKE 'test-topic%'").execute())
                 .<Void>mapEmpty();
         })
         .onSuccess(v -> logger.debug("Cleaned up test data for HealthCheckManager test isolation"))
