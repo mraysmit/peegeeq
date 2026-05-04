@@ -43,6 +43,8 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -71,6 +73,8 @@ import static org.junit.jupiter.api.Assertions.*;
 public class BackfillScopePerformanceTest extends BaseIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(BackfillScopePerformanceTest.class);
+
+    private final List<String> testTopics = new ArrayList<>();
 
     private PgConnectionManager connectionManager;
     private TopicConfigService topicConfigService;
@@ -107,18 +111,17 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) {
         if (connectionManager != null) {
-            connectionManager.withConnection("peegeeq-main", connection ->
-                connection.preparedQuery(
-                    "DELETE FROM outbox WHERE topic LIKE 'perf-pending-only-%'" +
-                    " OR topic LIKE 'perf-all-retained-%'" +
-                    " OR topic LIKE 'perf-incr-completed-%'" +
-                    " OR topic LIKE 'perf-compare-%'")
-                    .execute()
-                    .mapEmpty()
-            )
-            .compose(v -> connectionManager.close())
-            .onSuccess(v -> testContext.completeNow())
-            .onFailure(testContext::failNow);
+            Future<Void> deleteFuture = testTopics.isEmpty()
+                    ? Future.succeededFuture()
+                    : connectionManager.withConnection("peegeeq-main", connection ->
+                            connection.preparedQuery(
+                                "DELETE FROM outbox WHERE topic = ANY($1::text[])")
+                                .execute(Tuple.of(testTopics.toArray(new String[0])))
+                                .mapEmpty());
+            deleteFuture
+                    .compose(v -> connectionManager.close())
+                    .onSuccess(v -> testContext.completeNow())
+                    .onFailure(testContext::failNow);
         } else {
             testContext.completeNow();
         }
@@ -362,6 +365,7 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
     // ========================================================================
 
     private Future<Void> setupTopicAndMessages(String topic, int messageCount) {
+        testTopics.add(topic);
         return topicConfigService.createTopic(TopicConfig.builder()
                         .topic(topic)
                         .semantics(TopicSemantics.PUB_SUB)
