@@ -611,7 +611,7 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
     // ========================================================================
     // Edge Case A: Commit Same Offset (Equal, Not Greater)
     // Commits to 20, then attempts to recommit 20 (equal, not greater).
-    // The CAS uses strict < so equal values are rejected — proves the boundary condition.
+    // The CAS uses strict < so equal values are rejected proves the boundary condition.
     // ========================================================================
 
     @Test
@@ -665,7 +665,7 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
                 .compose(init -> offsetManager.commitOffset(topic, groupName, partitionKey, 42L, generation))
                 .compose(committed -> {
                     assertTrue(committed, "Commit to 42 must succeed");
-                    // Re-initialize — must NOT reset offset back to 0
+                    // Re-initialize must NOT reset offset back to 0
                     return offsetManager.initializeOffset(topic, groupName, partitionKey, generation);
                 })
                 .compose(reinit -> {
@@ -768,7 +768,7 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
     // ========================================================================
     // Edge Case F: setPendingOffset Overwrite
     // Sets pending=50, then sets pending=100 on the same row with the same generation.
-    // Verifies the second call overwrites the first — pending_offset must be 100, not 50.
+    // Verifies the second call overwrites the first pending_offset must be 100, not 50.
     // ========================================================================
 
     @Test
@@ -820,7 +820,7 @@ public class PartitionedOffsetManagerIntegrationTest extends BaseIntegrationTest
         offsetManager.initializeOffset(topic, groupName, partitionKey, 1)
                 .compose(first -> {
                     assertEquals(1, first.generation());
-                    // Re-init with different generation — ON CONFLICT no-op must return existing gen=1
+                    // Re-init with different generation ON CONFLICT no-op must return existing gen=1
                     return offsetManager.initializeOffset(topic, groupName, partitionKey, 5);
                 })
                 .compose(second -> {

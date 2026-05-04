@@ -145,8 +145,8 @@ public class PeeGeeQMetricsLogLevelTest {
     @Order(1)
     @DisplayName("Positive: persistMetrics without queue_metrics table logs ERROR (non-connection failure)")
     void testPersistWithoutTableLogsError(VertxTestContext testContext) {
-        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Failed to persist metrics to database') is EXPECTED — this test deliberately persists without a metrics table to verify error logging");
-        // Table does not exist — SQL will fail with relation not found
+        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Failed to persist metrics to database') is EXPECTED this test deliberately persists without a metrics table to verify error logging");
+        // Table does not exist SQL will fail with relation not found
         Pool pool = createPool();
         metrics = new PeeGeeQMetrics(pool, "test-instance");
         SimpleMeterRegistry registry = new SimpleMeterRegistry();

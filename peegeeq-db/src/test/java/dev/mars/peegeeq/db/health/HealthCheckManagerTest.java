@@ -37,7 +37,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
-import java.sql.SQLException;
 import java.time.Duration;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -91,7 +90,7 @@ class HealthCheckManagerTest {
     private HealthCheckManager healthCheckManager;
 
     @BeforeEach
-    void setUp(VertxTestContext testContext) throws SQLException {
+    void setUp(VertxTestContext testContext) {
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
         vertx = Vertx.vertx();
         connectionManager = new PgConnectionManager(vertx);
@@ -316,7 +315,7 @@ class HealthCheckManagerTest {
         
         HealthCheck customCheck = () -> {
             customCheckCalled.set(true);
-            return HealthStatus.healthy("custom-check");
+            return Future.succeededFuture(HealthStatus.healthy("custom-check"));
         };
         
         healthCheckManager.registerHealthCheck("custom", customCheck);
@@ -346,7 +345,7 @@ class HealthCheckManagerTest {
      */
     @Test
     void testFailingHealthCheck(VertxTestContext testContext) {
-        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN logs ('Health check failed: failing') are EXPECTED — this test deliberately throws an exception from a health check to verify failure handling");
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN logs ('Health check failed: failing') are EXPECTED this test deliberately throws an exception from a health check to verify failure handling");
 
         HealthCheck failingCheck = () -> {
             // Create a custom exception that clearly indicates it's intentional
@@ -372,7 +371,7 @@ class HealthCheckManagerTest {
 
     @Test
     void testHealthCheckTimeout(VertxTestContext testContext) {
-        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Health check timed out: slow') is EXPECTED — this test deliberately creates a slow health check to verify timeout handling");
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Health check timed out: slow') is EXPECTED this test deliberately creates a slow health check to verify timeout handling");
         
         HealthCheck slowCheck = () -> {
             // Simulate slow operation - will timeout (3 second timeout)
@@ -410,7 +409,7 @@ class HealthCheckManagerTest {
      */
     @Test
     void testHealthCheckWithDatabaseFailure(VertxTestContext testContext) {
-        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN/ERROR logs ('Health check failed: database', 'Database connection pool validation failed') are EXPECTED — this test deliberately closes the DB connection to verify failure detection");
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN/ERROR logs ('Health check failed: database', 'Database connection pool validation failed') are EXPECTED this test deliberately closes the DB connection to verify failure detection");
 
         startManagerAsync(healthCheckManager)
             .compose(v -> vertx.timer(500).mapEmpty()) // Wait for initial healthy state
@@ -452,7 +451,7 @@ class HealthCheckManagerTest {
                 // Simulate some work with a flag
                 completedChecks.incrementAndGet();
                 latch.flag();
-                return HealthStatus.healthy("concurrent-" + checkId);
+                return Future.succeededFuture(HealthStatus.healthy("concurrent-" + checkId));
             });
         }
 

@@ -2276,7 +2276,7 @@ This sophisticated utility provides a complete framework for running and managin
 - **Per-account ordering at scale** - 3 accounts × 4 commands processed concurrently with per-account order guaranteed (Order=3)
 - **Idempotency fence** - `ConcurrentHashMap`-backed seen-ID set protecting against at-least-once redelivery
 
-See [Ordering Patterns Guide — Pattern 2](PEEGEEQ_ORDERING_PATTERNS_GUIDE.md#4-pattern-2--partitioned-consumption-offset_watermark) for the design rationale.
+See [Ordering Patterns Guide Pattern 2](PEEGEEQ_ORDERING_PATTERNS_GUIDE.md#4-pattern-2--partitioned-consumption-offset_watermark) for the design rationale.
 
 ### 23. PartitionedOrderingDemoTest
 **Purpose**: Reference demonstration of all four partitioned ordering patterns

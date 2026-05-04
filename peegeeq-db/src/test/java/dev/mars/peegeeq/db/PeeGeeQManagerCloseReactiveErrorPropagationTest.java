@@ -58,7 +58,7 @@ class PeeGeeQManagerCloseReactiveErrorPropagationTest {
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQManagerCloseReactiveErrorPropagationTest.class);
     private static final String POSTGRES_IMAGE = PgTestImageConstant.POSTGRES_IMAGE;
 
-    // Container with NO schema initialization — start() will fail with "Database required tables missing"
+    // Container with NO schema initialization start() will fail with "Database required tables missing"
     @SuppressWarnings("resource")
     @Container
     static PostgreSQLContainer postgres = new PostgreSQLContainer(POSTGRES_IMAGE)
@@ -83,10 +83,10 @@ class PeeGeeQManagerCloseReactiveErrorPropagationTest {
         logger.info("[propagates_startup_failure] Step 2: Creating PeeGeeQManager");
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
 
-        // Fire-and-forget start() — replicates the pattern in 95 test setUp methods.
+        // Fire-and-forget start() replicates the pattern in 95 test setUp methods.
         // start() will fail asynchronously: validateRequiredTables() finds no tables.
-        logger.info("[propagates_startup_failure] Step 3: Fire-and-forget start() — will fail asynchronously (no schema tables)");
-        logger.warn("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Failed to start PeeGeeQ Manager') is EXPECTED — this test deliberately uses an empty database with no schema tables");
+        logger.info("[propagates_startup_failure] Step 3: Fire-and-forget start() will fail asynchronously (no schema tables)");
+        logger.warn("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Failed to start PeeGeeQ Manager') is EXPECTED this test deliberately uses an empty database with no schema tables");
         manager.start();
 
         // Call closeReactive() while start is still in-flight.
@@ -98,7 +98,7 @@ class PeeGeeQManagerCloseReactiveErrorPropagationTest {
         logger.info("[propagates_startup_failure] Step 4: Calling closeReactive() while start is in-flight");
         manager.closeReactive()
             .transform(ar -> {
-                logger.info("[propagates_startup_failure] Step 5: closeReactive() completed — failed={}, cause={}",
+                logger.info("[propagates_startup_failure] Step 5: closeReactive() completed failed={}, cause={}",
                         ar.failed(), ar.cause() != null ? ar.cause().getMessage() : "none");
                 if (!ar.failed()) {
                     return Future.failedFuture(new AssertionError(
@@ -124,24 +124,24 @@ class PeeGeeQManagerCloseReactiveErrorPropagationTest {
         logger.info("[cleanup_despite_failure] Step 2: Creating PeeGeeQManager");
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
 
-        // Fire-and-forget start — will fail (no tables)
-        logger.info("[cleanup_despite_failure] Step 3: Fire-and-forget start() — will fail asynchronously (no schema tables)");
-        logger.warn("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Failed to start PeeGeeQ Manager') is EXPECTED — this test deliberately uses an empty database with no schema tables");
+        // Fire-and-forget start will fail (no tables)
+        logger.info("[cleanup_despite_failure] Step 3: Fire-and-forget start() will fail asynchronously (no schema tables)");
+        logger.warn("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Failed to start PeeGeeQ Manager') is EXPECTED this test deliberately uses an empty database with no schema tables");
         manager.start();
 
         // closeReactive must: (1) run all cleanup, (2) propagate the failure.
         // After the fix, even though closeReactive returns a failed future,
-        // calling closeReactive again should not throw or hang — resources are cleaned up.
-        logger.info("[cleanup_despite_failure] Step 4: First closeReactive() call — expecting cleanup + error propagation");
+        // calling closeReactive again should not throw or hang resources are cleaned up.
+        logger.info("[cleanup_despite_failure] Step 4: First closeReactive() call expecting cleanup + error propagation");
         manager.closeReactive()
             .transform(ar -> {
-                logger.info("[cleanup_despite_failure] Step 5: First closeReactive() completed — failed={}, cause={}",
+                logger.info("[cleanup_despite_failure] Step 5: First closeReactive() completed failed={}, cause={}",
                         ar.failed(), ar.cause() != null ? ar.cause().getMessage() : "none");
-                logger.info("[cleanup_despite_failure] Step 6: Second closeReactive() call — proving resources already cleaned up");
+                logger.info("[cleanup_despite_failure] Step 6: Second closeReactive() call proving resources already cleaned up");
                 return manager.closeReactive();
             })
             .transform(ar2 -> {
-                logger.info("[cleanup_despite_failure] Step 7: Second closeReactive() completed — failed={}, cause={}",
+                logger.info("[cleanup_despite_failure] Step 7: Second closeReactive() completed failed={}, cause={}",
                         ar2.failed(), ar2.cause() != null ? ar2.cause().getMessage() : "none");
                 logger.info("[cleanup_despite_failure] PASSED: cleanup ran fully, second close did not hang");
                 return Future.succeededFuture();

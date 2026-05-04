@@ -389,7 +389,7 @@ public class PartitionedFetcherIntegrationTest extends BaseIntegrationTest {
                                     }
                                     assertEquals(5, lockedIds.size(), "Must have locked 5 rows");
 
-                                    // Now fetch via the fetcher — it runs in its OWN transaction.
+                                    // Now fetch via the fetcher it runs in its OWN transaction.
                                     // BUT we're inside lockConn's transaction which holds the locks.
                                     // The fetcher will open a new connection/transaction and
                                     // SKIP the locked rows.
@@ -543,7 +543,7 @@ public class PartitionedFetcherIntegrationTest extends BaseIntegrationTest {
     }
 
     // ========================================================================
-    // Test 3.12: Crash Recovery — At-Least-Once Delivery
+    // Test 3.12: Crash Recovery At-Least-Once Delivery
     // Consumer A fetches batch (pending_offset set), crashes (no commit).
     // New consumer B takes partition after rebalance. B fetches from
     // committed_offset (not pending), getting the same messages.
@@ -570,7 +570,7 @@ public class PartitionedFetcherIntegrationTest extends BaseIntegrationTest {
                                 return ids;
                             });
                 })
-                // A crashes — no commit happens. Rebalance bumps generation.
+                // A crashes no commit happens. Rebalance bumps generation.
                 .compose(ids -> offsetManager.bumpGeneration(topic, groupName, partition))
                 .compose(newGenOpt -> {
                     assertTrue(newGenOpt.isPresent(), "Generation must bump");
@@ -590,7 +590,7 @@ public class PartitionedFetcherIntegrationTest extends BaseIntegrationTest {
     }
 
     // ========================================================================
-    // Test 3.13: Rebalance During Inflight Batch — Old Owner Fenced
+    // Test 3.13: Rebalance During Inflight Batch Old Owner Fenced
     // Consumer A fetches batch with gen=1, sets pending. Rebalance bumps gen
     // to 2. A tries to commit with gen=1 → rejected. B fetches from
     // committed_offset → gets same messages.
@@ -646,7 +646,7 @@ public class PartitionedFetcherIntegrationTest extends BaseIntegrationTest {
     }
 
     // ========================================================================
-    // Test 3.14: No Gap No Skip — Across Multiple Fetch-Commit Cycles
+    // Test 3.14: No Gap No Skip Across Multiple Fetch-Commit Cycles
     // 100 messages, fetch in batches of 10, commit after each. Every message
     // delivered exactly once, strictly ascending, no gaps between batches.
     // ========================================================================
@@ -715,7 +715,7 @@ public class PartitionedFetcherIntegrationTest extends BaseIntegrationTest {
     }
 
     // ========================================================================
-    // Test 3.15: Concurrent Fetch on Same Partition — No Overlap
+    // Test 3.15: Concurrent Fetch on Same Partition No Overlap
     // Rows locked by held-open transaction are skipped by fetcher.
     // Combined fetched sets cover the full range with zero intersection.
     // ========================================================================
@@ -845,7 +845,7 @@ public class PartitionedFetcherIntegrationTest extends BaseIntegrationTest {
                                 assertEquals(ids.get(4).longValue(), opt.get().committedOffset(),
                                         "committed_offset must remain at 5th message id");
 
-                                // Consumer B fetches with gen=2 — must start from committed offset
+                                // Consumer B fetches with gen=2 must start from committed offset
                                 return fetcher.fetch(topic, groupName, partition, 20, gen2);
                             })
                             .map(batchB -> {

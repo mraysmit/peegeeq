@@ -208,7 +208,7 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
      */
     @Test
     void testValidateWriteAllowedThrowsExceptionWhenBlocked(VertxTestContext testContext) {
-        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Blocking write to topic - zero ACTIVE subscriptions') is EXPECTED — this test verifies writes are blocked when block_writes_on_zero_subscriptions = TRUE");
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Blocking write to topic - zero ACTIVE subscriptions') is EXPECTED this test verifies writes are blocked when block_writes_on_zero_subscriptions = TRUE");
         String topic = "test-validate-blocked";
 
         topicConfigService.createTopic(TopicConfig.builder()

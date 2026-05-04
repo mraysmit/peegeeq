@@ -274,7 +274,7 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
         createTopicAndSubscribe(topic, groupName)
                 .compose(v -> insertMessageWithMaxRetries(topic, new JsonObject().put("test", "count"), 5))
                 .compose(messageId ->
-                    // Fail twice then retry — retry_count should be preserved
+                    // Fail twice then retry retry_count should be preserved
                     tracker.markFailed(messageId, groupName, topic, "error 1")
                         .compose(v -> tracker.markFailed(messageId, groupName, topic, "error 2"))
                         .compose(v -> retryService.retryFailedMessages())
@@ -351,7 +351,7 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
         createTopicAndSubscribe(topic, groupName)
                 .compose(v -> insertMessageWithMaxRetries(topic, new JsonObject().put("test", "eligible"), 5))
                 .compose(messageId ->
-                    // Fail once — retry_count=0, well below max_retries=5
+                    // Fail once retry_count=0, well below max_retries=5
                     tracker.markFailed(messageId, groupName, topic, "transient error")
                         .compose(v -> retryService.moveExhaustedToDlq()))
                 .onSuccess(dlqCount -> testContext.verify(() -> {
@@ -402,7 +402,7 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                         .compose(v -> retryService.moveExhaustedToDlq())
                         .compose(firstDlqCount -> {
                             assertTrue(firstDlqCount >= 1, "First pass should move at least 1");
-                            // Second DLQ pass — already DEAD_LETTER, should not be picked up
+                            // Second DLQ pass already DEAD_LETTER, should not be picked up
                             return retryService.moveExhaustedToDlq();
                         }))
                 .onSuccess(secondDlqCount -> testContext.verify(() -> {

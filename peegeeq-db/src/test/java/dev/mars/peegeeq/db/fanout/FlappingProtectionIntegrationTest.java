@@ -93,7 +93,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
     /**
      * A single heartbeat timeout should NOT immediately mark a subscription DEAD.
      *
-     * <p>Current behavior: detection marks DEAD on first timeout — this test
+     * <p>Current behavior: detection marks DEAD on first timeout this test
      * proves that gap by asserting the subscription should remain ACTIVE after
      * the first detection pass (consecutive_misses = 1, below threshold).</p>
      *
@@ -148,7 +148,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
                 // First detection pass with expired heartbeat
                 .compose(v -> setHeartbeatInPast(topic, groupName, 10))
                 .compose(v -> detector.detectDeadSubscriptions(topic))
-                // Consumer recovers — sends a fresh heartbeat via production API
+                // Consumer recovers sends a fresh heartbeat via production API
                 .compose(detected -> subscriptionManager.updateHeartbeat(topic, groupName))
                 // Second detection pass with expired heartbeat again
                 .compose(v -> setHeartbeatInPast(topic, groupName, 10))
@@ -184,7 +184,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
      */
     @Test
     void testMarkedDeadOnlyAfterConsecutiveMissThreshold(VertxTestContext testContext) {
-        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Marked N subscriptions as DEAD') is EXPECTED — this test deliberately exceeds the consecutive miss threshold to trigger DEAD marking");
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Marked N subscriptions as DEAD') is EXPECTED this test deliberately exceeds the consecutive miss threshold to trigger DEAD marking");
         String topic = uniqueTopic("flap-threshold");
         String groupName = "threshold-consumer";
         int expectedThreshold = 3; // default consecutive miss threshold
@@ -205,7 +205,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
                     testContext.verify(() -> assertEquals("ACTIVE", status, "Should be ACTIVE after miss 2"));
                     return (Void) null;
                 }))
-                // Miss 3 — should now exceed threshold and mark DEAD
+                // Miss 3 should now exceed threshold and mark DEAD
                 .compose(v -> setHeartbeatInPast(topic, groupName, 10))
                 .compose(v -> detector.detectDeadSubscriptions(topic))
                 .compose(detected -> getSubscriptionStatus(topic, groupName).map(status -> {
@@ -262,7 +262,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
     /**
      * PAUSED subscriptions are also subject to heartbeat detection (the
      * detection SQL targets ACTIVE and PAUSED). Flapping protection must
-     * apply equally — a PAUSED subscription with a single missed heartbeat
+     * apply equally a PAUSED subscription with a single missed heartbeat
      * should remain PAUSED, not jump to DEAD.
      */
     @Test
@@ -304,7 +304,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
      * Each recovery resets the consecutive miss count, so the consumer
      * should never reach the threshold despite multiple total misses.
      *
-     * <p>This is the scenario the feature is named after — a consumer that
+     * <p>This is the scenario the feature is named after a consumer that
      * intermittently drops heartbeats but keeps recovering should not be
      * killed.</p>
      */
@@ -361,7 +361,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
      */
     @Test
     void testResubscribeAfterDeadResetsMissCount(VertxTestContext testContext) {
-        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN logs ('Marked N subscriptions as DEAD') are EXPECTED — this test marks a subscription DEAD then resubscribes to verify miss count reset");
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN logs ('Marked N subscriptions as DEAD') are EXPECTED this test marks a subscription DEAD then resubscribes to verify miss count reset");
         String topic = uniqueTopic("flap-resub");
         String groupName = "resub-consumer";
 
@@ -373,7 +373,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
                     testContext.verify(() -> assertEquals("DEAD", status, "Precondition: subscription should be DEAD"));
                     return (Void) null;
                 }))
-                // Resubscribe — should reactivate and reset miss count
+                // Resubscribe should reactivate and reset miss count
                 .compose(v -> subscribeWithShortTimeout(topic, groupName))
                 // Now miss one heartbeat
                 .compose(v -> setHeartbeatInPast(topic, groupName, 10))
@@ -383,7 +383,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
                                 .map(misses -> {
                                     testContext.verify(() -> {
                                         assertNotEquals("DEAD", status,
-                                                "Resubscribed consumer should not be DEAD after single miss — " +
+                                                "Resubscribed consumer should not be DEAD after single miss " +
                                                 "miss count must be reset on resubscription");
                                         assertEquals("ACTIVE", status,
                                                 "Resubscribed consumer should remain ACTIVE");
@@ -413,7 +413,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
                 .compose(v -> subscribeWithShortTimeout(topic, groupName))
                 // Force DEAD
                 .compose(v -> forceSubscriptionStatus(topic, groupName, "DEAD"))
-                // Consumer sends heartbeat — auto-resurrects via updateHeartbeat()
+                // Consumer sends heartbeat auto-resurrects via updateHeartbeat()
                 .compose(v -> subscriptionManager.updateHeartbeat(topic, groupName))
                 .compose(result -> getSubscriptionStatus(topic, groupName).map(status -> {
                     testContext.verify(() -> assertEquals("ACTIVE", status,
@@ -428,7 +428,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
                                 .map(misses -> {
                                     testContext.verify(() -> {
                                         assertNotEquals("DEAD", status,
-                                                "Auto-resurrected consumer should not be DEAD after single miss — " +
+                                                "Auto-resurrected consumer should not be DEAD after single miss " +
                                                 "miss count must be reset by heartbeat resurrection");
                                         assertEquals(1, misses,
                                                 "Consecutive misses should be 1, not carried from pre-resurrection state");
@@ -531,7 +531,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
     /**
      * detectAllDeadSubscriptionsWithDetails() is a separate code path from
      * detectDeadSubscriptions(topic). It must enforce the same flapping
-     * protection — a single missed heartbeat via the all-topics path should
+     * protection a single missed heartbeat via the all-topics path should
      * not mark a subscription DEAD.
      */
     @Test
@@ -549,7 +549,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
                             testContext.verify(() -> {
                                 assertNotEquals("DEAD", status,
                                         "detectAllDeadSubscriptionsWithDetails() must also respect flapping " +
-                                        "protection — single miss should not mark DEAD");
+                                        "protection single miss should not mark DEAD");
                                 assertEquals("ACTIVE", status,
                                         "Subscription should remain ACTIVE after single miss via all-topics path");
                             });
@@ -563,7 +563,7 @@ public class FlappingProtectionIntegrationTest extends BaseIntegrationTest {
     }
 
     /**
-     * Same consumer group subscribed to two different topics — miss tracking
+     * Same consumer group subscribed to two different topics miss tracking
      * must be independent per (topic, group_name) pair. A miss on topic A
      * must not contribute to the count on topic B.
      */

@@ -144,7 +144,7 @@ public class ConsumerGroupMetricsIntegrationTest extends BaseIntegrationTest {
      */
     @Test
     void testDeadSubscriptionGaugeAfterDetection(VertxTestContext testContext) throws Exception {
-        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN logs ('Marked N subscriptions as DEAD') are EXPECTED — this test marks a subscription DEAD to verify the dead subscription gauge increments");
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN logs ('Marked N subscriptions as DEAD') are EXPECTED this test marks a subscription DEAD to verify the dead subscription gauge increments");
         String topic = uniqueTopic("metrics-dead");
         createTopic(topic)
                 .compose(v -> subscribeWithShortTimeout(topic, "dead-group"))

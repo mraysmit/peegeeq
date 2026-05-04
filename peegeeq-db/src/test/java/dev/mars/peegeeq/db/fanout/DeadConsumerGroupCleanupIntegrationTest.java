@@ -143,7 +143,7 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
     }
 
     /**
-     * Test that cleanup is idempotent — running it twice doesn't double-decrement.
+     * Test that cleanup is idempotent running it twice doesn't double-decrement.
      */
     @Test
     void testCleanupIsIdempotent(VertxTestContext testContext) {
@@ -705,7 +705,7 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
     }
 
     // ========================================================================
-    // Test: Cleanup error resilience — one group failure doesn't break others
+    // Test: Cleanup error resilience one group failure doesn't break others
     // ========================================================================
 
     /**
@@ -724,7 +724,7 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
      */
     @Test
     void testCleanupContinuesAfterOneGroupFails(VertxTestContext testContext) {
-        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Cleanup failed for group=...') is EXPECTED — this test deliberately injects a RuntimeException to verify cleanup resilience");
+        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Cleanup failed for group=...') is EXPECTED this test deliberately injects a RuntimeException to verify cleanup resilience");
         String topicOk = uniqueTopic("resilience-ok");
         String topicFail = uniqueTopic("resilience-fail");
 
@@ -773,7 +773,7 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
                                         assertEquals(2, okResult.get().messagesDecremented(),
                                                 "Good group should have decremented 2 messages");
                                         assertFalse(failResult.isPresent(),
-                                                "Failed group should be skipped — no fabricated result added");
+                                                "Failed group should be skipped no fabricated result added");
                                     });
 
                                     // Verify messages on the good topic were cleaned up

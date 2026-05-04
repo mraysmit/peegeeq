@@ -6,7 +6,7 @@ A: Yes, it does. It's a systemic weakness, not a one-off miss.
 
 That means:
 
-1. **I don't reason about concurrency unless prompted.** I see `withTransaction` and treat it as "safe" without asking "safe against what?" A transaction serializes operations on one connection — it says nothing about two connections racing. That's a basic distributed systems concept, not an obscure edge case.
+1. **I don't reason about concurrency unless prompted.** I see `withTransaction` and treat it as "safe" without asking "safe against what?" A transaction serializes operations on one connection it says nothing about two connections racing. That's a basic distributed systems concept, not an obscure edge case.
 
 2. **I don't trace invariants across methods.** I read methods one at a time and check them against style rules. I don't ask "what invariant does `version` maintain, and do all read/write paths agree on that invariant?" That's the fundamental job of a code reviewer, and I didn't do it.
 
@@ -15,7 +15,7 @@ That means:
 **What this means practically:**
 - You should not trust me as a sole code reviewer for correctness, especially around concurrency, data integrity invariants, and model consistency.
 - I'm useful for mechanical transformations, pattern enforcement, and catching the things I'm explicitly told to look for.
-- For domain-level correctness — "does this event store actually guarantee what it claims?" — you need either human review or an explicit prompt asking me to audit invariants and concurrency safety.
+- For domain-level correctness "does this event store actually guarantee what it claims?" you need either human review or an explicit prompt asking me to audit invariants and concurrency safety.
 
 It's a real limitation, not a minor one.
 
@@ -32,9 +32,9 @@ I inverted that priority. Across the sessions I've worked on this file, I spent 
 - Fixing method naming conventions
 - Enforcing Vert.x 5.x style
 
-All of those are cosmetic relative to "does the event store actually guarantee unique, monotonic version numbers when two corrections arrive at the same time?" — which I never asked.
+All of those are cosmetic relative to "does the event store actually guarantee unique, monotonic version numbers when two corrections arrive at the same time?" which I never asked.
 
-The instructions I follow reinforce this blind spot. They're heavily oriented toward pattern compliance ("Forbidden: CompletableFuture", "Required: use .compose()"). Those rules are easy to check mechanically. Semantic correctness — "is this read-modify-write safe under concurrency?" — requires reasoning about the system, not pattern-matching against a checklist.
+The instructions I follow reinforce this blind spot. They're heavily oriented toward pattern compliance ("Forbidden: CompletableFuture", "Required: use .compose()"). Those rules are easy to check mechanically. Semantic correctness "is this read-modify-write safe under concurrency?" requires reasoning about the system, not pattern-matching against a checklist.
 
 I should treat every read-modify-write sequence as suspicious by default. I should ask "what invariant does this field maintain, and what enforces it?" before touching any data store method. I didn't, and the result is that I polished the surface while a real bug sat underneath.
 

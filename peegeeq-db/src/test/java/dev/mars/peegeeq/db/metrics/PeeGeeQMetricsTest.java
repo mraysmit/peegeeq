@@ -419,7 +419,7 @@ class PeeGeeQMetricsTest {
      */
     @Test
     void testMetricsWithDatabaseFailure(VertxTestContext testContext) {
-        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Reactive health check failed') is EXPECTED — this test deliberately closes the DB connection to verify metrics resilience");
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Reactive health check failed') is EXPECTED this test deliberately closes the DB connection to verify metrics resilience");
 
         metrics.bindTo(meterRegistry);
 
