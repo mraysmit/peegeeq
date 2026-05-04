@@ -1,4 +1,4 @@
-# Partitioned Consumption — Design & TDD Plan
+# Partitioned Consumption Design & TDD Plan
 
 **Purpose**: Design, schema, TDD test plan, and concurrency invariants for OFFSET_WATERMARK partitioned consumption mode.  
 **Created**: 2026-04-09  
@@ -20,7 +20,7 @@
 
 ---
 
-## Task 1: Fan-Out Trace Propagation Implementation — COMPLETED
+## Task 1: Fan-Out Trace Propagation Implementation COMPLETED
 
 **Priority**: LOW  
 **Previous Task ID**: L9 (from Implementation Tracker)  
@@ -32,13 +32,13 @@
 Child spans are now created per consumer group from each message's `traceparent` header, producing a proper span tree visible in Jaeger/Zipkin.
 
 **Changes:**
-- `OutboxConsumer.processRow()` — extracts `traceparent` from message headers, creates child span via `traceCtx.childSpan("consumer-group:" + groupName + "/process")` when `consumerGroupName` is set
-- `ConsumerGroupFetcher.fetchMessages(topic, groupName, batchSize, parentTrace)` — new overload accepts parent trace, creates child span for fetch operations
-- `CompletionTracker.markCompleted(messageId, groupName, topic, parentTrace)` — new overload creates child span for completion tracking
-- `CompletionTracker.markFailed(messageId, groupName, topic, errorMessage, parentTrace)` — new overload creates child span for failure tracking
-- `ConsumerTracingTest` — 15 tests covering child span creation, parent linkage, MDC attributes, fan-out parallel spans, backward compatibility
-- `DistributedTracingTest` — 2 end-to-end tracing tests
-- `TraceCtxTest` — child span unit tests
+- `OutboxConsumer.processRow()` extracts `traceparent` from message headers, creates child span via `traceCtx.childSpan("consumer-group:" + groupName + "/process")` when `consumerGroupName` is set
+- `ConsumerGroupFetcher.fetchMessages(topic, groupName, batchSize, parentTrace)` new overload accepts parent trace, creates child span for fetch operations
+- `CompletionTracker.markCompleted(messageId, groupName, topic, parentTrace)` new overload creates child span for completion tracking
+- `CompletionTracker.markFailed(messageId, groupName, topic, errorMessage, parentTrace)` new overload creates child span for failure tracking
+- `ConsumerTracingTest` 15 tests covering child span creation, parent linkage, MDC attributes, fan-out parallel spans, backward compatibility
+- `DistributedTracingTest` 2 end-to-end tracing tests
+- `TraceCtxTest` child span unit tests
 
 ### Acceptance Criteria Verification
 
@@ -49,7 +49,7 @@ Child spans are now created per consumer group from each message's `traceparent`
 
 ---
 
-## Task 2: Fanout Retry & DLQ Automation — COMPLETED
+## Task 2: Fanout Retry & DLQ Automation COMPLETED
 
 **Priority**: MEDIUM  
 **Source**: Verification Findings, Design Doc §12  
@@ -60,16 +60,16 @@ Child spans are now created per consumer group from each message's `traceparent`
 Consumer group retry and dead-letter-queue automation is now fully wired into the PeeGeeQManager runtime lifecycle.
 
 **Pre-existing components (already on branch):**
-- `ConsumerGroupRetryService` — resets FAILED→PENDING rows where `retry_count < max_retries`, moves exhausted rows to dead_letter_queue table
-- `ConsumerGroupRetryJob` — Vert.x periodic timer wrapper around ConsumerGroupRetryService
-- `V016__Add_Consumer_Group_Dead_Letter_Status.sql` — migration adding DEAD_LETTER status to outbox_consumer_groups CHECK constraint
-- `ConsumerGroupRetryServiceIntegrationTest` — 14 comprehensive integration tests
+- `ConsumerGroupRetryService` resets FAILED→PENDING rows where `retry_count < max_retries`, moves exhausted rows to dead_letter_queue table
+- `ConsumerGroupRetryJob` Vert.x periodic timer wrapper around ConsumerGroupRetryService
+- `V016__Add_Consumer_Group_Dead_Letter_Status.sql` migration adding DEAD_LETTER status to outbox_consumer_groups CHECK constraint
+- `ConsumerGroupRetryServiceIntegrationTest` 14 comprehensive integration tests
 
 **New changes (wiring into runtime):**
-- `PeeGeeQConfiguration.QueueConfig` — added `consumerGroupRetryEnabled` (default: true) and `consumerGroupRetryInterval` (default: PT30S, minimum: 10s) configuration properties
-- `PeeGeeQManager.startBackgroundTasks()` — creates and starts ConsumerGroupRetryJob when enabled, following the DeadConsumerDetectionJob pattern
-- `PeeGeeQManager.stopBackgroundTasks()` — stops ConsumerGroupRetryJob on shutdown
-- `ConsumerGroupRetryJobLifecycleTest` — 3 lifecycle integration tests verifying start/stop/disabled behavior
+- `PeeGeeQConfiguration.QueueConfig` added `consumerGroupRetryEnabled` (default: true) and `consumerGroupRetryInterval` (default: PT30S, minimum: 10s) configuration properties
+- `PeeGeeQManager.startBackgroundTasks()` creates and starts ConsumerGroupRetryJob when enabled, following the DeadConsumerDetectionJob pattern
+- `PeeGeeQManager.stopBackgroundTasks()` stops ConsumerGroupRetryJob on shutdown
+- `ConsumerGroupRetryJobLifecycleTest` 3 lifecycle integration tests verifying start/stop/disabled behavior
 
 ### Acceptance Criteria Verification
 
@@ -90,9 +90,9 @@ Consumer group retry and dead-letter-queue automation is now fully wired into th
 
 PeeGeeQ's current consumer group model (REFERENCE_COUNTING) does NOT provide:
 
-1. **Partition affinity** — messages with the same logical key can be processed by any consumer instance, in any order
-2. **Strict per-key ordering** — message N+1 for key K can begin processing before message N is committed
-3. **Offset-based progress** — no "where am I in the stream" cursor; progress is per-message via `outbox_consumer_groups` rows
+1. **Partition affinity** messages with the same logical key can be processed by any consumer instance, in any order
+2. **Strict per-key ordering** message N+1 for key K can begin processing before message N is committed
+3. **Offset-based progress** no "where am I in the stream" cursor; progress is per-message via `outbox_consumer_groups` rows
 
 These are required for: financial transaction processing (per-account ordering), state machine projections, event sourcing read models.
 
@@ -139,7 +139,7 @@ CREATE TABLE IF NOT EXISTS {schema}.outbox_partition_offsets (
     UNIQUE(topic, group_name, partition_key)
 );
 
--- Per-topic watermark — the safe cleanup boundary
+-- Per-topic watermark the safe cleanup boundary
 CREATE TABLE IF NOT EXISTS {schema}.outbox_topic_watermarks (
     topic VARCHAR(255) PRIMARY KEY,
     watermark_id BIGINT NOT NULL DEFAULT 0,
@@ -187,11 +187,11 @@ New methods on `SubscriptionService`:
 - `getAssignments(topic, groupName, instanceId)` → `Future<List<PartitionAssignment>>`
 
 REST endpoints:
-- `POST .../partitions/join` — register consumer instance
-- `DELETE .../partitions/leave` — deregister consumer instance
-- `GET .../partitions` — list current assignments
-- `POST .../partitions/:partitionKey/fetch` — fetch next batch
-- `POST .../partitions/:partitionKey/commit` — commit offset
+- `POST .../partitions/join` register consumer instance
+- `DELETE .../partitions/leave` deregister consumer instance
+- `GET .../partitions` list current assignments
+- `POST .../partitions/:partitionKey/fetch` fetch next batch
+- `POST .../partitions/:partitionKey/commit` commit offset
 
 ### Open Questions
 
@@ -207,7 +207,7 @@ The current REFERENCE_COUNTING mode uses a simple integer counter (`completed_co
 
 ### TDD Implementation Plan
 
-Each phase follows strict TDD: write the test first, run it to see it fail, then write the minimum implementation to pass. Tests are integration tests using TestContainers against real PostgreSQL — no mocks, no fakes.
+Each phase follows strict TDD: write the test first, run it to see it fail, then write the minimum implementation to pass. Tests are integration tests using TestContainers against real PostgreSQL no mocks, no fakes.
 
 #### Open Question Decisions (required before Phase 1)
 
@@ -245,8 +245,8 @@ Each phase follows strict TDD: write the test first, run it to see it fail, then
 | 1.8 | `testSetPendingOffset_tracksInFlightBatch` | After fetch, `setPendingOffset(50)` sets pending_offset=50, pending_since=now | Red: no `setPendingOffset()`. Green: UPDATE pending columns |
 | 1.9 | `testCommitOffset_clearsPending` | Set pending=50, commit=50 → pending_offset=NULL, pending_since=NULL | Red: pending not cleared. Green: SET pending_offset=NULL in commit |
 | 1.10 | `testSetPendingOffset_rejectsStaleGeneration` | Set pending with wrong generation → returns false | Red: no generation check on pending. Green: WHERE generation=$N |
-| 1.11 | `testMultiplePartitions_independentOffsets` | Partition A at offset 100, partition B at offset 200 — each independent | Red: partition isolation not proven. Green: correct WHERE clause |
-| 1.12 | `testMultipleGroups_independentOffsets` | group-1 at offset 100, group-2 at offset 50 for same partition — independent | Red: group isolation not proven. Green: correct WHERE clause |
+| 1.11 | `testMultiplePartitions_independentOffsets` | Partition A at offset 100, partition B at offset 200 each independent | Red: partition isolation not proven. Green: correct WHERE clause |
+| 1.12 | `testMultipleGroups_independentOffsets` | group-1 at offset 100, group-2 at offset 50 for same partition independent | Red: group isolation not proven. Green: correct WHERE clause |
 | 1.13 | `testBumpGeneration_incrementsAndReturns` | `bumpGeneration()` increments gen 1→2, returns new generation | Red: no method. Green: UPDATE generation = generation + 1 RETURNING |
 | 1.14 | `testBumpGeneration_invalidatesStalePending` | Bump gen → pending_offset set to NULL for old-gen rows | Red: stale pending survives. Green: clear pending on gen bump |
 
@@ -418,10 +418,10 @@ Each phase follows strict TDD: write the test first, run it to see it fail, then
 
 | # | Test | Proves |
 |---|------|--------|
-| 6.9 | `testMultiConsumer_partitionIsolation_noContamination` | 3 consumers, 6 partitions (2 each). Each consumer receives messages ONLY from its assigned partitions. Messages within each partition arrive in strictly ascending id order. Each consumer's offset advances independently — committing in one consumer has zero effect on another's offset or fetch position. |
+| 6.9 | `testMultiConsumer_partitionIsolation_noContamination` | 3 consumers, 6 partitions (2 each). Each consumer receives messages ONLY from its assigned partitions. Messages within each partition arrive in strictly ascending id order. Each consumer's offset advances independently committing in one consumer has zero effect on another's offset or fetch position. |
 | 6.10 | `testConsumerCrash_newConsumerResumes_zeroMessageLoss` | Consumer A processes partitions P1, P2. A crashes after committing P1 offset=50 but before committing P2 (P2 pending=30, committed=0). Rebalance assigns P1, P2 to consumer B. B resumes P1 from offset 50 (no re-delivery of committed work). B resumes P2 from offset 0 (re-delivers the uncommitted batch). Total messages delivered = total messages produced. Zero loss. |
 | 6.11 | `testRebalanceUnderLoad_noMessageLoss_noInfiniteRedelivery` | 2 consumers processing 1000 messages at steady rate. Third consumer joins mid-stream (triggers rebalance). Verify: all 1000 messages eventually committed across all partitions, no message permanently stuck in re-delivery loop, total unique committed messages = total produced. Acceptable duplicates during rebalance window, but duplicates must be bounded (< 2x batch size). |
-| 6.12 | `testColocatedTransaction_exactlyOnceCommit` | Consumer fetches batch, writes business result to same PostgreSQL database, commits offset — all in a single PG transaction. Transaction commits → offset advanced AND business row visible. Transaction rolls back → offset unchanged AND business row absent. No partial state. |
+| 6.12 | `testColocatedTransaction_exactlyOnceCommit` | Consumer fetches batch, writes business result to same PostgreSQL database, commits offset all in a single PG transaction. Transaction commits → offset advanced AND business row visible. Transaction rolls back → offset unchanged AND business row absent. No partial state. |
 | 6.13 | `testGenerationFence_preventsZombieConsumer` | Consumer A holds partition P1 at gen=1. Network partition simulated (A stops heartbeating). Rebalance assigns P1 to B at gen=2. A "wakes up" and tries to fetch/commit with gen=1 → all operations rejected. B is the sole owner. No split-brain delivery. |
 
 ---
@@ -459,7 +459,7 @@ Prove the chosen completion tracking mode sustains target throughput without tab
 | LT-1 | Reference Counting | 4 | 10,000 | 1 hour |
 | LT-2 | Reference Counting | 8 | 10,000 | 1 hour |
 | LT-3 | Reference Counting | 16 | 10,000 | 1 hour |
-| LT-4 | Reference Counting | 32 | 10,000 | 1 hour (expected to FAIL — prove limit) |
+| LT-4 | Reference Counting | 32 | 10,000 | 1 hour (expected to FAIL prove limit) |
 
 **Success thresholds**: Table bloat < 20%, WAL rate < 50% of I/O capacity, cleanup rate > production rate, p95 consumer fetch latency < 10ms.
 
@@ -504,7 +504,7 @@ Run:   1 hour concurrent
 
 ---
 
-## Task 5: Consumer Group Lifecycle Alignment — COMPLETED
+## Task 5: Consumer Group Lifecycle Alignment COMPLETED
 
 **Priority**: HIGH (pre-requisite for Phase 6 integration)  
 **Source**: Cross-review of `PgNativeConsumerGroup` and `OutboxConsumerGroup` (2026-04-12)  
@@ -515,7 +515,7 @@ Run:   1 hour concurrent
 
 The two `ConsumerGroup` implementations share the same API contract but diverge in lifecycle management quality. Fixing these before Phase 6 avoids compounding the issues when partitioned engine integration adds more async complexity.
 
-### 5.1 — Adopt state machine in PgNativeConsumerGroup — DONE
+### 5.1 Adopt state machine in PgNativeConsumerGroup DONE
 
 **Adopt from**: `OutboxConsumerGroup` `AtomicReference<State>` with `{NEW, STARTING, ACTIVE, STOPPING, CLOSED}`  
 **Replace**: Dual `AtomicBoolean` (`active`, `closed`) in `PgNativeConsumerGroup`  
@@ -527,20 +527,20 @@ The two `ConsumerGroup` implementations share the same API contract but diverge 
 **Files**: `PgNativeConsumerGroup.java`  
 **Scope**: Replace `AtomicBoolean active`, `AtomicBoolean closed` with `AtomicReference<State>`. Update all CAS transitions in `start()`, `stop()`, `stopGracefully()`, `close()`, `isActive()`, `addConsumer()`.
 
-### 5.2 — Fix TOCTOU race in PgNativeConsumerGroup.addConsumer — DONE
+### 5.2 Fix TOCTOU race in PgNativeConsumerGroup.addConsumer DONE
 
 **Adopt from**: `OutboxConsumerGroup.addConsumer` uses `putIfAbsent` (line 265)  
 **Fix**: `PgNativeConsumerGroup.addConsumer` uses `containsKey` + `put` (lines 156-163), which has a time-of-check/time-of-use race under concurrent `addConsumer` calls  
 **Files**: `PgNativeConsumerGroup.java`  
 **Change**: Replace `containsKey` check + `put` with `putIfAbsent`, throw if existing returned.
 
-### 5.3 — Compose partitioned engine stop future in stopInternal — DONE
+### 5.3 Compose partitioned engine stop future in stopInternal DONE
 
 **Fix in**: `PgNativeConsumerGroup.stopInternal()` (lines 338-344)  
 **Problem**: `partitionedEngine.stop()` returns `Future<Void>` performing async `leaveGroup`, but the future is discarded and the engine reference nulled immediately. Both `stop()` and `stopGracefully()` report completion before the leave-group RPC finishes.  
 **Change**: `stopInternal` must return `Future<Void>`. Compose `partitionedEngine.stop()` into the returned future. `stop()` becomes `Future<Void>` (or composes internally). `stopGracefully()` composes subscription cancel → `stopInternal()` sequentially and returns the composed future.
 
-### 5.4 — Compose partitioned engine start future in start(SubscriptionOptions) — DONE
+### 5.4 Compose partitioned engine start future in start(SubscriptionOptions) DONE
 
 **Fix in**: `PgNativeConsumerGroup.start(SubscriptionOptions)` (lines 286-294) and `start()` (line 192)  
 **Problem**: `start()` is `void` and performs async mode detection + async engine startup via fire-and-forget `.onSuccess()`/`.onFailure()`. The `start(SubscriptionOptions)` future completes after subscription creation but before the consumer engine is ready.  
@@ -549,48 +549,48 @@ The two `ConsumerGroup` implementations share the same API contract but diverge 
 - `start(SubscriptionOptions)` must compose mode detection → `startPartitioned()`/`startReferenceCountingInternal()` into its returned future.  
 - `start()` (void) should set state to STARTING, then compose the same async chain, setting ACTIVE on success and resetting to NEW on failure (matching OutboxConsumerGroup's try/catch pattern).
 
-### 5.5 — Stop members on partitioned engine start failure — DONE
+### 5.5 Stop members on partitioned engine start failure DONE
 
 **Fix in**: `PgNativeConsumerGroup.startPartitioned()` (lines 236-244)  
 **Problem**: Members are started at line 236 before `partitionedEngine.start(handler)` at line 238. If engine start fails, the `.onFailure` handler sets `active=false` but never stops the members. Members remain in started state with no engine feeding them.  
 **Change**: Move `members.values().forEach(start)` into the `.onSuccess` handler of `partitionedEngine.start()`, or add `members.values().forEach(stop)` to the `.onFailure` handler.
 
-### 5.6 — Compose closeAsync future in OutboxConsumerGroup stop/close paths — DONE
+### 5.6 Compose closeAsync future in OutboxConsumerGroup stop/close paths DONE
 
 **Fix in**: `OutboxConsumerGroup.stopInternal()` (lines 471-479) and `close()` (lines 588-592)  
 **Problem**: `oc.closeAsync()` returns `Future<Void>` (closes reactive pool), but the future is discarded. `stopGracefully()` returns `Future.succeededFuture()` before the pool close finishes.  
 **Change**: `stopInternal()` must return `Future<Void>` composing `closeAsync()`. `stopGracefully()` must compose subscription cancel → `stopInternal()` and return the result.
 
-### 5.7 — Replace ScheduledExecutorService with Vert.x timers in OutboxConsumerGroup
+### 5.7 Replace ScheduledExecutorService with Vert.x timers in OutboxConsumerGroup
 
-**Status**: SKIPPED — intentional design decision documented below.
+**Status**: SKIPPED intentional design decision documented below.
 
 **Original proposal**: Replace `sharedFilterScheduler` (`ScheduledExecutorService`) with `Vertx.setTimer()`/`Vertx.setPeriodic()` and remove the blocking `awaitTermination(5, SECONDS)` from `close()`.
 
 **Investigation findings**: `FilterRetryManager` (in `peegeeq-api/.../resilience/`) contains an explicit design note (lines 22-48) documenting why `ScheduledExecutorService` is intentionally used over `vertx.setTimer()`:
 
-1. **Framework agnostic** — `FilterRetryManager` is a core API class that must work outside Vert.x contexts.
-2. **API boundary isolation** — The retry mechanism is self-contained; coupling it to Vert.x internals adds unnecessary dependency.
-3. **Testability** — Pure JDK scheduling is testable without Vert.x context or event-loop setup.
-4. **Not a Verticle** — `OutboxConsumerGroup` and `FilterRetryManager` are not Verticles; they have no event-loop affinity that Vert.x timers would respect.
+1. **Framework agnostic** `FilterRetryManager` is a core API class that must work outside Vert.x contexts.
+2. **API boundary isolation** The retry mechanism is self-contained; coupling it to Vert.x internals adds unnecessary dependency.
+3. **Testability** Pure JDK scheduling is testable without Vert.x context or event-loop setup.
+4. **Not a Verticle** `OutboxConsumerGroup` and `FilterRetryManager` are not Verticles; they have no event-loop affinity that Vert.x timers would respect.
 
 The `sharedFilterScheduler` is created in `OutboxConsumerGroup`, exposed via `getSharedFilterScheduler()`, and consumed by `OutboxConsumerGroupMember` → `FilterRetryManager`. The per-5.7 note says: "If the outbox module intentionally avoids Vert.x threading for isolation, document that decision and skip this task." This is exactly that case.
 
 **Remaining risk**: `close()` calls `awaitTermination(5, SECONDS)` which blocks the calling thread. If `close()` is ever called from a Vert.x event-loop thread, this would block. Currently `close()` is called from application shutdown paths (not event-loop), so this is acceptable. If this changes in the future, `close()` should be reworked to use `executeBlocking()` or an async shutdown handshake.
 
-### 5.8 — Add fan-out trace propagation to OutboxConsumerGroup.distributeMessage — DONE
+### 5.8 Add fan-out trace propagation to OutboxConsumerGroup.distributeMessage DONE
 
 **Adopt from**: `PgNativeConsumerGroup.distributeMessage()` (lines 469-522) creates a child span per consumer group from the message's `traceparent` header  
-**Implemented in**: `OutboxConsumerGroup.distributeMessage()` — now has `TraceCtx.parseOrCreate(traceparent)` → `childSpan()` → `TraceContextUtil.mdcScope()` with cleanup in `.eventually()`  
+**Implemented in**: `OutboxConsumerGroup.distributeMessage()` now has `TraceCtx.parseOrCreate(traceparent)` → `childSpan()` → `TraceContextUtil.mdcScope()` with cleanup in `.eventually()`  
 **Change**: Add the same `TraceCtx.parseOrCreate(traceparent)` → `childSpan("consumer-group:" + groupName + "/process")` → `TraceContextUtil.mdcScope()` pattern, with `TraceContextUtil.clearTraceMDC()` in `.eventually()`.  
 **Files**: `OutboxConsumerGroup.java`, plus test coverage in outbox module.
 
-### 5.9 — Wire connectionManager/serviceId in PgNativeQueueFactory.createConsumerGroup — DONE
+### 5.9 Wire connectionManager/serviceId in PgNativeQueueFactory.createConsumerGroup DONE
 
 **Fix in**: `PgNativeQueueFactory.createConsumerGroup()` (lines 228-230)  
 **Implemented**: Factory now passes `connectionManager` and `connectionServiceId` to the full constructor (line 244).
 
-### 5.10 — Adopt try/finally state reset in PgNativeConsumerGroup stop paths — DONE
+### 5.10 Adopt try/finally state reset in PgNativeConsumerGroup stop paths DONE
 
 **Adopt from**: `OutboxConsumerGroup.stopInternal()` uses `try { ... } finally { state.set(State.NEW); }` (lines 463-484)  
 **Implemented**: `stopInternal()` has try/catch with `state.compareAndSet(State.STOPPING, State.NEW)` in both the `eventually()` callback and the catch block.
@@ -604,11 +604,11 @@ Tasks have dependencies:
        │                                                         
        └──→ 5.10 (try/finally stop)  ──→ 5.3 (compose stop future)
        
-5.2 (putIfAbsent)     — independent
-5.6 (outbox closeAsync)— independent  
-5.7 (vert.x timers)   — independent, needs design decision
-5.8 (outbox tracing)   — independent
-5.9 (factory wiring)   — independent, Phase 6 prerequisite
+5.2 (putIfAbsent)     independent
+5.6 (outbox closeAsync)independent  
+5.7 (vert.x timers)   independent, needs design decision
+5.8 (outbox tracing)   independent
+5.9 (factory wiring)   independent, Phase 6 prerequisite
 ```
 
 Recommended order: 5.1 → 5.2 → 5.10 → 5.3 → 5.4 → 5.5 → 5.6 → 5.8 → 5.9 → 5.7
@@ -629,6 +629,6 @@ These were evaluated and intentionally not implemented:
 
 | Item | Reason |
 |------|--------|
-| 5.7 — Replace `ScheduledExecutorService` with Vert.x timers | `FilterRetryManager` intentionally uses JDK scheduling for framework-agnostic design, API boundary isolation, and testability. See 5.7 section above for full rationale. |
+| 5.7 Replace `ScheduledExecutorService` with Vert.x timers | `FilterRetryManager` intentionally uses JDK scheduling for framework-agnostic design, API boundary isolation, and testability. See 5.7 section above for full rationale. |
 | `peegeeq_consumer_group_processing_seconds` Prometheus metric | Invasive hot-path change (timer around message handler), no concrete need |
 | `peegeeq_backfill_progress_ratio` Prometheus metric | Invasive wiring change, no concrete need |

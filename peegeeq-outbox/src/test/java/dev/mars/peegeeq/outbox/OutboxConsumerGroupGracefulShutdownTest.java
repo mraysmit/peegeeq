@@ -92,7 +92,7 @@ class OutboxConsumerGroupGracefulShutdownTest {
     }
 
     @Test
-    @DisplayName("stopGracefully is idempotent — second call returns succeeded")
+    @DisplayName("stopGracefully is idempotent second call returns succeeded")
     void stopGracefully_idempotent() {
         group = createGroup("idempotent-group", "test-topic", new StubDatabaseService(vertx));
         group.addConsumer("c1", msg -> Future.succeededFuture());
@@ -108,7 +108,7 @@ class OutboxConsumerGroupGracefulShutdownTest {
     }
 
     // =========================================================================
-    // Without subscription — local stop only
+    // Without subscription local stop only
     // =========================================================================
 
     @Test
@@ -128,7 +128,7 @@ class OutboxConsumerGroupGracefulShutdownTest {
     }
 
     // =========================================================================
-    // With subscription — cancel then stop
+    // With subscription cancel then stop
     // =========================================================================
 
     @Test
@@ -167,7 +167,7 @@ class OutboxConsumerGroupGracefulShutdownTest {
     }
 
     @Test
-    @DisplayName("stopGracefully after stop() is no-op — does not cancel again")
+    @DisplayName("stopGracefully after stop() is no-op does not cancel again")
     void stopGracefully_afterStop_isNoOp() {
         var cancelCount = new AtomicInteger(0);
         var dbService = new SubscriptionTrackingDatabaseService(vertx, cancelCount);
@@ -182,7 +182,7 @@ class OutboxConsumerGroupGracefulShutdownTest {
 
         var future = group.stopGracefully();
         assertTrue(future.succeeded(), "Should succeed as no-op");
-        assertEquals(0, cancelCount.get(), "Should NOT cancel — group is already stopped");
+        assertEquals(0, cancelCount.get(), "Should NOT cancel group is already stopped");
     }
 
     // =========================================================================
@@ -292,7 +292,7 @@ class OutboxConsumerGroupGracefulShutdownTest {
     }
 
     /**
-     * Base stub SubscriptionService — all methods return failed futures by default.
+     * Base stub SubscriptionService all methods return failed futures by default.
      */
     private static abstract class StubSubscriptionService implements SubscriptionService {
         @Override public Future<Void> subscribe(String topic, String groupName) {

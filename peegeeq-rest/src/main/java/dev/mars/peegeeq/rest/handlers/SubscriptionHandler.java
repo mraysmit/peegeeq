@@ -140,7 +140,7 @@ public class SubscriptionHandler {
             return;
         }
 
-        // Check if subscription already exists — return 409 if active
+        // Check if subscription already exists return 409 if active
         service.getSubscription(topic, groupName)
             .compose(existing -> {
                 if (existing != null && existing.state() == SubscriptionState.ACTIVE) {
@@ -166,7 +166,7 @@ public class SubscriptionHandler {
                             .end(result.encode());
                     })
                     .onFailure(fetchError -> {
-                        // Subscription was created but we couldn't fetch it — still return 201
+                        // Subscription was created but we couldn't fetch it still return 201
                         JsonObject result = new JsonObject()
                             .put("success", true)
                             .put("topic", topic)

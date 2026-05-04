@@ -147,7 +147,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
             ConsumerMode mode = consumerConfig != null ? consumerConfig.getMode() : ConsumerMode.HYBRID;
             logger.info("Using consumer mode: {} for topic: {}", mode, topic);
 
-            // Start polling based on mode (sync timer setup — completes immediately)
+            // Start polling based on mode (sync timer setup completes immediately)
             if (mode == ConsumerMode.POLLING_ONLY || mode == ConsumerMode.HYBRID) {
                 startPolling();
                 logger.info("Started polling for topic: {}", topic);
@@ -155,7 +155,7 @@ public class PgNativeQueueConsumer<T> implements dev.mars.peegeeq.api.messaging.
                 logger.info("Skipping polling setup for LISTEN_NOTIFY_ONLY mode on topic: {}", topic);
             }
 
-            // Start LISTEN/NOTIFY based on mode — returns Future that completes when LISTEN is established
+            // Start LISTEN/NOTIFY based on mode returns Future that completes when LISTEN is established
             if (mode == ConsumerMode.LISTEN_NOTIFY_ONLY || mode == ConsumerMode.HYBRID) {
                 return startListening()
                         .onSuccess(v -> logger.info("Subscribed to topic: {} with mode: {}", topic, mode))

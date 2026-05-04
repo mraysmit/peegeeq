@@ -1,13 +1,13 @@
-# PeeGeeQ Test Commands — Quick Reference
+# PeeGeeQ Test Commands Quick Reference
 
 **Platform**: Windows / PowerShell only. Always pipe with `Tee-Object`. Never use `Select-String` or `Select-Object`.  
 **Log naming**: `<description>-<YYYYMMDD>.txt`
 
-> **MANDATORY — NO BACKGROUND/ASYNC MODE**: All Maven test commands MUST be run in foreground (sync) mode so output streams live and visibly in the terminal. Never use background, async, or fire-and-forget execution for test runs. The `Tee-Object` pipe handles logging. Running in background hides output from the user and is forbidden regardless of how long the test run takes.
+> **MANDATORY NO BACKGROUND/ASYNC MODE**: All Maven test commands MUST be run in foreground (sync) mode so output streams live and visibly in the terminal. Never use background, async, or fire-and-forget execution for test runs. The `Tee-Object` pipe handles logging. Running in background hides output from the user and is forbidden regardless of how long the test run takes.
 
 ---
 
-## 1 — Daily Development (run this constantly)
+## 1 Daily Development (run this constantly)
 
 ```powershell
 mvn test -Pcore-tests 2>&1 | Tee-Object -FilePath logs\core-tests-20260501.txt
@@ -20,7 +20,7 @@ mvn test -Pcore-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peege
 
 ---
 
-## 2 — Before Commit
+## 2 Before Commit
 
 ```powershell
 mvn test -Psmoke-tests 2>&1 | Tee-Object -FilePath logs\smoke-tests-20260501.txt
@@ -29,7 +29,7 @@ mvn test -Pcore-tests  2>&1 | Tee-Object -FilePath logs\core-tests-20260501.txt
 
 ---
 
-## 3 — Before Push / Integration Validation
+## 3 Before Push / Integration Validation
 
 Single module:
 ```powershell
@@ -43,7 +43,7 @@ mvn test -Pintegration-tests -pl :peegeeq-api,:peegeeq-db,:peegeeq-native,:peege
 
 ---
 
-## 4 — Performance
+## 4 Performance
 
 ```powershell
 mvn test -Pperformance-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-performance-20260501.txt
@@ -51,7 +51,7 @@ mvn test -Pperformance-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath log
 
 ---
 
-## 5 — Full Suite (release / nightly)
+## 5 Full Suite (release / nightly)
 
 ```powershell
 mvn test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-20260501.txt
@@ -63,16 +63,16 @@ mvn test -Pall-tests 2>&1 | Tee-Object -FilePath logs\all-tests-20260501.txt
 
 | Profile | What runs | Available in |
 |---|---|---|
-| `core-tests` | `@Tag("core")` — ~30s | All modules (activeByDefault in most) |
-| `smoke-tests` | `@Tag("smoke")` — ~20s | All modules |
-| `integration-tests` | `@Tag("integration")` — 10-15m | All modules |
-| `performance-tests` | `@Tag("performance")` — 20-30m | All modules |
-| `slow-tests` | `@Tag("slow")` — 15+m | All **except** `peegeeq-native`, `peegeeq-db`, `peegeeq-bitemporal` |
+| `core-tests` | `@Tag("core")` ~30s | All modules (activeByDefault in most) |
+| `smoke-tests` | `@Tag("smoke")` ~20s | All modules |
+| `integration-tests` | `@Tag("integration")` 10-15m | All modules |
+| `performance-tests` | `@Tag("performance")` 20-30m | All modules |
+| `slow-tests` | `@Tag("slow")` 15+m | All **except** `peegeeq-native`, `peegeeq-db`, `peegeeq-bitemporal` |
 | `all-tests` | All tags | All modules |
 
 ### Exceptions
 
 - **`peegeeq-integration-tests`**: default profile is `smoke-tests`, not `core-tests`
-- **`peegeeq-migrations`**: no profile filtering — `mvn test -pl :peegeeq-migrations` runs all tests
-- **`peegeeq-runtime`**: no profile filtering — all tests run on `mvn test`
+- **`peegeeq-migrations`**: no profile filtering `mvn test -pl :peegeeq-migrations` runs all tests
+- **`peegeeq-runtime`**: no profile filtering all tests run on `mvn test`
 - **`peegeeq-openapi`**: no tests

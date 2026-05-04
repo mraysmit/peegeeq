@@ -60,11 +60,11 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * <p>Covers crash/fault scenarios identified in the code review:</p>
  * <ul>
- *   <li>F1: Handler fails mid-batch — remaining messages re-delivered on next fetch</li>
- *   <li>F4: stop() while fetch is in-progress — clean shutdown, no stale commit</li>
- *   <li>F2: Database connection loss during fetch loop — engine self-heals</li>
+ *   <li>F1: Handler fails mid-batch remaining messages re-delivered on next fetch</li>
+ *   <li>F4: stop() while fetch is in-progress clean shutdown, no stale commit</li>
+ *   <li>F2: Database connection loss during fetch loop engine self-heals</li>
  *   <li>F3: Hung handler permanently blocks single partition</li>
- *   <li>F8: leaveGroup fails on hard stop — orphaned assignment cleaned by rebalance</li>
+ *   <li>F8: leaveGroup fails on hard stop orphaned assignment cleaned by rebalance</li>
  * </ul>
  *
  * @author Mark Andrew Ray-Smith Cityline Ltd
@@ -146,7 +146,7 @@ class ConsumerGroupFaultIntegrationTest {
     }
 
     // ========================================================================
-    // F1: Handler fails mid-batch — remaining messages re-delivered
+    // F1: Handler fails mid-batch remaining messages re-delivered
     //
     // Send 5 messages on a single partition. Handler fails on message #3.
     // processAndCommit chains break → offset never committed → next fetch
@@ -155,7 +155,7 @@ class ConsumerGroupFaultIntegrationTest {
 
     @Test
     @Order(1)
-    @DisplayName("F1: handler fails mid-batch — uncommitted messages re-delivered on next fetch")
+    @DisplayName("F1: handler fails mid-batch uncommitted messages re-delivered on next fetch")
     void handlerFailsMidBatch_messagesRedelivered(VertxTestContext testContext) throws Exception {
         logger.info("=== FAULT 1: handlerFailsMidBatch_messagesRedelivered STARTED ===");
 
@@ -226,7 +226,7 @@ class ConsumerGroupFaultIntegrationTest {
     }
 
     // ========================================================================
-    // F4: stop() while fetch is in-progress — clean shutdown
+    // F4: stop() while fetch is in-progress clean shutdown
     //
     // Start with a slow handler (500ms per message), then call stop()
     // during processing. The engine should shut down cleanly; the running
@@ -235,7 +235,7 @@ class ConsumerGroupFaultIntegrationTest {
 
     @Test
     @Order(2)
-    @DisplayName("F4: stop during active fetch — engine stops cleanly")
+    @DisplayName("F4: stop during active fetch engine stops cleanly")
     void stopDuringActiveFetch_cleansUpGracefully(VertxTestContext testContext) throws Exception {
         logger.info("=== FAULT 4: stopDuringActiveFetch_cleansUpGracefully STARTED ===");
 
@@ -306,7 +306,7 @@ class ConsumerGroupFaultIntegrationTest {
     }
 
     // ========================================================================
-    // F2: Database connection loss during fetch loop — engine self-heals
+    // F2: Database connection loss during fetch loop engine self-heals
     //
     // Start the partitioned consumer, terminate all backend connections via
     // pg_terminate_backend, wait for fetch errors, then verify the engine
@@ -315,7 +315,7 @@ class ConsumerGroupFaultIntegrationTest {
 
     @Test
     @Order(3)
-    @DisplayName("F2: DB connection terminated — engine recovers and resumes processing")
+    @DisplayName("F2: DB connection terminated engine recovers and resumes processing")
     void dbConnectionLoss_engineRecovers(VertxTestContext testContext) throws Exception {
         logger.info("=== FAULT 2: dbConnectionLoss_engineRecovers STARTED ===");
 
@@ -410,7 +410,7 @@ class ConsumerGroupFaultIntegrationTest {
 
     @Test
     @Order(4)
-    @DisplayName("F3: hung handler blocks partition — fetch guard prevents overlapping fetches")
+    @DisplayName("F3: hung handler blocks partition fetch guard prevents overlapping fetches")
     void hungHandler_blocksPartition(VertxTestContext testContext) throws Exception {
         logger.info("=== FAULT 3: hungHandler_blocksPartition STARTED ===");
 
@@ -466,9 +466,9 @@ class ConsumerGroupFaultIntegrationTest {
 
                                 // The partition is blocked because the first Future never completed.
                                 // The fetchInProgress guard prevents subsequent fetches on the same partition.
-                                // So only 1 message was dispatched — the rest are blocked.
+                                // So only 1 message was dispatched the rest are blocked.
                                 assertEquals(1, totalCalls,
-                                        "Only 1 handler invocation expected — partition is blocked by hung Future");
+                                        "Only 1 handler invocation expected partition is blocked by hung Future");
 
                                 logger.info("FAULT 3 PASSED: hung handler blocks partition (documented behavior)");
                                 group.close();
@@ -491,7 +491,7 @@ class ConsumerGroupFaultIntegrationTest {
 
     @Test
     @Order(5)
-    @DisplayName("F8: leaveGroup fails on hard close — engine still stops cleanly")
+    @DisplayName("F8: leaveGroup fails on hard close engine still stops cleanly")
     void leaveGroupFails_engineStopsCleanly(VertxTestContext testContext) throws Exception {
         logger.info("=== FAULT 8: leaveGroupFails_engineStopsCleanly STARTED ===");
 

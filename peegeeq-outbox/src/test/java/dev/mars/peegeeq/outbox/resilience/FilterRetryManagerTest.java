@@ -491,11 +491,11 @@ class FilterRetryManagerTest {
             throw new RuntimeException("INTENTIONAL TEST FAILURE - Error during shutdown");
         };
 
-        // Start retries — filter always throws so retries will be scheduled via Vertx timers
+        // Start retries filter always throws so retries will be scheduled via Vertx timers
         retryManager.executeWithRetry(message, filter, circuitBreaker);
         
         // Give it a moment to start, then close Vertx while retries are in progress.
-        // Closing Vertx cancels pending timers — the key invariant is that this
+        // Closing Vertx cancels pending timers the key invariant is that this
         // completes without throwing or hanging (graceful shutdown).
         LockSupport.parkNanos(20_000_000L);
         vertx.close().await();

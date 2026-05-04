@@ -67,11 +67,11 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * <p>These tests exercise failure paths that can only be tested with a real database:
  * <ul>
- *   <li>F2 — DB connection loss during polling → poll loop self-heals</li>
- *   <li>F4 — Handler fails mid-batch → remaining messages still processed</li>
- *   <li>F3 — Hung handler blocks poll loop → documented blocking behavior</li>
- *   <li>F5 — stop() called while handler is in-flight → clean shutdown</li>
- *   <li>F6 — All consumers fail → retry/DLQ pipeline engaged</li>
+ *   <li>F2 DB connection loss during polling → poll loop self-heals</li>
+ *   <li>F4 Handler fails mid-batch → remaining messages still processed</li>
+ *   <li>F3 Hung handler blocks poll loop → documented blocking behavior</li>
+ *   <li>F5 stop() called while handler is in-flight → clean shutdown</li>
+ *   <li>F6 All consumers fail → retry/DLQ pipeline engaged</li>
  * </ul>
  */
 @Tag(TestCategories.INTEGRATION)
@@ -117,7 +117,7 @@ class OutboxConsumerGroupFaultToleranceTest {
         outboxFactory = new OutboxFactory(databaseService, config);
         producer = outboxFactory.createProducer(testTopic, String.class);
 
-        // Verification pool — independent connection for asserting DB state
+        // Verification pool independent connection for asserting DB state
         verificationConnectionManager = new PgConnectionManager(vertx);
         PgConnectionConfig connConfig = new PgConnectionConfig.Builder()
                 .host(postgres.getHost())
@@ -159,7 +159,7 @@ class OutboxConsumerGroupFaultToleranceTest {
     }
 
     // ========================================================================
-    // F2 — DB connection loss during consumer group polling
+    // F2 DB connection loss during consumer group polling
     // ========================================================================
 
     @Nested
@@ -197,14 +197,14 @@ class OutboxConsumerGroupFaultToleranceTest {
                         "Pre-kill messages should be consumed before terminating connections"))
                 .compose(v -> killPeeGeeQConnections())
                 .compose(killCount -> {
-                    logger.info("Killed PeeGeeQ connections — polling loop should recover");
+                    logger.info("Killed PeeGeeQ connections polling loop should recover");
                     assertTrue(killCount > 0,
                             "At least one PeeGeeQ connection should have been terminated");
                     // Brief pause for the pool to notice the dead connections
                     return vertx.timer(2000).mapEmpty();
                 })
                 .compose(v -> {
-                    // Phase 2: send post-kill messages — group must recover and process these
+                    // Phase 2: send post-kill messages group must recover and process these
                     Future<Void> sends = Future.succeededFuture();
                     for (int i = 0; i < postKillMessages; i++) {
                         int idx = i;
@@ -230,7 +230,7 @@ class OutboxConsumerGroupFaultToleranceTest {
     }
 
     // ========================================================================
-    // F4 — Handler fails mid-batch → remaining messages still processed
+    // F4 Handler fails mid-batch → remaining messages still processed
     // ========================================================================
 
     @Nested
@@ -282,7 +282,7 @@ class OutboxConsumerGroupFaultToleranceTest {
     }
 
     // ========================================================================
-    // F5 — stop() while handler is in-flight
+    // F5 stop() while handler is in-flight
     // ========================================================================
 
     @Nested
@@ -299,12 +299,12 @@ class OutboxConsumerGroupFaultToleranceTest {
             consumerGroup.addConsumer("c1", message -> {
                 handlerEntryCount.incrementAndGet();
                 logger.info("Handler entered for message: {}", message.getPayload());
-                // Block until gate is released — simulates slow processing
+                // Block until gate is released simulates slow processing
                 return handlerGate.future();
             });
             consumerGroup.start();
 
-            // Wait for group to start, then send a message — handler will hang on the gate
+            // Wait for group to start, then send a message handler will hang on the gate
             vertx.timer(500).mapEmpty()
                 .compose(v -> producer.send("slow-message").mapEmpty())
                 .compose(v -> {
@@ -321,7 +321,7 @@ class OutboxConsumerGroupFaultToleranceTest {
                 .compose(v -> {
                     // Now stop the group gracefully while handler is in-flight.
                     // closeAsync() waits for in-flight processing to finish, so we must
-                    // release the handler gate concurrently — otherwise stopGracefully()
+                    // release the handler gate concurrently otherwise stopGracefully()
                     // would block forever waiting for the handler that is waiting on the gate.
                     logger.info("Calling stopGracefully() while handler is in-flight");
 
@@ -337,7 +337,7 @@ class OutboxConsumerGroupFaultToleranceTest {
                     // Verify the group is no longer active
                     assertFalse(consumerGroup.isActive(), "Group should not be active after stopGracefully()");
 
-                    // Send another message — it should NOT be processed (group is stopped)
+                    // Send another message it should NOT be processed (group is stopped)
                     AtomicInteger postStopReceived = new AtomicInteger();
                     consumerGroup.addConsumer("c2", msg -> {
                         postStopReceived.incrementAndGet();
@@ -361,7 +361,7 @@ class OutboxConsumerGroupFaultToleranceTest {
     }
 
     // ========================================================================
-    // F3 — Hung handler blocks poll loop
+    // F3 Hung handler blocks poll loop
     // ========================================================================
 
     @Nested
@@ -369,7 +369,7 @@ class OutboxConsumerGroupFaultToleranceTest {
     class HungHandlerBlocking {
 
         @Test
-        @DisplayName("hung handler blocks poll loop — no further messages processed")
+        @DisplayName("hung handler blocks poll loop no further messages processed")
         void hungHandlerBlocksPollLoop(Vertx vertx, VertxTestContext testContext) throws Exception {
             AtomicInteger handlerCalls = new AtomicInteger();
             int totalMessages = 15;
@@ -379,7 +379,7 @@ class OutboxConsumerGroupFaultToleranceTest {
             consumerGroup.addConsumer("c1", message -> {
                 handlerCalls.incrementAndGet();
                 logger.info("Handler entered for message: {}", message.getPayload());
-                // Return a Future that never completes — simulates permanently hung handler
+                // Return a Future that never completes simulates permanently hung handler
                 return Promise.<Void>promise().future();
             });
             consumerGroup.start();
@@ -444,7 +444,7 @@ class OutboxConsumerGroupFaultToleranceTest {
     }
 
     // ========================================================================
-    // F6 — All consumers fail → retry/DLQ pipeline
+    // F6 All consumers fail → retry/DLQ pipeline
     // ========================================================================
 
     @Nested

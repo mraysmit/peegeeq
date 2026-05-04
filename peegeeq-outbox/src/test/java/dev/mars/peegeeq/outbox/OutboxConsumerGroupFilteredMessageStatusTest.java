@@ -202,7 +202,7 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
 
                 int completedCount = statusCounts.getOrDefault("COMPLETED", 0);
 
-                // THIS IS THE CORE ASSERTION — currently fails due to H2 bug
+                // THIS IS THE CORE ASSERTION currently fails due to H2 bug
                 assertEquals(0, completedCount,
                         "Group-filtered message must NOT be marked COMPLETED. " +
                         "It should remain PENDING (or a distinct FILTERED status) for reprocessing. " +
@@ -249,7 +249,7 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
 
                 int completedCount = statusCounts.getOrDefault("COMPLETED", 0);
 
-                // THIS IS THE CORE ASSERTION — currently fails due to H2 bug
+                // THIS IS THE CORE ASSERTION currently fails due to H2 bug
                 assertEquals(0, completedCount,
                         "Message with no eligible consumer must NOT be marked COMPLETED. " +
                         "Actual statuses: " + statusCounts);
@@ -268,14 +268,14 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
         AtomicInteger group1Processed = new AtomicInteger(0);
         AtomicInteger group2Processed = new AtomicInteger(0);
 
-        // Group 1: only accepts "TypeA" messages — will filter out "TypeB"
+        // Group 1: only accepts "TypeA" messages will filter out "TypeB"
         consumerGroup.setGroupFilter(msg -> msg.getPayload().startsWith("TypeA"));
         consumerGroup.addConsumer("member-1", message -> {
             group1Processed.incrementAndGet();
             return Future.succeededFuture();
         });
 
-        // Group 2: accepts "TypeB" messages — created but not started yet
+        // Group 2: accepts "TypeB" messages created but not started yet
         ConsumerGroup<String> consumerGroup2 = outboxFactory.createConsumerGroup(
                 "group-2", testTopic, String.class);
         consumerGroup2.setGroupFilter(msg -> msg.getPayload().startsWith("TypeB"));

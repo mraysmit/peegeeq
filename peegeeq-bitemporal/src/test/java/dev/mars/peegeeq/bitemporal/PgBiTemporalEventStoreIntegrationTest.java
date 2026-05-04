@@ -41,7 +41,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * <p><b>Implementation notes (reactive migration):</b>
  * <ul>
- *   <li>All blocking {@code await()} helpers removed — tests use {@code .compose()} chains
+ *   <li>All blocking {@code await()} helpers removed tests use {@code .compose()} chains
  *       with {@code VertxTestContext} for async coordination.</li>
  *   <li>All {@code .toCompletionStage().toCompletableFuture().get()} bridges removed.</li>
  *   <li>All {@code CountDownLatch} patterns replaced with compose chains and promise-based completion.</li>

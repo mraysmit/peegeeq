@@ -52,7 +52,7 @@ import java.util.List;
  * 
  * @see PeeGeeQRestClient
  */
-@SuppressWarnings("rawtypes") // BiTemporalEvent used raw — REST client payload type unknown at compile time
+@SuppressWarnings("rawtypes") // BiTemporalEvent used raw REST client payload type unknown at compile time
 public interface PeeGeeQClient extends AutoCloseable {
 
     // ========================================================================

@@ -8,7 +8,7 @@
 
 ## Executive Summary
 
-The module's core architecture — bi-temporal event sourcing over PostgreSQL with Vert.x 5.x reactive patterns — is sound. The main risks cluster around resource lifecycle management (dual Vertx instances, fire-and-forget async close), SQL construction patterns, and thread-safety gaps in the notification handler.
+The module's core architecture bi-temporal event sourcing over PostgreSQL with Vert.x 5.x reactive patterns is sound. The main risks cluster around resource lifecycle management (dual Vertx instances, fire-and-forget async close), SQL construction patterns, and thread-safety gaps in the notification handler.
 
 ---
 
@@ -16,7 +16,7 @@ The module's core architecture — bi-temporal event sourcing over PostgreSQL wi
 
 ### Critical
 
-#### C1. SQL Injection Risk — Unquoted Table Names in All SQL Statements
+#### C1. SQL Injection Risk Unquoted Table Names in All SQL Statements
 
 **Files:** `PgBiTemporalEventStore.java` (all SQL-building methods)
 
@@ -31,9 +31,9 @@ String sql = """
 
 While `validateTableName()` calls `PostgreSqlIdentifierValidator.validate()`, the table name is **not** double-quoted in the SQL. If the validator ever allows edge-case identifiers (reserved words, mixed-case), the unquoted identifier becomes a syntax error or semantic mismatch.
 
-#### C2. SQL Injection Risk — `pg_total_relation_size` String Literal Interpolation
+#### C2. SQL Injection Risk `pg_total_relation_size` String Literal Interpolation
 
-**File:** `PgBiTemporalEventStore.java` — `getStats()` (~line 1175)
+**File:** `PgBiTemporalEventStore.java` `getStats()` (~line 1175)
 
 ```java
 String basicStatsSql = """
@@ -43,7 +43,7 @@ String basicStatsSql = """
     """.formatted(tableName, tableName);
 ```
 
-The table name is placed inside **single quotes** (a SQL string literal). This is a different injection class from identifier interpolation — a crafted table name like `'; DROP TABLE x; --` would escape the string context. Though `validateTableName` mitigates this, the pattern is fragile and structurally unsafe.
+The table name is placed inside **single quotes** (a SQL string literal). This is a different injection class from identifier interpolation a crafted table name like `'; DROP TABLE x; --` would escape the string context. Though `validateTableName` mitigates this, the pattern is fragile and structurally unsafe.
 
 ---
 
@@ -53,11 +53,11 @@ The table name is placed inside **single quotes** (a SQL string literal). This i
 
 **Files:** `PgBiTemporalEventStore.java` (~line 103), `VertxPoolAdapter.java` (~line 139)
 
-Both classes independently create and cache a `static volatile Vertx sharedVertx`. Two `Vertx` instances can coexist in the same JVM with separate event loop pools, thread pools, and contexts. `TransactionPropagation.CONTEXT` depends on a shared Vert.x context — if pools from these two classes see different Vertx instances, transaction propagation silently breaks.
+Both classes independently create and cache a `static volatile Vertx sharedVertx`. Two `Vertx` instances can coexist in the same JVM with separate event loop pools, thread pools, and contexts. `TransactionPropagation.CONTEXT` depends on a shared Vert.x context if pools from these two classes see different Vertx instances, transaction propagation silently breaks.
 
 #### H2. `close()` Is Synchronous but Calls Async Operations
 
-**File:** `PgBiTemporalEventStore.java` — `close()` (~line 1237)
+**File:** `PgBiTemporalEventStore.java` `close()` (~line 1237)
 
 `close()` is `void` (from `AutoCloseable`) but calls `reactiveNotificationHandler.stop()` which returns `Future<Void>`. The future is never awaited:
 - The LISTEN connection may not be cleaned up before the method returns.
@@ -72,7 +72,7 @@ The propagation-aware append path uses `$5, $6` (no cast), while the non-propaga
 
 |  Path  |  Cast  |
 |--------|--------|
-| `appendWithTransactionInternal` (propagation != null) | `$5, $6` — no cast |
+| `appendWithTransactionInternal` (propagation != null) | `$5, $6` no cast |
 | `appendWithTransactionInternal` (propagation == null) | `$5::jsonb, $6::jsonb` |
 | `appendBatchReactive` | `$5::jsonb, $6::jsonb` |
 | `appendHighPerformance` | `$5::jsonb, $6::jsonb` |
@@ -81,7 +81,7 @@ The propagation-aware append path uses `$5, $6` (no cast), while the non-propaga
 
 #### H4. Hardcoded Credentials in `VertxPoolAdapter`
 
-**File:** `VertxPoolAdapter.java` — `createPoolWithDefaults()` (~line 161)
+**File:** `VertxPoolAdapter.java` `createPoolWithDefaults()` (~line 161)
 
 ```java
 .setUser("peegeeq")
@@ -92,7 +92,7 @@ Hardcoded credentials in production code. Even as a fallback, this silently conn
 
 #### H5. `Pool.close()` Future Ignored
 
-**File:** `PgBiTemporalEventStore.java` — `close()` (~line 1260)
+**File:** `PgBiTemporalEventStore.java` `close()` (~line 1260)
 
 ```java
 reactivePool.close();   // returns Future<Void>, never handled
@@ -123,7 +123,7 @@ Every instance registers itself on construction. While `close()` removes the ent
 
 #### M3. `SELECT *` in `queryReactive()`
 
-**File:** `PgBiTemporalEventStore.java` — `queryReactive()` (~line 1432)
+**File:** `PgBiTemporalEventStore.java` `queryReactive()` (~line 1432)
 
 ```java
 StringBuilder sql = new StringBuilder("SELECT * FROM %s WHERE 1=1");
@@ -162,8 +162,8 @@ Subscription tracking is fully delegated to `ReactiveNotificationHandler`, but t
 
 #### L3. Mixed Copyright Headers
 
-- `BiTemporalEventStoreFactory.java` and `PgBiTemporalEventStore.java` — Apache 2.0 license
-- `SubscriptionKey.java`, `VertxPoolAdapter.java`, `ReactiveNotificationHandler.java` — Proprietary Cityline Ltd license
+- `BiTemporalEventStoreFactory.java` and `PgBiTemporalEventStore.java` Apache 2.0 license
+- `SubscriptionKey.java`, `VertxPoolAdapter.java`, `ReactiveNotificationHandler.java` Proprietary Cityline Ltd license
 
 If the intent is to ship under Apache 2.0 (which matches the root `LICENSE` file), the proprietary headers should be updated.
 
@@ -204,7 +204,7 @@ An incomplete Javadoc comment block (`/**` without closing `*/` before next `/**
 
 All 16 findings have been remediated and verified. 109 tests pass with 0 failures across all three phases.
 
-### Phase 1 — Critical & High (COMPLETE)
+### Phase 1 Critical & High (COMPLETE)
 
 | ID | Finding | Status | Notes |
 |----|---------|--------|-------|
@@ -216,7 +216,7 @@ All 16 findings have been remediated and verified. 109 tests pass with 0 failure
 | H4 | Hardcoded credentials fallback | **DONE** | Removed `createPoolWithDefaults()`. Throws `IllegalStateException` if config missing. |
 | H5 | `Pool.close()` future ignored | **DONE** | Handled in `closeFuture()` composition with per-step failure logging. |
 
-### Phase 2 — Medium (COMPLETE)
+### Phase 2 Medium (COMPLETE)
 
 | ID | Finding | Status | Notes |
 |----|---------|--------|-------|
@@ -225,11 +225,11 @@ All 16 findings have been remediated and verified. 109 tests pass with 0 failure
 | M3 | `SELECT *` in `queryReactive` | **DONE** | Replaced with explicit 14-column list matching `mapRowToEvent()`. |
 | M4 | Non-thread-safe `reconnectAttempts` | **DONE** | Replaced with `AtomicInteger`; uses `incrementAndGet()` and `set()` for atomic operations. |
 
-### Phase 3 — Low (COMPLETE)
+### Phase 3 Low (COMPLETE)
 
 | ID | Finding | Status | Notes |
 |----|---------|--------|-------|
-| L1 | MD5 fallback `substring` bug | **DONE** | Replaced with `String.format("%08x", hashCode & 0xFFFFFFFFL)` — always 8 hex chars. |
+| L1 | MD5 fallback `substring` bug | **DONE** | Replaced with `String.format("%08x", hashCode & 0xFFFFFFFFL)` always 8 hex chars. |
 | L2 | Dead `subscriptions` field | **DONE** | Removed field, constructor init, and all `subscriptions.clear()` calls. |
 | L3 | Mixed copyright headers | **DONE** | Standardized `ReactiveNotificationHandler`, `SubscriptionKey`, and `VertxPoolAdapter` to Apache 2.0 matching root LICENSE. |
 | L4 | `BatchEventData` public fields | **DONE** | Converted to Java `record`; updated all field accesses to accessor methods in source and tests. |
@@ -240,6 +240,6 @@ All 16 findings have been remediated and verified. 109 tests pass with 0 failure
 ## Verification Results
 
 All phases verified with:
-1. `mvn compile -pl peegeeq-bitemporal -am` — clean compile
-2. `mvn test -pl peegeeq-bitemporal` — 109 tests, 0 failures, 0 errors
-3. SQL injection audit — `grep` for `.formatted(tableName)` returns 0 matches; all SQL uses `quotedTableName` or parameterized binds
+1. `mvn compile -pl peegeeq-bitemporal -am` clean compile
+2. `mvn test -pl peegeeq-bitemporal` 109 tests, 0 failures, 0 errors
+3. SQL injection audit `grep` for `.formatted(tableName)` returns 0 matches; all SQL uses `quotedTableName` or parameterized binds

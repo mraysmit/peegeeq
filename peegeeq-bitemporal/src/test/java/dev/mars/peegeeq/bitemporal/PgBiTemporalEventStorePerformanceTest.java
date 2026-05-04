@@ -231,7 +231,7 @@ class PgBiTemporalEventStorePerformanceTest {
         eventStore.appendBuilder().eventType("warmup").payload(Map.of("data", "warmup"))
             .validTime(Instant.now()).execute()
             .compose(warmup -> {
-                // Single append timing — sequential chain
+                // Single append timing sequential chain
                 long singleStart = System.currentTimeMillis();
                 Future<Void> chain = Future.succeededFuture();
                 for (int i = 0; i < BATCH_SIZE; i++) {

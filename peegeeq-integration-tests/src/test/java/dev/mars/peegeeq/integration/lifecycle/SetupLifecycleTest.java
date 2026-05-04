@@ -93,7 +93,7 @@ public class SetupLifecycleTest extends SmokeTestBase {
                 }
                 logger.info("Pre-delete publish succeeded for setup {}", setupId);
 
-                // 3. DELETE the setup — must return 204
+                // 3. DELETE the setup must return 204
                 return webClient.delete("/api/v1/setups/" + setupId).send();
             })
             .compose(deleteResponse -> {
