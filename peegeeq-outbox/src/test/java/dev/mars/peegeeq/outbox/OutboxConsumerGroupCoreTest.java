@@ -54,12 +54,12 @@ import static org.junit.jupiter.api.Assertions.*;
  * Comprehensive core unit tests for {@link OutboxConsumerGroup} covering the
  * code review fixes:
  * <ul>
- *   <li>Phase 1 — Lifecycle state machine transitions and safety</li>
- *   <li>Phase 2 — Membership concurrency (putIfAbsent, no synchronized)</li>
- *   <li>Phase 3 — Failure semantics (RejectedMessageException vs MessageFilteredException)</li>
- *   <li>Phase 4 — Deterministic hash-based routing</li>
- *   <li>Phase 5 — Stats correctness (weighted average, lastActiveAt)</li>
- *   <li>Phase 7 — Builder validation</li>
+ *   <li>Phase 1 Lifecycle state machine transitions and safety</li>
+ *   <li>Phase 2 Membership concurrency (putIfAbsent, no synchronized)</li>
+ *   <li>Phase 3 Failure semantics (RejectedMessageException vs MessageFilteredException)</li>
+ *   <li>Phase 4 Deterministic hash-based routing</li>
+ *   <li>Phase 5 Stats correctness (weighted average, lastActiveAt)</li>
+ *   <li>Phase 7 Builder validation</li>
  * </ul>
  *
  * <p>These are fast, in-process unit tests with no database or Testcontainers dependency.
@@ -67,7 +67,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.CORE)
 @ExtendWith(VertxExtension.class)
-@DisplayName("OutboxConsumerGroup — core unit tests")
+@DisplayName("OutboxConsumerGroup core unit tests")
 class OutboxConsumerGroupCoreTest {
 
     private OutboxConsumerGroup<String> group;
@@ -312,7 +312,7 @@ class OutboxConsumerGroupCoreTest {
         }
 
         @Test
-        @DisplayName("concurrent addConsumer with same ID — exactly one succeeds")
+        @DisplayName("concurrent addConsumer with same ID exactly one succeeds")
         void concurrentAddConsumerOnlyOneSucceeds() throws Exception {
             group = createGroup("concurrent-group", "test-topic");
             int threadCount = 10;
@@ -523,7 +523,7 @@ class OutboxConsumerGroupCoreTest {
             assertEquals("throw-group", ex.getGroupName());
             assertTrue(ex.getMessage().contains("group filter threw"));
 
-            // MDC must be cleaned up — this was the bug: throwing filter skipped eventually() block
+            // MDC must be cleaned up this was the bug: throwing filter skipped eventually() block
             assertNull(MDC.get(TraceContextUtil.MDC_CONSUMER_GROUP),
                     "MDC consumer-group should be cleared after group filter exception");
             assertNull(MDC.get(TraceContextUtil.MDC_TOPIC),
@@ -937,11 +937,11 @@ class OutboxConsumerGroupCoreTest {
             group.addConsumer("c1", msg -> null); // handler returns null
             group.start();
 
-            // Send a message — should fail but release the slot
+            // Send a message should fail but release the slot
             invokeDistributeMessage(group, new SimpleMessage<>("msg-n1", "test-topic", "p"));
 
             // If the slot leaked, the member's inFlightCount > 0.
-            // Verify by sending another message — if concurrency is capped at 1 and the
+            // Verify by sending another message if concurrency is capped at 1 and the
             // slot leaked, this second message would be rejected with "at max concurrency".
             // Instead we expect the same null-Future failure (slot was properly released).
             Future<Void> second = invokeDistributeMessage(group,
@@ -954,7 +954,7 @@ class OutboxConsumerGroupCoreTest {
         }
 
         @Test
-        @DisplayName("hung handler — distributeMessage Future stays incomplete")
+        @DisplayName("hung handler distributeMessage Future stays incomplete")
         void hungHandler_distributeMessageStaysIncomplete() throws Exception {
             group = createGroup("hung-group", "test-topic");
             group.addConsumer("c1", msg -> Promise.<Void>promise().future()); // never completes
@@ -968,13 +968,13 @@ class OutboxConsumerGroupCoreTest {
         }
 
         @Test
-        @DisplayName("hung handler — second message rejected at concurrency gate")
+        @DisplayName("hung handler second message rejected at concurrency gate")
         void hungHandler_secondMessageRejectedAtConcurrencyGate() throws Exception {
             group = createGroup("hung-gate-group", "test-topic");
             group.addConsumer("c1", msg -> Promise.<Void>promise().future()); // never completes
             group.start();
 
-            // First message hangs — the member's inFlightCount is now 1 (max)
+            // First message hangs the member's inFlightCount is now 1 (max)
             Future<Void> first = invokeDistributeMessage(group,
                     new SimpleMessage<>("msg-h1", "test-topic", "p"));
             assertFalse(first.isComplete(), "First message should be stuck processing");
@@ -989,7 +989,7 @@ class OutboxConsumerGroupCoreTest {
         }
 
         @Test
-        @DisplayName("hung handler — MDC not cleaned until Future completes")
+        @DisplayName("hung handler MDC not cleaned until Future completes")
         void hungHandler_mdcNotCleanedWhileHung() throws Exception {
             group = createGroup("hung-mdc-group", "test-topic");
             group.addConsumer("c1", msg -> Promise.<Void>promise().future()); // never completes
@@ -1014,7 +1014,7 @@ class OutboxConsumerGroupCoreTest {
         }
 
         @Test
-        @DisplayName("concurrent start() calls — all complete without error")
+        @DisplayName("concurrent start() calls all complete without error")
         void concurrentStartAllComplete() throws Exception {
             group = createGroup("concurrent-start-group", "test-topic");
             group.addConsumer("c1", msg -> Future.succeededFuture());

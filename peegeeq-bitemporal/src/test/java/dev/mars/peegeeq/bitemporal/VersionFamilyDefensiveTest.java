@@ -237,10 +237,10 @@ class VersionFamilyDefensiveTest {
                 .compose(roots -> eventStore.appendCorrection(roots.getValue().getEventId(), "FamilyB",
                         new DefensiveEvent("corrB1", "family-B-corr1", 101), t, "correct B")
                         .map(corrB1 -> roots))
-                // Now query family A — must get exactly 3 members, none from family B
+                // Now query family A must get exactly 3 members, none from family B
                 .compose(roots -> eventStore.getAllVersions(roots.getKey().getEventId())
                         .map(familyA -> Map.entry(roots, familyA)))
-                // Also query family B — must get exactly 2 members, none from family A
+                // Also query family B must get exactly 2 members, none from family A
                 .compose(pair -> eventStore.getAllVersions(pair.getKey().getValue().getEventId())
                         .map(familyB -> Map.entry(pair.getValue(), familyB)))
                 .onSuccess(result -> testContext.verify(() -> {
@@ -259,7 +259,7 @@ class VersionFamilyDefensiveTest {
                             .map(BiTemporalEvent::getEventId).collect(Collectors.toSet());
                     familyAIds.retainAll(familyBIds);
                     assertTrue(familyAIds.isEmpty(),
-                            "Families must not share any event IDs — cross-family contamination detected");
+                            "Families must not share any event IDs cross-family contamination detected");
 
                     // Verify family A contains only FamilyA event types
                     assertTrue(familyA.stream().allMatch(e -> "FamilyA".equals(e.getEventType())),
@@ -592,7 +592,7 @@ class VersionFamilyDefensiveTest {
                                     return all;
                                 })))
                 .compose(all -> {
-                    // Query from C (sibling branch) at current time — should see v4 (D) as latest
+                    // Query from C (sibling branch) at current time should see v4 (D) as latest
                     String cId = all.get(2).getEventId();
                     return eventStore.getAsOfTransactionTime(cId, Instant.now())
                             .map(result -> Map.entry(all, result));

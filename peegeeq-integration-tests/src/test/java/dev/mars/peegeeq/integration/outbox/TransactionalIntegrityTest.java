@@ -59,8 +59,8 @@ public class TransactionalIntegrityTest extends SmokeTestBase {
      * (poller may not have had time to run), and wasteful on a fast machine. Instead,
      * the verification queries the DB directly after the rollback. PostgreSQL's
      * read-committed isolation guarantees that any subsequent read from any connection
-     * sees only committed data, so a COUNT = 0 result here is a hard proof — not a
-     * probabilistic one — that the row was never committed and therefore cannot be
+     * sees only committed data, so a COUNT = 0 result here is a hard proof not a
+     * probabilistic one that the row was never committed and therefore cannot be
      * dispatched.
      */
     @Test
@@ -133,7 +133,7 @@ public class TransactionalIntegrityTest extends SmokeTestBase {
                                         logger.info("Inserted message in transaction, now rolling back...");
                                         return tx.rollback();
                                     }))
-                                // After rollback, verify row is absent — deterministic terminal state
+                                // After rollback, verify row is absent deterministic terminal state
                                 .compose(ignored -> conn.preparedQuery(
                                     "SELECT COUNT(*) AS n FROM " + queueName + " WHERE correlation_id = $1")
                                     .execute(Tuple.of("rollback-1")))
@@ -155,7 +155,7 @@ public class TransactionalIntegrityTest extends SmokeTestBase {
                 }
             })
             .onSuccess(v -> {
-                // 6. Verify NO webhook was triggered — the DB query above already proved the row
+                // 6. Verify NO webhook was triggered the DB query above already proved the row
                 // was absent after rollback, so the poller can never dispatch it.
                 testContext.verify(() ->
                     assertTrue(receivedMessages.isEmpty(),
@@ -182,7 +182,7 @@ public class TransactionalIntegrityTest extends SmokeTestBase {
      * <h3>Why bypass the REST API</h3>
      * The REST API publish path is tested by {@code OutboxSmokeTest}. This test
      * specifically proves that the OutboxConsumer picks up rows regardless of
-     * how they entered the table — not only through the sanctioned REST path, but
+     * how they entered the table not only through the sanctioned REST path, but
      * also through any direct committed write. This is the transactional contract
      * that producers must be able to rely on.
      *
@@ -279,7 +279,7 @@ public class TransactionalIntegrityTest extends SmokeTestBase {
                     .eventually(() -> pool.close());
             })
             .onSuccess(v -> {
-                // Row committed — poll the webhook until the outbox poller delivers it
+                // Row committed poll the webhook until the outbox poller delivers it
                 timeoutTimerId[0] = vertx.setTimer(15_000, ignored -> {
                     testContext.failNow(new AssertionError(
                         "Committed message was not delivered to webhook within 15 seconds"));

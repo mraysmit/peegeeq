@@ -483,7 +483,7 @@ public class BackfillService {
      * <p><strong>Note (M1 remediation):</strong> This count runs in its own connection, outside the
      * advisory lock transaction from {@code acquireBackfillLock}. The actual message count may
      * change between the lock release and this count. The value is used for progress reporting
-     * only ({@code backfill_total_messages}) and does not affect correctness — individual batch
+     * only ({@code backfill_total_messages}) and does not affect correctness individual batch
      * processing is idempotent and processes whatever messages exist at execution time.</p>
      */
     private Future<Long> countMessagesToBackfill(String topic, long fromMessageId, long maxMessages, BackfillScope messageScope) {
@@ -539,7 +539,7 @@ public class BackfillService {
                                                    long startFromId, int batchSize,
                                                    long maxMessages, long alreadyProcessed,
                                                    BackfillScope messageScope, long batchDelayMs) {
-        // Use tail-recursive Future composition — safe in Vert.x as the call stack unwinds between batches
+        // Use tail-recursive Future composition safe in Vert.x as the call stack unwinds between batches
         return processBatchesRecursively(trace, topic, groupName, startFromId, batchSize, maxMessages, alreadyProcessed, messageScope, batchDelayMs);
     }
 
@@ -554,7 +554,7 @@ public class BackfillService {
      * </ul>
      * 
      * <p>Note: At default settings (1M max messages, 10k batch size) this creates ~100 levels
-     * of compose() nesting — each holding a Future reference but no live stack frames.
+     * of compose() nesting each holding a Future reference but no live stack frames.
      * The heap overhead is bounded and acceptable for the configured limits.
      */
     private Future<BackfillResult> processBatchesRecursively(TraceCtx trace, String topic, String groupName,
@@ -570,7 +570,7 @@ public class BackfillService {
                     Future<Void> delay = (batchDelayMs > 0 && vertx != null)
                             ? vertx.timer(batchDelayMs).mapEmpty()
                             : Future.succeededFuture();
-                    // Tail-recursive call — no live stack frame retained between batches
+                    // Tail-recursive call no live stack frame retained between batches
                     return delay.compose(v -> processBatchesRecursively(trace, topic, groupName,
                             batchResult.nextStartId(), batchSize, maxMessages,
                             batchResult.totalProcessed(), messageScope, batchDelayMs));
@@ -728,7 +728,7 @@ public class BackfillService {
                     }
 
                     if (batchCount < effectiveLimit) {
-                        // Last batch was smaller than limit — done
+                        // Last batch was smaller than limit done
                         return markBackfillCompleted(connection, trace, topic, groupName, newProcessed)
                                 .map(ignored -> BatchResult.complete(newProcessed));
                     }

@@ -167,7 +167,7 @@ public class DatabaseTemplateManager {
             .compose(rows -> {
                 long remaining = rows.iterator().next().getLong("n");
                 if (remaining == 0) {
-                    // All connections gone — safe to drop.
+                    // All connections gone safe to drop.
                     String dropSql = "DROP DATABASE IF EXISTS \"" + dbName + "\"";
                     logger.info("All connections drained from {}, issuing DROP DATABASE", dbName);
                     return conn.query(dropSql).execute()

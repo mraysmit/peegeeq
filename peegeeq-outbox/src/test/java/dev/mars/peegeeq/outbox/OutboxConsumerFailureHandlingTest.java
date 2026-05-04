@@ -163,7 +163,7 @@ public class OutboxConsumerFailureHandlingTest {
      * NOTE: Temporarily disabled - timing sensitive, requires investigation
      */
     @Test
-    @Disabled("Timing sensitive — requires investigation")
+    @Disabled("Timing sensitive requires investigation")
     void testRetryLogicWithFailingMessages(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
         Checkpoint latch = testContext.checkpoint(4); // Initial + 3 retries
         AtomicInteger attemptCount = new AtomicInteger(0);
@@ -229,7 +229,7 @@ public class OutboxConsumerFailureHandlingTest {
         // Release the blocked handler
         finishGate.tryComplete();
         
-        // Verify consumer is actually closed — not a tautological assertion
+        // Verify consumer is actually closed not a tautological assertion
         testContext.verify(() -> {
             AtomicBoolean subscribedState = getPrivateField((OutboxConsumer<String>) consumer, "subscribed", AtomicBoolean.class);
             assertFalse(subscribedState.get(),
@@ -273,7 +273,7 @@ public class OutboxConsumerFailureHandlingTest {
     void testGetReactivePoolFuture_ErrorHandling(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
         OutboxConsumer<String> typedConsumer = (OutboxConsumer<String>) consumer;
 
-        // Subscribe first — consumer must be active when pool fails
+        // Subscribe first consumer must be active when pool fails
         typedConsumer.subscribe(message -> Future.succeededFuture());
 
         // Close manager to simulate pool becoming unavailable
@@ -323,7 +323,7 @@ public class OutboxConsumerFailureHandlingTest {
         // Close again (idempotent)
         consumer.close();
         
-        // Verify close is actually idempotent — consumer should not be subscribed
+        // Verify close is actually idempotent consumer should not be subscribed
         testContext.verify(() -> {
             AtomicBoolean subscribedState = getPrivateField((OutboxConsumer<String>) consumer, "subscribed", AtomicBoolean.class);
             assertFalse(subscribedState.get(),

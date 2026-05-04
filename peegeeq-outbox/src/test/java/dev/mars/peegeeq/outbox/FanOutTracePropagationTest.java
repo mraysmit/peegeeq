@@ -169,7 +169,7 @@ class FanOutTracePropagationTest {
     void consumerWithoutGroupName_usesParseOrCreate_noChildSpan(
             VertxTestContext testContext) throws Exception {
         logger.info("Test: consumer without group name uses parse or create no child span");
-        // Consumer WITHOUT a group name — no child span should be created
+        // Consumer WITHOUT a group name no child span should be created
         // (backward compat: same behaviour as before)
         String publishTraceId = "11111111111111111111111111111111";
         String publishSpanId = "2222222222222222";
@@ -177,7 +177,7 @@ class FanOutTracePropagationTest {
 
         Map<String, String> headers = Map.of("traceparent", traceparent);
 
-        // Don't set consumer group name — leave it null
+        // Don't set consumer group name leave it null
 
         AtomicReference<String> consumerTraceId = new AtomicReference<>();
         AtomicReference<String> consumerSpanId = new AtomicReference<>();
@@ -206,7 +206,7 @@ class FanOutTracePropagationTest {
     void consumerGroupProcessing_withoutTraceparent_generatesNewTrace(
             VertxTestContext testContext) throws Exception {
         logger.info("Test: consumer group processing without traceparent generates new trace");
-        // Message with no traceparent header — should generate new trace AND child span
+        // Message with no traceparent header should generate new trace AND child span
         ((OutboxConsumer<String>) consumer).setConsumerGroupName("analytics-group");
 
         AtomicReference<String> consumerTraceId = new AtomicReference<>();

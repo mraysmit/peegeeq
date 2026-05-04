@@ -90,7 +90,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     private volatile MessageConsumer<T> underlyingConsumer;
     private volatile boolean startedWithSubscription;
 
-    // Partitioned consumption (OFFSET_WATERMARK mode) — mirrors PgNativeConsumerGroup
+    // Partitioned consumption (OFFSET_WATERMARK mode) mirrors PgNativeConsumerGroup
     private final PgConnectionManager connectionManager;
     private final String connectionServiceId;
     private volatile PartitionedConsumerEngine<T> partitionedEngine;
@@ -339,7 +339,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
                 throw new IllegalStateException("Consumer group is closed");
             }
             if (current == State.ACTIVE || current == State.STARTING) {
-                // Already started or starting — idempotent
+                // Already started or starting idempotent
                 return;
             }
             throw new IllegalStateException("Cannot start consumer group in state: " + current);
@@ -507,7 +507,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     }
 
     /**
-     * Internal start logic — assumes state is already STARTING.
+     * Internal start logic assumes state is already STARTING.
      * Transitions to ACTIVE on success.
      */
     private void startInternal() {
@@ -532,7 +532,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     @Override
     public void stop() {
         if (!state.compareAndSet(State.ACTIVE, State.STOPPING)) {
-            // Not active — nothing to stop
+            // Not active nothing to stop
             return;
         }
         stopInternal();
@@ -541,7 +541,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     @Override
     public Future<Void> stopGracefully() {
         if (!state.compareAndSet(State.ACTIVE, State.STOPPING)) {
-            // Not active — nothing to stop
+            // Not active nothing to stop
             return Future.succeededFuture();
         }
 
@@ -561,7 +561,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
     }
 
     /**
-     * Internal stop logic — assumes state is already STOPPING.
+     * Internal stop logic assumes state is already STOPPING.
      * Transitions state to NEW on completion (or failure).
      *
      * @return a future that completes when the underlying consumer pool is closed
@@ -784,7 +784,7 @@ public class OutboxConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.Co
         TraceContextUtil.setMDC(TraceContextUtil.MDC_TOPIC, topic);
         TraceContextUtil.setMDC(TraceContextUtil.MDC_MESSAGE_ID, message.getId());
 
-        // Apply group-level filter first — permanent rejection.
+        // Apply group-level filter first permanent rejection.
         // Wrap in try-catch: a throwing filter must not leak MDC context.
         if (groupFilter != null) {
             boolean accepted;

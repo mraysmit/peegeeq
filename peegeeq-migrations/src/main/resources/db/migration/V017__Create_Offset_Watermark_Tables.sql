@@ -48,7 +48,7 @@ CREATE TABLE IF NOT EXISTS outbox_partition_offsets (
     UNIQUE(topic, group_name, partition_key)
 );
 
--- Per-topic watermark — the safe cleanup boundary
+-- Per-topic watermark the safe cleanup boundary
 CREATE TABLE IF NOT EXISTS outbox_topic_watermarks (
     topic VARCHAR(255) PRIMARY KEY,
     watermark_id BIGINT NOT NULL DEFAULT 0,

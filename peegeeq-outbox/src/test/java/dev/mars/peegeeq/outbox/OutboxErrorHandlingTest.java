@@ -199,7 +199,7 @@ public class OutboxErrorHandlingTest {
         // Close the producer
         producer.close();
 
-        // Try to send message with closed producer — should fail
+        // Try to send message with closed producer should fail
         producer.send(testMessage).onComplete(ar -> testContext.verify(() -> {
         logger.info("Test: producer with closed connection");
             assertTrue(ar.failed(), "Sending with closed producer should fail");

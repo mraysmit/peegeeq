@@ -210,7 +210,7 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
                 throw new IllegalStateException("Consumer group is closed");
             }
             if (current == State.ACTIVE || current == State.STARTING) {
-                // Already started or starting — idempotent
+                // Already started or starting idempotent
                 return;
             }
             throw new IllegalStateException("Cannot start consumer group in state: " + current);
@@ -296,7 +296,7 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
     }
 
     /**
-     * Starts in reference-counting mode. Synchronous — sets ACTIVE immediately.
+     * Starts in reference-counting mode. Synchronous sets ACTIVE immediately.
      */
     private Future<Void> startReferenceCounting() {
         try {
@@ -351,12 +351,12 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
                     new IllegalStateException("Consumer group '" + groupName + "' has been closed"));
         }
         if (current == State.ACTIVE || current == State.STARTING) {
-            // Idempotent — matches the no-arg start() behaviour
+            // Idempotent matches the no-arg start() behaviour
             return Future.succeededFuture();
         }
 
         if (!state.compareAndSet(State.NEW, State.STARTING)) {
-            // Lost CAS race — another thread is starting or state changed
+            // Lost CAS race another thread is starting or state changed
             return Future.failedFuture(
                     new IllegalStateException("Consumer group state changed concurrently"));
         }
@@ -388,7 +388,7 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
     @Override
     public void stop() {
         if (!state.compareAndSet(State.ACTIVE, State.STOPPING)) {
-            // Not active — nothing to stop
+            // Not active nothing to stop
             return;
         }
         stopInternal()
@@ -399,7 +399,7 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
     @Override
     public Future<Void> stopGracefully() {
         if (!state.compareAndSet(State.ACTIVE, State.STOPPING)) {
-            // Not active — nothing to stop
+            // Not active nothing to stop
             return Future.succeededFuture();
         }
 
@@ -419,7 +419,7 @@ public class PgNativeConsumerGroup<T> implements dev.mars.peegeeq.api.messaging.
     }
 
     /**
-     * Internal stop logic — assumes state is already STOPPING.
+     * Internal stop logic assumes state is already STOPPING.
      * Transitions state to NEW on completion (or failure).
      *
      * @return a future that completes when the partitioned engine leave-group finishes

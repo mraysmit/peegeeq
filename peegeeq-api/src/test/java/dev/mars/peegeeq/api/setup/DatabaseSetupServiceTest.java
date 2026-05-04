@@ -64,7 +64,7 @@ class DatabaseSetupServiceTest {
 
     @Test
     void defaultCloseReturnsSucceededFuture() {
-        // Service using only mandatory abstract methods — close() relies entirely on the default.
+        // Service using only mandatory abstract methods close() relies entirely on the default.
         DatabaseSetupService service = new DatabaseSetupService() {
             @Override public Future<DatabaseSetupResult> createCompleteSetup(DatabaseSetupRequest request) { return Future.succeededFuture(null); }
             @Override public Future<Void> destroySetup(String setupId) { return Future.succeededFuture(); }

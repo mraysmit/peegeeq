@@ -112,7 +112,7 @@ public class SubscriptionCreateAndBackfillIntegrationTest {
             })
             .compose(v -> applyFanoutSchema())
             .onSuccess(v -> {
-                logger.info("Test setup complete — ready for subscription creation and backfill tests");
+                logger.info("Test setup complete ready for subscription creation and backfill tests");
                 testContext.completeNow();
             })
             .onFailure(testContext::failNow);
@@ -333,7 +333,7 @@ public class SubscriptionCreateAndBackfillIntegrationTest {
     void testCreateDuplicateSubscription(VertxTestContext testContext) {
         String path = String.format("/api/v1/setups/%s/subscriptions/%s", setupId, TOPIC_NAME);
 
-        // GROUP_NAME was already created in Order 1 — creating again should return 409
+        // GROUP_NAME was already created in Order 1 creating again should return 409
         JsonObject body = new JsonObject()
             .put("groupName", GROUP_NAME)
             .put("startPosition", "FROM_NOW");
@@ -532,7 +532,7 @@ public class SubscriptionCreateAndBackfillIntegrationTest {
     @Order(14)
     @DisplayName("H4: Start backfill when already completed returns 200 with ALREADY_COMPLETED")
     void testStartBackfillAlreadyCompleted(VertxTestContext testContext) {
-        // Backfill was completed in Order 13 — calling again should return ALREADY_COMPLETED
+        // Backfill was completed in Order 13 calling again should return ALREADY_COMPLETED
         String path = String.format("/api/v1/setups/%s/subscriptions/%s/%s/backfill",
             setupId, TOPIC_NAME, GROUP_NAME);
 

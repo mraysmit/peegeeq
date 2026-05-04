@@ -281,7 +281,7 @@ public class ReactiveOutboxProducerTest {
 
         // Test with TransactionPropagation.CONTEXT
         // Note: CONTEXT propagation may fail outside a Vert.x context (no active transaction to join).
-        // The send returns a failed Future if the context lookup fails — handle gracefully.
+        // The send returns a failed Future if the context lookup fails handle gracefully.
         Throwable sendError = null;
         try {
             outboxProducer.sendInOwnTransaction(testMessage, io.vertx.sqlclient.TransactionPropagation.CONTEXT).await();
@@ -295,7 +295,7 @@ public class ReactiveOutboxProducerTest {
             Assertions.assertTrue(messageExists, "TransactionPropagation message should exist in outbox table");
             logger.info("PHASE 1 STEP 4 PASSED: TransactionPropagation.CONTEXT works correctly");
         } else {
-            // CONTEXT propagation may not work without an active Vert.x context — expected
+            // CONTEXT propagation may not work without an active Vert.x context expected
             logger.warn("TransactionPropagation.CONTEXT failed (expected without Vert.x context): {}",
                 sendError.getMessage());
 

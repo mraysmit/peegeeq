@@ -217,7 +217,7 @@ public class TransactionalBiTemporalExampleTest {
 
         Instant validTime = Instant.now();
 
-        // Both appends share a single database transaction — atomic commit
+        // Both appends share a single database transaction atomic commit
         peeGeeQManager.getPool().withTransaction(conn ->
             orderEventStore.appendBuilder()
                 .eventType("OrderCreated").payload(orderEvent).validTime(validTime)

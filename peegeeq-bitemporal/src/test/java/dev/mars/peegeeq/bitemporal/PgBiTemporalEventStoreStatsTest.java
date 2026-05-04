@@ -252,7 +252,7 @@ class PgBiTemporalEventStoreStatsTest {
                 .onSuccess(stats -> testContext.verify(() -> {
                     assertNotNull(stats.getOldestEventTime());
                     assertNotNull(stats.getNewestEventTime());
-                    // The Instant from stats must match the original — no timezone drift
+                    // The Instant from stats must match the original no timezone drift
                     assertEquals(knownTime, stats.getOldestEventTime(),
                             "oldest_event_time must match the exact Instant stored");
                     assertEquals(knownTime, stats.getNewestEventTime(),

@@ -187,7 +187,7 @@ class PgBiTemporalEventStoreCloseLogLevelTest {
 
                     // Stop the database to cause close failures.
                     // Connection-abort errors from background jobs (e.g. DeadConsumerDetectionJob) below are expected.
-                    log.info("[TEST] Intentionally stopping database container to trigger close failure path — subsequent connection errors are expected");
+                    log.info("[TEST] Intentionally stopping database container to trigger close failure path subsequent connection errors are expected");
                     ownContainer.stop();
                     ownCapture.clear();
 

@@ -1,14 +1,14 @@
 -- Enforce the lineage invariants that the Java code assumes but the schema
 -- did not previously guarantee.
 --
--- 1. UNIQUE(event_id) — the entire chain/lineage model treats event_id as a
+-- 1. UNIQUE(event_id) the entire chain/lineage model treats event_id as a
 --    natural key (root resolution CTEs, advisory locks, getById). Without
 --    uniqueness the recursive CTEs could traverse ambiguous graphs.
 --
--- 2. FK(previous_version_id → event_id) — prevents dangling correction
+-- 2. FK(previous_version_id → event_id) prevents dangling correction
 --    references. Requires #1 as the FK target must be unique.
 --
--- 3. UNIQUE(previous_version_id) WHERE NOT NULL — prevents chain forks.
+-- 3. UNIQUE(previous_version_id) WHERE NOT NULL prevents chain forks.
 --    Each event may have at most one successor. Without this, two concurrent
 --    corrections could both claim the same predecessor (different versions)
 --    and fork the lineage. The advisory lock prevents this at runtime; the

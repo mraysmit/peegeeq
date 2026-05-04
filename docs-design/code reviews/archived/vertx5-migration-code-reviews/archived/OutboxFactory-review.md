@@ -1,4 +1,4 @@
-Mark, solid scaffolding — but there are a few landmines here that will hurt you in prod. I’ll keep it blunt and practical.
+Mark, solid scaffolding but there are a few landmines here that will hurt you in prod. I’ll keep it blunt and practical.
 
 # What needs fixing (by priority)
 
@@ -41,7 +41,7 @@ Your middleware should not guess DB credentials.
 Currently:
 
 * If `databaseService != null`: delegate to `databaseService.isHealthy()` (ok, assuming it’s real).
-* Else you call `connectionManager.isHealthy()` — but your manager’s `isHealthy()` just checks non-null pools.
+* Else you call `connectionManager.isHealthy()` but your manager’s `isHealthy()` just checks non-null pools.
 
 **Fix:** perform a real `SELECT 1` against the pool (one of: the “peegeeq-main” or the topic’s bound client). If you can’t get a pool, report unhealthy.
 
@@ -56,7 +56,7 @@ OutboxProducer.closeSharedVertx();
 
 If that “shared” instance is used elsewhere, you just killed the app’s event loops. A factory that **didn’t create Vert.x** shouldn’t close it.
 
-**Fix:** remove this. Let the top-level `PeeGeeQManager` own Vert.x lifecycle. If the producer/consumer create internal Vert.x instances, that’s their bug — fix them to use the app’s shared Vert.x.
+**Fix:** remove this. Let the top-level `PeeGeeQManager` own Vert.x lifecycle. If the producer/consumer create internal Vert.x instances, that’s their bug fix them to use the app’s shared Vert.x.
 
 ## 6) You might create a new PgClientFactory per consumer (leak risk)
 
@@ -105,9 +105,9 @@ public OutboxFactory(PgClientFactory clientFactory, ObjectMapper objectMapper, P
 
 public OutboxFactory(DatabaseService databaseService, ObjectMapper objectMapper, PeeGeeQConfiguration configuration) {
   this.databaseService = Objects.requireNonNull(databaseService);
-  this.clientFactory = databaseService.as(PgClientFactory.class)  // <— add this API
+  this.clientFactory = databaseService.as(PgClientFactory.class)  // <add this API
       .orElseThrow(() -> new IllegalStateException("DatabaseService does not expose PgClientFactory"));
-  this.legacyMetrics = databaseService.getMetricsProvider().as(PeeGeeQMetrics.class).orElse(null); // <— API
+  this.legacyMetrics = databaseService.getMetricsProvider().as(PeeGeeQMetrics.class).orElse(null); // <API
   this.configuration = configuration;
   this.objectMapper = objectMapper != null ? objectMapper : createDefaultObjectMapper();
 }

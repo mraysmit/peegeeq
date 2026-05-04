@@ -162,7 +162,7 @@ class PartitionedNativeConsumerIntegrationTest {
                     // Set a handler (required before start)
                     group.setMessageHandler(msg -> Future.succeededFuture());
 
-                    // Start the group — this should trigger auto-join for OFFSET_WATERMARK topics
+                    // Start the group this should trigger auto-join for OFFSET_WATERMARK topics
                     group.start();
 
                     // Give a short delay for async join to complete
@@ -235,7 +235,7 @@ class PartitionedNativeConsumerIntegrationTest {
                                                     "Should have partition assignments after start, got: " + countBefore);
                                             logger.info("TEST 6.2: {} assignments before close", countBefore);
 
-                                            // Close the group — should call leaveGroup
+                                            // Close the group should call leaveGroup
                                             group.close();
 
                                             // Wait for leave to complete
@@ -416,7 +416,7 @@ class PartitionedNativeConsumerIntegrationTest {
                 .compose(v -> insertOutboxMessage(topic, "part-A", "payload-1"))
                 .compose(v -> insertOutboxMessage(topic, "part-B", "payload-2"))
                 .compose(v -> {
-                    // Start first consumer — it gets all partitions
+                    // Start first consumer it gets all partitions
                     PgNativeConsumerGroup<String> group1 = new PgNativeConsumerGroup<>(
                             groupName, topic, String.class,
                             adapter, mapper, null, null, databaseService,
@@ -430,7 +430,7 @@ class PartitionedNativeConsumerIntegrationTest {
                             .compose(countBefore -> {
                                 assertTrue(countBefore >= 2, "Should have at least 2 assignments, got: " + countBefore);
 
-                                // Now a second instance joins — triggers rebalance with new generation
+                                // Now a second instance joins triggers rebalance with new generation
                                 PartitionAssignmentService assignmentService =
                                         new PartitionAssignmentService(connectionManager, SERVICE_ID);
                                 return assignmentService.joinGroup(topic, groupName, "instance-2")
@@ -449,7 +449,7 @@ class PartitionedNativeConsumerIntegrationTest {
                                             // Verify: group1's old generation commits should be rejected
                                             PartitionedOffsetManager offsetMgr =
                                                     new PartitionedOffsetManager(connectionManager, SERVICE_ID);
-                                            // Try to commit with the old generation (1) — should be rejected
+                                            // Try to commit with the old generation (1) should be rejected
                                             return offsetMgr.commitOffset(topic, groupName, "part-A", 999L, 1)
                                                     .map(committed -> {
                                                         assertFalse(committed,
@@ -504,13 +504,13 @@ class PartitionedNativeConsumerIntegrationTest {
                     PartitionAssignmentService assignmentService =
                             new PartitionAssignmentService(connectionManager, SERVICE_ID);
 
-                    // Instance 1 joins — gets all 6 partitions
+                    // Instance 1 joins gets all 6 partitions
                     return assignmentService.joinGroup(topic, groupName, "instance-1")
                             .compose(a1 -> {
                                 logger.info("TEST 6.6: instance-1 got {} partitions", a1.size());
                                 assertTrue(a1.size() > 0, "instance-1 should have partitions");
 
-                                // Instance 2 joins — rebalance splits partitions
+                                // Instance 2 joins rebalance splits partitions
                                 return assignmentService.joinGroup(topic, groupName, "instance-2")
                                         .compose(a2 -> {
                                             logger.info("TEST 6.6: instance-2 got {} partitions", a2.size());
@@ -649,7 +649,7 @@ class PartitionedNativeConsumerIntegrationTest {
                             .compose(swept -> {
                                 logger.info("TEST 6.8: watermark swept {} messages", swept);
 
-                                // Check outbox message statuses — swept messages should be COMPLETED
+                                // Check outbox message statuses swept messages should be COMPLETED
                                 return connectionManager.withConnection(SERVICE_ID, conn ->
                                         conn.preparedQuery(
                                                 "SELECT COUNT(*) AS cnt FROM outbox " +
@@ -685,7 +685,7 @@ class PartitionedNativeConsumerIntegrationTest {
     // ========================================================================
 
     // ========================================================================
-    // Test 6.9: 3 consumers, 6 partitions — each consumer receives ONLY from
+    // Test 6.9: 3 consumers, 6 partitions each consumer receives ONLY from
     // its assigned partitions. Offsets advance independently.
     // ========================================================================
 
@@ -716,7 +716,7 @@ class PartitionedNativeConsumerIntegrationTest {
                 .compose(v -> insertOutboxMessage(topic, "p2", "m8"))
                 .compose(v -> insertOutboxMessage(topic, "p3", "m9"))
                 .compose(v -> {
-                    // 3 instances join — partitions distributed
+                    // 3 instances join partitions distributed
                     return assignmentService.joinGroup(topic, groupName, "inst-A")
                             .compose(aA -> assignmentService.joinGroup(topic, groupName, "inst-B"))
                             .compose(aB -> assignmentService.joinGroup(topic, groupName, "inst-C"))
@@ -789,7 +789,7 @@ class PartitionedNativeConsumerIntegrationTest {
 
     // ========================================================================
     // Test 6.10: Consumer A processes partitions, crashes mid-commit.
-    // Consumer B resumes from committed offsets — zero message loss.
+    // Consumer B resumes from committed offsets zero message loss.
     // ========================================================================
 
     @Test
@@ -844,10 +844,10 @@ class PartitionedNativeConsumerIntegrationTest {
                                                         assertFalse(p2Msgs.isEmpty(), "P2 should have messages");
                                                         logger.info("TEST 6.10: A fetched {} P2 messages but NOT committing (crash)", p2Msgs.size());
 
-                                                        // "Crash" — consumer A leaves (simulated)
+                                                        // "Crash" consumer A leaves (simulated)
                                                         return assignmentService.leaveGroup(topic, groupName, "consumer-A")
                                                                 .compose(left -> {
-                                                                    // Consumer B joins — gets all partitions
+                                                                    // Consumer B joins gets all partitions
                                                                     return assignmentService.joinGroup(topic, groupName, "consumer-B");
                                                                 })
                                                                 .compose(assignmentsB -> {
@@ -872,7 +872,7 @@ class PartitionedNativeConsumerIntegrationTest {
                                                                                                         long p2Offset = p2OptOffset.map(o -> o.committedOffset()).orElse(0L);
                                                                                                         assertTrue(p2Offset < p1CommittedOffset,
                                                                                                                 "P2 offset should be less than P1 (P2 was never committed)");
-                                                                                                        logger.info("TEST 6.10 PASSED: B resumes P1={}, P2={} — zero loss",
+                                                                                                        logger.info("TEST 6.10 PASSED: B resumes P1={}, P2={} zero loss",
                                                                                                                 p1CommittedOffset, p2Offset);
                                                                                                         return (Void) null;
                                                                                                     });
@@ -896,7 +896,7 @@ class PartitionedNativeConsumerIntegrationTest {
     }
 
     // ========================================================================
-    // Test 6.11: Rebalance under load — 2 consumers, 1000 messages, third joins.
+    // Test 6.11: Rebalance under load 2 consumers, 1000 messages, third joins.
     // All messages eventually committed, duplicates bounded.
     // ========================================================================
 
@@ -1147,7 +1147,7 @@ class PartitionedNativeConsumerIntegrationTest {
                                                     })
                                                     .compose(fetchedMsgs -> {
                                                         // With stale generation, fetch should return empty or fail
-                                                        // (depending on implementation — generation check is in offset lookup)
+                                                        // (depending on implementation generation check is in offset lookup)
                                                         logger.info("TEST 6.13: zombie fetch returned {} messages (gen={})",
                                                                 fetchedMsgs.size(), genA);
 

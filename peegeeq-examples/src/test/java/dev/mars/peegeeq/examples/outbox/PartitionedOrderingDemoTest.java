@@ -70,7 +70,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Demo example tests for OFFSET_WATERMARK partitioned consumption — Phase 3 of the
+ * Demo example tests for OFFSET_WATERMARK partitioned consumption Phase 3 of the
  * ordering plan in
  * {@code docs-design/analysis/GUARANTEED_ORDERING_CONCURRENT_CONSUMERS_ANALYSIS.md}.
  *
@@ -90,7 +90,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *   <li><b>2c</b> {@code testPartitionedOrdering_defaultPartition_noMessageGroup} —
  *       producer sends without {@code messageGroup}. Only the {@code __default__}
  *       partition assignment exists; messages still arrive in producer order.</li>
- *   <li><b>2d</b> {@code testPartitionedOrdering_idempotentRedelivery} — consumer
+ *   <li><b>2d</b> {@code testPartitionedOrdering_idempotentRedelivery} consumer
  *       group processes a batch, then is stopped and restarted. The committed
  *       offset prevents re-delivery of already-processed messages.</li>
  * </ul>
@@ -114,7 +114,7 @@ class PartitionedOrderingDemoTest {
     private PgDatabaseService databaseService;
     private QueueFactory factory;
 
-    /** Minimal aggregate event payload — id + version + payload string. */
+    /** Minimal aggregate event payload id + version + payload string. */
     static class AggEvent {
         private String aggregateId;
         private long version;
@@ -176,10 +176,10 @@ class PartitionedOrderingDemoTest {
     }
 
     // ------------------------------------------------------------------
-    // Test 2a — per-aggregate ordering across multiple aggregates.
+    // Test 2a per-aggregate ordering across multiple aggregates.
     // ------------------------------------------------------------------
     @Test
-    @DisplayName("2a — per-aggregate version order strictly ascending")
+    @DisplayName("2a per-aggregate version order strictly ascending")
     void testPartitionedOrdering_eventsPerAggregateInOrder(Vertx vertx, VertxTestContext testContext) throws Exception {
         String topic = "pod-2a-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "pod-2a-group";
@@ -247,7 +247,7 @@ class PartitionedOrderingDemoTest {
     }
 
     // ------------------------------------------------------------------
-    // Test 2b — different aggregates processed concurrently.
+    // Test 2b different aggregates processed concurrently.
     //
     // Strategy: assert temporal overlap between the two partitions. Under
     // concurrent per-partition dispatch the engine's fetch loop starts both
@@ -258,7 +258,7 @@ class PartitionedOrderingDemoTest {
     // engine's 1 s fetch tick (DEFAULT_FETCH_INTERVAL_MS) dominates handler time.
     // ------------------------------------------------------------------
     @Test
-    @DisplayName("2b — different aggregates processed concurrently")
+    @DisplayName("2b different aggregates processed concurrently")
     void testPartitionedOrdering_differentAggregatesProcessedConcurrently(
             Vertx vertx, VertxTestContext testContext) throws Exception {
         String topic = "pod-2b-" + UUID.randomUUID().toString().substring(0, 8);
@@ -350,7 +350,7 @@ class PartitionedOrderingDemoTest {
     }
 
     // ------------------------------------------------------------------
-    // Test 2c — sending without messageGroup funnels to __default__ partition.
+    // Test 2c sending without messageGroup funnels to __default__ partition.
     //
     // Producer omits the messageGroup. Per the analysis doc's "__default__
     // Partition" section, all such messages share a single synthetic partition
@@ -360,7 +360,7 @@ class PartitionedOrderingDemoTest {
     //   2. All 5 messages are received in send order.
     // ------------------------------------------------------------------
     @Test
-    @DisplayName("2c — no messageGroup → __default__ partition serial order")
+    @DisplayName("2c no messageGroup → __default__ partition serial order")
     void testPartitionedOrdering_defaultPartition_noMessageGroup(
             Vertx vertx, VertxTestContext testContext) throws Exception {
         String topic = "pod-2c-" + UUID.randomUUID().toString().substring(0, 8);
@@ -391,7 +391,7 @@ class PartitionedOrderingDemoTest {
         for (long v = 1; v <= total; v++) {
             final long version = v;
             AggEvent ev = new AggEvent("default-agg", version, "p-default-v" + version);
-            // Note: send(payload) — no messageGroup, no headers, no correlationId.
+            // Note: send(payload) no messageGroup, no headers, no correlationId.
             sendChain = sendChain.compose(x -> producer.send(ev));
         }
         sendChain
@@ -426,7 +426,7 @@ class PartitionedOrderingDemoTest {
     }
 
     // ------------------------------------------------------------------
-    // Test 2d — idempotent redelivery: committed offset prevents re-delivery.
+    // Test 2d idempotent redelivery: committed offset prevents re-delivery.
     //
     // Sends a first batch of 3 messages, starts the consumer group, processes
     // them, and stops it gracefully (committing the offset). Then sends a
@@ -437,7 +437,7 @@ class PartitionedOrderingDemoTest {
     //   2. Second batch arrives in send order.
     // ------------------------------------------------------------------
     @Test
-    @DisplayName("2d — committed offset prevents redelivery after restart")
+    @DisplayName("2d committed offset prevents redelivery after restart")
     void testPartitionedOrdering_idempotentRedelivery(
             Vertx vertx, VertxTestContext testContext) throws Exception {
         String topic = "pod-2d-" + UUID.randomUUID().toString().substring(0, 8);
@@ -480,7 +480,7 @@ class PartitionedOrderingDemoTest {
                     "first batch out-of-order at position " + i);
         }
 
-        // Stop group1 gracefully — this commits the offset so a new consumer starts after message 3.
+        // Stop group1 gracefully this commits the offset so a new consumer starts after message 3.
         group1.stopGracefully().await();
 
         // Re-activate the subscription so group2 can resume from the committed offset.

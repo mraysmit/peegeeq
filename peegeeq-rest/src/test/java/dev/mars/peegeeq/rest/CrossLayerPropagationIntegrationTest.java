@@ -258,7 +258,7 @@ public class CrossLayerPropagationIntegrationTest {
                     }
                 });
 
-                // Send message via REST API — the SSE handler is already registered above,
+                // Send message via REST API the SSE handler is already registered above,
                 // so the stream is ready to receive events as soon as this send is dispatched.
                 JsonObject sendRequest = new JsonObject()
                     .put("payload", new JsonObject()
@@ -377,7 +377,7 @@ public class CrossLayerPropagationIntegrationTest {
         String sseUrl = "/api/v1/queues/" + testSetupId + "/" + QUEUE_NAME + "/stream";
         String uniqueMarker = "multi-consumer-test-" + System.currentTimeMillis();
 
-        // Establish first SSE connection — resolve conn1Ready on the initial SSE connection event
+        // Establish first SSE connection resolve conn1Ready on the initial SSE connection event
         httpClient.request(HttpMethod.GET, TEST_PORT, "localhost", sseUrl)
             .compose(HttpClientRequest::send)
             .onSuccess(response1 -> {
@@ -394,7 +394,7 @@ public class CrossLayerPropagationIntegrationTest {
             })
             .onFailure(conn1Ready::tryFail);
 
-        // Establish second SSE connection — resolve conn2Ready on the initial SSE connection event
+        // Establish second SSE connection resolve conn2Ready on the initial SSE connection event
         httpClient.request(HttpMethod.GET, TEST_PORT, "localhost", sseUrl)
             .compose(HttpClientRequest::send)
             .onSuccess(response2 -> {

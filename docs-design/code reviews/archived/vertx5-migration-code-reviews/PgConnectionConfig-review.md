@@ -1,4 +1,4 @@
-Perfect — this one’s much tighter than the pool config, but it’s still carrying a few **JDBC-era assumptions** that are going to bite you in a Vert.x 5 reactive world (especially once you start wiring multi-tenant or SSL-enabled connections). Let’s go line by line like a proper review.
+Perfect this one’s much tighter than the pool config, but it’s still carrying a few **JDBC-era assumptions** that are going to bite you in a Vert.x 5 reactive world (especially once you start wiring multi-tenant or SSL-enabled connections). Let’s go line by line like a proper review.
 
 ---
 
@@ -9,11 +9,11 @@ Perfect — this one’s much tighter than the pool config, but it’s still car
 * Immutable, `Builder` pattern is clean.
 * `Objects.requireNonNull` guards are correct.
 * Defaults for `host`, `port` sane.
-* Lightweight — doesn’t overconfigure.
+* Lightweight doesn’t overconfigure.
 
 ❌ **Not so good:**
 
-* Still contains JDBC artifacts (`getJdbcUrl()`) — Vert.x PG client never uses it.
+* Still contains JDBC artifacts (`getJdbcUrl()`) Vert.x PG client never uses it.
 * SSL support is oversimplified (boolean flag ≠ production-ready SSL).
 * No timeout / reconnect tuning.
 * Schema handling via `currentSchema` param is JDBC-only and ignored by Vert.x PG client.
@@ -57,7 +57,7 @@ You only have a `boolean sslEnabled`. In practice, Postgres SSL setups need:
 * Trust and key materials (CA, cert, key)
 * `trustAll` flag for local dev
 
-Your reactive layer already uses `SslMode.REQUIRE` hardcoded — that’s dangerously inflexible.
+Your reactive layer already uses `SslMode.REQUIRE` hardcoded that’s dangerously inflexible.
 
 ✅ **Fix:**
 Add fields for:
@@ -99,7 +99,7 @@ Right now `getPassword()` just returns the cleartext.
 Even if you don’t log it, someone can dump it by accident in JSON debug output.
 
 ✅ **Fix:**
-Hide it — don’t expose full `String`:
+Hide it don’t expose full `String`:
 
 ```java
 public char[] getPassword() { return password != null ? password.toCharArray() : new char[0]; }

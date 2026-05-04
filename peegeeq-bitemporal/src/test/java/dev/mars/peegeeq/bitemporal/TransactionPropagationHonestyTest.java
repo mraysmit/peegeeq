@@ -57,12 +57,12 @@ import static org.junit.jupiter.api.Assertions.*;
  * <p>These tests demonstrate the following facts:
  * <ol>
  *   <li>append() and appendOwnTransaction() start their own independent
- *       transaction on the internal pool — the event survives an external
+ *       transaction on the internal pool the event survives an external
  *       rollback because it never participates in the external transaction.</li>
  *   <li>append() and appendOwnTransaction() are semantically equivalent —
  *       both start a fresh own-transaction every time.</li>
  *   <li>Only appendInTransaction(connection) genuinely participates in an
- *       external transaction — rollback on the connection rolls back the event.</li>
+ *       external transaction rollback on the connection rolls back the event.</li>
  *   <li>appendOwnTransaction() persists all metadata fields (headers,
  *       correlationId, causationId, aggregateId) via the own-transaction path.</li>
  *   <li>appendInTransaction(null) returns a failed future with
@@ -167,7 +167,7 @@ class TransactionPropagationHonestyTest {
 
         vertx = Vertx.vertx();
 
-        // Create an external Vertx instance — deliberately separate from the event
+        // Create an external Vertx instance deliberately separate from the event
         // store's internal sharedVertx.  This is the caller's world.
         externalVertx = Vertx.vertx();
 
@@ -252,7 +252,7 @@ class TransactionPropagationHonestyTest {
     // ========================================================================
 
     @Test
-    @DisplayName("appendOwnTransaction starts own-transaction — event survives external rollback")
+    @DisplayName("appendOwnTransaction starts own-transaction event survives external rollback")
     void appendOwnTransactionDoesNotJoinExternalTransaction(VertxTestContext testContext) throws Exception {
         /*
          * Scenario:
@@ -261,7 +261,7 @@ class TransactionPropagationHonestyTest {
          *      The event store always starts its own independent transaction
          *      on its internal pool.
          *   3. Deliberately roll back the external transaction.
-         *   4. Query the event store — the event should still be there because
+         *   4. Query the event store the event should still be there because
          *      the event store started its own independent transaction.
          */
         String schema = resolveSchema();
@@ -275,7 +275,7 @@ class TransactionPropagationHonestyTest {
             return eventStore.appendOwnTransaction(eventType, payload, validTime,
                             Map.of(), null, null, null)
                     .compose(event -> {
-                        // Got the event back — now deliberately fail to trigger rollback.
+                        // Got the event back now deliberately fail to trigger rollback.
                         return Future.<BiTemporalEvent<TestPayload>>failedFuture(
                                 new RuntimeException("Deliberate rollback"));
                     });
@@ -299,11 +299,11 @@ class TransactionPropagationHonestyTest {
             // external rollback.
             //
             // For genuine transaction participation, callers must use
-            // appendInTransaction(connection) — see tests 3 and 4.
+            // appendInTransaction(connection) see tests 3 and 4.
             assertEquals(1, count,
                     "Event should survive external rollback because " +
                     "appendOwnTransaction() starts an own-transaction on " +
-                    "the internal pool — it does not join external transactions");
+                    "the internal pool it does not join external transactions");
             testContext.completeNow();
         }))
         .onFailure(testContext::failNow);
@@ -319,13 +319,13 @@ class TransactionPropagationHonestyTest {
     // ========================================================================
 
     @Test
-    @DisplayName("append() and appendOwnTransaction() both start own-transaction — semantically equivalent")
+    @DisplayName("append() and appendOwnTransaction() both start own-transaction semantically equivalent")
     void appendAndAppendOwnTransactionAreBothOwnTransaction(VertxTestContext testContext) throws Exception {
         /*
          * Scenario:
-         *   1. Call append() — starts its own transaction.
-         *   2. Call appendOwnTransaction() — also starts its own transaction.
-         *   3. Both should succeed independently — proving they are
+         *   1. Call append() starts its own transaction.
+         *   2. Call appendOwnTransaction() also starts its own transaction.
+         *   3. Both should succeed independently proving they are
          *      semantically equivalent (both start a fresh own-transaction).
          *   4. Both events should be independently committed.
          */
@@ -359,7 +359,7 @@ class TransactionPropagationHonestyTest {
                                 "Each event type should have exactly one committed event");
                     }
                     assertEquals(2, typesFound,
-                            "Both event types should be independently committed — " +
+                            "Both event types should be independently committed " +
                             "append() and appendOwnTransaction() both start own-transactions");
                     testContext.completeNow();
                 }))
@@ -372,11 +372,11 @@ class TransactionPropagationHonestyTest {
     }
 
     // ========================================================================
-    // Test 3: appendInTransaction(connection) DOES participate — control test
+    // Test 3: appendInTransaction(connection) DOES participate control test
     // ========================================================================
 
     @Test
-    @DisplayName("appendInTransaction(connection) genuinely participates — rollback rolls back the event")
+    @DisplayName("appendInTransaction(connection) genuinely participates rollback rolls back the event")
     void appendInTransactionGenuinelyParticipates(VertxTestContext testContext) throws Exception {
         /*
          * Control test proving that appendInTransaction(connection) is the real
@@ -384,7 +384,7 @@ class TransactionPropagationHonestyTest {
          *   1. Start a transaction on an external pool.
          *   2. Call appendInTransaction(connection) on the same connection.
          *   3. Roll back the transaction.
-         *   4. The event should be gone — genuine participation.
+         *   4. The event should be gone genuine participation.
          */
         String schema = resolveSchema();
         String eventType = "genuine.participation.rollback";
@@ -411,7 +411,7 @@ class TransactionPropagationHonestyTest {
         .onSuccess(rows -> testContext.verify(() -> {
             int count = rows.iterator().next().getInteger(0);
             assertEquals(0, count,
-                    "Event MUST be rolled back when the connection's transaction is rolled back — " +
+                    "Event MUST be rolled back when the connection's transaction is rolled back " +
                     "appendInTransaction genuinely participates in the caller's transaction");
             testContext.completeNow();
         }))
@@ -424,11 +424,11 @@ class TransactionPropagationHonestyTest {
     }
 
     // ========================================================================
-    // Test 4: Contrast — appendInTransaction commits when transaction commits
+    // Test 4: Contrast appendInTransaction commits when transaction commits
     // ========================================================================
 
     @Test
-    @DisplayName("appendInTransaction(connection) commits with the external transaction — positive control")
+    @DisplayName("appendInTransaction(connection) commits with the external transaction positive control")
     void appendInTransactionCommitsWithExternalTransaction(VertxTestContext testContext) throws Exception {
         /*
          * Positive control for Test 3:
@@ -453,7 +453,7 @@ class TransactionPropagationHonestyTest {
         .onSuccess(rows -> testContext.verify(() -> {
             int count = rows.iterator().next().getInteger(0);
             assertEquals(1, count,
-                    "Event should be visible after the external transaction commits — " +
+                    "Event should be visible after the external transaction commits " +
                     "appendInTransaction genuinely participates");
             testContext.completeNow();
         }))
@@ -466,15 +466,15 @@ class TransactionPropagationHonestyTest {
     }
 
     // ========================================================================
-    // Test 5: append() also starts own-tx — event survives external rollback
+    // Test 5: append() also starts own-tx event survives external rollback
     // ========================================================================
 
     @Test
-    @DisplayName("append() starts own-transaction — event survives external rollback")
+    @DisplayName("append() starts own-transaction event survives external rollback")
     void appendDoesNotJoinExternalTransaction(VertxTestContext testContext) throws Exception {
         /*
          * Same scenario as Test 1 but using append() directly.
-         * Proves that append() — not just appendOwnTransaction() — starts its
+         * Proves that append() not just appendOwnTransaction() starts its
          * own independent transaction and ignores any external transaction context.
          */
         String schema = resolveSchema();
@@ -501,7 +501,7 @@ class TransactionPropagationHonestyTest {
             int count = rows.iterator().next().getInteger(0);
             assertEquals(1, count,
                     "Event should survive external rollback because append() starts " +
-                    "its own independent transaction — it never participates in " +
+                    "its own independent transaction it never participates in " +
                     "the caller's transaction");
             testContext.completeNow();
         }))
@@ -514,15 +514,15 @@ class TransactionPropagationHonestyTest {
     }
 
     // ========================================================================
-    // Test 6: appendBuilder().execute() starts own-tx — survives rollback
+    // Test 6: appendBuilder().execute() starts own-tx survives rollback
     // ========================================================================
 
     @Test
-    @DisplayName("appendBuilder().execute() starts own-transaction — event survives external rollback")
+    @DisplayName("appendBuilder().execute() starts own-transaction event survives external rollback")
     void builderWithoutInTransactionDoesNotJoinExternalTransaction(VertxTestContext testContext) throws Exception {
         /*
          * The builder's execute() without inTransaction(conn) delegates to
-         * append() — which starts its own independent transaction.
+         * append() which starts its own independent transaction.
          * Proves the builder path also does NOT participate.
          */
         String schema = resolveSchema();
@@ -555,7 +555,7 @@ class TransactionPropagationHonestyTest {
             int count = rows.iterator().next().getInteger(0);
             assertEquals(1, count,
                     "Builder execute() without inTransaction() starts its own " +
-                    "transaction — event survives external rollback");
+                    "transaction event survives external rollback");
             testContext.completeNow();
         }))
         .onFailure(testContext::failNow);
@@ -567,17 +567,17 @@ class TransactionPropagationHonestyTest {
     }
 
     // ========================================================================
-    // Test 7: appendBuilder().inTransaction(conn).execute() — rollback
+    // Test 7: appendBuilder().inTransaction(conn).execute() rollback
     // ========================================================================
 
     @Test
-    @DisplayName("appendBuilder().inTransaction(conn).execute() genuinely participates — rollback rolls back event")
+    @DisplayName("appendBuilder().inTransaction(conn).execute() genuinely participates rollback rolls back event")
     void builderInTransactionRollsBackWithExternalTransaction(VertxTestContext testContext) throws Exception {
         /*
          * The builder's inTransaction(conn) path delegates to
          * appendInTransaction(eventType, payload, validTime, headers,
          *     correlationId, causationId, aggregateId, connection)
-         * — which uses the caller's connection.  Rollback must remove the event.
+         * which uses the caller's connection.  Rollback must remove the event.
          */
         String schema = resolveSchema();
         String eventType = "builder.in.tx.rollback";
@@ -611,7 +611,7 @@ class TransactionPropagationHonestyTest {
         .onSuccess(rows -> testContext.verify(() -> {
             int count = rows.iterator().next().getInteger(0);
             assertEquals(0, count,
-                    "Builder inTransaction(conn) MUST participate — rollback " +
+                    "Builder inTransaction(conn) MUST participate rollback " +
                     "removes the event");
             testContext.completeNow();
         }))
@@ -624,11 +624,11 @@ class TransactionPropagationHonestyTest {
     }
 
     // ========================================================================
-    // Test 8: appendBuilder().inTransaction(conn).execute() — commit
+    // Test 8: appendBuilder().inTransaction(conn).execute() commit
     // ========================================================================
 
     @Test
-    @DisplayName("appendBuilder().inTransaction(conn).execute() genuinely participates — commit persists event")
+    @DisplayName("appendBuilder().inTransaction(conn).execute() genuinely participates commit persists event")
     void builderInTransactionCommitsWithExternalTransaction(VertxTestContext testContext) throws Exception {
         /*
          * Positive control for Test 7: the builder's inTransaction(conn) path
@@ -671,7 +671,7 @@ class TransactionPropagationHonestyTest {
     }
 
     // ========================================================================
-    // Test 9: appendInTransaction full metadata — commit persists all fields
+    // Test 9: appendInTransaction full metadata commit persists all fields
     // ========================================================================
 
     @Test
@@ -733,11 +733,11 @@ class TransactionPropagationHonestyTest {
     }
 
     // ========================================================================
-    // Test 10: appendInTransaction full metadata — rollback removes everything
+    // Test 10: appendInTransaction full metadata rollback removes everything
     // ========================================================================
 
     @Test
-    @DisplayName("appendInTransaction with full metadata rolls back — nothing persisted including metadata")
+    @DisplayName("appendInTransaction with full metadata rolls back nothing persisted including metadata")
     void appendInTransactionFullMetadataRollback(VertxTestContext testContext) throws Exception {
         /*
          * Counterpart to Test 9: verifies that when the transaction is rolled
@@ -779,7 +779,7 @@ class TransactionPropagationHonestyTest {
     }
 
     // ========================================================================
-    // Test 11: appendOwnTransaction full metadata — commit persists all fields
+    // Test 11: appendOwnTransaction full metadata commit persists all fields
     // ========================================================================
 
     @Test
@@ -839,7 +839,7 @@ class TransactionPropagationHonestyTest {
     }
 
     // ========================================================================
-    // Test 12: appendInTransaction with null connection — returns failed future
+    // Test 12: appendInTransaction with null connection returns failed future
     // ========================================================================
 
     @Test
@@ -914,7 +914,7 @@ class TransactionPropagationHonestyTest {
             return Future.succeededFuture(null);
         })
         // Verify the independent closed check in appendInTransaction(8-arg).
-        // Pass null connection — the closed check fires first (before null-connection check).
+        // Pass null connection the closed check fires first (before null-connection check).
         .compose(v -> closedStore.appendInTransaction(eventType, payload, validTime,
                 Map.of(), null, null, null, null)
                 .compose(event -> Future.<BiTemporalEvent<TestPayload>>failedFuture(
@@ -940,7 +940,7 @@ class TransactionPropagationHonestyTest {
     }
 
     // ========================================================================
-    // Test 14: Builder validation — missing required fields
+    // Test 14: Builder validation missing required fields
     // ========================================================================
 
     @Test
@@ -991,12 +991,12 @@ class TransactionPropagationHonestyTest {
     }
 
     // ========================================================================
-    // Test 15: Builder correction() + inTransaction() — correction wins,
+    // Test 15: Builder correction() + inTransaction() correction wins,
     //          connection silently ignored
     // ========================================================================
 
     @Test
-    @DisplayName("Builder correction() + inTransaction() — correction path wins, connection is silently ignored")
+    @DisplayName("Builder correction() + inTransaction() correction path wins, connection is silently ignored")
     void builderCorrectionIgnoresInTransaction(VertxTestContext testContext) throws Exception {
         /*
          * Design-level documentation test: when both correction(id, reason)
@@ -1004,7 +1004,7 @@ class TransactionPropagationHonestyTest {
          * method routes to the correction path FIRST (checks originalEventId
          * != null before checking connection != null).  The correction path
          * uses appendCorrection() which starts its own transaction via
-         * Pool.withTransaction() — the connection is silently ignored.
+         * Pool.withTransaction() the connection is silently ignored.
          *
          * We prove this by:
          *   1. Appending an original event.
@@ -1012,7 +1012,7 @@ class TransactionPropagationHonestyTest {
          *   3. Using builder with .correction(id, reason).inTransaction(conn).execute()
          *      inside that external transaction.
          *   4. Rolling back the external transaction.
-         *   5. Verifying the correction event SURVIVES — because the correction
+         *   5. Verifying the correction event SURVIVES because the correction
          *      path used its own transaction, not the caller's connection.
          */
         String schema = resolveSchema();
@@ -1051,7 +1051,7 @@ class TransactionPropagationHonestyTest {
             });
         })
         .compose(ignored -> {
-            // Step 5: Query for correction events — they should SURVIVE
+            // Step 5: Query for correction events they should SURVIVE
             // because correction path ignores the connection
             String countSql = "SELECT COUNT(*) FROM " + schema +
                     ".bitemporal_event_log WHERE event_type = $1 AND is_correction = true";
@@ -1060,7 +1060,7 @@ class TransactionPropagationHonestyTest {
         .onSuccess(rows -> testContext.verify(() -> {
             int count = rows.iterator().next().getInteger(0);
             assertEquals(1, count,
-                    "Correction event must survive external rollback — proving the " +
+                    "Correction event must survive external rollback proving the " +
                     "builder routes to appendCorrection() (own-transaction) when " +
                     "correction() is set, silently ignoring inTransaction(conn)");
             testContext.completeNow();

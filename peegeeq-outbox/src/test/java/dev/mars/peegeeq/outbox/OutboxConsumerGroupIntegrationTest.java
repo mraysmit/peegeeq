@@ -293,7 +293,7 @@ public class OutboxConsumerGroupIntegrationTest {
 
         consumerGroup.addConsumer("member-1", message -> {
             handlerStarted.tryComplete();
-            // Block until the gate is released — simulates slow in-flight processing
+            // Block until the gate is released simulates slow in-flight processing
             return handlerGate.future().map(v -> {
                 handlerCompleted.set(true);
                 return (Void) null;
@@ -315,7 +315,7 @@ public class OutboxConsumerGroupIntegrationTest {
                 .onSuccess(v -> stopDone.tryComplete())
                 .onFailure(stopDone::tryFail);
         } else {
-            // Fallback: sync stop — group not an OutboxConsumerGroup
+            // Fallback: sync stop group not an OutboxConsumerGroup
             consumerGroup.stop();
             stopDone.tryComplete();
         }
@@ -323,11 +323,11 @@ public class OutboxConsumerGroupIntegrationTest {
         // Give stopGracefully() a moment to set up its wait on the in-flight future
         vertx.timer(100).await();
 
-        // Handler is still blocked — stopGracefully() must NOT have resolved yet
+        // Handler is still blocked stopGracefully() must NOT have resolved yet
         assertFalse(handlerCompleted.get(), "Handler should not have completed yet");
         assertFalse(stopDone.future().isComplete(), "stopGracefully should still be waiting");
 
-        // Release the gate — handler completes → stopGracefully() unblocks
+        // Release the gate handler completes → stopGracefully() unblocks
         handlerGate.tryComplete();
 
         stopDone.future().await();

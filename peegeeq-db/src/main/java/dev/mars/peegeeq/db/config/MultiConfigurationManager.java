@@ -313,7 +313,7 @@ public class MultiConfigurationManager {
     public Future<Void> close() {
         State previous = state.getAndSet(State.CLOSING);
         if (previous == State.STOPPED || previous == State.CLOSING) {
-            logger.info("MultiConfigurationManager is already {} — skipping close", previous);
+            logger.info("MultiConfigurationManager is already {} skipping close", previous);
             closeOwnedMeterRegistry();
             return Future.succeededFuture();
         }

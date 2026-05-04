@@ -292,7 +292,7 @@ class ConsumerGroupSubscriptionIntegrationTest {
     }
 
     // ========================================================================
-    // start(SubscriptionOptions) recover path — subscription creation fails
+    // start(SubscriptionOptions) recover path subscription creation fails
     // ========================================================================
 
     @Test

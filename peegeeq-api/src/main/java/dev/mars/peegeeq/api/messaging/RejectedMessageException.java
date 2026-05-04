@@ -21,7 +21,7 @@ package dev.mars.peegeeq.api.messaging;
  * dead letter queue rather than retried or reset to PENDING.
  *
  * <p>This differs from transient filtering (where a message is reset to PENDING
- * for reprocessing) — a rejected message will never be processable by this
+ * for reprocessing) a rejected message will never be processable by this
  * consumer group and should not be retried.</p>
  *
  * <p>Typical causes:</p>

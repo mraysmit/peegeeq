@@ -142,7 +142,7 @@ public class DeadConsumerDetector {
      *
      * <p>Miss state is stored on the subscription row rather than in memory so it survives
      * process restarts and detector/job instance changes. Write cost is driven by heartbeat
-     * cadence, not by the two integer columns. Contention is per subscription row — there is
+     * cadence, not by the two integer columns. Contention is per subscription row there is
      * no shared hotspot unless many writers target the same (topic, group_name) pair.</p>
      * 
      * @param topic The topic to check for dead subscriptions
@@ -156,7 +156,7 @@ public class DeadConsumerDetector {
         return connectionManager.withConnection(serviceId, connection -> {
             // Two-phase flapping protection using row-local state persisted in the database.
             // Miss history survives restarts; write volume is dominated by heartbeat cadence,
-            // not these integer columns. No shared hotspot — contention is per subscription row.
+            // not these integer columns. No shared hotspot contention is per subscription row.
             // Phase 1: Increment consecutive_misses for all expired subscriptions
             // Phase 2: Mark DEAD only those that reached the threshold
             String incrementSql = """
@@ -403,7 +403,7 @@ public class DeadConsumerDetector {
      * in the outbox still require that group (i.e. the group has not completed them and
      * the message's {@code required_consumer_groups} has not been decremented).</p>
      *
-     * <p>This is an expensive diagnostic query — it scans outbox messages. It should be
+     * <p>This is an expensive diagnostic query it scans outbox messages. It should be
      * called after detection, not on every heartbeat check.</p>
      *
      * @return Future containing a list of {@link BlockedMessageStats}, one per dead group per topic

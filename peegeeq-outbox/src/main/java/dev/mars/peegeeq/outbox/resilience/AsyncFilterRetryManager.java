@@ -116,7 +116,7 @@ public class AsyncFilterRetryManager {
                 }
             });
         } else {
-            // No Vertx — execute inline (for tests without Vert.x context)
+            // No Vertx execute inline (for tests without Vert.x context)
             try {
                 totalRetryAttempts.incrementAndGet();
                 activeRetries.incrementAndGet();
@@ -254,7 +254,7 @@ public class AsyncFilterRetryManager {
                 }
             });
         } else {
-            // No Vertx — execute inline after delay (for tests without Vert.x context)
+            // No Vertx execute inline after delay (for tests without Vert.x context)
             try {
                 Duration nextDelay = calculateNextDelay(currentDelay);
                 

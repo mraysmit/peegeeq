@@ -62,7 +62,7 @@ public class PartitionedFetcher {
                 getCommittedOffset(conn, topic, groupName, partitionKey, generation)
                         .compose(committedOffset -> {
                             if (committedOffset == null) {
-                                // Generation mismatch or no offset row — fenced
+                                // Generation mismatch or no offset row fenced
                                 logger.debug("Fetch fenced: topic={}, group={}, partition={}, gen={}",
                                         topic, groupName, partitionKey, generation);
                                 return Future.succeededFuture(List.<OutboxMessage>of());
