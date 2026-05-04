@@ -57,7 +57,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p>The bug is now fixed: OutboxFactory registers a close hook that calls
  * {@code consumer.closeAsync()} before the manager destroys pools.
- * This test is a regression guard — it asserts that no such errors appear.</p>
+ * This test is a regression guard it asserts that no such errors appear.</p>
  *
  * <p>Scenario:</p>
  * <ol>
@@ -107,7 +107,7 @@ public class OutboxConsumerLifecycleBugReproducerTest {
         consumer = outboxFactory.createConsumer(topic, String.class);
 
         // Attach a Logback ListAppender to capture log output from OutboxConsumer
-        // and PgConnectionProvider — the two classes that emit the error messages
+        // and PgConnectionProvider the two classes that emit the error messages
         logAppender = new ListAppender<>();
         logAppender.start();
 
@@ -151,7 +151,7 @@ public class OutboxConsumerLifecycleBugReproducerTest {
 
     @Test
     void consumerPollingAfterManagerCloseProducesClientNotFoundErrors(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
-        // Subscribe the consumer — this starts polling
+        // Subscribe the consumer this starts polling
         consumer.subscribe(message -> io.vertx.core.Future.succeededFuture());
 
         // Give the consumer a moment to start polling and establish the pool
@@ -159,7 +159,7 @@ public class OutboxConsumerLifecycleBugReproducerTest {
 
         // Close the manager WITHOUT explicitly closing the consumer/factory first.
         // If the OutboxFactory close hook properly calls consumer.closeAsync(), the consumer
-        // will be cleanly stopped before pools are destroyed — the bug is fixed.
+        // will be cleanly stopped before pools are destroyed the bug is fixed.
         // If the hook is a no-op, the consumer keeps polling and hits "Client not found".
         manager.closeReactive()
                 .compose(v -> vertx.timer(2000))

@@ -61,9 +61,9 @@ import static org.junit.jupiter.api.Assertions.*;
  * <p>These tests cover the concurrency and error-path gaps identified in the
  * code review that happy-path integration tests did not exercise:</p>
  * <ul>
- *   <li>Item 1: close() during async partitioned startup — CAS guard prevents state corruption</li>
- *   <li>Item 2: stop() failure logging — stopGracefully() completes cleanly in partitioned mode</li>
- *   <li>Item 3: overlapping fetch guard — slow handler does not cause duplicate message processing</li>
+ *   <li>Item 1: close() during async partitioned startup CAS guard prevents state corruption</li>
+ *   <li>Item 2: stop() failure logging stopGracefully() completes cleanly in partitioned mode</li>
+ *   <li>Item 3: overlapping fetch guard slow handler does not cause duplicate message processing</li>
  * </ul>
  *
  * @author Mark Andrew Ray-Smith Cityline Ltd
@@ -176,7 +176,7 @@ class PartitionedConsumerSafetyIntegrationTest {
                     // start() is fire-and-forget; transitions to STARTING then begins async work
                     group.start();
 
-                    // Immediately close — should set state to CLOSED before async callback
+                    // Immediately close should set state to CLOSED before async callback
                     group.close();
 
                     // State must be CLOSED immediately after close()
@@ -232,13 +232,13 @@ class PartitionedConsumerSafetyIntegrationTest {
 
                     // Wait for the group to become ACTIVE (async join + engine start)
                     // Partitioned startup involves: topic mode query → engine.start() → joinGroup
-                    // → initializeOffsets → startFetchLoop — can take 5+ seconds on cold Testcontainers
+                    // → initializeOffsets → startFetchLoop can take 5+ seconds on cold Testcontainers
                     return databaseService.getVertx().timer(6000).mapEmpty()
                             .compose(delayed -> {
                                 assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState(),
                                         "Group should be ACTIVE after startup completes");
 
-                                // stopGracefully returns a future — verify it completes and state is NEW
+                                // stopGracefully returns a future verify it completes and state is NEW
                                 return group.stopGracefully();
                             })
                             .map(v2 -> {
@@ -280,7 +280,7 @@ class PartitionedConsumerSafetyIntegrationTest {
         String topic = "test-safety-overlap-" + System.nanoTime();
         String groupName = "safety-3";
 
-        // Track received message IDs — use synchronized set to detect duplicates
+        // Track received message IDs use synchronized set to detect duplicates
         Set<String> receivedIds = Collections.synchronizedSet(new HashSet<>());
         AtomicBoolean duplicateDetected = new AtomicBoolean(false);
         AtomicInteger totalInvocations = new AtomicInteger(0);
@@ -351,7 +351,7 @@ class PartitionedConsumerSafetyIntegrationTest {
     }
 
     // ========================================================================
-    // Item 4: discovery gap — consumer joins before any messages exist.
+    // Item 4: discovery gap consumer joins before any messages exist.
     //
     // When discoverPartitionsInternal() finds no PENDING/PROCESSING rows,
     // joinGroup() returns an empty list. The engine must start cleanly with
@@ -368,7 +368,7 @@ class PartitionedConsumerSafetyIntegrationTest {
         String topic = "test-safety-empty-" + System.nanoTime();
         String groupName = "safety-4";
 
-        // No messages inserted — topic is empty when the group joins.
+        // No messages inserted topic is empty when the group joins.
         createTopic(topic, "OFFSET_WATERMARK")
                 .compose(v -> createSubscription(topic, groupName))
                 .compose(v -> {
@@ -413,7 +413,7 @@ class PartitionedConsumerSafetyIntegrationTest {
     }
 
     // ========================================================================
-    // Item 5: handler failure mid-batch — offset must NOT advance.
+    // Item 5: handler failure mid-batch offset must NOT advance.
     //
     // When the message handler returns a failed Future, processAndCommit()
     // short-circuits via .compose() before commitOffset() is reached. The
@@ -442,7 +442,7 @@ class PartitionedConsumerSafetyIntegrationTest {
                             adapter, mapper, null, null, databaseService,
                             connectionManager, SERVICE_ID
                     );
-                    // Handler always fails — offset must never advance.
+                    // Handler always fails offset must never advance.
                     group.setMessageHandler(msg -> {
                         handlerInvocations.incrementAndGet();
                         return Future.failedFuture(new RuntimeException("intentional handler failure"));
@@ -494,7 +494,7 @@ class PartitionedConsumerSafetyIntegrationTest {
     // When joinGroup() runs against an empty topic it returns an empty partition
     // list and the engine's assignedPartitions map stays empty.  A message
     // inserted afterwards for a new messageGroup is NOT processed by the already-
-    // running engine — there is no periodic rediscovery.  Only a second instance
+    // running engine there is no periodic rediscovery.  Only a second instance
     // joining (which triggers a full rebalance) causes the new partition to be
     // discovered and assigned, after which the message is processed.
     //
@@ -533,7 +533,7 @@ class PartitionedConsumerSafetyIntegrationTest {
                             connectionManager, SERVICE_ID
                     );
                     groupAHolder[0] = groupA;
-                    // A should never receive any messages — it will have no assigned partitions.
+                    // A should never receive any messages it will have no assigned partitions.
                     groupA.setMessageHandler(msg -> Future.succeededFuture());
                     groupA.start();
 
@@ -557,11 +557,11 @@ class PartitionedConsumerSafetyIntegrationTest {
                     assertEquals(0, (int) count,
                             "0 assignment rows expected after A joins empty topic; got: " + count);
 
-                    // Insert a message AFTER A has already joined — this is the late-arrival case.
+                    // Insert a message AFTER A has already joined this is the late-arrival case.
                     return insertOutboxMessage(topic, newPartition, "late-msg");
                 })
                 // Wait 3 fetch ticks (3 × DEFAULT_FETCH_INTERVAL_MS = 1 s).
-                // A's engine iterates an empty assignedPartitions map — it cannot fetch
+                // A's engine iterates an empty assignedPartitions map it cannot fetch
                 // for "acct-new" because that partition was never discovered at join time.
                 .compose(msgId -> databaseService.getVertx().timer(3000).map(msgId))
                 .compose(msgId -> connectionManager.withConnection(SERVICE_ID, conn ->
@@ -570,7 +570,7 @@ class PartitionedConsumerSafetyIntegrationTest {
                                 .map(rows -> rows.iterator().next().getString("status")))
                         .compose(status -> {
                             assertEquals("PENDING", status,
-                                    "Message should remain PENDING — A has no partitions assigned; actual: " + status);
+                                    "Message should remain PENDING A has no partitions assigned; actual: " + status);
 
                             // Zero assignment rows still: no rebalance has occurred.
                             return connectionManager.withConnection(SERVICE_ID, conn ->
@@ -584,7 +584,7 @@ class PartitionedConsumerSafetyIntegrationTest {
                             assertEquals(0, (int) cnt2,
                                     "Still 0 assignment rows before rebalance; got: " + cnt2);
 
-                            // Start instance B — its joinGroup() triggers a rebalance.
+                            // Start instance B its joinGroup() triggers a rebalance.
                             // B discovers "acct-new", gets it assigned, and processes the message.
                             PgNativeConsumerGroup<String> groupB = new PgNativeConsumerGroup<>(
                                     groupName, topic, String.class,

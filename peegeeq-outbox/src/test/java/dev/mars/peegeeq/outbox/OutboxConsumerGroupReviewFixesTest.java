@@ -51,14 +51,14 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Targeted tests for the four review fixes applied on 2026-03-30:
  * <ul>
- *   <li>Fix #6  — Per-member concurrency gate (maxConcurrency / inFlightCount)</li>
- *   <li>Fix #8  — Non-blocking {@code closeAsync()} lifecycle</li>
- *   <li>Fix #10 — Remove/route race (post-selection liveness check)</li>
+ *   <li>Fix #6  Per-member concurrency gate (maxConcurrency / inFlightCount)</li>
+ *   <li>Fix #8  Non-blocking {@code closeAsync()} lifecycle</li>
+ *   <li>Fix #10 Remove/route race (post-selection liveness check)</li>
  *   <li>Shared Vert.x instance for filter retry timers</li>
  * </ul>
  * Also covers the weighted-average stats computation fix (#7).
  *
- * <p>These are fast in-process CORE tests — no database or Testcontainers.</p>
+ * <p>These are fast in-process CORE tests no database or Testcontainers.</p>
  */
 @Tag(TestCategories.CORE)
 @ExtendWith(VertxExtension.class)
@@ -81,7 +81,7 @@ class OutboxConsumerGroupReviewFixesTest {
     }
 
     // ========================================================================
-    // Fix #6 — Per-member concurrency gate
+    // Fix #6 Per-member concurrency gate
     // ========================================================================
 
     @Nested
@@ -92,7 +92,7 @@ class OutboxConsumerGroupReviewFixesTest {
         @DisplayName("member with default maxConcurrency=1 rejects second concurrent message")
         void defaultMaxConcurrencyRejectsSecondMessage() {
             OutboxConsumerGroupMember<String> member = createMember("c1", msg -> {
-                // Return a future that never completes — simulates in-flight processing
+                // Return a future that never completes simulates in-flight processing
                 return Promise.<Void>promise().future();
             });
             member.start();
@@ -195,7 +195,7 @@ class OutboxConsumerGroupReviewFixesTest {
         }
 
         @Test
-        @DisplayName("concurrent processMessage calls at maxConcurrency=1 — only one succeeds in-flight")
+        @DisplayName("concurrent processMessage calls at maxConcurrency=1 only one succeeds in-flight")
         void concurrentProcessMessageRace() throws Exception {
             Promise<Void> completion = Promise.promise();
             OutboxConsumerGroupMember<String> member = createMember("c1", msg -> completion.future());
@@ -241,7 +241,7 @@ class OutboxConsumerGroupReviewFixesTest {
         @DisplayName("inactive member rejects processMessage before concurrency check")
         void inactiveMemberRejectsProcessMessage() {
             OutboxConsumerGroupMember<String> member = createMember("c1", msg -> Future.succeededFuture());
-            // Do NOT start — member is inactive
+            // Do NOT start member is inactive
 
             Future<Void> result = member.processMessage(new SimpleMessage<>("msg-1", "t", "p"));
             assertTrue(result.failed());
@@ -251,7 +251,7 @@ class OutboxConsumerGroupReviewFixesTest {
     }
 
     // ========================================================================
-    // Fix #10 — Remove/route race (post-selection liveness check)
+    // Fix #10 Remove/route race (post-selection liveness check)
     // ========================================================================
 
     @Nested
@@ -320,7 +320,7 @@ class OutboxConsumerGroupReviewFixesTest {
             assertTrue(ok.succeeded());
             assertEquals(1, received.size());
 
-            // Now stop the member (deactivate) — but don't remove from map
+            // Now stop the member (deactivate) but don't remove from map
             member.stop();
             assertFalse(member.isActive());
 
@@ -390,7 +390,7 @@ class OutboxConsumerGroupReviewFixesTest {
     }
 
     // ========================================================================
-    // Fix #8 — Non-blocking close lifecycle
+    // Fix #8 Non-blocking close lifecycle
     // ========================================================================
 
     @Nested
@@ -532,7 +532,7 @@ class OutboxConsumerGroupReviewFixesTest {
     }
 
     // ========================================================================
-    // Fix #7 — Weighted average stats computation
+    // Fix #7 Weighted average stats computation
     // ========================================================================
 
     @Nested
@@ -545,14 +545,14 @@ class OutboxConsumerGroupReviewFixesTest {
             group = createGroup("stats-group", "test-topic");
 
             // c1 processes 1 fast message, c2 processes 10 slow messages
-            // If simple avg: (fast_avg + slow_avg) / 2  — wrong
-            // If weighted:   (fast_total_ms + slow_total_ms) / 11  — correct
+            // If simple avg: (fast_avg + slow_avg) / 2  wrong
+            // If weighted:   (fast_total_ms + slow_total_ms) / 11  correct
 
             group.addConsumer("c1", msg -> Future.succeededFuture());
             group.addConsumer("c2", msg -> Future.succeededFuture());
             group.start();
 
-            // Route messages — with hash routing, different IDs go to different consumers
+            // Route messages with hash routing, different IDs go to different consumers
             // Send 1 message to c1, 10 to c2 (by finding IDs that route to each)
             // Instead, just use a single consumer approach for deterministic verification
             group.close();

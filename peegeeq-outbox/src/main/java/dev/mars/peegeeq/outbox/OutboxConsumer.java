@@ -221,7 +221,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
 
         logger.info("Starting polling for topic {} with interval: {} ms", topic, pollingIntervalMs);
 
-        // Use Vert.x periodic timer for polling — automatically canceled on vertx.close()
+        // Use Vert.x periodic timer for polling automatically canceled on vertx.close()
         // Fire an initial poll immediately, then schedule periodic
         vertx.runOnContext(v -> scheduledProcessMessages());
         pollingTimerId = vertx.setPeriodic(pollingIntervalMs, id -> scheduledProcessMessages());
@@ -417,7 +417,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                 traceCtx = traceCtx.childSpan("consumer-group:" + consumerGroupName + "/process");
             }
 
-            // Set MDC for trace context before processing — intentionally NOT using
+            // Set MDC for trace context before processing intentionally NOT using
             // try-with-resources because async processing needs MDC values to persist
             // across the handler call. Cleanup happens in the eventually() block via
             // clearTraceMDC().
@@ -431,7 +431,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
                 TraceContextUtil.setMDC(TraceContextUtil.MDC_CORRELATION_ID, correlationId);
             }
 
-            // Process message reactively — handler and all downstream operations
+            // Process message reactively handler and all downstream operations
             // return Future<Void>, so no worker thread is needed.
             return processMessageWithCompletion(message, messageId)
                     .transform(ar -> {
@@ -523,7 +523,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
 
                 // Group-filter rejected messages should be reset to PENDING so other
                 // consumer groups can still process them. The rejection is group-level,
-                // not message-level — it must not affect the global outbox status.
+                // not message-level it must not affect the global outbox status.
                 if (rootCause instanceof RejectedMessageException) {
                     logger.debug("Message {} rejected by consumer group filter, resetting to PENDING: {}",
                             messageId, rootCause.getMessage());
@@ -595,7 +595,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
     /**
      * Resets a filtered message back to PENDING so it can be picked up by other
      * consumer groups. This is used when a consumer group's filter rejects a
-     * message — the message is not completed or failed, just not relevant to
+     * message the message is not completed or failed, just not relevant to
      * this group.
      */
     private Future<Void> resetFilteredMessageToPending(String messageId) {
@@ -866,7 +866,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
 
         unsubscribe();
 
-        // Cancel Vert.x periodic timer — no new processing cycles will start
+        // Cancel Vert.x periodic timer no new processing cycles will start
         if (pollingTimerId != -1) {
             vertx.cancelTimer(pollingTimerId);
             pollingTimerId = -1;
@@ -879,7 +879,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
         final long timeoutMs = closeInflightTimeoutMs;
         io.vertx.core.Promise<Void> timeoutSignal = io.vertx.core.Promise.promise();
         long timeoutTimerId = vertx.setTimer(timeoutMs, id -> {
-            logger.warn("Timed out ({}ms) waiting for in-flight processing for topic '{}' during close — proceeding with pool close",
+            logger.warn("Timed out ({}ms) waiting for in-flight processing for topic '{}' during close proceeding with pool close",
                 timeoutMs, topic);
             timeoutSignal.tryComplete();
         });
@@ -898,7 +898,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             });
 
         return awaitInflight.compose(v -> {
-            // Close reactive pool — this is the resource that matters for callers
+            // Close reactive pool this is the resource that matters for callers
             Future<Void> poolClose;
             if (reactivePool != null) {
                 poolClose = reactivePool.close()
@@ -944,7 +944,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             var connectionProvider = databaseService.getConnectionProvider();
             if (connectionProvider == null) {
                 return Future.failedFuture(new IllegalStateException(
-                        "ConnectionProvider is not available — database service may be shutting down"));
+                        "ConnectionProvider is not available database service may be shutting down"));
             }
             return connectionProvider.getReactivePool(clientId);
         }

@@ -56,12 +56,12 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
     private final String instanceId;
     private MeterRegistry registry;
 
-    // Cached queue depth values — refreshed periodically by refreshDepthCache()
+    // Cached queue depth values refreshed periodically by refreshDepthCache()
     private volatile double cachedOutboxDepth = 0.0;
     private volatile double cachedNativeDepth = 0.0;
     private volatile double cachedDeadLetterDepth = 0.0;
 
-    // Shutdown coordination — prevents database operations during closeReactive()
+    // Shutdown coordination prevents database operations during closeReactive()
     private volatile boolean closing = false;
 
     // Counters
@@ -625,7 +625,7 @@ public class PeeGeeQMetrics implements MeterBinder, MetricsProvider {
         return metrics;
     }
 
-    // Queue depth — synchronous reads from cache for gauges and MetricsProvider
+    // Queue depth synchronous reads from cache for gauges and MetricsProvider
     private double getOutboxQueueDepth() {
         return cachedOutboxDepth;
     }

@@ -111,24 +111,24 @@ public class PeeGeeQManager implements AutoCloseable {
     private DeadConsumerDetectionJob deadConsumerDetectionJob;
     private ConsumerGroupRetryJob consumerGroupRetryJob;
 
-    // Consecutive failure counters for background timers — escalate to ERROR after threshold
+    // Consecutive failure counters for background timers escalate to ERROR after threshold
     private static final long TIMER_FAILURE_ESCALATION_THRESHOLD = 3;
     private final java.util.concurrent.atomic.AtomicLong persistMetricsFailures = new java.util.concurrent.atomic.AtomicLong(0);
     private final java.util.concurrent.atomic.AtomicLong depthCacheFailures = new java.util.concurrent.atomic.AtomicLong(0);
 
-    // Overlap guards — prevent a new tick firing while the previous one is still in-flight
+    // Overlap guards prevent a new tick firing while the previous one is still in-flight
     private final java.util.concurrent.atomic.AtomicBoolean persistMetricsRunning = new java.util.concurrent.atomic.AtomicBoolean(false);
     private final java.util.concurrent.atomic.AtomicBoolean depthCacheRunning = new java.util.concurrent.atomic.AtomicBoolean(false);
     private final java.util.concurrent.atomic.AtomicLong dlqCleanupFailures = new java.util.concurrent.atomic.AtomicLong(0);
     private final java.util.concurrent.atomic.AtomicLong stuckMessageFailures = new java.util.concurrent.atomic.AtomicLong(0);
 
     private volatile boolean started = false;
-    // Shutdown coordination — prevents database operations during closeReactive()
+    // Shutdown coordination prevents database operations during closeReactive()
     private volatile boolean closing = false;
     private volatile Future<Void> startFuture = null;
     private volatile Future<Void> closeFuture = null;
 
-    // Cached subscription service — created once, reused per request
+    // Cached subscription service created once, reused per request
     private volatile dev.mars.peegeeq.api.subscription.SubscriptionService cachedSubscriptionService;
 
     // New provider interfaces
@@ -165,7 +165,7 @@ public class PeeGeeQManager implements AutoCloseable {
     private PeeGeeQManager(PeeGeeQConfiguration configuration, MeterRegistry meterRegistry, Vertx vertx, boolean meterRegistryOwnedByManager) {
         // Initialize system-level trace context for main thread logs (startup sequence)
         if (TraceContextUtil.captureTraceContext() == null) {
-            // Set MDC keys directly — no scope to leak (C2 remediation)
+            // Set MDC keys directly no scope to leak (C2 remediation)
             TraceCtx startupTrace = TraceContextUtil.parseOrCreate(null);
             MDC.put(TraceContextUtil.MDC_TRACE_ID, startupTrace.traceId());
             MDC.put(TraceContextUtil.MDC_SPAN_ID, startupTrace.spanId());
@@ -410,7 +410,7 @@ public class PeeGeeQManager implements AutoCloseable {
      * "Pool closed" errors from racing startup futures.
      */
     public Future<Void> closeReactive() {
-        // Return cached close future if already closing — prevents re-running
+        // Return cached close future if already closing prevents re-running
         // the shutdown chain on a dead event loop.
         Future<Void> existing = closeFuture;
         if (existing != null) {

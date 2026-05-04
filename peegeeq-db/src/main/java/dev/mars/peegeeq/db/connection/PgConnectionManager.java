@@ -161,7 +161,7 @@ public class PgConnectionManager {
                 return pool;
             } catch (Exception e) {
                 logger.error("Failed to create pool for {}: {}", id, e.getMessage());
-                // Note: do NOT call reactivePools.remove(id) here — we are inside
+                // Note: do NOT call reactivePools.remove(id) here we are inside
                 // computeIfAbsent, which does not store the value when the lambda throws,
                 // and ConcurrentHashMap forbids recursive structural modifications.
                 if (meter != null) {
@@ -285,7 +285,7 @@ public class PgConnectionManager {
 
         // Set search_path at connection level so all connections from the pool
         // automatically use the configured schema.
-        // See https://vertx.io/docs/vertx-pg-client/java/ — "Configuration / data object"
+        // See https://vertx.io/docs/vertx-pg-client/java/ "Configuration / data object"
         String configuredSchema = connectionConfig.getSchema();
         if (configuredSchema != null && !configuredSchema.isBlank()) {
             String normalized = normalizeSearchPath(configuredSchema);
@@ -317,7 +317,7 @@ public class PgConnectionManager {
      * Normalizes and validates a configured schema/search_path string.
      *
      * This enforces a project-specific restricted naming policy (letters, digits,
-     * underscore, comma) — not general PostgreSQL identifier validation. Quoted
+     * underscore, comma) not general PostgreSQL identifier validation. Quoted
      * identifiers, {@code $user}, and case-sensitive quoting are intentionally
      * rejected.
      *
@@ -377,7 +377,7 @@ public class PgConnectionManager {
     /**
      * Checks whether all registered pools are non-null.
      *
-     * This is NOT a database connectivity check — it only verifies that pool
+     * This is NOT a database connectivity check it only verifies that pool
      * objects exist. For actual health probes, use {@link #checkHealth(String)}.
      *
      * @return true if no pools are registered, or all registered pools are non-null
@@ -464,7 +464,7 @@ public class PgConnectionManager {
             return Future.succeededFuture();
         }
 
-        // Snapshot keys before iterating — closePool mutates the map
+        // Snapshot keys before iterating closePool mutates the map
         List<String> serviceIds = new ArrayList<>(reactivePools.keySet());
         List<Future<Void>> closeFutures = new ArrayList<>();
 

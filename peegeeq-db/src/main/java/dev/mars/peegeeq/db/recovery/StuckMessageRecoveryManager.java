@@ -53,7 +53,7 @@ public class StuckMessageRecoveryManager {
     private final Duration processingTimeout;
     private final boolean enabled;
 
-    // Shutdown coordination — prevents database operations during closeReactive()
+    // Shutdown coordination prevents database operations during closeReactive()
     private volatile boolean closing = false;
 
     /**

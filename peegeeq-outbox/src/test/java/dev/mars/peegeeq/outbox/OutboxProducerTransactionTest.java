@@ -293,7 +293,7 @@ public class OutboxProducerTransactionTest {
     }
 
     // =========================================================================
-    // sendInExistingTransaction — success path with real connection
+    // sendInExistingTransaction success path with real connection
     // =========================================================================
 
     @Test
@@ -335,7 +335,7 @@ public class OutboxProducerTransactionTest {
     }
 
     // =========================================================================
-    // Idempotency — ON CONFLICT DO NOTHING behavior
+    // Idempotency ON CONFLICT DO NOTHING behavior
     // =========================================================================
 
     @Test
@@ -345,11 +345,11 @@ public class OutboxProducerTransactionTest {
         Map<String, String> headers = new HashMap<>();
         headers.put("idempotencyKey", idempotencyKey);
 
-        // First send — should insert
+        // First send should insert
         producer.sendInOwnTransaction("first-message", headers)
             .compose(v -> {
                 logger.info("First message sent with idempotency key: {}", idempotencyKey);
-                // Second send with same key — should silently do nothing
+                // Second send with same key should silently do nothing
                 return producer.sendInOwnTransaction("second-message", headers);
             })
             .compose(v -> {
@@ -380,7 +380,7 @@ public class OutboxProducerTransactionTest {
     void testNoIdempotencyKeyAllowsDuplicates(VertxTestContext testContext) throws Exception {
         String uniqueMarker = "no-idem-" + System.currentTimeMillis();
 
-        // Send two distinct messages without idempotency key — both should insert
+        // Send two distinct messages without idempotency key both should insert
         producer.sendInOwnTransaction(uniqueMarker + "-a")
             .compose(v -> producer.sendInOwnTransaction(uniqueMarker + "-b"))
             .onSuccess(v -> {
@@ -413,7 +413,7 @@ public class OutboxProducerTransactionTest {
     }
 
     // =========================================================================
-    // Idempotency key normalization — empty/whitespace → null
+    // Idempotency key normalization empty/whitespace → null
     // =========================================================================
 
     @Test
@@ -457,11 +457,11 @@ public class OutboxProducerTransactionTest {
     }
 
     // =========================================================================
-    // close() pool isolation — closing producer does not close shared pool
+    // close() pool isolation closing producer does not close shared pool
     // =========================================================================
 
     @Test
-    @DisplayName("Closing producer does not close the shared pool — second producer still works")
+    @DisplayName("Closing producer does not close the shared pool second producer still works")
     void testCloseDoesNotAffectSharedPool(VertxTestContext testContext) throws Exception {
         // Create a second producer using the same databaseService (same shared pool)
         OutboxProducer<String> producer2 = new OutboxProducer<>(databaseService,
@@ -474,7 +474,7 @@ public class OutboxProducerTransactionTest {
         // Second producer should still work because the pool is shared
         producer2.sendInOwnTransaction("after-close-" + System.currentTimeMillis())
             .onSuccess(v -> {
-                logger.info("Second producer works after first producer closed — shared pool intact");
+                logger.info("Second producer works after first producer closed shared pool intact");
                 producer2.close();
                 testContext.completeNow();
             })

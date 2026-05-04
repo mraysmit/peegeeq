@@ -276,7 +276,7 @@ public class OutboxConsumerErrorHandlingTest {
 
     @Test
     void testMessageWithNullPayload(Vertx vertx, VertxTestContext testContext) throws Exception {
-        // producer.send(null) returns a failed Future — no message is stored,
+        // producer.send(null) returns a failed Future no message is stored,
         // so the consumer never receives anything. Verify the send fails.
         producer.send(null)
             .onSuccess(v -> testContext.failNow("Sending null payload should have failed"))
@@ -293,7 +293,7 @@ public class OutboxConsumerErrorHandlingTest {
     @Test
     void testRapidSubscribeUnsubscribeCycle(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Verify that rapid subscribe/unsubscribe cycles don't throw exceptions.
-        // Don't use checkpoints here — re-subscribing on the same consumer creates
+        // Don't use checkpoints here re-subscribing on the same consumer creates
         // duplicate polling tasks and checkpoint accumulation breaks VertxTestContext.
         for (int i = 0; i < 5; i++) {
         logger.info("Test: rapid subscribe unsubscribe cycle");

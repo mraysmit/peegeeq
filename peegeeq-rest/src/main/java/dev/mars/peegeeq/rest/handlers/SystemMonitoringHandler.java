@@ -533,7 +533,7 @@ public class SystemMonitoringHandler {
                         return Future.succeededFuture(agg);
                     }
 
-                    // Queues and Messages (synchronous — no DB call)
+                    // Queues and Messages (synchronous no DB call)
                     Map<String, QueueFactory> queueFactories = setupResult.getQueueFactories();
                     int setupQueues = queueFactories.size();
                     long setupMessages = 0;
@@ -555,7 +555,7 @@ public class SystemMonitoringHandler {
                     agg.put("totalMessages", totalMessagesNow);
                     agg.put("totalEventStores", agg.getInteger("totalEventStores", 0) + setupEventStores);
 
-                    // Consumer Groups and Connections (async — listSubscriptions returns Future)
+                    // Consumer Groups and Connections (async listSubscriptions returns Future)
                     dev.mars.peegeeq.api.subscription.SubscriptionService subService = setupService
                             .getSubscriptionServiceForSetup(setupId);
                     if (subService == null) {

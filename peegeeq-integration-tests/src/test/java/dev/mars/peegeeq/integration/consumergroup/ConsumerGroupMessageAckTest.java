@@ -51,7 +51,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * <ol>
  *   <li>Create a PeeGeeQ setup via the REST API.</li>
  *   <li>Obtain the {@code QueueFactory} directly from
- *       {@code setupService.getSetupResult()} — the REST consumer-group handler
+ *       {@code setupService.getSetupResult()} the REST consumer-group handler
  *       does not call {@code start()}, so we wire the group programmatically to
  *       avoid that limitation.</li>
  *   <li>Create a consumer group, add one member with a handler that records the
@@ -150,11 +150,11 @@ public class ConsumerGroupMessageAckTest extends SmokeTestBase {
                 // Poll every 200 ms: wait for both the handler invocation and the DB deletion.
                 vertx.setPeriodic(200, timerId -> {
                     if (receivedMessageIds.isEmpty()) {
-                        // Handler not yet invoked — keep waiting
+                        // Handler not yet invoked keep waiting
                         return;
                     }
 
-                    // Handler was invoked — now verify the row has been deleted from queue_messages.
+                    // Handler was invoked now verify the row has been deleted from queue_messages.
                     JsonObject dbConfig = setupRequest.getJsonObject("databaseConfig");
                     PgConnectOptions opts = new PgConnectOptions()
                         .setHost(dbConfig.getString("host"))
@@ -172,7 +172,7 @@ public class ConsumerGroupMessageAckTest extends SmokeTestBase {
                         .onSuccess(rows -> {
                             long remaining = rows.iterator().next().getLong("n");
                             if (remaining > 0) {
-                                // Message row still present (locked or pending deletion) — keep polling
+                                // Message row still present (locked or pending deletion) keep polling
                                 logger.debug("Message still in queue_messages (count={}), waiting...", remaining);
                                 return;
                             }

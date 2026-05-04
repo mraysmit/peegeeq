@@ -415,7 +415,7 @@ public class OutboxConsumerGroupMember<T> implements dev.mars.peegeeq.api.messag
         try {
             processingFuture = messageHandler.handle(message);
 
-            // Handle null return from message handler — convert to failed future
+            // Handle null return from message handler convert to failed future
             // so the .onFailure handler decrements inFlightCount (no slot leak)
             if (processingFuture == null) {
                 logger.error("Message handler returned null Future for message {} in consumer '{}': treating as failure",

@@ -204,7 +204,7 @@ class PeeGeeQBiTemporalWorkingIntegrationTest {
             "test-type", "producer-consumer"
         );
         
-        // Subscribe to messages — assertions and completion happen here
+        // Subscribe to messages assertions and completion happen here
         consumer.subscribe(message -> {
             testContext.verify(() -> {
                 logger.info("Received PeeGeeQ message: {}", message.getPayload().getOrderId());

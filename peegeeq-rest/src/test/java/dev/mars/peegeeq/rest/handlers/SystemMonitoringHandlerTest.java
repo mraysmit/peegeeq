@@ -256,7 +256,7 @@ class SystemMonitoringHandlerTest {
                         } else if ("system_stats".equals(msg.getString("type"))) {
                             metricsReceived.set(true);
                             
-                            // Verify metrics structure — always present (Runtime-sourced)
+                            // Verify metrics structure always present (Runtime-sourced)
                             JsonObject data = msg.getJsonObject("data");
                             assertNotNull(data, "Metrics data should be present");
                             assertNotNull(data.getLong("timestamp"), "timestamp should be present");

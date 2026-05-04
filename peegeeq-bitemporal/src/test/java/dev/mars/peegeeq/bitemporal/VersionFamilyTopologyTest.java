@@ -595,7 +595,7 @@ class VersionFamilyTopologyTest {
                     assertEquals(created.get(0).getEventId(), versions.get(1).getPreviousVersionId(),
                             "B's previousVersionId must be A's eventId");
 
-                    // C (v3) has predecessor B (NOT A — chain model)
+                    // C (v3) has predecessor B (NOT A chain model)
                     assertEquals(created.get(1).getEventId(), versions.get(2).getPreviousVersionId(),
                             "C's previousVersionId must be B's eventId (immediate predecessor, not root)");
 

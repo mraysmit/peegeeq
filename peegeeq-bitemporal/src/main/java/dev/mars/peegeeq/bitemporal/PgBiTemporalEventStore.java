@@ -350,7 +350,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 .map(rowSet -> {
                     List<BiTemporalEvent<T>> results = new ArrayList<>();
 
-                    // executeBatch returns linked RowSets — one per batch entry.
+                    // executeBatch returns linked RowSets one per batch entry.
                     // Each RowSet contains one RETURNING row; .next() advances to the next batch entry.
                     RowSet<Row> currentRowSet = rowSet;
                     for (int i = 0; i < events.size(); i++) {
@@ -391,7 +391,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
     /**
      * Appends a new event in its own transaction.
-     * This method starts a fresh database transaction — it does not join or
+     * This method starts a fresh database transaction it does not join or
      * participate in any externally-started transaction.
      *
      * For genuine transaction participation (where the event rolls back with
@@ -415,7 +415,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
 
     /**
      * Internal implementation for transactional append.
-     * This method starts its own transaction via Pool.withTransaction() — it does
+     * This method starts its own transaction via Pool.withTransaction() it does
      * not participate in any externally-started transaction. For genuine
      * transaction participation, callers must use
      * {@link #appendInTransaction(String, Object, Instant, io.vertx.sqlclient.SqlConnection)}.
@@ -453,7 +453,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             logger.debug("Payload JSON type: {}", payloadJson.getClass().getSimpleName());
             String finalCorrelationId = correlationId != null ? correlationId : eventId;
             // Application-assigned transaction time. The INSERT passes this value
-            // explicitly — the DB does not generate it. The RETURNING clause echoes
+            // explicitly the DB does not generate it. The RETURNING clause echoes
             // back the stored value, confirming acceptance (and catching any trigger
             // modifications).
             OffsetDateTime transactionTime = OffsetDateTime.now();
@@ -563,14 +563,14 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             String eventId = UUID.randomUUID().toString();
             JsonObject payloadJson = toJsonObject(payload);
             JsonObject headersJson = headersToJsonObject(headers);
-            // Application-assigned transaction time — the DB stores this value as-is.
+            // Application-assigned transaction time the DB stores this value as-is.
             OffsetDateTime transactionTime = OffsetDateTime.now();
 
             // Use Pool.withTransaction for proper transaction management - following
             // peegeeq-outbox patterns
             return getOrCreateReactivePool().withTransaction(sqlConnection -> {
                 // Step 1: Resolve the family root by walking ancestors from the supplied event ID.
-                // This also validates that originalEventId exists — if the CTE returns no rows,
+                // This also validates that originalEventId exists if the CTE returns no rows,
                 // the event doesn't exist.
                 // We must resolve the root BEFORE acquiring the advisory lock, because the caller
                 // may pass any event in the lineage (root or child). Locking on the caller-supplied
@@ -816,7 +816,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             }
 
             String finalCorrelationId = correlationId != null ? correlationId : eventId;
-            // Application-assigned transaction time — the DB stores this value as-is.
+            // Application-assigned transaction time the DB stores this value as-is.
             OffsetDateTime transactionTime = OffsetDateTime.now();
 
             logger.debug(
@@ -1351,7 +1351,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         boolean isCorrection = row.getBoolean("is_correction");
         String correctionReason = row.getString("correction_reason");
 
-        // Type-safe payload extraction — use the driver's typed return values
+        // Type-safe payload extraction use the driver's typed return values
         // instead of toString() + manual quote-stripping.
         String payloadJson;
         if (payloadObj instanceof JsonObject jo) {
@@ -1359,7 +1359,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         } else if (payloadObj instanceof JsonArray ja) {
             payloadJson = ja.encode();
         } else if (payloadObj != null) {
-            // Scalar JSONB (string, number, boolean) — driver returns the raw JSONB text
+            // Scalar JSONB (string, number, boolean) driver returns the raw JSONB text
             // or a Java equivalent. Use valueOf() to preserve the driver's representation
             // without adding another layer of JSON encoding.
             payloadJson = String.valueOf(payloadObj);
@@ -1370,7 +1370,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
         // Deserialize payload using native/outbox-compatible wrapper semantics.
         T payload = parsePayloadFromJsonString(payloadJson);
 
-        // Type-safe header extraction — pull the map directly from the driver's
+        // Type-safe header extraction pull the map directly from the driver's
         // JsonObject rather than round-tripping through Jackson with a raw type.
         Map<String, String> headers = new HashMap<>();
         if (headersObj instanceof JsonObject ho) {
@@ -1801,7 +1801,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
     }
 
     /**
-     * Database Worker Verticle — handles database operations received via Event Bus.
+     * Database Worker Verticle handles database operations received via Event Bus.
      * Each deployed instance runs on its own event loop thread.
      */
     private static class DatabaseWorkerVerticle extends VerticleBase {
@@ -1845,7 +1845,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 String requestId = message.body().getString("requestId");
 
                 // Set MDC only for the synchronous setup: logging + processDatabaseOperation().
-                // Do NOT hold MDC open across the async gap — even on a dedicated verticle
+                // Do NOT hold MDC open across the async gap even on a dedicated verticle
                 // thread, async futures yield the event loop between creation and completion,
                 // allowing other handlers to run with contaminated MDC.
                 Future<JsonObject> result;
@@ -1897,10 +1897,10 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
          * Process append operation on this event loop thread
          */
         private Future<JsonObject> processAppendOperation(JsonObject operation) {
-            // Extract operation parameters — use values generated by the caller
+            // Extract operation parameters use values generated by the caller
             String eventId = operation.getString("eventId");
             String eventType = operation.getString("eventType");
-            // Use getValue() — payload may be JsonObject, JsonArray, or a wrapped scalar,
+            // Use getValue() payload may be JsonObject, JsonArray, or a wrapped scalar,
             // matching the types that toJsonObject() can produce and that $5::jsonb accepts.
             Object payload = operation.getValue("payload");
             String validTimeStr = operation.getString("validTime");
@@ -1912,7 +1912,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             String clientKey = operation.getString("clientKey", DEFAULT_EVENT_BUS_CLIENT_KEY);
             JsonObject headers = operation.getJsonObject("headers");
 
-            // Resolve the pool first — fail fast for unknown pools before parsing fields
+            // Resolve the pool first fail fast for unknown pools before parsing fields
             Pool pool = resolvePoolForEventBusOperation(instanceKey, clientKey);
             if (pool == null) {
                 return Future.failedFuture("Database pool not initialized for instance key: " + instanceKey
@@ -2137,7 +2137,7 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             context.runOnContext(v -> {
                 // Set MDC only for the synchronous operation.get() invocation,
                 // then close immediately. Do NOT hold MDC open across the async
-                // lifetime — this event-loop thread multiplexes many tasks, and
+                // lifetime this event-loop thread multiplexes many tasks, and
                 // an open scope would contaminate unrelated operations between
                 // operation.get() returning and the future completing.
                 Future<T> future;

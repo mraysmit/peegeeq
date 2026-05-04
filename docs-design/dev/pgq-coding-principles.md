@@ -381,10 +381,10 @@ class OutboxFactoryTest {
 
 ## **Forbidden Reactive Patterns (Hard Rules)**
 
-These patterns are banned everywhere in PeeGeeQ — production code, tests, and examples.
+These patterns are banned everywhere in PeeGeeQ production code, tests, and examples.
 They appear as "convenient" shorthands but all hide failures or block threads.
 
-### ❌ `.recover()` — Zero Legitimate Uses
+### ❌ `.recover()` Zero Legitimate Uses
 
 `.recover()` has been audited across 117 instances in the codebase. All 117 were wrong.
 The correct replacements are listed in Best Practice 2 above.
@@ -396,7 +396,7 @@ future.recover(e -> { logger.warn(...); return Future.succeededFuture(); }); // 
 future.recover(e -> fallback());                             // use circuit breaker / retry instead
 ```
 
-### ❌ `.onComplete(ar -> { if (ar.succeeded()) ... })` — Use `.onSuccess()`/`.onFailure()`
+### ❌ `.onComplete(ar -> { if (ar.succeeded()) ... })` Use `.onSuccess()`/`.onFailure()`
 
 ```java
 // ❌ BANNED
@@ -414,10 +414,10 @@ future
 ### ❌ Fire-and-Forget Futures
 
 ```java
-// ❌ BANNED — send failure is silently lost
+// ❌ BANNED send failure is silently lost
 producer.send("message");
 
-// ✅ CORRECT — chain or observe
+// ✅ CORRECT chain or observe
 producer.send("message")
     .onFailure(testContext::failNow);
 ```
@@ -431,17 +431,17 @@ LockSupport.parkNanos(200_000_000L);
 future.toCompletionStage().toCompletableFuture().get();
 future.toCompletionStage().toCompletableFuture().join();
 
-// ✅ CORRECT — event-driven delay
+// ✅ CORRECT event-driven delay
 vertx.timer(500).compose(v -> nextStep());
 ```
 
 ### ❌ `setTimer` as a Readiness Guard
 
 ```java
-// ❌ BANNED — timers mask races; they do not guarantee readiness
+// ❌ BANNED timers mask races; they do not guarantee readiness
 vertx.setTimer(100, id -> testContext.completeNow());
 
-// ✅ CORRECT — chain directly off the async operation
+// ✅ CORRECT chain directly off the async operation
 deployVerticle().compose(v -> doWork()).onSuccess(v -> testContext.completeNow());
 ```
 
@@ -452,7 +452,7 @@ deployVerticle().compose(v -> doWork()).onSuccess(v -> testContext.completeNow()
 Connection conn = DriverManager.getConnection(url, user, pass);
 PreparedStatement ps = conn.prepareStatement("SELECT ...");
 
-// ✅ CORRECT — use Vert.x PgClient
+// ✅ CORRECT use Vert.x PgClient
 pool.withConnection(conn -> conn.preparedQuery("SELECT ...").execute(Tuple.of(...)));
 ```
 
@@ -470,12 +470,12 @@ transaction. Writes execute in auto-commit mode only if the driver defaults to i
 failures leave partial state with no rollback.
 
 ```java
-// ❌ WRONG — no transaction; write may not commit; no rollback on failure
+// ❌ WRONG no transaction; write may not commit; no rollback on failure
 return pool.withConnection(conn ->
     conn.preparedQuery("DELETE FROM outbox_messages WHERE id = $1")
         .execute(Tuple.of(id)));
 
-// ✅ CORRECT — commit on success, rollback on failure
+// ✅ CORRECT commit on success, rollback on failure
 return pool.withTransaction(conn ->
     conn.preparedQuery("DELETE FROM outbox_messages WHERE id = $1")
         .execute(Tuple.of(id)));
@@ -490,17 +490,17 @@ acceptable and no transactional guarantee is required.
 
 ### **Principle: "Test Setup Must Be Verified by Tests"**
 
-Test infrastructure code — property writes, pool configuration, container setup — must
+Test infrastructure code property writes, pool configuration, container setup must
 itself have contract tests. A misconfigured test base class silently degrades every
 downstream test in the project without any individual test failing for the right reason.
 
 #### Rule 1: Property keys must exactly match what the loader reads
 
 ```java
-// ❌ WRONG — Duration string form; loader reads millisecond long form
+// ❌ WRONG Duration string form; loader reads millisecond long form
 System.setProperty("peegeeq.database.pool.idle-timeout", "PT10S");
 
-// ✅ CORRECT — matches the key name in PeeGeeQConfiguration.getPoolConfig()
+// ✅ CORRECT matches the key name in PeeGeeQConfiguration.getPoolConfig()
 System.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
 ```
 
@@ -511,17 +511,17 @@ and does NOT deterministically release TCP sockets. Integration tests need deter
 teardown.
 
 ```java
-// ❌ WRONG — inherits shared=true; Pool.close() is non-deterministic
+// ❌ WRONG inherits shared=true; Pool.close() is non-deterministic
 // (property not set → production default applies)
 
-// ✅ CORRECT — always set explicitly in test setup
+// ✅ CORRECT always set explicitly in test setup
 System.setProperty("peegeeq.database.pool.shared", "false");
 ```
 
 #### Rule 3: Secondary `PgConnectionManager` fields must be closed in `@AfterEach`
 
 ```java
-// ❌ WRONG — leaked pool; base class only closes its own manager
+// ❌ WRONG leaked pool; base class only closes its own manager
 @BeforeEach void setUp() {
     connectionManager = new PgConnectionManager(manager.getVertx(), null);
     connectionManager.getOrCreateReactivePool("peegeeq-main", cfg, poolCfg);
@@ -816,14 +816,14 @@ Also , here’s a **no-nonsense migration checklist** for moving from **Vert.x 4
 # 9. Logging
 
 *  SLF4J remains the default logging facade.
-* ️ If you had hard Netty logging bindings in 4.x, remove them — Vert.x 5 aligns Netty’s logger with SLF4J automatically.
+* ️ If you had hard Netty logging bindings in 4.x, remove them Vert.x 5 aligns Netty’s logger with SLF4J automatically.
 
 ---
 
 #  10. Breaking Changes to Watch
 
 * No **RxJava 2** anymore.
-* All async APIs now **return `Future<T>`** — callbacks still exist in some places for compatibility, but don’t use them.
+* All async APIs now **return `Future<T>`** callbacks still exist in some places for compatibility, but don’t use them.
 * Event bus codec registration signatures changed slightly (`MessageCodec` improvements).
 * Some SPI packages (cluster manager, metrics) were refactored → check custom extensions.
 
@@ -835,7 +835,7 @@ Also , here’s a **no-nonsense migration checklist** for moving from **Vert.x 4
 2. **Search your codebase for `Handler<AsyncResult<...>>`** → refactor to `Future<T>`.
 3. **Replace RxJava 2** if you used it → migrate to RxJava 3 or Mutiny.
 4. **Check custom integrations** (cluster manager, metrics, Netty handlers) → adjust to new SPI signatures.
-5. Run your test suite — most code compiles fine, but async composition is where you’ll hit surprises.
+5. Run your test suite most code compiles fine, but async composition is where you’ll hit surprises.
 
 ---
 
@@ -861,7 +861,7 @@ PostgreSQL Event-Driven Queue System
 
 ## Overview
 
-I have now fully upgraded all PeeGeeQ modules to Vert.x 5.x and implemented the composable `Future<T>` patterns. Vert.x 5.x's native Future API offers elegant composable patterns (`.compose()`, `.onSuccess()`, `.onFailure()`, `.map()`, `.transform()`, `.eventually()`) that prioritize functional composition and developer experience. This migration transforms the entire codebase from callback-style programming to modern, composable asynchronous patterns using pure Vert.x 5.x Future APIs. **Note: `.recover()` is banned — see the Forbidden Reactive Patterns section.**
+I have now fully upgraded all PeeGeeQ modules to Vert.x 5.x and implemented the composable `Future<T>` patterns. Vert.x 5.x's native Future API offers elegant composable patterns (`.compose()`, `.onSuccess()`, `.onFailure()`, `.map()`, `.transform()`, `.eventually()`) that prioritize functional composition and developer experience. This migration transforms the entire codebase from callback-style programming to modern, composable asynchronous patterns using pure Vert.x 5.x Future APIs. **Note: `.recover()` is banned see the Forbidden Reactive Patterns section.**
 
 This guide demonstrates the modern Vert.x 5.x composable Future patterns that have been implemented throughout the PeeGeeQ project. These patterns provide significantly better readability, error handling, and maintainability compared to the traditional callback-style programming we've moved away from.
 
@@ -922,7 +922,7 @@ vertx.createHttpServer()
         return registerSelfWithConsul()
             // CORRECT: .transform() converts the AsyncResult regardless of success/failure.
             // Use this when the operation is genuinely optional (warn on failure, continue).
-            // NEVER use .recover(e -> Future.succeededFuture()) — .recover() is banned.
+            // NEVER use .recover(e -> Future.succeededFuture()) .recover() is banned.
             .transform(ar -> {
                 if (ar.failed()) {
                     logger.warn("Failed to register with Consul (optional, continuing): {}",
@@ -959,7 +959,7 @@ return client.post(REST_PORT, "localhost", "/api/v1/database-setup/create")
         }
     })
     // If database setup is optional, use .transform() to warn and continue.
-    // If it is required, let the failure propagate — do not use .recover().
+    // If it is required, let the failure propagate do not use .recover().
     .transform(ar -> {
         if (ar.failed()) {
             logger.warn("⚠️ Database setup failed, using fallback configuration: {}", ar.cause().getMessage());
@@ -988,8 +988,8 @@ return client.get(REST_PORT, "localhost", "/health")
         }
         return Future.<Void>succeededFuture();
     })
-    // CORRECT: .transform() for optional terminal step — warn and continue.
-    // NEVER use .recover(e -> Future.succeededFuture()) — .recover() is banned.
+    // CORRECT: .transform() for optional terminal step warn and continue.
+    // NEVER use .recover(e -> Future.succeededFuture()) .recover() is banned.
     .transform(ar -> {
         if (ar.failed()) {
             logger.warn("⚠️ Some service interactions failed: {}", ar.cause().getMessage());
@@ -1047,7 +1047,7 @@ queue.close()
 ### 2. **Improved Error Handling**
 - Centralized error handling with `.onFailure()`
 - Cleanup always runs with `.eventually()` regardless of prior failure
-- Error propagation through the chain (`.recover()` is banned — see Forbidden Reactive Patterns)
+- Error propagation through the chain (`.recover()` is banned see Forbidden Reactive Patterns)
 
 ### 3. **Enhanced Maintainability**
 - Easier to add new steps in the sequence
@@ -1088,35 +1088,35 @@ operation1()
     .onFailure(throwable -> handleError(throwable));
 ```
 
-### 2. **`.recover()` Is Banned — Use `.transform()` or `.eventually()`**
+### 2. **`.recover()` Is Banned Use `.transform()` or `.eventually()`**
 
 `.recover()` has zero legitimate uses in this codebase. All 117 instances audited were wrong.
-See the [`.recover()` — Full Analysis and Project-Wide Audit](#recover----full-analysis-rationale-and-project-wide-audit) section at the end of this document for the full audit.
+See the [`.recover()` Full Analysis and Project-Wide Audit](#recover----full-analysis-rationale-and-project-wide-audit) section at the end of this document for the full audit.
 
 | Intent | Correct pattern |
 |---|---|
 | Log error, do not affect chain outcome | `.onFailure(e -> logger.warn(...))` |
 | Cleanup that must run regardless of prior failure | `.eventually(() -> resource.close())` |
-| Optional step — warn on failure, continue chain | `.transform(ar -> { if (ar.failed()) log; return Future.succeededFuture(); })` |
+| Optional step warn on failure, continue chain | `.transform(ar -> { if (ar.failed()) log; return Future.succeededFuture(); })` |
 | Retry / circuit-break on failure | Retry middleware or Resilience4j `CircuitBreaker` via `HealthCheckManager` |
 
 ```java
-// ❌ BANNED — silences errors in shutdown cleanup
+// ❌ BANNED silences errors in shutdown cleanup
 resource.doWork()
     .recover(e -> {
         logger.warn("failed: {}", e.getMessage());
         return Future.succeededFuture();   // ← ERASURE-IN-SHUTDOWN
     });
 
-// ❌ BANNED — swallows error silently
+// ❌ BANNED swallows error silently
 pool.close()
     .recover(e -> Future.succeededFuture());
 
-// ✅ CORRECT — cleanup that must always run
+// ✅ CORRECT cleanup that must always run
 resource.doWork()
     .eventually(() -> resource.close());   // runs on success AND failure
 
-// ✅ CORRECT — log and continue (optional step)
+// ✅ CORRECT log and continue (optional step)
 optionalOperation()
     .transform(ar -> {
         if (ar.failed()) {
@@ -1125,7 +1125,7 @@ optionalOperation()
         return Future.succeededFuture();
     });
 
-// ✅ CORRECT — observe error, propagate unchanged
+// ✅ CORRECT observe error, propagate unchanged
 resource.doWork()
     .onFailure(e -> logger.warn("doWork failed: {}", e.getMessage()));
 ```
@@ -1140,16 +1140,16 @@ return Future.<Void>failedFuture("Error message");
 ### 4. **Use `.eventually()` for Resource Cleanup**
 
 `.eventually()` runs the cleanup step regardless of whether the chain succeeded or failed.
-`.compose()` skips steps after a failure — do NOT use it for teardown.
+`.compose()` skips steps after a failure do NOT use it for teardown.
 
 ```java
-// ✅ CORRECT — vertx.close() runs even if queue.close() failed
+// ✅ CORRECT vertx.close() runs even if queue.close() failed
 queue.close()
     .eventually(() -> vertx.close())
     .onSuccess(v -> latch.countDown())
     .onFailure(throwable -> latch.countDown());
 
-// ❌ WRONG — vertx.close() is skipped when queue.close() fails
+// ❌ WRONG vertx.close() is skipped when queue.close() fails
 queue.close()
     .compose(v -> vertx.close())
     .onSuccess(v -> latch.countDown())
@@ -1210,14 +1210,14 @@ we are coding on a windows 11 machine
 
 ---
 
-## `.recover()` — Full Analysis, Rationale, and Project-Wide Audit
+## `.recover()` Full Analysis, Rationale, and Project-Wide Audit
 
 ### The anti-pattern: `.recover()` as silent error erasure
 
 In a `Future` chain, `.recover()` is the reactive equivalent of a `catch` block. When a
 `.recover()` handler returns `Future.succeededFuture()`, it converts a failed Future into
 a succeeded one. Every caller upstream now sees success. The error is gone from the chain
-— it has been erased.
+it has been erased.
 
 The dangerous pattern looks like this:
 
@@ -1237,7 +1237,7 @@ try {
     doSomething();
 } catch (Exception e) {
     logger.error("Something failed: {}", e.getMessage());
-    // swallowed — execution continues as if nothing happened
+    // swallowed execution continues as if nothing happened
 }
 doNextThing();
 ```
@@ -1252,11 +1252,11 @@ This pattern is especially destructive in reactive code because:
 - **Errors are values, not stack-unwinding exceptions.** In synchronous code, a swallowed
   exception at least stops the current method from doing further damage (unless you catch
   and continue). In a `Future` chain, `.recover()` to success means the chain keeps
-  composing — the next `.compose()` runs, receives a result that looks valid, and acts
+  composing the next `.compose()` runs, receives a result that looks valid, and acts
   on it. There is no implicit "stop executing" behavior.
 
 - **It defeats the entire point of `Future` error propagation.** A `Future<T>` carries
-  either a result or an error. `.compose()` already short-circuits on failure — it skips
+  either a result or an error. `.compose()` already short-circuits on failure it skips
   downstream stages and propagates the error to whoever is observing the final Future.
   This is correct behavior, and it is free. `.recover()` to success actively works against
   this by forcing the chain to continue through stages that should never have run.
@@ -1278,7 +1278,7 @@ The Vert.x API Javadoc defines `recover()` as:
 > **Handles a failure of this Future by returning the result of another Future.**
 > If the mapper fails, then the returned future will be failed with this failure.
 >
-> — `Future.recover(Function<Throwable, Future<T>> mapper)`
+> `Future.recover(Function<Throwable, Future<T>> mapper)`
 
 The key phrase is "**returning the result of another Future**." The mapper function
 receives the exception and is expected to return a *new Future that produces a real
@@ -1298,7 +1298,7 @@ future.compose(Future::succeededFuture, failureMapper)
 ```
 
 In both cases, the mapper is expected to produce a Future that represents a real
-alternative outcome — either a successful result or a propagated/re-thrown failure.
+alternative outcome either a successful result or a propagated/re-thrown failure.
 
 The Vert.x composition model works as follows:
 - `.compose()` short-circuits on failure: when a Future fails, downstream `.compose()`
@@ -1308,15 +1308,15 @@ The Vert.x composition model works as follows:
   `Future.succeededFuture()`, the failure is erased and downstream stages run as if
   nothing went wrong.
 - `.eventually()` runs a side-effect on completion (success or failure) without
-  altering the outcome — it explicitly documents that "the outcome of the future
+  altering the outcome it explicitly documents that "the outcome of the future
   returned by the mapper will not influence the nature of the returned future."
 
 ### There are zero legitimate uses of `.recover()` in this project
 
 The Vert.x API defines two narrow use cases for `recover()`:
 
-1. **Fallback to a real alternative** — try a secondary data source, use a cached value.
-2. **Selective recovery** — inspect the exception type, recover from expected failures,
+1. **Fallback to a real alternative** try a secondary data source, use a cached value.
+2. **Selective recovery** inspect the exception type, recover from expected failures,
    re-throw everything else.
 
 Neither applies to any `.recover()` call in this codebase. Every instance is either
@@ -1326,7 +1326,7 @@ architectural layer.
 #### Why the "health check" pattern is wrong
 
 The previous version of this analysis classified 12 health check instances as
-legitimate — converting a connection error into `HealthStatus.unhealthy("...")` or
+legitimate converting a connection error into `HealthStatus.unhealthy("...")` or
 `Future.succeededFuture(false)` via `recover()`.
 
 This is wrong. The health check should let the Future fail. The health endpoint
@@ -1342,7 +1342,7 @@ idempotency key conflicts, database creation conflicts, and `CREATE IF NOT EXIST
 logic.
 
 This is wrong. Idempotency should be handled in SQL (`INSERT ... ON CONFLICT DO NOTHING`,
-`CREATE DATABASE IF NOT EXISTS`) — not by throwing an exception and then catching it
+`CREATE DATABASE IF NOT EXISTS`) not by throwing an exception and then catching it
 with `recover()` to convert it back to success. The exception-and-recover path is a
 round-trip through failure for something that is not a failure. It is a control flow
 abuse.
@@ -1377,13 +1377,13 @@ correct use. It is not. The correct API for cleanup-regardless-of-outcome is
 > future returned by the mapper will **not influence the nature of the
 > returned future.**
 >
-> — `Future.eventually(Function<Void, Future<T>> mapper)`
+> `Future.eventually(Function<Void, Future<T>> mapper)`
 
 `.eventually()` runs a side-effect (close a pool, cancel a timer, leave a group)
 without altering whether the overall Future succeeds or fails. This is exactly
 what shutdown cleanup needs. Using `.recover()` for shutdown cleanup forces the
 developer to explicitly return `Future.succeededFuture()` to prevent errors from
-propagating — and that is error erasure, even if the context is "just cleanup."
+propagating and that is error erasure, even if the context is "just cleanup."
 
 #### What about log-and-re-throw?
 
@@ -1400,7 +1400,7 @@ This is not recovery either. The mapper always returns a failed Future. Nothing 
 recovered. The correct approach is:
 
 - **If you just want to log:** use `.onFailure(error -> logger.error(...))`. This
-  is a terminal handler — it observes the failure without altering the chain.
+  is a terminal handler it observes the failure without altering the chain.
 - **If you need to wrap the exception type:** use `.transform()` or `.recover()`
   with the understanding that you are selectively converting one failure type to
   another. But if every error path returns `failedFuture()`, you are paying the
@@ -1448,7 +1448,7 @@ There are zero legitimate uses of `.recover()` in this codebase.
 
 ---
 
-### Project-wide `.recover()` audit — systematic module-by-module review
+### Project-wide `.recover()` audit systematic module-by-module review
 
 A full audit of every `.recover()` call across the entire PeeGeeQ codebase. Every
 module is listed. Within each module, every class containing `.recover()` is listed.
@@ -1476,7 +1476,7 @@ and description.
 | **SELECTIVE-RECOVERY** | 7 |
 | **PROPER-FALLBACK** | 15 |
 | **TYPED-ERASURE** | 26 |
-| **Total** | **117 — all wrong** |
+| **Total** | **117 all wrong** |
 
 ---
 
@@ -1498,14 +1498,14 @@ This module defines interfaces and data types only. No reactive implementation c
 
 | # | Line | Classification | Description | Error propagated? |
 |---|---|---|---|---|
-| 1 | 1286 | **ERASURE-IN-SHUTDOWN** | `close()`: notification handler stop → logs warning, captures first error in `AtomicReference<Throwable>`, returns `Future.succeededFuture()`. Error is captured and re-raised at end of close chain. | Partially — captured and re-raised |
-| 2 | 1298 | **ERASURE-IN-SHUTDOWN** | `close()`: reactive pool close → same `firstError` capture pattern. | Partially — captured and re-raised |
-| 3 | 1310 | **ERASURE-IN-SHUTDOWN** | `close()`: pipelined client close → same `firstError` capture pattern. | Partially — captured and re-raised |
+| 1 | 1286 | **ERASURE-IN-SHUTDOWN** | `close()`: notification handler stop → logs warning, captures first error in `AtomicReference<Throwable>`, returns `Future.succeededFuture()`. Error is captured and re-raised at end of close chain. | Partially captured and re-raised |
+| 2 | 1298 | **ERASURE-IN-SHUTDOWN** | `close()`: reactive pool close → same `firstError` capture pattern. | Partially captured and re-raised |
+| 3 | 1310 | **ERASURE-IN-SHUTDOWN** | `close()`: pipelined client close → same `firstError` capture pattern. | Partially captured and re-raised |
 | 4 | 1816 | **RE-WRAPS-FAILURE** | Event bus operation fails → logs error, re-throws via `Future.failedFuture(error)`. | Yes |
-| 5 | 2122 | **ERASURE-IN-SHUTDOWN** | `clearInstancePools()`: reactive pool close → captures first error. | Partially — captured and re-raised |
-| 6 | 2133 | **ERASURE-IN-SHUTDOWN** | `clearInstancePools()`: pipelined client close → captures first error. | Partially — captured and re-raised |
+| 5 | 2122 | **ERASURE-IN-SHUTDOWN** | `clearInstancePools()`: reactive pool close → captures first error. | Partially captured and re-raised |
+| 6 | 2133 | **ERASURE-IN-SHUTDOWN** | `clearInstancePools()`: pipelined client close → captures first error. | Partially captured and re-raised |
 
-**Test code: 27 instances across 19 test classes.** Most are teardown `manager.closeReactive().recover(err -> Future.succeededFuture())` in `@AfterEach` methods — the same ERASURE-IN-SHUTDOWN pattern replicated in test cleanup.
+**Test code: 27 instances across 19 test classes.** Most are teardown `manager.closeReactive().recover(err -> Future.succeededFuture())` in `@AfterEach` methods the same ERASURE-IN-SHUTDOWN pattern replicated in test cleanup.
 
 ---
 
@@ -1526,41 +1526,41 @@ This module defines interfaces and data types only. No reactive implementation c
 | # | Line | Classification | Description | Error propagated? |
 |---|---|---|---|---|
 | 7 | 278 | **RE-WRAPS-FAILURE** | `start()` fails → logs error, stops background tasks and health checks (with nested ERASURE), publishes "manager.failed" event, then re-throws via `Future.failedFuture(new RuntimeException(...))`. | Yes (eventually) |
-| 8 | 285 | **ERASURE-IN-SHUTDOWN** | Inside start() failure handler: `healthCheckManager.stop().recover(e -> Future.succeededFuture())` — ignores errors during cleanup-after-startup-failure. | No — erased |
+| 8 | 285 | **ERASURE-IN-SHUTDOWN** | Inside start() failure handler: `healthCheckManager.stop().recover(e -> Future.succeededFuture())` ignores errors during cleanup-after-startup-failure. | No erased |
 | 9 | 325 | **RE-WRAPS-FAILURE** | `stop()` fails → logs error, marks as stopped anyway, returns `Future.failedFuture(throwable)`. | Yes |
-| 10 | 407 | **ERASURE-IN-SHUTDOWN** | `closeReactive()`: `awaitStart.recover(startError -> Future.succeededFuture())` — absorbs start failure so cleanup chain proceeds. | No — erased |
-| 11 | 410 | **ERASURE-IN-SHUTDOWN** | `stop()` fails during close → warns, returns `Future.succeededFuture()`. | No — erased |
-| 12 | 423 | **ERASURE-IN-SHUTDOWN** | Each close hook failure → warns, returns `Future.succeededFuture()` to continue chain. | No — erased |
-| 13 | 437 | **ERASURE-IN-SHUTDOWN** | Worker executor close failure → warns, returns `Future.succeededFuture()`. | No — erased |
-| 14 | 449 | **ERASURE-IN-SHUTDOWN** | Client factory close failure → warns, returns `Future.succeededFuture()`. | No — erased |
+| 10 | 407 | **ERASURE-IN-SHUTDOWN** | `closeReactive()`: `awaitStart.recover(startError -> Future.succeededFuture())` absorbs start failure so cleanup chain proceeds. | No erased |
+| 11 | 410 | **ERASURE-IN-SHUTDOWN** | `stop()` fails during close → warns, returns `Future.succeededFuture()`. | No erased |
+| 12 | 423 | **ERASURE-IN-SHUTDOWN** | Each close hook failure → warns, returns `Future.succeededFuture()` to continue chain. | No erased |
+| 13 | 437 | **ERASURE-IN-SHUTDOWN** | Worker executor close failure → warns, returns `Future.succeededFuture()`. | No erased |
+| 14 | 449 | **ERASURE-IN-SHUTDOWN** | Client factory close failure → warns, returns `Future.succeededFuture()`. | No erased |
 | 15 | 474 | **SELECTIVE-RECOVERY** | Vert.x close: if `RejectedExecutionException`, treats as expected and succeeds; other errors → warn + succeed. `RejectedExecutionException` branch should use `.eventually()` since this is shutdown. | Partially |
 | 16 | 490 | **SELECTIVE-RECOVERY** | Final catch-all: `RejectedExecutionException` → succeed; other errors → re-throw via `Future.failedFuture(e)`. | Yes (for non-RejectedExecution) |
 | 17 | 738 | **RE-WRAPS-FAILURE** | `validateDatabaseConnectivity()` fails → logs, re-throws as `Future.failedFuture(new RuntimeException("Database startup validation failed", throwable))`. | Yes |
-| 18 | 935 | **ERASURE-IN-SHUTDOWN** | `deadConsumerDetectionJob.stop().recover(e -> Future.succeededFuture())` inside `stopBackgroundTasks()`. | No — erased |
+| 18 | 935 | **ERASURE-IN-SHUTDOWN** | `deadConsumerDetectionJob.stop().recover(e -> Future.succeededFuture())` inside `stopBackgroundTasks()`. | No erased |
 
 ##### PeeGeeQMetrics.java
 
 | # | Line | Classification | Description | Error propagated? |
 |---|---|---|---|---|
-| 19 | 672 | **ERASURE** | `executeReactiveCountQuery()` fails → logs warning, returns `Future.succeededFuture(0.0)`. Metric query failure silently returns zero. | No — erased |
-| 20 | 705 | **ERASURE** | `persistMetrics()` fails → logs error (or debug for connection errors), returns `Future.succeededFuture()`. Metric persistence failure silently swallowed. | No — erased |
-| 21 | 745 | **ERASURE** | `isHealthy()` fails → logs warning, returns `Future.succeededFuture(false)`. Health check failure returns false instead of propagating. | No — erased (but returns meaningful "unhealthy" signal) |
+| 19 | 672 | **ERASURE** | `executeReactiveCountQuery()` fails → logs warning, returns `Future.succeededFuture(0.0)`. Metric query failure silently returns zero. | No erased |
+| 20 | 705 | **ERASURE** | `persistMetrics()` fails → logs error (or debug for connection errors), returns `Future.succeededFuture()`. Metric persistence failure silently swallowed. | No erased |
+| 21 | 745 | **ERASURE** | `isHealthy()` fails → logs warning, returns `Future.succeededFuture(false)`. Health check failure returns false instead of propagating. | No erased (but returns meaningful "unhealthy" signal) |
 
 ##### HealthCheckManager.java
 
 | # | Line | Classification | Description | Error propagated? |
 |---|---|---|---|---|
-| 22 | 235 | **ERASURE-IN-SHUTDOWN** | `stop()`: awaits in-flight check cycle, `.recover(e -> Future.succeededFuture())`. | No — erased (shutdown) |
+| 22 | 235 | **ERASURE-IN-SHUTDOWN** | `stop()`: awaits in-flight check cycle, `.recover(e -> Future.succeededFuture())`. | No erased (shutdown) |
 | 23 | 252 | **RE-WRAPS-FAILURE** | `validateConnectionPool()` fails → logs error, re-throws as `Future.failedFuture(new RuntimeException(...))`. | Yes |
-| 24 | 352 | **ERASURE-IN-SHUTDOWN** | `inFlightCheckCycle.recover(e -> Future.succeededFuture())` — tracks in-flight cycle, erases errors for stop() await. | No — erased |
-| 25 | 640 | **PROPER-FALLBACK** | `DatabaseHealthCheck.checkReactive()` outer recover → returns `HealthStatus.unhealthy(...)`. Should use `.transform()` or let caller handle failure. | No — wrong layer |
-| 26 | 655 | **PROPER-FALLBACK** | `DatabaseHealthCheck.checkDatabase()` inner recover → returns unhealthy status with error message. Should use `.transform()`. | No — wrong layer |
-| 27 | 666 | **PROPER-FALLBACK** | `OutboxQueueHealthCheck.checkReactive()` outer recover. Should use `.transform()`. | No — wrong layer |
-| 28 | 689 | **PROPER-FALLBACK** | `OutboxQueueHealthCheck.checkOutboxQueue()` inner recover — detects missing tables as FATAL. Should use `.transform()`. | No — wrong layer |
-| 29 | 705 | **PROPER-FALLBACK** | `NativeQueueHealthCheck.checkReactive()` outer recover. Should use `.transform()`. | No — wrong layer |
-| 30 | 724 | **PROPER-FALLBACK** | `NativeQueueHealthCheck.checkNativeQueue()` inner recover — detects missing tables as FATAL. Should use `.transform()`. | No — wrong layer |
-| 31 | 740 | **PROPER-FALLBACK** | `DeadLetterQueueHealthCheck.checkReactive()` outer recover. Should use `.transform()`. | No — wrong layer |
-| 32 | 764 | **PROPER-FALLBACK** | `DeadLetterQueueHealthCheck.checkDeadLetterQueue()` inner recover — detects missing tables as FATAL. Should use `.transform()`. | No — wrong layer |
+| 24 | 352 | **ERASURE-IN-SHUTDOWN** | `inFlightCheckCycle.recover(e -> Future.succeededFuture())` tracks in-flight cycle, erases errors for stop() await. | No erased |
+| 25 | 640 | **PROPER-FALLBACK** | `DatabaseHealthCheck.checkReactive()` outer recover → returns `HealthStatus.unhealthy(...)`. Should use `.transform()` or let caller handle failure. | No wrong layer |
+| 26 | 655 | **PROPER-FALLBACK** | `DatabaseHealthCheck.checkDatabase()` inner recover → returns unhealthy status with error message. Should use `.transform()`. | No wrong layer |
+| 27 | 666 | **PROPER-FALLBACK** | `OutboxQueueHealthCheck.checkReactive()` outer recover. Should use `.transform()`. | No wrong layer |
+| 28 | 689 | **PROPER-FALLBACK** | `OutboxQueueHealthCheck.checkOutboxQueue()` inner recover detects missing tables as FATAL. Should use `.transform()`. | No wrong layer |
+| 29 | 705 | **PROPER-FALLBACK** | `NativeQueueHealthCheck.checkReactive()` outer recover. Should use `.transform()`. | No wrong layer |
+| 30 | 724 | **PROPER-FALLBACK** | `NativeQueueHealthCheck.checkNativeQueue()` inner recover detects missing tables as FATAL. Should use `.transform()`. | No wrong layer |
+| 31 | 740 | **PROPER-FALLBACK** | `DeadLetterQueueHealthCheck.checkReactive()` outer recover. Should use `.transform()`. | No wrong layer |
+| 32 | 764 | **PROPER-FALLBACK** | `DeadLetterQueueHealthCheck.checkDeadLetterQueue()` inner recover detects missing tables as FATAL. Should use `.transform()`. | No wrong layer |
 
 ##### DeadLetterQueueManager.java
 
@@ -1579,33 +1579,33 @@ This module defines interfaces and data types only. No reactive implementation c
 
 | # | Line | Classification | Description | Error propagated? |
 |---|---|---|---|---|
-| 41 | 368 | **PROPER-FALLBACK** | `checkHealth()` fails → returns `Future.succeededFuture(false)`. Should use `.transform()` or let caller handle failure. | No — wrong layer |
-| 42 | 477 | **ERASURE-IN-SHUTDOWN** | `close()` all pools — if some fail, logs error and returns `Future.succeededFuture()`. Close never propagates failure. | No — erased |
+| 41 | 368 | **PROPER-FALLBACK** | `checkHealth()` fails → returns `Future.succeededFuture(false)`. Should use `.transform()` or let caller handle failure. | No wrong layer |
+| 42 | 477 | **ERASURE-IN-SHUTDOWN** | `close()` all pools if some fail, logs error and returns `Future.succeededFuture()`. Close never propagates failure. | No erased |
 
 ##### PgConnectionProvider.java
 
 | # | Line | Classification | Description | Error propagated? |
 |---|---|---|---|---|
-| 43 | 152 | **PROPER-FALLBACK** | `isHealthy()` fails → returns `Future.succeededFuture(false)`. Should use `.transform()`. | No — wrong layer |
+| 43 | 152 | **PROPER-FALLBACK** | `isHealthy()` fails → returns `Future.succeededFuture(false)`. Should use `.transform()`. | No wrong layer |
 
 ##### StuckMessageRecoveryManager.java
 
 | # | Line | Classification | Description | Error propagated? |
 |---|---|---|---|---|
-| 44 | 104 | **ERASURE** | `recoverStuckMessages()` fails → logs error, returns `Future.succeededFuture(0)`. Recovery failure silently swallowed; callers think zero messages were recovered. | No — erased |
-| 45 | 132 | **ERASURE** | `countStuckMessages()` fails → logs error, returns `Future.succeededFuture(0)`. | No — erased |
-| 46 | 164 | **ERASURE** | `resetStuckMessages()` fails → logs error, returns `Future.succeededFuture(0)`. | No — erased |
-| 47 | 202 | **ERASURE** | `logRecoveredMessages()` fails → logs warning, returns `Future.succeededFuture()`. Benign: this is just logging, not business logic. | No — erased (low risk) |
-| 48 | 221 | **ERASURE** | `getRecoveryStats()` fails → logs warning, returns `Future.succeededFuture(new RecoveryStats(0, 0, true))`. | No — erased |
-| 49 | 241 | **ERASURE** | `countTotalProcessingMessages()` fails → logs error, returns `Future.succeededFuture(0)`. | No — erased |
+| 44 | 104 | **ERASURE** | `recoverStuckMessages()` fails → logs error, returns `Future.succeededFuture(0)`. Recovery failure silently swallowed; callers think zero messages were recovered. | No erased |
+| 45 | 132 | **ERASURE** | `countStuckMessages()` fails → logs error, returns `Future.succeededFuture(0)`. | No erased |
+| 46 | 164 | **ERASURE** | `resetStuckMessages()` fails → logs error, returns `Future.succeededFuture(0)`. | No erased |
+| 47 | 202 | **ERASURE** | `logRecoveredMessages()` fails → logs warning, returns `Future.succeededFuture()`. Benign: this is just logging, not business logic. | No erased (low risk) |
+| 48 | 221 | **ERASURE** | `getRecoveryStats()` fails → logs warning, returns `Future.succeededFuture(new RecoveryStats(0, 0, true))`. | No erased |
+| 49 | 241 | **ERASURE** | `countTotalProcessingMessages()` fails → logs error, returns `Future.succeededFuture(0)`. | No erased |
 
 ##### SubscriptionManager.java
 
 | # | Line | Classification | Description | Error propagated? |
 |---|---|---|---|---|
-| 50 | 189 | **ERASURE** | Auto-backfill after subscribe with FROM_BEGINNING fails → logs warning, returns `Future.succeededFuture()`. Subscription was created but backfill silently failed. | No — erased |
-| 51 | 411 | **ERASURE** | Cancel cleanup after subscription cancellation fails → logs warning, returns `Future.succeededFuture()`. Cancel succeeded but cleanup was lost. | No — erased |
-| 52 | 587 | **ERASURE** | Resurrection re-backfill fails → logs warning, returns `Future.succeededFuture()`. Heartbeat succeeded but re-backfill silently failed. | No — erased |
+| 50 | 189 | **ERASURE** | Auto-backfill after subscribe with FROM_BEGINNING fails → logs warning, returns `Future.succeededFuture()`. Subscription was created but backfill silently failed. | No erased |
+| 51 | 411 | **ERASURE** | Cancel cleanup after subscription cancellation fails → logs warning, returns `Future.succeededFuture()`. Cancel succeeded but cleanup was lost. | No erased |
+| 52 | 587 | **ERASURE** | Resurrection re-backfill fails → logs warning, returns `Future.succeededFuture()`. Heartbeat succeeded but re-backfill silently failed. | No erased |
 
 ##### SqlTemplateProcessor.java
 
@@ -1619,10 +1619,10 @@ This module defines interfaces and data types only. No reactive implementation c
 |---|---|---|---|---|
 | 54 | 195 | **RE-WRAPS-FAILURE** | Database creation step fails → logs error, re-throws as `Future.failedFuture(new RuntimeException("Database creation failed", ex))`. | Yes |
 | 55 | 252 | **SELECTIVE-RECOVERY** | `createCompleteSetup()` outer recover → checks if conflict error → wraps as `DatabaseCreationConflictException`; otherwise cleans up and re-throws. Should use SQL-level `IF NOT EXISTS` / `ON CONFLICT`. | Partially |
-| 56 | 266 | **ERASURE-IN-SHUTDOWN** | Cleanup after setup failure → logs error, returns `Future.succeededFuture()`. Cleanup failure during error recovery is swallowed. | No — erased |
-| 57 | 566 | **ERASURE-IN-SHUTDOWN** | `destroySetup()` → `manager.closeReactive().recover(error -> Future.succeededFuture())` — manager close failure during teardown is swallowed. | No — erased |
+| 56 | 266 | **ERASURE-IN-SHUTDOWN** | Cleanup after setup failure → logs error, returns `Future.succeededFuture()`. Cleanup failure during error recovery is swallowed. | No erased |
+| 57 | 566 | **ERASURE-IN-SHUTDOWN** | `destroySetup()` → `manager.closeReactive().recover(error -> Future.succeededFuture())` manager close failure during teardown is swallowed. | No erased |
 | 58 | 774 | **RE-WRAPS-FAILURE** | `addEventStore()` fails → re-throws as `Future.failedFuture(new RuntimeException(...))`. | Yes |
-| 59 | 1111 | **ERASURE-IN-SHUTDOWN** | `close()` → each setup destroy failure → warn, returns `Future.succeededFuture()`. | No — erased |
+| 59 | 1111 | **ERASURE-IN-SHUTDOWN** | `close()` → each setup destroy failure → warn, returns `Future.succeededFuture()`. | No erased |
 
 ##### DatabaseTemplateManager.java
 
@@ -1634,21 +1634,21 @@ This module defines interfaces and data types only. No reactive implementation c
 
 | # | Line | Classification | Description | Error propagated? |
 |---|---|---|---|---|
-| 61 | 217 | **TYPED-ERASURE** | `cleanupAllDeadGroups()` — individual group cleanup fails → logs error, adds zero-result to list, continues batch. Caller sees fabricated zero-result per failed group. | No — fabricated |
+| 61 | 217 | **TYPED-ERASURE** | `cleanupAllDeadGroups()` individual group cleanup fails → logs error, adds zero-result to list, continues batch. Caller sees fabricated zero-result per failed group. | No fabricated |
 
 ##### DeadConsumerDetectionJob.java
 
 | # | Line | Classification | Description | Error propagated? |
 |---|---|---|---|---|
-| 62 | 199 | **ERASURE-IN-SHUTDOWN** | `stop()` → awaits in-flight detection `.recover(e -> Future.succeededFuture())`. | No — erased (shutdown) |
-| 63 | 363 | **ERASURE-IN-SHUTDOWN** | `inFlightDetection` tracking: `.recover(e -> Future.succeededFuture())` for fire-and-forget reference. | No — erased |
+| 62 | 199 | **ERASURE-IN-SHUTDOWN** | `stop()` → awaits in-flight detection `.recover(e -> Future.succeededFuture())`. | No erased (shutdown) |
+| 63 | 363 | **ERASURE-IN-SHUTDOWN** | `inFlightDetection` tracking: `.recover(e -> Future.succeededFuture())` for fire-and-forget reference. | No erased |
 
 ##### MultiConfigurationManager.java
 
 | # | Line | Classification | Description | Error propagated? |
 |---|---|---|---|---|
 | 64 | 172 | **RE-WRAPS-FAILURE** | `start()` fails → sets state to STOPPED, logs error, re-throws via `Future.failedFuture(e)`. | Yes |
-| 65 | 333 | **ERASURE-IN-SHUTDOWN** | `close()` → some configs fail to close → warns, returns `Future.succeededFuture()`. | No — erased |
+| 65 | 333 | **ERASURE-IN-SHUTDOWN** | `close()` → some configs fail to close → warns, returns `Future.succeededFuture()`. | No erased |
 
 **Test code: 30+ instances across 15 test classes.** Predominantly teardown cleanup and test-specific error handling.
 
@@ -1708,24 +1708,24 @@ This module defines interfaces and data types only. No reactive implementation c
 
 | # | Line | Classification | Description | Error propagated? |
 |---|---|---|---|---|
-| 67 | 280 | **ERASURE-IN-SHUTDOWN** | During `connection.close()` after UNLISTEN during shutdown: `.recover(ignore -> Future.succeededFuture())`. Ignores connection close errors. | No — erased (narrow scope, single resource) |
+| 67 | 280 | **ERASURE-IN-SHUTDOWN** | During `connection.close()` after UNLISTEN during shutdown: `.recover(ignore -> Future.succeededFuture())`. Ignores connection close errors. | No erased (narrow scope, single resource) |
 
 ##### PgNativeConsumerGroup.java
 
 | # | Line | Classification | Description | Error propagated? |
 |---|---|---|---|---|
-| 68 | 246 | **ERASURE-IN-SHUTDOWN** | During startup abort: `partitionedEngine.stop().recover(stopErr -> Future.succeededFuture())` — if stop fails during startup abort, error is swallowed so the "closed during startup" failure can propagate. | No — erased (cleanup during abort) |
+| 68 | 246 | **ERASURE-IN-SHUTDOWN** | During startup abort: `partitionedEngine.stop().recover(stopErr -> Future.succeededFuture())` if stop fails during startup abort, error is swallowed so the "closed during startup" failure can propagate. | No erased (cleanup during abort) |
 | 69 | 256 | **RE-WRAPS-FAILURE** | Logs error and resets state from STARTING to NEW, then re-throws via `Future.failedFuture(err)`. | Yes |
-| 70 | 276 | **PROPER-FALLBACK** | `isOffsetWatermarkTopic()` fails → falls back to reference counting mode with `Future.succeededFuture(false)`. Should use `.transform()` or let caller handle. | No — wrong layer |
+| 70 | 276 | **PROPER-FALLBACK** | `isOffsetWatermarkTopic()` fails → falls back to reference counting mode with `Future.succeededFuture(false)`. Should use `.transform()` or let caller handle. | No wrong layer |
 | 71 | 371 | **RE-WRAPS-FAILURE** | `subscriptionService.subscribe()` fails → resets state to NEW and re-throws via `Future.failedFuture(err)`. | Yes |
-| 72 | 405 | **ERASURE** | `stopGracefully()` → cancel subscription fails → logs warning and returns `Future.succeededFuture()`, then continues to `stopInternal()`. Subscription cancellation error is silently erased. | No — erased |
+| 72 | 405 | **ERASURE** | `stopGracefully()` → cancel subscription fails → logs warning and returns `Future.succeededFuture()`, then continues to `stopInternal()`. Subscription cancellation error is silently erased. | No erased |
 
 ##### PartitionedConsumerEngine.java
 
 | # | Line | Classification | Description | Error propagated? |
 |---|---|---|---|---|
-| 73 | 163 | **RE-WRAPS-FAILURE** | `resetAfterFailedStart(err)` — sets running=false, tears down, and re-throws the original error via `Future.failedFuture(err)`. | Yes |
-| 74 | 200 | **ERASURE-IN-SHUTDOWN** | `assignmentService.leaveGroup()` fails during teardown → logs warning, returns `Future.succeededFuture()`. | No — erased (shutdown cleanup) |
+| 73 | 163 | **RE-WRAPS-FAILURE** | `resetAfterFailedStart(err)` sets running=false, tears down, and re-throws the original error via `Future.failedFuture(err)`. | Yes |
+| 74 | 200 | **ERASURE-IN-SHUTDOWN** | `assignmentService.leaveGroup()` fails during teardown → logs warning, returns `Future.succeededFuture()`. | No erased (shutdown cleanup) |
 
 **Test code: 5 instances across 3 test classes.** Cleanup and test assertions about `.recover()` behavior.
 
@@ -1747,25 +1747,25 @@ This module defines interfaces and data types only. No reactive implementation c
 
 | # | Line | Classification | Description | Error propagated? |
 |---|---|---|---|---|
-| 75 | 325 | **PROPER-FALLBACK** | `isHealthyAsync()` fails → returns `Future.succeededFuture(false)`. Should use `.transform()`. | No — wrong layer |
-| 76 | 462 | **TYPED-ERASURE** | `getStatsAsync()` fails → returns fallback basic stats. Caller sees fabricated numbers. | No — fabricated |
-| 77 | 555 | **ERASURE-IN-SHUTDOWN** | `closeTrackedResourcesAsync()`: consumer close fails → logs warning, returns `Future.succeededFuture()`. | No — erased |
-| 78 | 559 | **ERASURE-IN-SHUTDOWN** | `closeTrackedResourcesAsync()`: consumer group close fails → same pattern. | No — erased |
+| 75 | 325 | **PROPER-FALLBACK** | `isHealthyAsync()` fails → returns `Future.succeededFuture(false)`. Should use `.transform()`. | No wrong layer |
+| 76 | 462 | **TYPED-ERASURE** | `getStatsAsync()` fails → returns fallback basic stats. Caller sees fabricated numbers. | No fabricated |
+| 77 | 555 | **ERASURE-IN-SHUTDOWN** | `closeTrackedResourcesAsync()`: consumer close fails → logs warning, returns `Future.succeededFuture()`. | No erased |
+| 78 | 559 | **ERASURE-IN-SHUTDOWN** | `closeTrackedResourcesAsync()`: consumer group close fails → same pattern. | No erased |
 
 ##### OutboxConsumerGroup.java
 
 | # | Line | Classification | Description | Error propagated? |
 |---|---|---|---|---|
 | 79 | 389 | **RE-WRAPS-FAILURE** | `startWithSubscription()`: subscription fails → resets state to NEW, re-throws. | Yes |
-| 80 | 448 | **ERASURE** | `stopGracefully()`: cancel subscription fails → logs warning, returns `Future.succeededFuture()`, continues to `stopInternal()`. | No — erased |
+| 80 | 448 | **ERASURE** | `stopGracefully()`: cancel subscription fails → logs warning, returns `Future.succeededFuture()`, continues to `stopInternal()`. | No erased |
 
 ##### OutboxConsumer.java
 
 | # | Line | Classification | Description | Error propagated? |
 |---|---|---|---|---|
-| 81 | 436 | **PROPER-FALLBACK** | Message processing fails → calls `markMessageFailed()` to update status in database. DLQ routing should be a framework responsibility, not inline `recover()`. | No — wrong layer |
-| 82 | 510 | **SELECTIVE-RECOVERY** | Post-completion recover: `RejectedMessageException` → resets to PENDING; `MessageFilteredException` → resets to PENDING; retry logic for other failures → either retry or DLQ. Retry/DLQ routing should be framework infrastructure. | Varies — wrong layer |
-| 83 | 871 | **ERASURE-IN-SHUTDOWN** | `closeAsync()`: waits for in-flight processing, `.recover(e -> Future.succeededFuture())` to proceed to pool close regardless. | No — erased (shutdown) |
+| 81 | 436 | **PROPER-FALLBACK** | Message processing fails → calls `markMessageFailed()` to update status in database. DLQ routing should be a framework responsibility, not inline `recover()`. | No wrong layer |
+| 82 | 510 | **SELECTIVE-RECOVERY** | Post-completion recover: `RejectedMessageException` → resets to PENDING; `MessageFilteredException` → resets to PENDING; retry logic for other failures → either retry or DLQ. Retry/DLQ routing should be framework infrastructure. | Varies wrong layer |
+| 83 | 871 | **ERASURE-IN-SHUTDOWN** | `closeAsync()`: waits for in-flight processing, `.recover(e -> Future.succeededFuture())` to proceed to pool close regardless. | No erased (shutdown) |
 
 **Test code: 8 instances across 3 test classes.** Example tests and retry resilience tests.
 
@@ -1779,8 +1779,8 @@ This module defines interfaces and data types only. No reactive implementation c
 
 | # | Line | Classification | Description | Error propagated? |
 |---|---|---|---|---|
-| 84 | 86 | **ERASURE** | Logs error on test suite failure, then adds failure to results and returns `Future.succeededFuture()`. The overall harness chain continues silently. | No — erased |
-| 85 | 103 | **ERASURE** | Top-level harness execution error: logs, adds failure to aggregated results, returns `Future.succeededFuture(aggregatedResults)`. Error is swallowed. | No — erased |
+| 84 | 86 | **ERASURE** | Logs error on test suite failure, then adds failure to results and returns `Future.succeededFuture()`. The overall harness chain continues silently. | No erased |
+| 85 | 103 | **ERASURE** | Top-level harness execution error: logs, adds failure to aggregated results, returns `Future.succeededFuture(aggregatedResults)`. Error is swallowed. | No erased |
 
 **Test code:** No `.recover()` calls.
 
@@ -1794,43 +1794,43 @@ This module defines interfaces and data types only. No reactive implementation c
 
 | # | Line | Classification | Description | Error propagated? |
 |---|---|---|---|---|
-| 86 | 409 | **TYPED-ERASURE** | Metrics collection fails → returns cached/minimal runtime metrics as fallback. Caller sees stale data with no indication it is stale. | No — fabricated |
-| 87 | 507 | **TYPED-ERASURE** | `collectMetricsFromServices()` fails → returns minimal metrics with error message embedded in JSON. Error is in the data, not in the Future. | No — fabricated |
-| 88 | 567 | **TYPED-ERASURE** | `collectSetupMetrics()` fails → returns accumulator unchanged (skips this setup). Aggregate metrics are silently incomplete. | No — fabricated |
-| 89 | 623 | **TYPED-ERASURE** | `collectTopicSubscriptionMetrics()` fails → returns accumulator unchanged. Aggregate silently incomplete. | No — fabricated |
+| 86 | 409 | **TYPED-ERASURE** | Metrics collection fails → returns cached/minimal runtime metrics as fallback. Caller sees stale data with no indication it is stale. | No fabricated |
+| 87 | 507 | **TYPED-ERASURE** | `collectMetricsFromServices()` fails → returns minimal metrics with error message embedded in JSON. Error is in the data, not in the Future. | No fabricated |
+| 88 | 567 | **TYPED-ERASURE** | `collectSetupMetrics()` fails → returns accumulator unchanged (skips this setup). Aggregate metrics are silently incomplete. | No fabricated |
+| 89 | 623 | **TYPED-ERASURE** | `collectTopicSubscriptionMetrics()` fails → returns accumulator unchanged. Aggregate silently incomplete. | No fabricated |
 
 ##### QueueHandler.java
 
 | # | Line | Classification | Description | Error propagated? |
 |---|---|---|---|---|
-| 90 | 239 | **TYPED-ERASURE** | Batch message send: individual message fails → if `failOnError=false`, returns "FAILED:" marker string. Caller sees a string that looks like a result. | No — fabricated marker |
+| 90 | 239 | **TYPED-ERASURE** | Batch message send: individual message fails → if `failOnError=false`, returns "FAILED:" marker string. Caller sees a string that looks like a result. | No fabricated marker |
 
 ##### ManagementApiHandler.java
 
 | # | Line | Classification | Description | Error propagated? |
 |---|---|---|---|---|
 | 91 | 158 | **RE-WRAPS-FAILURE** | `getRealQueues()` fails → re-throws as `RuntimeException`. | Yes |
-| 92 | 209 | **TYPED-ERASURE** | `getQueuesForSetup()` fails → returns empty `JsonArray()`. Caller sees "no queues" instead of "error loading queues." | No — fabricated |
-| 93 | 427 | **TYPED-ERASURE** | `getConsumerGroupsForSetup()` topic subscription list fails → returns empty `JsonArray()`. | No — fabricated |
-| 94 | 446 | **TYPED-ERASURE** | Same setup-level recover for consumer groups. | No — fabricated |
+| 92 | 209 | **TYPED-ERASURE** | `getQueuesForSetup()` fails → returns empty `JsonArray()`. Caller sees "no queues" instead of "error loading queues." | No fabricated |
+| 93 | 427 | **TYPED-ERASURE** | `getConsumerGroupsForSetup()` topic subscription list fails → returns empty `JsonArray()`. | No fabricated |
+| 94 | 446 | **TYPED-ERASURE** | Same setup-level recover for consumer groups. | No fabricated |
 | 95 | 465 | **RE-WRAPS-FAILURE** | `getRealConsumerGroups()` fails → re-throws. | Yes |
-| 96 | 589 | **TYPED-ERASURE** | `getRealEventCount()` fails → returns `0L`. Caller displays "0 events" — fabricated. | No — fabricated |
-| 97 | 627 | **TYPED-ERASURE** | `getRealAggregateCount()` fails → returns `0L`. Caller displays "0 aggregates" — fabricated. | No — fabricated |
-| 98 | 643 | **TYPED-ERASURE** | `getRealCorrectionCount()` fails → returns `0L`. Caller displays "0 corrections" — fabricated. | No — fabricated |
+| 96 | 589 | **TYPED-ERASURE** | `getRealEventCount()` fails → returns `0L`. Caller displays "0 events" fabricated. | No fabricated |
+| 97 | 627 | **TYPED-ERASURE** | `getRealAggregateCount()` fails → returns `0L`. Caller displays "0 aggregates" fabricated. | No fabricated |
+| 98 | 643 | **TYPED-ERASURE** | `getRealCorrectionCount()` fails → returns `0L`. Caller displays "0 corrections" fabricated. | No fabricated |
 | 99 | 750 | **RE-WRAPS-FAILURE** | `getRealEventStores()` fails → re-throws. | Yes |
-| 100 | 795 | **TYPED-ERASURE** | `getEventStoresForSetup()` fails → returns empty `JsonArray()`. Caller sees "no event stores" — fabricated. | No — fabricated |
-| 101 | 813 | **TYPED-ERASURE** | `getRealMessages()` fails → returns empty `JsonArray()`. Caller sees "no messages" — fabricated. | No — fabricated |
-| 102 | 856 | **TYPED-ERASURE** | `getRecentActivity()` fails → returns empty `JsonArray()`. Caller sees "no activity" — fabricated. | No — fabricated |
-| 103 | 900 | **TYPED-ERASURE** | `getRecentActivityForSetup()` → store query fails → returns empty list. | No — fabricated |
-| 104 | 951 | **TYPED-ERASURE** | `getRecentActivityForSetup()` → setup not found → returns empty list. | No — fabricated |
-| 105 | 1618 | **TYPED-ERASURE** | `getRealConsumerCount()` fails → returns `0`. Caller displays "0 consumers" — fabricated. | No — fabricated |
-| 106 | 1733 | **TYPED-ERASURE** | Subscription listing for queue details fails → returns empty list. Caller sees "no subscriptions" — fabricated. | No — fabricated |
+| 100 | 795 | **TYPED-ERASURE** | `getEventStoresForSetup()` fails → returns empty `JsonArray()`. Caller sees "no event stores" fabricated. | No fabricated |
+| 101 | 813 | **TYPED-ERASURE** | `getRealMessages()` fails → returns empty `JsonArray()`. Caller sees "no messages" fabricated. | No fabricated |
+| 102 | 856 | **TYPED-ERASURE** | `getRecentActivity()` fails → returns empty `JsonArray()`. Caller sees "no activity" fabricated. | No fabricated |
+| 103 | 900 | **TYPED-ERASURE** | `getRecentActivityForSetup()` → store query fails → returns empty list. | No fabricated |
+| 104 | 951 | **TYPED-ERASURE** | `getRecentActivityForSetup()` → setup not found → returns empty list. | No fabricated |
+| 105 | 1618 | **TYPED-ERASURE** | `getRealConsumerCount()` fails → returns `0`. Caller displays "0 consumers" fabricated. | No fabricated |
+| 106 | 1733 | **TYPED-ERASURE** | Subscription listing for queue details fails → returns empty list. Caller sees "no subscriptions" fabricated. | No fabricated |
 
 ##### ConsumerGroupHandler.java
 
 | # | Line | Classification | Description | Error propagated? |
 |---|---|---|---|---|
-| 107 | 912 | **TYPED-ERASURE** | Subscription lookup for consumer group options fails → returns `null` (caller uses defaults). Caller cannot distinguish "no subscription" from "lookup failed." | No — fabricated |
+| 107 | 912 | **TYPED-ERASURE** | Subscription lookup for consumer group options fails → returns `null` (caller uses defaults). Caller cannot distinguish "no subscription" from "lookup failed." | No fabricated |
 
 **Test code: 5 instances across 2 test classes.** SSE streaming test and example tests.
 
@@ -1844,7 +1844,7 @@ This module defines interfaces and data types only. No reactive implementation c
 
 | # | Line | Classification | Description | Error propagated? |
 |---|---|---|---|---|
-| 108 | 792 | **RE-WRAPS-FAILURE** | `.recover(this::handleNetworkError)` — converts network errors into `PeeGeeQNetworkException` and re-throws via `Future.failedFuture()`. | Yes |
+| 108 | 792 | **RE-WRAPS-FAILURE** | `.recover(this::handleNetworkError)` converts network errors into `PeeGeeQNetworkException` and re-throws via `Future.failedFuture()`. | Yes |
 | 109 | 798 | **SELECTIVE-RECOVERY** | Retry logic: if the error is retryable and within retry limit, schedules a retry; otherwise re-throws the original error. Retry should be middleware, not inline `recover()`. | Yes (non-retryable errors propagate) |
 
 **Test code:** No `.recover()` calls.
@@ -1873,23 +1873,23 @@ This module defines interfaces and data types only. No reactive implementation c
 
 | # | Line | Classification | Description | Error propagated? |
 |---|---|---|---|---|
-| 111 | 93 | **ERASURE** | Consul registration fails → logs warning, returns `Future.succeededFuture()`. Service starts even if Consul registration fails. | No — erased (arguably acceptable: Consul is optional) |
+| 111 | 93 | **ERASURE** | Consul registration fails → logs warning, returns `Future.succeededFuture()`. Service starts even if Consul registration fails. | No erased (arguably acceptable: Consul is optional) |
 
 ##### HealthMonitor.java
 
 | # | Line | Classification | Description | Error propagated? |
 |---|---|---|---|---|
-| 112 | 165 | **PROPER-FALLBACK** | Health check fails → increments failure counter, marks as UNHEALTHY/UNKNOWN, returns `HealthCheckResult` with error info. Should use `.transform()`. | No — wrong layer |
+| 112 | 165 | **PROPER-FALLBACK** | Health check fails → increments failure counter, marks as UNHEALTHY/UNKNOWN, returns `HealthCheckResult` with error info. Should use `.transform()`. | No wrong layer |
 
 ##### FederatedManagementHandler.java
 
 | # | Line | Classification | Description | Error propagated? |
 |---|---|---|---|---|
-| 113 | 388 | **TYPED-ERASURE** | `fetchInstanceOverview()` fails → returns error response JSON as succeeded Future. HTTP 200 with error payload instead of proper error status. | No — fabricated |
-| 114 | 397 | **TYPED-ERASURE** | `fetchInstanceQueues()` fails → returns error response JSON as succeeded Future. | No — fabricated |
-| 115 | 406 | **TYPED-ERASURE** | `fetchInstanceConsumerGroups()` fails → returns error response JSON as succeeded Future. | No — fabricated |
-| 116 | 415 | **TYPED-ERASURE** | `fetchInstanceEventStores()` fails → returns error response JSON as succeeded Future. | No — fabricated |
-| 117 | 424 | **TYPED-ERASURE** | `fetchInstanceMetrics()` fails → returns error response JSON as succeeded Future. | No — fabricated |
+| 113 | 388 | **TYPED-ERASURE** | `fetchInstanceOverview()` fails → returns error response JSON as succeeded Future. HTTP 200 with error payload instead of proper error status. | No fabricated |
+| 114 | 397 | **TYPED-ERASURE** | `fetchInstanceQueues()` fails → returns error response JSON as succeeded Future. | No fabricated |
+| 115 | 406 | **TYPED-ERASURE** | `fetchInstanceConsumerGroups()` fails → returns error response JSON as succeeded Future. | No fabricated |
+| 116 | 415 | **TYPED-ERASURE** | `fetchInstanceEventStores()` fails → returns error response JSON as succeeded Future. | No fabricated |
+| 117 | 424 | **TYPED-ERASURE** | `fetchInstanceMetrics()` fails → returns error response JSON as succeeded Future. | No fabricated |
 
 **Test code:** No `.recover()` calls.
 
@@ -1907,24 +1907,24 @@ This module defines interfaces and data types only. No reactive implementation c
 
 | Module | Production instances | ERASURE | ERASURE-IN-SHUTDOWN | RE-WRAPS | SELECTIVE | PROPER-FALLBACK | TYPED-ERASURE |
 |---|---|---|---|---|---|---|---|
-| `peegeeq-api` | 0 | — | — | — | — | — | — |
+| `peegeeq-api` | 0 | | | | | | |
 | `peegeeq-bitemporal` | 6 | 0 | 5 | 1 | 0 | 0 | 0 |
-| `peegeeq-coverage-report` | 0 | — | — | — | — | — | — |
+| `peegeeq-coverage-report` | 0 | | | | | | |
 | `peegeeq-db` | 59 | 12 | 16 | 16 | 4 | 10 | 1 |
-| `peegeeq-examples` | 0 | — | — | — | — | — | — |
-| `peegeeq-examples-spring` | 0 | — | — | — | — | — | — |
-| `peegeeq-integration-tests` | 0 | — | — | — | — | — | — |
-| `peegeeq-management-ui` | 0 | — | — | — | — | — | — |
-| `peegeeq-migrations` | 0 | — | — | — | — | — | — |
+| `peegeeq-examples` | 0 | | | | | | |
+| `peegeeq-examples-spring` | 0 | | | | | | |
+| `peegeeq-integration-tests` | 0 | | | | | | |
+| `peegeeq-management-ui` | 0 | | | | | | |
+| `peegeeq-migrations` | 0 | | | | | | |
 | `peegeeq-native` | 9 | 1 | 3 | 3 | 1 | 1 | 0 |
-| `peegeeq-openapi` | 0 | — | — | — | — | — | — |
+| `peegeeq-openapi` | 0 | | | | | | |
 | `peegeeq-outbox` | 9 | 1 | 3 | 1 | 1 | 2 | 1 |
 | `peegeeq-performance-test-harness` | 2 | 2 | 0 | 0 | 0 | 0 | 0 |
 | `peegeeq-rest` | 22 | 0 | 0 | 3 | 0 | 0 | 19 |
 | `peegeeq-rest-client` | 2 | 0 | 0 | 1 | 1 | 0 | 0 |
-| `peegeeq-runtime` | 0 | — | — | — | — | — | — |
+| `peegeeq-runtime` | 0 | | | | | | |
 | `peegeeq-service-manager` | 8 | 1 | 0 | 0 | 0 | 2 | 5 |
-| `peegeeq-test-support` | 0 | — | — | — | — | — | — |
+| `peegeeq-test-support` | 0 | | | | | | |
 | **Totals** | **117** | **17** | **27** | **25** | **7** | **15** | **26** |
 
 **100% of `.recover()` uses in this codebase are wrong.** Every instance is either
@@ -1935,26 +1935,26 @@ architectural layer. There are 0 legitimate uses out of 117 production instances
 
 #### Critical ERASURE findings (non-shutdown operational code)
 
-These are the most dangerous — errors silently swallowed in code paths where callers
+These are the most dangerous errors silently swallowed in code paths where callers
 depend on the Future's outcome:
 
 | # | Module | Class | Line | Impact |
 |---|---|---|---|---|
 | 19 | peegeeq-db | PeeGeeQMetrics | 672 | Metric count query failures return zero silently |
 | 20 | peegeeq-db | PeeGeeQMetrics | 705 | Metric persistence failures swallowed |
-| 44 | peegeeq-db | StuckMessageRecoveryManager | 104 | **Stuck message recovery failures return zero** — caller thinks nothing was stuck |
+| 44 | peegeeq-db | StuckMessageRecoveryManager | 104 | **Stuck message recovery failures return zero** caller thinks nothing was stuck |
 | 45 | peegeeq-db | StuckMessageRecoveryManager | 132 | Count query failure hidden |
-| 46 | peegeeq-db | StuckMessageRecoveryManager | 164 | Reset failure hidden — stuck messages stay stuck forever |
+| 46 | peegeeq-db | StuckMessageRecoveryManager | 164 | Reset failure hidden stuck messages stay stuck forever |
 | 48 | peegeeq-db | StuckMessageRecoveryManager | 221 | Recovery stats fabricated |
 | 49 | peegeeq-db | StuckMessageRecoveryManager | 241 | Count fabricated |
-| 50 | peegeeq-db | SubscriptionManager | 189 | **FROM_BEGINNING backfill silently fails** — subscription appears complete but data is missing |
-| 51 | peegeeq-db | SubscriptionManager | 411 | **Cancel cleanup silently fails** — orphan rows and zombie tracking data remain |
-| 52 | peegeeq-db | SubscriptionManager | 587 | **Resurrection re-backfill silently fails** — resurrected consumer misses messages |
+| 50 | peegeeq-db | SubscriptionManager | 189 | **FROM_BEGINNING backfill silently fails** subscription appears complete but data is missing |
+| 51 | peegeeq-db | SubscriptionManager | 411 | **Cancel cleanup silently fails** orphan rows and zombie tracking data remain |
+| 52 | peegeeq-db | SubscriptionManager | 587 | **Resurrection re-backfill silently fails** resurrected consumer misses messages |
 | 72 | peegeeq-native | PgNativeConsumerGroup | 405 | Subscription cancellation failure during graceful stop lost |
 | 80 | peegeeq-outbox | OutboxConsumerGroup | 448 | Subscription cancellation failure during graceful stop lost |
 | 84 | peegeeq-performance-test-harness | PerformanceTestHarness | 86 | Test suite failures hidden in aggregated results |
 | 85 | peegeeq-performance-test-harness | PerformanceTestHarness | 103 | Top-level execution failure swallowed |
-| 111 | peegeeq-service-manager | PeeGeeQServiceManager | 93 | Consul registration failure hidden (lower risk — Consul is optional) |
+| 111 | peegeeq-service-manager | PeeGeeQServiceManager | 93 | Consul registration failure hidden (lower risk Consul is optional) |
 
 ---
 
@@ -1963,11 +1963,11 @@ depend on the Future's outcome:
 These are instances returning fabricated data where the caller receives a succeeded Future
 with a type-correct result and has no way to know the data is fake.
 
-##### ManagementApiHandler — 13 instances (peegeeq-rest)
+##### ManagementApiHandler 13 instances (peegeeq-rest)
 
 The management UI dashboard calls these endpoints. Every failure returns empty
 JSON or zero counts. The dashboard shows "0 events", "0 queues", "no messages",
-"no activity" — indistinguishable from a system with no data. An operator looking
+"no activity" indistinguishable from a system with no data. An operator looking
 at this dashboard during an outage sees a clean, empty system instead of errors.
 
 | # | Line | Returns | What the caller sees |
@@ -1986,16 +1986,16 @@ at this dashboard during an outage sees a clean, empty system instead of errors.
 | 105 | 1618 | `0` | "0 consumers" |
 | 106 | 1733 | `empty list` | "No subscriptions" |
 
-##### SystemMonitoringHandler — 4 instances (peegeeq-rest)
+##### SystemMonitoringHandler 4 instances (peegeeq-rest)
 
 | # | Line | Returns | What the caller sees |
 |---|---|---|---|
 | 86 | 409 | cached/minimal metrics | Stale metrics with no staleness indicator |
 | 87 | 507 | minimal metrics + error msg in JSON | Error buried inside JSON data, not in HTTP status |
-| 88 | 567 | accumulator unchanged | Aggregate metrics missing a setup — silently |
-| 89 | 623 | accumulator unchanged | Aggregate metrics missing subscriptions — silently |
+| 88 | 567 | accumulator unchanged | Aggregate metrics missing a setup silently |
+| 89 | 623 | accumulator unchanged | Aggregate metrics missing subscriptions silently |
 
-##### FederatedManagementHandler — 5 instances (peegeeq-service-manager)
+##### FederatedManagementHandler 5 instances (peegeeq-service-manager)
 
 HTTP 200 with error JSON payload instead of proper HTTP error status code.
 
@@ -2058,7 +2058,7 @@ return primaryLookup(id)
   .recover(err -> secondaryLookup(id));
 ```
 
-This is the **only** legitimate use of `recover()` — an alternate path that produces a real result. Secondary lookup must actually be able to return a valid result, not fake data.
+This is the **only** legitimate use of `recover()` an alternate path that produces a real result. Secondary lookup must actually be able to return a valid result, not fake data.
 
 ---
 

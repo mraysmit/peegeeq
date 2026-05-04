@@ -53,7 +53,7 @@ import static org.junit.jupiter.api.Assertions.*;
 /**
  * Tests that surface known version-lineage bugs in PgBiTemporalEventStore.
  *
- * <p>These tests are written BEFORE any fixes — they document the bugs
+ * <p>These tests are written BEFORE any fixes they document the bugs
  * by exercising the code paths that produce incorrect behavior:
  * <ul>
  *   <li>Bug 1: Concurrent corrections can produce duplicate version numbers
@@ -156,7 +156,7 @@ class VersionLineageBugSurfacingTest {
                 .setUser(postgres.getUsername())
                 .setPassword(postgres.getPassword());
 
-        // Pool for verification queries — kept open across the test
+        // Pool for verification queries kept open across the test
         verificationPool = PgBuilder.pool().connectingTo(connectOptions).using(vertx).build();
 
         PeeGeeQConfiguration config = new PeeGeeQConfiguration();
@@ -224,7 +224,7 @@ class VersionLineageBugSurfacingTest {
     // ==================== Bug 1: Concurrent version race condition ====================
 
     @Test
-    @DisplayName("Concurrent corrections must produce unique version numbers — surfaces race in appendCorrectionOwnTransaction")
+    @DisplayName("Concurrent corrections must produce unique version numbers surfaces race in appendCorrectionOwnTransaction")
     void concurrentCorrectionsMustProduceUniqueVersionNumbers(VertxTestContext testContext) throws Exception {
         Instant validTime = Instant.now();
         int concurrentCorrections = 10;
@@ -254,7 +254,7 @@ class VersionLineageBugSurfacingTest {
                 })
                 .compose(rootId -> {
                     // Step 4: Query the database directly to check version uniqueness
-                    // Use recursive CTE to find full family — flat OR query only works for star topology
+                    // Use recursive CTE to find full family flat OR query only works for star topology
                     String sql = """
                             WITH RECURSIVE family AS (
                                 SELECT event_id FROM bitemporal_event_log WHERE event_id = $1
@@ -328,7 +328,7 @@ class VersionLineageBugSurfacingTest {
                                 final long finalSuccessCount = successCount;
 
                                 // Verify database row count and version sequence
-                                // Use recursive CTE to find full family — flat OR query only works for star topology
+                                // Use recursive CTE to find full family flat OR query only works for star topology
                                 String familySql = """
                                         WITH RECURSIVE family AS (
                                             SELECT event_id FROM bitemporal_event_log WHERE event_id = $1
@@ -390,7 +390,7 @@ class VersionLineageBugSurfacingTest {
     void getAllVersionsWithCorrectionIdReturnsFullFamily(VertxTestContext testContext) throws Exception {
         Instant validTime = Instant.now();
 
-        // Create root + 2 corrections (chain model — each points to predecessor)
+        // Create root + 2 corrections (chain model each points to predecessor)
         eventStore.appendBuilder()
                 .eventType("LineageTest")
                 .payload(new TestEvent("root", "original", 100))
@@ -527,7 +527,7 @@ class VersionLineageBugSurfacingTest {
                             "getAllVersions must find at least root + correction when called "
                                     + "with correction ID, but found " + allVersions.size()
                                     + ". getAsOfTransactionTime found version "
-                                    + asOfResult.getVersion() + " — the methods disagree.");
+                                    + asOfResult.getVersion() + " the methods disagree.");
 
                     testContext.completeNow();
                 }))

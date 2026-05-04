@@ -283,9 +283,9 @@ public class PgNativeQueueFactory implements dev.mars.peegeeq.api.messaging.Queu
 
     @Override
     public QueueStats getStats(String topic) {
-        // Sync callers should migrate to getStatsAsync() — this returns zeros.
+        // Sync callers should migrate to getStatsAsync() this returns zeros.
         // The blocking bridge that was here violated Vert.x reactive principles.
-        logger.debug("getStats(sync) called for topic {} — use getStatsAsync() for real data", topic);
+        logger.debug("getStats(sync) called for topic {} use getStatsAsync() for real data", topic);
         return QueueStats.basic(topic, 0, 0, 0);
     }
 

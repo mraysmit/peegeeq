@@ -57,7 +57,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @see PgNativeConsumerGroup
  */
 @Tag(TestCategories.CORE)
-@DisplayName("PgNativeConsumerGroup — lifecycle & safety")
+@DisplayName("PgNativeConsumerGroup lifecycle & safety")
 class PgNativeConsumerGroupLifecycleTest {
 
     private PgNativeConsumerGroup<String> group;
@@ -84,7 +84,7 @@ class PgNativeConsumerGroupLifecycleTest {
     }
 
     // ========================================================================
-    // 5.1 — State Machine Transitions
+    // 5.1 State Machine Transitions
     // ========================================================================
 
     @Nested
@@ -217,7 +217,7 @@ class PgNativeConsumerGroupLifecycleTest {
     }
 
     // ========================================================================
-    // 5.1 — start(SubscriptionOptions) state transitions
+    // 5.1 start(SubscriptionOptions) state transitions
     // ========================================================================
 
     @Nested
@@ -271,7 +271,7 @@ class PgNativeConsumerGroupLifecycleTest {
     }
 
     // ========================================================================
-    // 5.2 — Membership Concurrency (putIfAbsent)
+    // 5.2 Membership Concurrency (putIfAbsent)
     // ========================================================================
 
     @Nested
@@ -359,7 +359,7 @@ class PgNativeConsumerGroupLifecycleTest {
                     } catch (IllegalArgumentException e) {
                         rejections.add(e);
                     } catch (Exception e) {
-                        // barrier/interrupt — not relevant
+                        // barrier/interrupt not relevant
                     }
                 });
             }
@@ -391,7 +391,7 @@ class PgNativeConsumerGroupLifecycleTest {
     }
 
     // ========================================================================
-    // 5.10 — Stop Path Robustness
+    // 5.10 Stop Path Robustness
     // ========================================================================
 
     @Nested
@@ -465,7 +465,7 @@ class PgNativeConsumerGroupLifecycleTest {
         }
 
         @Test
-        @DisplayName("stopCloseStartThrows — stop then close then start throws IllegalStateException")
+        @DisplayName("stopCloseStartThrows stop then close then start throws IllegalStateException")
         void stopCloseStartThrows() {
             group = createGroup("stop-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
@@ -483,21 +483,21 @@ class PgNativeConsumerGroupLifecycleTest {
             group.start();
             assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState());
 
-            // Stop and restart — should not fail due to stale underlyingConsumer
+            // Stop and restart should not fail due to stale underlyingConsumer
             group.stop();
             assertEquals(PgNativeConsumerGroup.State.NEW, group.getState());
             group.start();
             assertEquals(PgNativeConsumerGroup.State.ACTIVE, group.getState(),
-                    "restart should succeed — underlyingConsumer was cleaned up on stop");
+                    "restart should succeed underlyingConsumer was cleaned up on stop");
         }
     }
 
     // ========================================================================
-    // CAS Safety — close() vs async chains
+    // CAS Safety close() vs async chains
     // ========================================================================
 
     @Nested
-    @DisplayName("CAS Safety — close during lifecycle transitions")
+    @DisplayName("CAS Safety close during lifecycle transitions")
     class CASSafety {
 
         @Test
@@ -510,10 +510,10 @@ class PgNativeConsumerGroupLifecycleTest {
 
             // Graceful stop starts the STOPPING transition
             group.stopGracefully();
-            // Immediately close — should set CLOSED
+            // Immediately close should set CLOSED
             group.close();
             assertEquals(PgNativeConsumerGroup.State.CLOSED, group.getState(),
-                    "close() must win over stop's NEW reset — state should be CLOSED");
+                    "close() must win over stop's NEW reset state should be CLOSED");
         }
 
         @Test
@@ -533,7 +533,7 @@ class PgNativeConsumerGroupLifecycleTest {
         }
 
         @Test
-        @DisplayName("concurrent close and stop — CLOSED always wins")
+        @DisplayName("concurrent close and stop CLOSED always wins")
         void concurrentCloseAndStop() throws Exception {
             group = createGroup("cas-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
@@ -747,7 +747,7 @@ class PgNativeConsumerGroupLifecycleTest {
         }
 
         @Test
-        @DisplayName("group filter rejects message — filtered count increments")
+        @DisplayName("group filter rejects message filtered count increments")
         void groupFilterRejects_incrementsFilteredCount() {
             group = createGroup("dm-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
@@ -763,7 +763,7 @@ class PgNativeConsumerGroupLifecycleTest {
         }
 
         @Test
-        @DisplayName("no eligible consumers — filtered count increments")
+        @DisplayName("no eligible consumers filtered count increments")
         void noEligibleConsumers_incrementsFilteredCount() {
             group = createGroup("dm-group", "topic-a");
             // Add consumer with a filter that rejects everything
@@ -814,11 +814,11 @@ class PgNativeConsumerGroupLifecycleTest {
         }
 
         @Test
-        @DisplayName("distributeMessage with no active members — all stopped")
+        @DisplayName("distributeMessage with no active members all stopped")
         void noActiveMembers_filteredAsNoEligible() {
             group = createGroup("dm-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
-            // Not started — members not active
+            // Not started members not active
 
             // Force state to ACTIVE for testing distributeMessage directly
             // We start and then stop members manually by removing them
@@ -834,7 +834,7 @@ class PgNativeConsumerGroupLifecycleTest {
     }
 
     // ========================================================================
-    // Bad Consumer Behavior — filters that throw, all consumers fail, etc.
+    // Bad Consumer Behavior filters that throw, all consumers fail, etc.
     // ========================================================================
 
     @Nested
@@ -846,7 +846,7 @@ class PgNativeConsumerGroupLifecycleTest {
         }
 
         @Test
-        @DisplayName("F5: consumer filter that throws exception — message rejected, no crash")
+        @DisplayName("F5: consumer filter that throws exception message rejected, no crash")
         void filterThrowsException_messageRejected() {
             group = createGroup("bad-group", "topic-a");
             // Consumer whose filter always throws
@@ -856,7 +856,7 @@ class PgNativeConsumerGroupLifecycleTest {
 
             Future<Void> result = group.distributeMessage(msg("msg-1"));
             assertTrue(result.succeeded(),
-                    "distributeMessage should succeed — message is filtered/dropped, not error");
+                    "distributeMessage should succeed message is filtered/dropped, not error");
 
             var stats = group.getStats();
             assertEquals(0, stats.getTotalMessagesProcessed(),
@@ -866,7 +866,7 @@ class PgNativeConsumerGroupLifecycleTest {
         }
 
         @Test
-        @DisplayName("F5: two consumers, one filter throws — message routed to healthy consumer")
+        @DisplayName("F5: two consumers, one filter throws message routed to healthy consumer")
         void filterThrowsOnOne_routedToOther() {
             group = createGroup("bad-group", "topic-a");
             AtomicInteger healthyCalls = new AtomicInteger(0);
@@ -888,7 +888,7 @@ class PgNativeConsumerGroupLifecycleTest {
         }
 
         @Test
-        @DisplayName("F7: all consumers fail — failed count increments, no failover retry")
+        @DisplayName("F7: all consumers fail failed count increments, no failover retry")
         void allConsumersFail_noFailoverRetry() {
             group = createGroup("bad-group", "topic-a");
             AtomicInteger c1Calls = new AtomicInteger(0);
@@ -904,13 +904,13 @@ class PgNativeConsumerGroupLifecycleTest {
             });
             group.start();
 
-            // Send messages — each is routed to exactly one consumer via round-robin
+            // Send messages each is routed to exactly one consumer via round-robin
             for (int i = 0; i < 10; i++) {
                 Future<Void> result = group.distributeMessage(msg("msg-" + i));
                 assertTrue(result.failed(), "Each message should fail");
             }
 
-            // Total calls should equal total messages — no retries to alternative consumer
+            // Total calls should equal total messages no retries to alternative consumer
             assertEquals(10, c1Calls.get() + c2Calls.get(),
                     "Each message routed to exactly one consumer, no failover retry");
             assertTrue(c1Calls.get() > 0, "c1 should receive some messages");
@@ -924,19 +924,19 @@ class PgNativeConsumerGroupLifecycleTest {
         }
 
         @Test
-        @DisplayName("F6: removeConsumer during distributeMessage — no NPE, fails gracefully")
+        @DisplayName("F6: removeConsumer during distributeMessage no NPE, fails gracefully")
         void removeConsumerDuringDispatch_failsGracefully() {
             group = createGroup("bad-group", "topic-a");
             group.addConsumer("c1", msg -> Future.succeededFuture());
             group.start();
 
-            // Remove the consumer — simulates concurrent removal
+            // Remove the consumer simulates concurrent removal
             group.removeConsumer("c1");
 
             // Now distributeMessage with no active consumers
             Future<Void> result = group.distributeMessage(msg("msg-1"));
 
-            // Should succeed (filtered as "no eligible consumers") — not throw NPE
+            // Should succeed (filtered as "no eligible consumers") not throw NPE
             assertTrue(result.succeeded(),
                     "Should succeed as filtered when no active consumers remain");
             var stats = group.getStats();
@@ -944,7 +944,7 @@ class PgNativeConsumerGroupLifecycleTest {
         }
 
         @Test
-        @DisplayName("F6: consumer handler throws synchronously — exception propagates (not caught)")
+        @DisplayName("F6: consumer handler throws synchronously exception propagates (not caught)")
         void handlerThrowsSynchronously_exceptionPropagates() {
             group = createGroup("bad-group", "topic-a");
             group.addConsumer("c1", msg -> { throw new RuntimeException("sync boom"); });
@@ -1008,7 +1008,7 @@ class PgNativeConsumerGroupLifecycleTest {
     }
 
     // ========================================================================
-    // 5.x — Partitioned Path with connectionManager (no pool → fallback)
+    // 5.x Partitioned Path with connectionManager (no pool → fallback)
     //
     // When connectionManager is non-null, startInternal() calls
     // isOffsetWatermarkTopic() which fails (no pool) → .transform() catches it
@@ -1070,7 +1070,7 @@ class PgNativeConsumerGroupLifecycleTest {
 
     /**
      * Creates a PgNativeConsumerGroup with a minimal VertxPoolAdapter (null Vert.x/pool).
-     * The consumer will be created but won't actually listen or poll — sufficient for
+     * The consumer will be created but won't actually listen or poll sufficient for
      * lifecycle and membership tests that don't touch the database.
      * Uses the 8-arg constructor (no connectionManager → reference-counting mode).
      */

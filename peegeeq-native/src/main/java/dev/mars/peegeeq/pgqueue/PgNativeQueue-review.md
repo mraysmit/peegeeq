@@ -1,4 +1,4 @@
-Alright Mark — this `PgNativeQueue<T>` is a tidy demo, but it’s not production-safe as written. You’re mixing old Vert.x patterns, risking SQL injection in `NOTIFY`, ignoring payload size limits, and owning a pool you shouldn’t. Here’s the straight talk + concrete fixes.
+Alright Mark this `PgNativeQueue<T>` is a tidy demo, but it’s not production-safe as written. You’re mixing old Vert.x patterns, risking SQL injection in `NOTIFY`, ignoring payload size limits, and owning a pool you shouldn’t. Here’s the straight talk + concrete fixes.
 
 # What’s wrong (and why it matters)
 
@@ -159,7 +159,7 @@ public Future<Void> close() {
     String q = "UNLISTEN \"" + channelName.replace("\"","\"\"") + "\"";
     unlisten = listenConnection.query(q).execute().mapEmpty().eventually(v -> listenConnection.close());
   }
-  // We don’t own the pool — don’t close it here.
+  // We don’t own the pool don’t close it here.
   unlisten.onComplete(p);
   return p.future();
 }
@@ -173,7 +173,7 @@ Make sure `PgNotificationStream<T>`:
 
 * Buffers only up to a sane limit.
 * Implements `pause()`, `resume()`, `fetch(n)`.
-* Drops or NACKs (or just buffers) when downstream is slow — but **don’t** block the notification handler.
+* Drops or NACKs (or just buffers) when downstream is slow but **don’t** block the notification handler.
 
 ## 5) Be honest about `acknowledge`
 

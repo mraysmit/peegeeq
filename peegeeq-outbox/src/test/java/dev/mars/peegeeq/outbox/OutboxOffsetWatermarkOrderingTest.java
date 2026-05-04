@@ -73,12 +73,12 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@link ConsumerGroup}, without any aggregate/CQRS scaffolding:
  *
  * <ol>
- *   <li><b>Per-key ordering</b> — messages with the same {@code messageGroup} are delivered
+ *   <li><b>Per-key ordering</b> messages with the same {@code messageGroup} are delivered
  *       to the consumer in production order, even when interleaved with sends for a
  *       different key.</li>
- *   <li><b>Per-key isolation across multiple partitions</b> — three independent keys, each
+ *   <li><b>Per-key isolation across multiple partitions</b> three independent keys, each
  *       receives only its own messages in production order; total count matches sends.</li>
- *   <li><b>Documented misconfiguration: no {@code messageGroup}</b> — when a topic is
+ *   <li><b>Documented misconfiguration: no {@code messageGroup}</b> when a topic is
  *       configured as OFFSET_WATERMARK but the producer does not set a
  *       {@code messageGroup}, all messages funnel through the {@code __default__} partition
  *       and are delivered serially in producer order. This locks in the documented trap
@@ -86,13 +86,13 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *       {@code docs-design/analysis/GUARANTEED_ORDERING_CONCURRENT_CONSUMERS_ANALYSIS.md}.</li>
  * </ol>
  *
- * <p>Vert.x 5 reactive only — no {@code CompletableFuture}, no blocking
+ * <p>Vert.x 5 reactive only no {@code CompletableFuture}, no blocking
  * {@code .get()}/{@code .join()}, no {@code Thread.sleep}.</p>
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
-@DisplayName("Outbox OFFSET_WATERMARK — core ordering verification")
+@DisplayName("Outbox OFFSET_WATERMARK core ordering verification")
 class OutboxOffsetWatermarkOrderingTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxOffsetWatermarkOrderingTest.class);
@@ -187,7 +187,7 @@ class OutboxOffsetWatermarkOrderingTest {
         group.setMessageHandler(message -> {
             String payload = message.getPayload();
             if (!seen.add(payload)) {
-                // OFFSET_WATERMARK is at-least-once — dedupe redeliveries.
+                // OFFSET_WATERMARK is at-least-once dedupe redeliveries.
                 return Future.succeededFuture();
             }
             String key = payload.substring(0, 1);
@@ -293,7 +293,7 @@ class OutboxOffsetWatermarkOrderingTest {
     }
 
     // ------------------------------------------------------------------
-    // Test 3: Documented trap — OFFSET_WATERMARK without messageGroup.
+    // Test 3: Documented trap OFFSET_WATERMARK without messageGroup.
     // All messages are routed to the `__default__` partition and therefore
     // arrive serially in producer order. This test locks in that behavior.
     // ------------------------------------------------------------------

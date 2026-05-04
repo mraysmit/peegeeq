@@ -31,10 +31,10 @@ import java.util.stream.Collectors;
  *
  * <h3>Logging Levels:</h3>
  * <ul>
- *   <li>{@code INFO}  — Run summary on every cycle (healthy or not)</li>
- *   <li>{@code WARN}  — Per-dead-consumer detail, blocked message counts, overdue durations</li>
- *   <li>{@code ERROR} — Detection failures, query errors</li>
- *   <li>{@code DEBUG} — Detailed per-topic breakdowns, timing, skip-if-running guard</li>
+ *   <li>{@code INFO}  Run summary on every cycle (healthy or not)</li>
+ *   <li>{@code WARN}  Per-dead-consumer detail, blocked message counts, overdue durations</li>
+ *   <li>{@code ERROR} Detection failures, query errors</li>
+ *   <li>{@code DEBUG} Detailed per-topic breakdowns, timing, skip-if-running guard</li>
  * </ul>
  *
  * <h3>Usage:</h3>
@@ -289,12 +289,12 @@ public class DeadConsumerDetectionJob {
      */
     private void runDetection() {
         if (!running) {
-            logger.debug("Detection run skipped — job is not running");
+            logger.debug("Detection run skipped job is not running");
             return;
         }
 
         if (!detectionInProgress.compareAndSet(false, true)) {
-            logger.debug("Detection run skipped — previous run still in progress");
+            logger.debug("Detection run skipped previous run still in progress");
             return;
         }
 
@@ -335,7 +335,7 @@ public class DeadConsumerDetectionJob {
                                     return result.deadCount();
                                 });
                     } else {
-                        // No dead consumers — still log a periodic health summary
+                        // No dead consumers still log a periodic health summary
                         return detector.getSubscriptionSummary()
                                 .map(summary -> {
                                     logHealthyRun(runNumber, result, summary, detectionMs, trace);
@@ -428,7 +428,7 @@ public class DeadConsumerDetectionJob {
                 .filter(cr -> !cr.hadWork())
                 .count();
         if (failedCleanups > 0 && cleanupResults.size() > failedCleanups) {
-            // Some succeeded, some didn't — might indicate partial failure
+            // Some succeeded, some didn't might indicate partial failure
             logger.debug("  {} of {} cleanup(s) had no work (may already be cleaned or failed)",
                     failedCleanups, cleanupResults.size());
         }
@@ -468,7 +468,7 @@ public class DeadConsumerDetectionJob {
     }
 
     /**
-     * Logs the impact of dead consumers — how many messages they are blocking.
+     * Logs the impact of dead consumers how many messages they are blocking.
      */
     private void logBlockedMessageStats(List<BlockedMessageStats> statsList, TraceCtx trace) {
         try (var scope = TraceContextUtil.mdcScope(trace)) {
@@ -513,7 +513,7 @@ public class DeadConsumerDetectionJob {
             }
             if (stats.oldestBlockedAge() != null && stats.oldestBlockedAge().toHours() > 24) {
                 logger.error("  CRITICAL: Dead consumer group='{}' on topic='{}' has been blocking " +
-                                "messages for {} — oldest blocked message is {} old.",
+                                "messages for {} oldest blocked message is {} old.",
                         stats.groupName(), stats.topic(),
                         formatDuration(stats.oldestBlockedAge()),
                         formatDuration(stats.oldestBlockedAge()));
@@ -528,7 +528,7 @@ public class DeadConsumerDetectionJob {
     private void logSubscriptionSummary(long runNumber, SubscriptionSummary summary, long totalMs, TraceCtx trace) {
         try (var scope = TraceContextUtil.mdcScope(trace)) {
         logger.warn("  Subscription landscape: {} active, {} paused, {} dead, {} cancelled " +
-                        "({} total across {} topic(s)) — run #{} completed in {}ms",
+                        "({} total across {} topic(s)) run #{} completed in {}ms",
                 summary.activeCount(), summary.pausedCount(),
                 summary.deadCount(), summary.cancelledCount(),
                 summary.totalCount(), summary.topicCount(),

@@ -21,7 +21,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * <p>These tests verify that the close hook registered with PeeGeeQManager
  * actually closes tracked resources during shutdown, instead of being a no-op.
  *
- * <p>All tests are CORE — no database access, no TestContainers.
+ * <p>All tests are CORE no database access, no TestContainers.
  */
 @Tag(TestCategories.CORE)
 @DisplayName("OutboxFactory close hook lifecycle")
@@ -47,7 +47,7 @@ class OutboxFactoryCloseHookTest {
         var dbService = new HookCapturingDatabaseService();
         OutboxFactory factory = new OutboxFactory(dbService);
 
-        // Create a consumer — adds to createdResources
+        // Create a consumer adds to createdResources
         MessageConsumer<String> consumer = factory.createConsumer("test-topic", String.class);
         assertNotNull(consumer);
 
@@ -57,7 +57,7 @@ class OutboxFactoryCloseHookTest {
 
         assertTrue(result.succeeded(), "Close hook should complete successfully");
 
-        // Factory should now be closed — verify by trying to create another resource
+        // Factory should now be closed verify by trying to create another resource
         assertThrows(IllegalStateException.class, () ->
                 factory.createProducer("another-topic", String.class),
                 "Factory should reject operations after close hook fires");

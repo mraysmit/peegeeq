@@ -57,10 +57,10 @@ public class SubscriptionManager implements SubscriptionService {
     
     private final PgConnectionManager connectionManager;
     private final String serviceId;
-    private BackfillService backfillService; // optional — enables auto-backfill on FROM_BEGINNING subscribe
-    private DeadConsumerGroupCleanup deadConsumerGroupCleanup; // optional — required for forceRemove
+    private BackfillService backfillService; // optional enables auto-backfill on FROM_BEGINNING subscribe
+    private DeadConsumerGroupCleanup deadConsumerGroupCleanup; // optional required for forceRemove
 
-    // Partitioned consumption services (optional — enables OFFSET_WATERMARK mode)
+    // Partitioned consumption services (optional enables OFFSET_WATERMARK mode)
     private dev.mars.peegeeq.db.consumer.PartitionAssignmentService partitionAssignmentService;
     private dev.mars.peegeeq.db.consumer.PartitionedFetcher partitionedFetcher;
     private dev.mars.peegeeq.db.consumer.PartitionedOffsetManager partitionedOffsetManager;
@@ -91,7 +91,7 @@ public class SubscriptionManager implements SubscriptionService {
      *
      * <p>When set, subscribing with {@link StartPosition#FROM_BEGINNING} will automatically
      * trigger a backfill of existing messages to the new consumer group. If the backfill
-     * fails, the subscription is still created — the backfill can be retried manually.</p>
+     * fails, the subscription is still created the backfill can be retried manually.</p>
      *
      * @param backfillService The backfill service, or null to disable auto-backfill
      */
@@ -388,7 +388,7 @@ public class SubscriptionManager implements SubscriptionService {
                 .compose(v -> {
                     if (deadConsumerGroupCleanup == null) {
                         try (var scope = TraceContextUtil.mdcScope(trace)) {
-                            logger.debug("No DeadConsumerGroupCleanup configured — skipping cancel cleanup " +
+                            logger.debug("No DeadConsumerGroupCleanup configured skipping cancel cleanup " +
                                     "for group='{}' on topic='{}'", groupName, topic);
                         }
                         return Future.succeededFuture();

@@ -170,7 +170,7 @@ public class MultiTenantSchemaIsolationTest {
 
     @Test
     void testStatsIsolationBetweenTenants() throws Exception {
-        // Tenant A sends 5 messages — await each Future to ensure persistence
+        // Tenant A sends 5 messages await each Future to ensure persistence
         MessageProducer<String> producerA = factoryTenantA.createProducer("stats-topic", String.class);
         resources.add(producerA);
         Future<Void> chainA = Future.succeededFuture();
@@ -180,7 +180,7 @@ public class MultiTenantSchemaIsolationTest {
         }
         chainA.await();
 
-        // Tenant B sends 3 messages — await each Future to ensure persistence
+        // Tenant B sends 3 messages await each Future to ensure persistence
         MessageProducer<String> producerB = factoryTenantB.createProducer("stats-topic", String.class);
         resources.add(producerB);
         Future<Void> chainB = Future.succeededFuture();

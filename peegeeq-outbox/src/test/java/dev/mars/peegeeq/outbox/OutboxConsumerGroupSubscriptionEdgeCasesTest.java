@@ -212,7 +212,7 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
                 .build();
 
             group.start(options);
-            // Send a message — verify the consumer remains active and can process it
+            // Send a message verify the consumer remains active and can process it
             producer.send("New-Message")
                 .compose(v -> vertx.timer(2000))
                 .onSuccess(timerId -> testContext.verify(() -> {

@@ -201,7 +201,7 @@ public class PeeGeeQConfiguration {
         }
         
         if (getString("peegeeq.database.password", "").isEmpty()) {
-            logger.warn("Database password is empty — ensure PostgreSQL is configured for trust/peer authentication");
+            logger.warn("Database password is empty ensure PostgreSQL is configured for trust/peer authentication");
         }
         
         // Connection pool validation

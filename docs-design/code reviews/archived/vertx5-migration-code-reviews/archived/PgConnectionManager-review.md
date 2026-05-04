@@ -1,6 +1,6 @@
-Alright — this is **mostly solid** for a Vert.x 5 connection manager, but there are a few *serious design flaws* hidden under the surface that will cause resource leaks, non-deterministic shutdown, and concurrency issues once this runs under load or during redeploys.
+Alright this is **mostly solid** for a Vert.x 5 connection manager, but there are a few *serious design flaws* hidden under the surface that will cause resource leaks, non-deterministic shutdown, and concurrency issues once this runs under load or during redeploys.
 
-Let’s break it down like a pro — straight, no sugar.
+Let’s break it down like a pro straight, no sugar.
 
 ---
 
@@ -8,11 +8,11 @@ Let’s break it down like a pro — straight, no sugar.
 
 ### 1. `Pool.close()` is *synchronous* in your code but actually **returns a `Future`**
 
-You’re calling `pool.close();` everywhere — but in Vert.x 5, `Pool.close()` is **asynchronous** (`Future<Void> close()`).
+You’re calling `pool.close();` everywhere but in Vert.x 5, `Pool.close()` is **asynchronous** (`Future<Void> close()`).
 
 That means your code **fires and forgets** closures, doesn’t await completion, and may leak sockets if Vert.x shuts down before close completes.
 
-**Fix:** always chain `.close()` futures — don’t block.
+**Fix:** always chain `.close()` futures don’t block.
 
 ```java
 public Future<Void> closePoolAsync(String serviceId) {
@@ -28,7 +28,7 @@ public Future<Void> closePoolAsync(String serviceId) {
 }
 ```
 
-Same for your `closeAsync()` and `close()` methods — they should **aggregate `Future`s**, not ignore them.
+Same for your `closeAsync()` and `close()` methods they should **aggregate `Future`s**, not ignore them.
 
 ---
 
@@ -92,7 +92,7 @@ That ensures you don’t keep a broken reference.
 
 ---
 
-### 5. `isHealthy()` is a stub — false sense of health
+### 5. `isHealthy()` is a stub false sense of health
 
 You just check `pool != null`. That’s meaningless. You should at least attempt a `SELECT 1` or use Vert.x’s `pool.withConnection(...)`.
 
@@ -143,7 +143,7 @@ public Future<Void> closeAsync() {
 
 ### 7. `close()` (AutoCloseable) is blocking and unsafe
 
-You call `pool.close()` synchronously inside the loop — same issue as before.
+You call `pool.close()` synchronously inside the loop same issue as before.
 If Vert.x is already closing or event loops stopped, this may hang.
 
 **Fix:** Make `close()` a non-blocking shim:
@@ -165,7 +165,7 @@ This is fine for `try-with-resources` use, but **prefer async** in your service 
 
 ### 8. SSL configuration is half-baked
 
-You only set `.setSslMode(REQUIRE)` — but if users provide a CA or need `verify-full`, you’ll need to expose these in your `PgConnectionConfig`.
+You only set `.setSslMode(REQUIRE)` but if users provide a CA or need `verify-full`, you’ll need to expose these in your `PgConnectionConfig`.
 In Vert.x 5 you can do:
 
 ```java
@@ -309,4 +309,4 @@ public class PgConnectionManager implements AutoCloseable {
 
 ---
 
-If you send your `PgPoolConfig` class next, I’ll check its defaults — because most connection pool performance issues come from poor defaults (`maxWaitQueueSize` too high, `idleTimeout` too low, etc.).
+If you send your `PgPoolConfig` class next, I’ll check its defaults because most connection pool performance issues come from poor defaults (`maxWaitQueueSize` too high, `idleTimeout` too low, etc.).

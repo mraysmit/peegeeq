@@ -425,7 +425,7 @@ class VersionLineageIntegrationTest {
                 assertEquals(1 + concurrentCorrections, versions.size(),
                     "Should have root + " + concurrentCorrections + " corrections");
 
-                // Versions must be 1, 2, 3, 4, 5, 6 — no duplicates, no gaps
+                // Versions must be 1, 2, 3, 4, 5, 6 no duplicates, no gaps
                 Set<Long> versionNumbers = new HashSet<>();
                 for (BiTemporalEvent<Map<String, Object>> v : versions) {
                     assertTrue(versionNumbers.add(v.getVersion()),
@@ -434,7 +434,7 @@ class VersionLineageIntegrationTest {
 
                 for (long expected = 1; expected <= 1 + concurrentCorrections; expected++) {
                     assertTrue(versionNumbers.contains(expected),
-                        "Missing version " + expected + " — versions present: " + versionNumbers);
+                        "Missing version " + expected + " versions present: " + versionNumbers);
                 }
 
                 // Each correction must point to its immediate predecessor (chain model)
@@ -457,8 +457,8 @@ class VersionLineageIntegrationTest {
      * must still produce unique, sequential version numbers.
      * <p>
      * The appendCorrection API accepts any event ID in a lineage, not just the root.
-     * When multiple callers correct the same family concurrently — some passing the
-     * root ID, others passing a child correction ID — the advisory lock must serialize
+     * When multiple callers correct the same family concurrently some passing the
+     * root ID, others passing a child correction ID the advisory lock must serialize
      * all of them against the same canonical key (the family root). Otherwise, callers
      * entering via different IDs would acquire independent locks, read the same
      * MAX(version), and produce duplicate version numbers.
@@ -512,7 +512,7 @@ class VersionLineageIntegrationTest {
 
                 for (long expected = 1; expected <= 5; expected++) {
                     assertTrue(versionNumbers.contains(expected),
-                        "Missing version " + expected + " — versions present: " + versionNumbers);
+                        "Missing version " + expected + " versions present: " + versionNumbers);
                 }
 
                 logger.info("Cross-entry-point concurrent corrections test passed: {} unique versions", versions.size());
@@ -526,7 +526,7 @@ class VersionLineageIntegrationTest {
 
     /**
      * Correction via a child event ID resolves to the same family root and produces
-     * the correct next version — verifying root resolution works for non-root entry points.
+     * the correct next version verifying root resolution works for non-root entry points.
      */
     @Test
     void correctionViaChildEventIdResolvesCorrectRootAndVersion(VertxTestContext testContext) throws Exception {
@@ -841,7 +841,7 @@ class VersionLineageIntegrationTest {
         if (testContext.failed()) throw new RuntimeException(testContext.causeOfFailure());
     }
 
-    // ========== POSITIVE: Chain model enforcement — returned event correctness ==========
+    // ========== POSITIVE: Chain model enforcement returned event correctness ==========
 
     /**
      * CRITICAL chain model enforcement test.
@@ -868,7 +868,7 @@ class VersionLineageIntegrationTest {
                     return store.appendCorrection(rootId, "chain.enforce",
                             Map.of("v", 2), Instant.now(), "First correction")
                         .compose(c1 -> {
-                            // Create v3 via root again — system must chain to c1, not root
+                            // Create v3 via root again system must chain to c1, not root
                             return store.appendCorrection(rootId, "chain.enforce",
                                     Map.of("v", 3), Instant.now(), "Second correction via root")
                                 .map(c2 -> Map.of("root", root, "c1", c1, "c2", c2));
@@ -885,7 +885,7 @@ class VersionLineageIntegrationTest {
 
                 // c2 was called with root's ID, but system must resolve to c1 as predecessor
                 assertNotEquals(root.getEventId(), c2.getPreviousVersionId(),
-                    "Second correction must NOT point to root — chain model enforced");
+                    "Second correction must NOT point to root chain model enforced");
                 assertEquals(c1.getEventId(), c2.getPreviousVersionId(),
                     "Second correction must point to c1 (the latest version), not root");
 
@@ -933,7 +933,7 @@ class VersionLineageIntegrationTest {
 
                 // c4 was called with c1's ID, but system must resolve chain to c3 (latest)
                 assertNotEquals(c1.getEventId(), c4.getPreviousVersionId(),
-                    "Must NOT point to the caller-supplied c1 — chain model enforced");
+                    "Must NOT point to the caller-supplied c1 chain model enforced");
                 assertEquals(c3.getEventId(), c4.getPreviousVersionId(),
                     "Must point to c3 (the latest version), not the caller-supplied c1");
 
@@ -1046,7 +1046,7 @@ class VersionLineageIntegrationTest {
                         // No two corrections should share the same previousVersionId (star detection)
                         assertTrue(previousIds.add(prevId),
                             "Duplicate previousVersionId detected: " + prevId
-                                + " — this indicates star topology, not chain");
+                                + " this indicates star topology, not chain");
                     }
                 }
 
