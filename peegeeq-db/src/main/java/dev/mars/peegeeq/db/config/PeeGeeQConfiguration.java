@@ -57,6 +57,28 @@ public class PeeGeeQConfiguration {
     }
     
     /**
+     * Constructor for programmatic configuration with arbitrary property overrides.
+     *
+     * <p>Loads the profile defaults (resource files, env vars, system properties) and
+     * then applies every entry in {@code overrides} on top, without writing anything
+     * back to {@code System.getProperties()}. This is the correct pattern for tests
+     * that run concurrently: each test instance holds its own isolated property set
+     * and never races against other threads reading or writing global JVM state.
+     *
+     * @param profile   the configuration profile to use
+     * @param overrides property values that replace the loaded defaults; must not be null
+     */
+    public PeeGeeQConfiguration(String profile, Properties overrides) {
+        this.profile = profile;
+        this.properties = loadProperties(profile);
+        overrides.forEach((key, value) -> properties.setProperty(key.toString(), value.toString()));
+        this.instanceId = getString("peegeeq.metrics.instance-id",
+            "peegeeq-" + UUID.randomUUID().toString().substring(0, 8));
+        validateConfiguration();
+        logger.info("Loaded PeeGeeQ configuration for profile: {} with programmatic overrides", profile);
+    }
+
+    /**
      * Constructor for programmatic configuration with explicit database settings.
      * This constructor is used internally by PeeGeeQDatabaseSetupService to avoid
      * System property pollution that would cause concurrent setup operations to

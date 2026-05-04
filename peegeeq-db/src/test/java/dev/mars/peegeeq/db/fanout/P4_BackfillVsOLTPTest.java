@@ -83,6 +83,8 @@ public class P4_BackfillVsOLTPTest extends BaseIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(P4_BackfillVsOLTPTest.class);
 
+    private final List<String> testTopics = new ArrayList<>();
+
     private PgConnectionManager connectionManager;
     private TopicConfigService topicConfigService;
     private SubscriptionManager subscriptionManager;
@@ -127,14 +129,16 @@ public class P4_BackfillVsOLTPTest extends BaseIntegrationTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) {
         if (connectionManager != null) {
-            connectionManager.withConnection("peegeeq-main", connection ->
-                connection.preparedQuery("DELETE FROM outbox WHERE topic LIKE 'perf-test-backfill-%' OR topic LIKE 'perf-regular-backfill-%'")
-                    .execute()
-                    .mapEmpty()
-            )
-            .compose(v -> connectionManager.close())
-            .onSuccess(v -> testContext.completeNow())
-            .onFailure(testContext::failNow);
+            Future<Void> deleteFuture = testTopics.isEmpty()
+                    ? Future.succeededFuture()
+                    : connectionManager.withConnection("peegeeq-main", connection ->
+                            connection.preparedQuery("DELETE FROM outbox WHERE topic = ANY($1::text[])")
+                                    .execute(Tuple.of(testTopics.toArray(new String[0])))
+                                    .mapEmpty());
+            deleteFuture
+                    .compose(v -> connectionManager.close())
+                    .onSuccess(v -> testContext.completeNow())
+                    .onFailure(testContext::failNow);
         } else {
             testContext.completeNow();
         }
@@ -329,6 +333,7 @@ public class P4_BackfillVsOLTPTest extends BaseIntegrationTest {
         String backfillGroup,
         String oltpGroup
     ) {
+        testTopics.add(topic);
         return topicConfigService.createTopic(topicConfig)
             .compose(v -> subscriptionManager.subscribe(topic, backfillGroup, SubscriptionOptions.defaults()).mapEmpty())
             .compose(v -> subscriptionManager.subscribe(topic, oltpGroup, SubscriptionOptions.defaults()).mapEmpty());
