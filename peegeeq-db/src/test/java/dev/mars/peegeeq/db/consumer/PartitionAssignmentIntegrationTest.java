@@ -101,7 +101,7 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
     }
 
     // ========================================================================
-    // Test 2.1: Join Group — First Instance Gets All Partitions
+    // Test 2.1: Join Group First Instance Gets All Partitions
     // A single consumer instance joins a group with 3 discovered partitions.
     // Verifies that the sole instance is assigned all 3 partitions with correct
     // topic, group, instanceId, and generation on each assignment.
@@ -153,7 +153,7 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
     }
 
     // ========================================================================
-    // Test 2.2: Join Group — Second Instance Triggers Rebalance
+    // Test 2.2: Join Group Second Instance Triggers Rebalance
     // Two instances join a group with 4 partitions. After the second joins,
     // partitions are split between both instances. Neither gets all 4.
     // Each instance gets at least one partition.
@@ -174,12 +174,12 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
                 .compose(v -> insertOutboxMessage(topic, "part-2"))
                 .compose(v -> insertOutboxMessage(topic, "part-3"))
                 .compose(v -> insertOutboxMessage(topic, "part-4"))
-                // First instance joins — gets all 4
+                // First instance joins gets all 4
                 .compose(v -> assignmentService.joinGroup(topic, groupName, instanceA))
                 .compose(assignmentsA -> {
                     assertEquals(4, assignmentsA.size(),
                             "First instance should get all 4 partitions initially");
-                    // Second instance joins — triggers rebalance
+                    // Second instance joins triggers rebalance
                     return assignmentService.joinGroup(topic, groupName, instanceB);
                 })
                 .compose(assignmentsB -> {
@@ -211,7 +211,7 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
     }
 
     // ========================================================================
-    // Test 2.3: Join Group — Increments Generation
+    // Test 2.3: Join Group Increments Generation
     // Each join bumps rebalance_generation on the subscription row.
     // After two joins, the generation must be 2 (started at 0, +1 each join).
     // All assignment rows must carry the latest generation.
@@ -258,7 +258,7 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
     }
 
     // ========================================================================
-    // Test 2.4: Leave Group — Triggers Rebalance
+    // Test 2.4: Leave Group Triggers Rebalance
     // Two instances share 4 partitions. When one leaves, its partitions are
     // reassigned to the remaining instance. After leave, the remaining instance
     // should own all 4 partitions. Generation should increment.
@@ -305,7 +305,7 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
     }
 
     // ========================================================================
-    // Test 2.5: Leave Group — Last Instance Cleans Up
+    // Test 2.5: Leave Group Last Instance Cleans Up
     // A single instance joins, then leaves. After leave, no assignments remain.
     // Offset rows are preserved (not deleted) for potential rejoin.
     // ========================================================================
@@ -393,7 +393,7 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
                                     }
                                 }
                                 // With consistent hashing, roughly 1/4 of partitions should move
-                                // Allow up to 6 out of 12 (50%) — generous bound
+                                // Allow up to 6 out of 12 (50%) generous bound
                                 assertTrue(moved <= 6,
                                         "At most 50% of partitions should move when adding 1 of 4 instances, but " + moved + " moved");
                                 assertTrue(moved >= 1,
@@ -625,7 +625,7 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
     }
 
     // ========================================================================
-    // Test 2.12: Discover Partitions — Dynamic as Messages Arrive
+    // Test 2.12: Discover Partitions Dynamic as Messages Arrive
     // Insert messages with a new message_group after initial discovery.
     // The next discovery must include the newly-appearing partition key.
     // ========================================================================
@@ -808,7 +808,7 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
     }
 
     // ========================================================================
-    // Test 2.13: Rebalance Storm — Rapid Join/Leave, Generations Monotonic
+    // Test 2.13: Rebalance Storm Rapid Join/Leave, Generations Monotonic
     // 5 instances rapidly join/leave in parallel (20 operations total).
     // Generations must be strictly monotonic, every assignment row must have
     // a valid generation, no orphan assignments with stale generation.
@@ -838,7 +838,7 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
             return Future.all(joinFutures).map(cf -> (Void) null);
         })
         .compose(v -> {
-            // Phase 2: interleaved leave+join — 3 leave, 2 new join, all concurrent
+            // Phase 2: interleaved leave+join 3 leave, 2 new join, all concurrent
             List<Future<?>> ops = new ArrayList<>();
             for (int i = 1; i <= 3; i++) {
                 ops.add(assignmentService.leaveGroup(topic, groupName, "storm-" + i));
@@ -884,7 +884,7 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
     }
 
     // ========================================================================
-    // Test 2.14: Concurrent Join and Leave — No Orphan Assignments
+    // Test 2.14: Concurrent Join and Leave No Orphan Assignments
     // Instance A joins while instance B leaves simultaneously. Final assignment
     // state must be consistent: all partitions assigned, no duplicates, no gaps.
     // ========================================================================
@@ -905,7 +905,7 @@ public class PartitionAssignmentIntegrationTest extends BaseIntegrationTest {
                 // First: join A and B sequentially to establish baseline
                 .compose(v -> assignmentService.joinGroup(topic, groupName, "instance-A"))
                 .compose(a -> assignmentService.joinGroup(topic, groupName, "instance-B"))
-                // Now: A leaves while C joins — simultaneously
+                // Now: A leaves while C joins simultaneously
                 .compose(b -> {
                     Future<Void> leaveA = assignmentService.leaveGroup(topic, groupName, "instance-A");
                     Future<List<PartitionAssignment>> joinC = assignmentService.joinGroup(topic, groupName, "instance-C");

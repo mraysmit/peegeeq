@@ -111,7 +111,7 @@ public class ConsumerTracingTest extends BaseIntegrationTest {
         fetcher.fetchMessages("topic", "group", 10)
                 .onSuccess(messages -> testContext.verify(() -> {
                     assertNotNull(messages);
-                    // Callback runs on Vert.x event loop thread — MDC is thread-local
+                    // Callback runs on Vert.x event loop thread MDC is thread-local
                     // so caller MDC won't be present. Verify internal trace doesn't leak.
                     String traceId = MDC.get("traceId");
                     if (traceId != null) {
@@ -140,7 +140,7 @@ public class ConsumerTracingTest extends BaseIntegrationTest {
                     testContext.completeNow();
                 }))
                 .onFailure(throwable -> testContext.verify(() -> {
-                    // Expected — no subscription exists; verify MDC is still clean
+                    // Expected no subscription exists; verify MDC is still clean
                     assertNull(MDC.get("traceId"), "traceId should not leak after markCompleted failure");
                     assertNull(MDC.get("spanId"), "spanId should not leak after markCompleted failure");
                     testContext.completeNow();
@@ -175,7 +175,7 @@ public class ConsumerTracingTest extends BaseIntegrationTest {
         tracker.markCompleted(999L, "nonexistent-group", "nonexistent-topic")
                 .eventually(() -> {
                     testContext.verify(() -> {
-                        // Callback runs on Vert.x event loop — MDC is thread-local,
+                        // Callback runs on Vert.x event loop MDC is thread-local,
                         // so caller MDC won't be here. Verify no internal trace leaked.
                         String traceId = MDC.get("traceId");
                         assertNull(traceId,
@@ -201,7 +201,7 @@ public class ConsumerTracingTest extends BaseIntegrationTest {
         tracker.markFailed(999L, "nonexistent-group", "nonexistent-topic", "err")
                 .eventually(() -> {
                     testContext.verify(() -> {
-                        // Callback runs on Vert.x event loop — MDC is thread-local,
+                        // Callback runs on Vert.x event loop MDC is thread-local,
                         // so caller MDC won't be here. Verify no internal trace leaked.
                         String traceId = MDC.get("traceId");
                         assertNull(traceId,

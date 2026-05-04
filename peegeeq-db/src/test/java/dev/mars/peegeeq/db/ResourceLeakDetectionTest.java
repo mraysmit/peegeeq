@@ -88,7 +88,7 @@ public class ResourceLeakDetectionTest {
         // Capture initial thread state BEFORE creating any managers
         captureInitialThreadState();
 
-        logger.info("[SETUP] Complete — initial thread count: {}", initialThreadCount);
+        logger.info("[SETUP] Complete initial thread count: {}", initialThreadCount);
     }
     
     @AfterEach
@@ -135,7 +135,7 @@ public class ResourceLeakDetectionTest {
      */
     private void logThreadDetails(Set<Long> threadIds) {
         ThreadMXBean threadMXBean = ManagementFactory.getThreadMXBean();
-        logger.warn("[LEAK DETECTION] Listing {} potentially leaked thread(s) — this is diagnostic, not a production error:",
+        logger.warn("[LEAK DETECTION] Listing {} potentially leaked thread(s) this is diagnostic, not a production error:",
                 threadIds.size());
 
         for (Long threadId : threadIds) {
@@ -224,7 +224,7 @@ public class ResourceLeakDetectionTest {
         assertTrue(runningThreadCount > initialThreadCount,
             "Manager should create additional threads (initial: " + initialThreadCount + ", running: " + runningThreadCount + ")");
 
-        // Close test manager — closeReactive() includes vertx.close(), so the
+        // Close test manager closeReactive() includes vertx.close(), so the
         // Vert.x runtime is gone after this returns. Post-shutdown delays must use
         // Thread.sleep (the only option for JVM-level thread diagnostics without a
         // reactive runtime).
@@ -261,10 +261,10 @@ public class ResourceLeakDetectionTest {
         leakedThreadIds = filterSystemThreads(leakedThreadIds);
 
         if (!leakedThreadIds.isEmpty()) {
-            logger.warn("[LEAK DETECTION] Found {} leaked thread(s) after close — test will fail:", leakedThreadIds.size());
+            logger.warn("[LEAK DETECTION] Found {} leaked thread(s) after close test will fail:", leakedThreadIds.size());
             logThreadDetails(leakedThreadIds);
         } else {
-            logger.info("[testNoThreadLeaksAfterClose] No thread leaks detected — PASSED");
+            logger.info("[testNoThreadLeaksAfterClose] No thread leaks detected PASSED");
         }
 
         // Assert no thread leaks
@@ -287,7 +287,7 @@ public class ResourceLeakDetectionTest {
         Set<Long> thisTestThreadIds = new HashSet<>(threadsAfterStart);
         thisTestThreadIds.removeAll(threadsBefore);
 
-        // Close test manager — Vert.x runtime is gone after this
+        // Close test manager Vert.x runtime is gone after this
         testManager.closeReactive().await();
         testManager = null;
 
@@ -330,7 +330,7 @@ public class ResourceLeakDetectionTest {
         Set<Long> thisTestThreadIds = new HashSet<>(threadsAfterStart);
         thisTestThreadIds.removeAll(threadsBefore);
 
-        // Close test manager — Vert.x runtime is gone after this
+        // Close test manager Vert.x runtime is gone after this
         testManager.closeReactive().await();
         testManager = null;
 
@@ -355,7 +355,7 @@ public class ResourceLeakDetectionTest {
         if (!leakedSchedulerThreads.isEmpty()) {
             logger.error("This test's scheduler threads still alive after manager.close(): {}", leakedSchedulerThreads);
         } else {
-            logger.info("[testNoSchedulerThreadLeaks] No scheduler thread leaks detected — PASSED");
+            logger.info("[testNoSchedulerThreadLeaks] No scheduler thread leaks detected PASSED");
         }
 
         assertEquals(0, leakedSchedulerThreads.size(),
@@ -392,11 +392,11 @@ public class ResourceLeakDetectionTest {
         leakedThreadIds = filterSystemThreads(leakedThreadIds);
 
         if (!leakedThreadIds.isEmpty()) {
-            logger.warn("[LEAK DETECTION] Found {} leaked thread(s) after multiple managers — test will fail:",
+            logger.warn("[LEAK DETECTION] Found {} leaked thread(s) after multiple managers test will fail:",
                     leakedThreadIds.size());
             logThreadDetails(leakedThreadIds);
         } else {
-            logger.info("[testMultipleManagerInstancesNoLeaks] No thread leaks detected — PASSED");
+            logger.info("[testMultipleManagerInstancesNoLeaks] No thread leaks detected PASSED");
         }
 
         assertEquals(0, leakedThreadIds.size(),

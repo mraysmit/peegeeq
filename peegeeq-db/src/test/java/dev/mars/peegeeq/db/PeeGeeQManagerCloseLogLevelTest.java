@@ -163,7 +163,7 @@ public class PeeGeeQManagerCloseLogLevelTest {
     @Timeout(value = 5, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Positive: close after DB shutdown logs ERROR for client factory close failure")
     void testCloseAfterDbShutdownLogsErrorForClientFactoryFailure(VertxTestContext testContext) {
-        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR logs ('Error closing client factory', 'Error closing PeeGeeQManager') are EXPECTED — this test deliberately stops the DB container to verify error-level close failure logging");
+        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR logs ('Error closing client factory', 'Error closing PeeGeeQManager') are EXPECTED this test deliberately stops the DB container to verify error-level close failure logging");
         // Use a separate container that we can stop
         @SuppressWarnings("resource")
         PostgreSQLContainer ownContainer = new PostgreSQLContainer(POSTGRES_IMAGE)
@@ -424,7 +424,7 @@ public class PeeGeeQManagerCloseLogLevelTest {
     }
 
     /**
-     * Log capture appender using logback's AppenderBase — same pattern used
+     * Log capture appender using logback's AppenderBase same pattern used
      * in the existing ObservabilitySystemIntegrationTest.
      */
     static final class LogCaptureAppender extends AppenderBase<ILoggingEvent> {

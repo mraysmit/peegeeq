@@ -297,7 +297,7 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
 
     @Test
     void testResumeCancelledSubscriptionFails(VertxTestContext testContext) {
-        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Cannot resume cancelled subscription') is EXPECTED — this test deliberately attempts to resume a cancelled subscription to verify rejection");
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Cannot resume cancelled subscription') is EXPECTED this test deliberately attempts to resume a cancelled subscription to verify rejection");
         String topic = "test-topic-cancel-resume";
         String groupName = "test-group-cancel-resume";
 

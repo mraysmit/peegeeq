@@ -56,7 +56,7 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.INTEGRATION)
 @Execution(ExecutionMode.SAME_THREAD)
-@DisplayName("Force-remove — integration tests")
+@DisplayName("Force-remove integration tests")
 class ForceRemoveIntegrationTest extends BaseIntegrationTest {
 
     private static final String SERVICE_ID = "peegeeq-main";
@@ -205,7 +205,7 @@ class ForceRemoveIntegrationTest extends BaseIntegrationTest {
     // =========================================================================
 
     @Test
-    @DisplayName("force-remove is idempotent — second call fails gracefully")
+    @DisplayName("force-remove is idempotent second call fails gracefully")
     void forceRemove_idempotent(VertxTestContext ctx) {
         String topic = "force-rm-idempotent-" + UUID.randomUUID().toString().substring(0, 8);
         String groupName = "force-rm-idemp-g-" + UUID.randomUUID().toString().substring(0, 8);
@@ -225,7 +225,7 @@ class ForceRemoveIntegrationTest extends BaseIntegrationTest {
     }
 
     // =========================================================================
-    // Helper — directly update subscription status (bypasses normal validation)
+    // Helper directly update subscription status (bypasses normal validation)
     // =========================================================================
 
     private Future<Void> updateStatusDirectly(String topic, String groupName, SubscriptionStatus status) {

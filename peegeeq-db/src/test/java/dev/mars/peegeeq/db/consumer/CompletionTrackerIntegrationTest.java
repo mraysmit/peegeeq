@@ -279,7 +279,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
 
     @Test
     public void testMarkFailed(VertxTestContext testContext) {
-        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Marking message as failed') is EXPECTED — this test verifies markFailed behavior");
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Marking message as failed') is EXPECTED this test verifies markFailed behavior");
         logger.info("=== TEST: testMarkFailed STARTED ===");
 
         String topic = "test-completion-failed-" + UUID.randomUUID().toString().substring(0, 8);
@@ -326,7 +326,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
 
     @Test
     public void testMarkFailedDoesNotOverrideCompletedState(VertxTestContext testContext) {
-        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Marking message as failed') is EXPECTED — this test verifies markFailed does not override completed state");
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Marking message as failed') is EXPECTED this test verifies markFailed does not override completed state");
         logger.info("=== TEST: testMarkFailedDoesNotOverrideCompletedState STARTED ===");
 
         String topic = "test-failed-after-completed-" + UUID.randomUUID().toString().substring(0, 8);
@@ -366,7 +366,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
 
     @Test
     public void testMarkCompletedRejectsUnknownGroup(VertxTestContext testContext) {
-        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Cannot mark completed: no ACTIVE subscription') is EXPECTED — this test verifies rejection for unknown group");
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Cannot mark completed: no ACTIVE subscription') is EXPECTED this test verifies rejection for unknown group");
         logger.info("=== TEST: testMarkCompletedRejectsUnknownGroup STARTED ===");
 
         String topic = "test-completion-unknown-group-" + UUID.randomUUID().toString().substring(0, 8);
@@ -401,7 +401,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
 
     @Test
     public void testLateFailureInMultiGroupDoesNotCreateInconsistentState(VertxTestContext testContext) {
-        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Marking message as failed') is EXPECTED — this test verifies late failure in multi-group scenario");
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Marking message as failed') is EXPECTED this test verifies late failure in multi-group scenario");
         logger.info("=== TEST: testLateFailureInMultiGroupDoesNotCreateInconsistentState STARTED ===");
 
         String topic = "test-late-failure-multigroup-" + UUID.randomUUID().toString().substring(0, 8);
@@ -448,7 +448,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
 
     @Test
     public void testMarkFailedThenCompletedRecovery(VertxTestContext testContext) {
-        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Marking message as failed') is EXPECTED — this test verifies failed-then-completed recovery path");
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Marking message as failed') is EXPECTED this test verifies failed-then-completed recovery path");
         logger.info("=== TEST: testMarkFailedThenCompletedRecovery STARTED ===");
 
         String topic = "test-recovery-" + UUID.randomUUID().toString().substring(0, 8);
@@ -494,7 +494,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
 
     @Test
     public void testMarkFailedRepeatedlyIncrementsRetryCount(VertxTestContext testContext) {
-        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN logs ('Marking message as failed') are EXPECTED — this test verifies retry count increments on repeated failures");
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN logs ('Marking message as failed') are EXPECTED this test verifies retry count increments on repeated failures");
         logger.info("=== TEST: testMarkFailedRepeatedlyIncrementsRetryCount STARTED ===");
 
         String topic = "test-retry-count-" + UUID.randomUUID().toString().substring(0, 8);
@@ -542,7 +542,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
 
     @Test
     public void testMarkFailedRejectsUnknownGroup(VertxTestContext testContext) {
-        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN logs ('Marking message as failed', 'Cannot mark failed: no ACTIVE subscription') are EXPECTED — this test verifies rejection for unknown group");
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN logs ('Marking message as failed', 'Cannot mark failed: no ACTIVE subscription') are EXPECTED this test verifies rejection for unknown group");
         logger.info("=== TEST: testMarkFailedRejectsUnknownGroup STARTED ===");
 
         String topic = "test-failed-unknown-group-" + UUID.randomUUID().toString().substring(0, 8);
@@ -576,7 +576,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
 
     @Test
     public void testMarkCompletedRejectsPausedSubscription(VertxTestContext testContext) {
-        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Cannot mark completed: no ACTIVE subscription') is EXPECTED — this test verifies rejection for paused subscription");
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Cannot mark completed: no ACTIVE subscription') is EXPECTED this test verifies rejection for paused subscription");
         logger.info("=== TEST: testMarkCompletedRejectsPausedSubscription STARTED ===");
 
         String topic = "test-paused-sub-" + UUID.randomUUID().toString().substring(0, 8);
@@ -610,7 +610,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
 
     @Test
     public void testMarkCompletedRejectsNonExistentMessage(VertxTestContext testContext) {
-        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Cannot mark completed: no ACTIVE subscription') is EXPECTED — this test verifies rejection for non-existent message");
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Cannot mark completed: no ACTIVE subscription') is EXPECTED this test verifies rejection for non-existent message");
         logger.info("=== TEST: testMarkCompletedRejectsNonExistentMessage STARTED ===");
 
         String topic = "test-nonexistent-msg-" + UUID.randomUUID().toString().substring(0, 8);

@@ -133,7 +133,7 @@ A few things are solid:
 
 ## The biggest problems
 
-### 1. `start(SubscriptionOptions)` has a race and inconsistent lifecycle semantics — RESOLVED
+### 1. `start(SubscriptionOptions)` has a race and inconsistent lifecycle semantics RESOLVED
 
 > **Resolution (pre-session):** Replaced `active`/`closed` booleans with `enum State { NEW, STARTING, ACTIVE, STOPPING, CLOSED }` backed by `AtomicReference<State>` with CAS transitions throughout.
 
@@ -185,7 +185,7 @@ Right now the lifecycle is too loose.
 
 ---
 
-### 2. `start(subscriptionOptions)` claims to be blocking, but it is not — RESOLVED
+### 2. `start(subscriptionOptions)` claims to be blocking, but it is not RESOLVED
 
 > **Resolution (pre-session):** The misleading `isEventLoopContext` guard was removed. The method is now correctly non-blocking, returns `Future<Void>`, and uses `.compose()` for async chaining.
 
@@ -213,7 +213,7 @@ As written, the API contract is confused.
 
 ---
 
-### 3. `containsKey` + `put` is a race — RESOLVED
+### 3. `containsKey` + `put` is a race RESOLVED
 
 > **Resolution (pre-session):** `addConsumer` now uses `putIfAbsent(consumerId, member)` with a null check on the return value.
 
@@ -244,7 +244,7 @@ Same kind of issue exists in `setMessageHandler()` with the default ID path.
 
 ---
 
-### 4. Your "round-robin" is not round-robin — RESOLVED
+### 4. Your "round-robin" is not round-robin RESOLVED
 
 > **Resolution (pre-session):** Routing comment and Javadoc renamed to "deterministic hash-based routing". `selectConsumer()` method documented accordingly.
 
@@ -280,7 +280,7 @@ For message queues, this choice is architectural, not cosmetic.
 
 ---
 
-### 5. Failure semantics for filtered / no-eligible-consumer look dangerous — RESOLVED
+### 5. Failure semantics for filtered / no-eligible-consumer look dangerous RESOLVED
 
 > **Resolution (pre-session):** Exception hierarchy now separates permanent rejection (`RejectedMessageException` for group filter) from transient filtering (`MessageFilteredException` for no eligible consumer / removed member). `OutboxConsumer` treats these differently at the claim/reset level.
 
@@ -322,9 +322,9 @@ This is probably the most important semantic question in the whole design.
 
 ---
 
-### 6. No protection against concurrent delivery to the same member — RESOLVED
+### 6. No protection against concurrent delivery to the same member RESOLVED
 
-> **Resolution (2026-03-30):** Added `AtomicInteger inFlightCount` with configurable `maxConcurrency` (default 1) to `OutboxConsumerGroupMember`. `processMessage()` now enforces a concurrency gate — checks `inFlightCount.get() >= maxConcurrency` before accepting, atomically increments on accept, and decrements on success/failure/filter.
+> **Resolution (2026-03-30):** Added `AtomicInteger inFlightCount` with configurable `maxConcurrency` (default 1) to `OutboxConsumerGroupMember`. `processMessage()` now enforces a concurrency gate checks `inFlightCount.get() >= maxConcurrency` before accepting, atomically increments on accept, and decrements on success/failure/filter.
 
 You select a member and call:
 
@@ -347,7 +347,7 @@ Without seeing `OutboxConsumerGroupMember`, I would treat this as a likely corre
 
 ---
 
-### 7. `getStats()` computes misleading aggregates — RESOLVED
+### 7. `getStats()` computes misleading aggregates RESOLVED
 
 > **Resolution (pre-session):** `getStats()` now uses a weighted average (`weightedTotalMs += stats.getAverageProcessingTimeMs() * processed`, divided by `totalProcessed`). Redundant counters reconciled.
 
@@ -385,7 +385,7 @@ Pick one source of truth.
 
 ---
 
-### 8. Stop/close semantics are not robust enough for async resources — RESOLVED
+### 8. Stop/close semantics are not robust enough for async resources RESOLVED
 
 > **Resolution (2026-03-30):** Added `closeAsync()` returning `Future<Void>` to `OutboxConsumer`. `OutboxConsumerGroup.stop()` and `close()` now call `closeAsync()` via `instanceof OutboxConsumer<?> oc` pattern match for non-blocking shutdown. Shared scheduler is shut down with `awaitTermination`.
 
@@ -423,7 +423,7 @@ The current lifecycle is too eager.
 
 ---
 
-### 9. `synchronized` on `setMessageHandler()` is awkward in Vert.x code — RESOLVED
+### 9. `synchronized` on `setMessageHandler()` is awkward in Vert.x code RESOLVED
 
 > **Resolution (pre-session):** `setMessageHandler()` is no longer `synchronized`. Consistent with the rest of the class's use of concurrent primitives.
 
@@ -441,7 +441,7 @@ A proper state/members CAS strategy would let you remove it.
 
 ---
 
-### 10. Member removal can race with message assignment — RESOLVED
+### 10. Member removal can race with message assignment RESOLVED
 
 > **Resolution (2026-03-30):** Added post-selection liveness check in `distributeMessage()`: after `selectConsumer()`, verifies `members.containsValue(selectedConsumer) && selectedConsumer.isActive()` before dispatch. Returns `MessageFilteredException` if the member was removed or deactivated between selection and dispatch.
 
@@ -462,15 +462,15 @@ You need either:
 
 ---
 
-## Less critical, but still worth fixing — ALL RESOLVED
+## Less critical, but still worth fixing ALL RESOLVED
 
-### Constructor overload explosion — RESOLVED
+### Constructor overload explosion RESOLVED
 
 > **Resolution (pre-session):** `Builder<T>` pattern introduced. Overloads retained for backward compatibility but delegate to the builder-constructed path.
 
 Too many overloads. It is already awkward and will get worse. A builder would be cleaner.
 
-### Null validation — RESOLVED
+### Null validation RESOLVED
 
 > **Resolution (pre-session):** `Objects.requireNonNull()` calls added for `groupName`, `topic`, `payloadType` in the constructor.
 

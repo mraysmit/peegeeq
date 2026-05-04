@@ -54,7 +54,7 @@ Flapping protection is implemented.
 - `SubscriptionManager.updateHeartbeat()` resets `consecutive_misses = 0` on heartbeat (including DEAD→ACTIVE resurrection).
 - `SubscriptionManager.subscribe()` resets `consecutive_misses = 0` on resubscription via ON CONFLICT.
 - `SubscriptionOptions.deadAfterMisses(int)` allows per-subscription threshold configuration via the builder and REST API.
-- 12 integration tests in `FlappingProtectionIntegrationTest` — all passing.
+- 12 integration tests in `FlappingProtectionIntegrationTest` all passing.
 
 Primary sources:
 
@@ -74,7 +74,7 @@ Graceful shutdown is now implemented for subscription-backed consumer groups.
 - `OutboxConsumerGroup` and `PgNativeConsumerGroup` track whether they were started with `SubscriptionOptions` via a `startedWithSubscription` flag.
 - On `stopGracefully()`, if started with subscription: cancel subscription in database → stop internal consumers. Cancel failure is recovered (group still stops).
 - Groups started without `SubscriptionOptions` fall back to regular `stop()` behavior.
-- 7 unit tests in `OutboxConsumerGroupGracefulShutdownTest` — all passing.
+- 7 unit tests in `OutboxConsumerGroupGracefulShutdownTest` all passing.
 - 55 existing `OutboxConsumerGroupCoreTest` tests remain passing (backward compat verified).
 
 Primary sources:
@@ -92,7 +92,7 @@ Backfill rate limiting is now implemented.
 - New 3-arg constructor `(PgConnectionManager, String, Vertx)` enables non-blocking timer-based delays via `vertx.timer(batchDelayMs).mapEmpty()`.
 - Legacy 2-arg constructor preserved for backward compatibility (timer support disabled, zero delay only).
 - `PeeGeeQManager.createSubscriptionService()` passes Vertx to BackfillService.
-- 13 unit tests + 4 integration tests — all passing.
+- 13 unit tests + 4 integration tests all passing.
 
 Primary sources:
 
@@ -109,7 +109,7 @@ Admin force-remove is now implemented.
 - `SubscriptionManager`: validates → marks DEAD → runs `DeadConsumerGroupCleanup.cleanupDeadGroup()` → marks CANCELLED → returns `ForceRemoveResult`.
 - REST: `DELETE /api/v1/setups/:setupId/subscriptions/:topic/:groupName/force-remove`.
 - `PeeGeeQManager.createSubscriptionService()` wires `DeadConsumerGroupCleanup` into `SubscriptionManager`.
-- 5 unit tests + 5 integration tests — all passing.
+- 5 unit tests + 5 integration tests all passing.
 
 Primary sources:
 
@@ -156,7 +156,7 @@ Primary sources:
 - `peegeeq-db/src/main/java/dev/mars/peegeeq/db/metrics/PeeGeeQMetrics.java`
 - `peegeeq-db/src/main/java/dev/mars/peegeeq/db/provider/PgMetricsProvider.java`
 
-## Tracing Instrumentation — Updated Status
+## Tracing Instrumentation Updated Status
 
 The consumer-group fanout path now has comprehensive `TraceCtx` + `TraceContextUtil.mdcScope()` instrumentation:
 
