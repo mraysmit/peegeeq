@@ -3,6 +3,8 @@
 **Platform**: Windows / PowerShell only. Always pipe with `Tee-Object`. Never use `Select-String` or `Select-Object`.  
 **Log naming**: `<description>-<YYYYMMDD>.txt`
 
+> **MANDATORY — NO BACKGROUND/ASYNC MODE**: All Maven test commands MUST be run in foreground (sync) mode so output streams live and visibly in the terminal. Never use background, async, or fire-and-forget execution for test runs. The `Tee-Object` pipe handles logging. Running in background hides output from the user and is forbidden regardless of how long the test run takes.
+
 ---
 
 ## 1 — Daily Development (run this constantly)
