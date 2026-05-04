@@ -33,6 +33,7 @@ import io.vertx.core.Future;
 import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Tuple;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -101,6 +102,26 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
         backfillService = new BackfillService(connectionManager, "peegeeq-main");
 
         logger.info("BackfillScope performance test setup complete");
+    }
+
+    @AfterEach
+    void tearDown(VertxTestContext testContext) {
+        if (connectionManager != null) {
+            connectionManager.withConnection("peegeeq-main", connection ->
+                connection.preparedQuery(
+                    "DELETE FROM outbox WHERE topic LIKE 'perf-pending-only-%'" +
+                    " OR topic LIKE 'perf-all-retained-%'" +
+                    " OR topic LIKE 'perf-incr-completed-%'" +
+                    " OR topic LIKE 'perf-compare-%'")
+                    .execute()
+                    .mapEmpty()
+            )
+            .compose(v -> connectionManager.close())
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
+        } else {
+            testContext.completeNow();
+        }
     }
 
     // ========================================================================
