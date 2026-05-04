@@ -18,7 +18,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.params.provider.Arguments.arguments;
 
 /**
- * T1 — Locks the contract between documented pool property keys and
+ * T1 Locks the contract between documented pool property keys and
  * {@link PeeGeeQConfiguration#getPoolConfig()}.
  *
  * <p>Every property key declared in {@code peegeeq-default.properties} must
@@ -26,7 +26,7 @@ import static org.junit.jupiter.params.provider.Arguments.arguments;
  * the default is set via {@code System.setProperty}, and the corresponding
  * getter on {@link PgPoolConfig} must reflect it.</p>
  *
- * <p>This is a CORE test — no database, no TestContainers.</p>
+ * <p>This is a CORE test no database, no TestContainers.</p>
  *
  * <p>Runs sequentially because each parameterized test mutates global
  * {@code System} properties, which are not thread-safe.</p>

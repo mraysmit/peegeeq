@@ -98,7 +98,7 @@ public class BackfillRateLimitingIntegrationTest extends BaseIntegrationTest {
     }
 
     // =========================================================================
-    // Rate-limited backfill — delay slows throughput
+    // Rate-limited backfill delay slows throughput
     // =========================================================================
 
     /**
@@ -155,7 +155,7 @@ public class BackfillRateLimitingIntegrationTest extends BaseIntegrationTest {
                 long delayElapsed = times[1];
 
                 // With 3 batches and 100ms delay between batches, delayed should be
-                // at least 150ms longer (conservative to avoid flakiness — 2 delays × 75ms margin)
+                // at least 150ms longer (conservative to avoid flakiness 2 delays × 75ms margin)
                 long minimumDifference = 150L;
                 long actualDifference = delayElapsed - noDelayElapsed;
 
@@ -204,7 +204,7 @@ public class BackfillRateLimitingIntegrationTest extends BaseIntegrationTest {
         String groupName = "group-cancel-delay";
         int messageCount = 100;
         int batchSize = 10; // 10 batches
-        long delayMs = 200L; // 200ms between batches — total ~1.8s of delays
+        long delayMs = 200L; // 200ms between batches total ~1.8s of delays
 
         createTopicWithSubscriberAndMessages(topic, messageCount)
             .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))

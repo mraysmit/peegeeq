@@ -100,7 +100,7 @@ class BackfillRateLimitingUnitTest {
 
     @Test
     void startBackfill_zeroBatchDelay_accepted() {
-        // Zero delay should be accepted (no throttling) — will fail at DB level
+        // Zero delay should be accepted (no throttling) will fail at DB level
         // but should NOT fail at parameter validation
         BackfillService service = new BackfillService(connectionManager, "svc", vertx);
         var future = service.startBackfill("topic", "group", 100, 0, 0L);

@@ -160,7 +160,7 @@ public class P3_MixedTopicsTest extends BaseIntegrationTest {
                         return null;
                     });
             })
-            // Step 4: Consume QUEUE topic (distributed — total = messageCount)
+            // Step 4: Consume QUEUE topic (distributed total = messageCount)
             .compose(v -> {
                 AtomicInteger queueTotal = new AtomicInteger(0);
                 Future<Void> chain = Future.succeededFuture();
@@ -178,7 +178,7 @@ public class P3_MixedTopicsTest extends BaseIntegrationTest {
             .compose(queueTotal -> {
                 assertEquals(messageCount, queueTotal,
                     "QUEUE topic should distribute " + messageCount + " messages across all consumers");
-                // Step 5: Consume PUB_SUB topic (replicated — total = messageCount * groups)
+                // Step 5: Consume PUB_SUB topic (replicated total = messageCount * groups)
                 AtomicInteger pubsubTotal = new AtomicInteger(0);
                 Future<Void> chain = Future.succeededFuture();
                 for (String g : pubsubGroups) {

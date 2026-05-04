@@ -114,7 +114,7 @@ public class P2_FanoutScalingTest extends BaseIntegrationTest {
      * Test fanout scaling with 1, 2, 4, 8, 16 consumer groups.
      * Measures throughput degradation and validates sub-linear CPU scaling.
      *
-     * <p><strong>Timeout override — 240 s (special case):</strong> This test requires a custom
+     * <p><strong>Timeout override 240 s (special case):</strong> This test requires a custom
      * {@link Timeout} because the default VertxExtension timeout of 30 s is not sufficient
      * for this performance scenario. The test executes <em>five sequential group-count
      * iterations</em> (N = 1, 2, 4, 8, 16), each publishing 500 messages and consuming

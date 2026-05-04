@@ -106,7 +106,7 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
     }
 
     // ========================================================================
-    // Test 5.1: Join Partitioned Group — Returns Assignments
+    // Test 5.1: Join Partitioned Group Returns Assignments
     // joinPartitionedGroup() returns assignment list with correct generation.
     // ========================================================================
 
@@ -148,7 +148,7 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
     }
 
     // ========================================================================
-    // Test 5.2: Join Partitioned Group — Rejects REFERENCE_COUNTING Topic
+    // Test 5.2: Join Partitioned Group Rejects REFERENCE_COUNTING Topic
     // REFERENCE_COUNTING topic → IllegalArgumentException.
     // ========================================================================
 
@@ -180,7 +180,7 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
     }
 
     // ========================================================================
-    // Test 5.3: Leave Partitioned Group — Triggers Rebalance
+    // Test 5.3: Leave Partitioned Group Triggers Rebalance
     // Leave → remaining instance gets all partitions.
     // ========================================================================
 
@@ -215,7 +215,7 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
     }
 
     // ========================================================================
-    // Test 5.4: Fetch Partitioned — Returns Ordered Messages
+    // Test 5.4: Fetch Partitioned Returns Ordered Messages
     // fetchPartitioned() returns messages in id order for partition.
     // ========================================================================
 
@@ -256,7 +256,7 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
     }
 
     // ========================================================================
-    // Test 5.5: Fetch Partitioned — Rejects Unassigned Partition
+    // Test 5.5: Fetch Partitioned Rejects Unassigned Partition
     // Fetch partition not assigned to caller → error.
     // ========================================================================
 
@@ -294,7 +294,7 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
     }
 
     // ========================================================================
-    // Test 5.6: Commit Offset — Advances and Returns True
+    // Test 5.6: Commit Offset Advances and Returns True
     // commitOffset() succeeds and returns true.
     // ========================================================================
 
@@ -329,7 +329,7 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
     }
 
     // ========================================================================
-    // Test 5.7: Commit Offset — Stale Generation Returns False
+    // Test 5.7: Commit Offset Stale Generation Returns False
     // Commit after rebalance with old gen → false.
     // ========================================================================
 
@@ -371,7 +371,7 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
     }
 
     // ========================================================================
-    // Test 5.8: Get Assignments — Returns Instance Partitions
+    // Test 5.8: Get Assignments Returns Instance Partitions
     // Returns only partitions assigned to the specified instance.
     // ========================================================================
 
@@ -387,7 +387,7 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
                 .compose(v -> insertOutboxMessage(topic, "part-1"))
                 .compose(v -> insertOutboxMessage(topic, "part-2"))
                 .compose(v -> insertOutboxMessage(topic, "part-3"))
-                // Two instances join — partitions get distributed
+                // Two instances join partitions get distributed
                 .compose(v -> subscriptionManager.joinPartitionedGroup(topic, groupName, "instance-1"))
                 .compose(v -> subscriptionManager.joinPartitionedGroup(topic, groupName, "instance-2"))
                 // Check assignments for each instance
@@ -413,7 +413,7 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
     }
 
     // ========================================================================
-    // Test 5.9: End-to-End — Join, Fetch, Commit, Leave
+    // Test 5.9: End-to-End Join, Fetch, Commit, Leave
     // Full lifecycle: join → fetch → commit → leave.
     // ========================================================================
 
@@ -447,7 +447,7 @@ public class PartitionedSubscriptionIntegrationTest extends BaseIntegrationTest 
                                     .compose(committed -> {
                                         assertTrue(committed, "Commit should succeed");
 
-                                        // 4. Fetch again — should return empty (all committed)
+                                        // 4. Fetch again should return empty (all committed)
                                         return subscriptionManager.fetchPartitioned(topic, groupName, "part-1", 10, generation);
                                     })
                                     .compose(messages -> {

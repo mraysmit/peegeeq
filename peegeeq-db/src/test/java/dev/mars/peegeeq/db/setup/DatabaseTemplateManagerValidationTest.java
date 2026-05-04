@@ -80,7 +80,7 @@ class DatabaseTemplateManagerValidationTest {
 
     @Test
     void testAcceptsNullTemplateAndEncoding(VertxTestContext testContext) {
-        // Should not throw on validation — will fail later on actual DB connection
+        // Should not throw on validation will fail later on actual DB connection
         // but validation should pass. Test the async path with compose/recover.
         manager.createDatabaseFromTemplate(
             "localhost", 5432, "user", "pass",
@@ -88,7 +88,7 @@ class DatabaseTemplateManagerValidationTest {
         )
         .onSuccess(v -> testContext.completeNow())
         .onFailure(cause -> {
-            // Connection failure is expected — we just want no IllegalArgumentException
+            // Connection failure is expected we just want no IllegalArgumentException
             if (cause instanceof IllegalArgumentException) {
                 testContext.failNow(cause);
             } else {
@@ -99,7 +99,7 @@ class DatabaseTemplateManagerValidationTest {
 
     @Test
     void testAcceptsValidIdentifiers(VertxTestContext testContext) {
-        // Should not throw on validation — will fail later on actual DB connection
+        // Should not throw on validation will fail later on actual DB connection
         manager.createDatabaseFromTemplate(
             "localhost", 5432, "user", "pass",
             "valid_db_name", "template0", "UTF8", new HashMap<>()

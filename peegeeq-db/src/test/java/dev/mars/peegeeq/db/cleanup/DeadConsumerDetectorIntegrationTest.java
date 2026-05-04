@@ -105,7 +105,7 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
 
     @Test
     public void testDetectDeadSubscription(VertxTestContext testContext) {
-        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Marked N subscriptions as DEAD') is EXPECTED — this test deliberately expires a heartbeat to verify dead subscription detection");
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Marked N subscriptions as DEAD') is EXPECTED this test deliberately expires a heartbeat to verify dead subscription detection");
         logger.info("=== TEST: testDetectDeadSubscription STARTED ===");
 
         String topic = "test-dead-detection-" + UUID.randomUUID().toString().substring(0, 8);
@@ -209,7 +209,7 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
 
     @Test
     public void testDetectAllDeadSubscriptions(VertxTestContext testContext) {
-        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN logs ('Marked N subscriptions as DEAD') are EXPECTED — this test deliberately expires heartbeats across multiple topics to verify bulk dead detection");
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN logs ('Marked N subscriptions as DEAD') are EXPECTED this test deliberately expires heartbeats across multiple topics to verify bulk dead detection");
         logger.info("=== TEST: testDetectAllDeadSubscriptions STARTED ===");
 
         String suffix = UUID.randomUUID().toString().substring(0, 8);
@@ -268,7 +268,7 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                 })
                 .compose(markedDead -> {
                     logger.info("Marked {} subscriptions as DEAD across all topics", markedDead);
-                    // Don't assert exact count — other parallel tests may contribute or steal detections
+                    // Don't assert exact count other parallel tests may contribute or steal detections
                     assertTrue(markedDead >= 0, "markedDead should be non-negative");
                     // Verify our specific subscriptions ended up DEAD
                     return subscriptionManager.getSubscription(topic1, group1);
@@ -288,7 +288,7 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
 
     @Test
     public void testCountDeadSubscriptions(VertxTestContext testContext) {
-        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Marked N subscriptions as DEAD') is EXPECTED — this test deliberately expires heartbeats to verify dead subscription counting");
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Marked N subscriptions as DEAD') is EXPECTED this test deliberately expires heartbeats to verify dead subscription counting");
         logger.info("=== TEST: testCountDeadSubscriptions STARTED ===");
 
         String topic = "test-count-dead-" + UUID.randomUUID().toString().substring(0, 8);

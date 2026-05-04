@@ -184,7 +184,7 @@ public class CancelCleanupIntegrationTest extends BaseIntegrationTest {
     /**
      * Verifies that a failure in {@code DeadConsumerGroupCleanup} propagates out of {@code cancel()}.
      *
-     * <p>Cleanup failure is data-integrity critical — it means orphan rows were NOT removed and
+     * <p>Cleanup failure is data-integrity critical it means orphan rows were NOT removed and
      * {@code required_consumer_groups} was NOT decremented. Silently swallowing the error would
      * leave the topic in a corrupt state. The caller must be informed so it can retry or alert.</p>
      *
@@ -195,7 +195,7 @@ public class CancelCleanupIntegrationTest extends BaseIntegrationTest {
      */
     @Test
     void testCancelCleanupFailurePropagates(VertxTestContext testContext) {
-        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Cancel cleanup failed') is EXPECTED — this test deliberately uses a broken connection manager to verify cleanup failure propagates from cancel");
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Cancel cleanup failed') is EXPECTED this test deliberately uses a broken connection manager to verify cleanup failure propagates from cancel");
         logger.info("=== Testing cancel cleanup failure propagates ===");
 
         String topic = "test-cancel-fail-" + UUID.randomUUID().toString().substring(0, 8);
@@ -215,7 +215,7 @@ public class CancelCleanupIntegrationTest extends BaseIntegrationTest {
             .transform(ar -> {
                 if (ar.succeeded()) {
                     return Future.failedFuture(new AssertionError(
-                        "Cancel must fail when cleanup fails — failure must propagate"));
+                        "Cancel must fail when cleanup fails failure must propagate"));
                 }
                 try {
                     assertNotNull(ar.cause().getMessage());

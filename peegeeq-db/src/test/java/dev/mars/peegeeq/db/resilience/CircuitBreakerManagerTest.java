@@ -35,7 +35,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * CircuitBreakerManager is a pure registry and factory. Tests verify creation,
  * caching, state inspection, forceOpen, and reset using the CircuitBreaker
- * directly — the same pattern used by production callers (see HealthCheckManager).
+ * directly the same pattern used by production callers (see HealthCheckManager).
  *
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-07-13
@@ -60,7 +60,7 @@ class CircuitBreakerManagerTest {
     }
 
     // -------------------------------------------------------------------------
-    // Kept tests — these covered the API that survives unchanged
+    // Kept tests these covered the API that survives unchanged
     // -------------------------------------------------------------------------
 
     @Test
@@ -97,7 +97,7 @@ class CircuitBreakerManagerTest {
     }
 
     // -------------------------------------------------------------------------
-    // New tests — verify the factory API using CircuitBreaker directly
+    // New tests verify the factory API using CircuitBreaker directly
     // -------------------------------------------------------------------------
 
     @Test

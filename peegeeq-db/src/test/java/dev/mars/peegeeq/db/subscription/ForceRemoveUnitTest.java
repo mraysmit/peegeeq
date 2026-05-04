@@ -42,7 +42,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2026-04-04
  */
 @Tag(TestCategories.CORE)
-@DisplayName("SubscriptionManager — force-remove unit tests")
+@DisplayName("SubscriptionManager force-remove unit tests")
 @ExtendWith(VertxExtension.class)
 class ForceRemoveUnitTest {
 

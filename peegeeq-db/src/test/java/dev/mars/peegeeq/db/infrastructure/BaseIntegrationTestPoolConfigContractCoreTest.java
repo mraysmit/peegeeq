@@ -19,7 +19,7 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * T2b — Primary test for the property-key mismatch between
+ * T2b Primary test for the property-key mismatch between
  * {@code BaseIntegrationTest.setupTestConfiguration()} and
  * {@link PeeGeeQConfiguration#getPoolConfig()}.
  *
@@ -28,7 +28,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * then asserts that the resulting {@link PgPoolConfig} reflects
  * the intended test values (short timeouts, small pool, non-shared).</p>
  *
- * <p>Tagged CORE — no database, no TestContainers. Runs in every
+ * <p>Tagged CORE no database, no TestContainers. Runs in every
  * {@code mvn test} invocation. Cannot be blocked by connection exhaustion.</p>
  */
 @Tag(TestCategories.CORE)
@@ -43,7 +43,7 @@ class BaseIntegrationTestPoolConfigContractCoreTest {
     @BeforeEach
     void setUp() {
         // Replicate the EXACT pool properties from BaseIntegrationTest.setupTestConfiguration()
-        // (after Tier 1 fix — correct keys with millisecond longs).
+        // (after Tier 1 fix correct keys with millisecond longs).
         System.setProperty("peegeeq.database.pool.min-size", "1");  // needed for validation (max >= min)
         System.setProperty("peegeeq.database.pool.max-size", "3");
         System.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");

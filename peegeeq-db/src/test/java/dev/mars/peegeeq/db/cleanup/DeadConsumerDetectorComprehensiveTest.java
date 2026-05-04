@@ -131,16 +131,16 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
     }
 
     // ========================================================================
-    // Test 1: All dead consumers are found — no false negatives
+    // Test 1: All dead consumers are found no false negatives
     // ========================================================================
 
     /**
      * Creates 5 consumers with expired heartbeats and 3 with fresh heartbeats
-     * on the same topic. Asserts exactly 5 are detected — no more, no fewer.
+     * on the same topic. Asserts exactly 5 are detected no more, no fewer.
      */
     @Test
     void testAllDeadConsumersFoundNoFalseNegatives(VertxTestContext ctx) {
-        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Marked N subscriptions as DEAD') is EXPECTED — this test creates 5 consumers with expired heartbeats to verify zero false negatives in dead detection");
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Marked N subscriptions as DEAD') is EXPECTED this test creates 5 consumers with expired heartbeats to verify zero false negatives in dead detection");
         String topic = uniqueTopic("all-dead-found");
 
         createTopic(topic)
@@ -202,7 +202,7 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
      */
     @Test
     void testAlreadyDeadNotReDetected(VertxTestContext ctx) {
-        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Marked N subscriptions as DEAD') is EXPECTED — this test verifies that already-DEAD consumers are not re-detected");
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Marked N subscriptions as DEAD') is EXPECTED this test verifies that already-DEAD consumers are not re-detected");
         String topic = uniqueTopic("already-dead");
 
         createTopic(topic)
@@ -213,7 +213,7 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
                 .compose(v -> detector.detectDeadSubscriptions(topic))
                 .compose(result -> {
                     assertEquals(0, result,
-                            "Detection should find 0 — already DEAD consumers are excluded");
+                            "Detection should find 0 already DEAD consumers are excluded");
                     return verifyStatus(topic, "dead-once", "DEAD");
                 })
                 .onSuccess(v -> {
@@ -253,7 +253,7 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
     }
 
     // ========================================================================
-    // Test 5: Mixed states — only eligible consumers are detected
+    // Test 5: Mixed states only eligible consumers are detected
     // ========================================================================
 
     /**
@@ -350,7 +350,7 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
                 })
                 .compose(v -> detector.detectAllDeadSubscriptionsWithDetails())
                 .compose(result -> {
-                    // Validate structure — our detail-dead-2 should be in the results
+                    // Validate structure our detail-dead-2 should be in the results
                     assertNotNull(result);
                     assertTrue(result.deadCount() >= 1,
                             "Should detect at least 1 dead consumer (detail-dead-2), got " + result.deadCount());
@@ -380,7 +380,7 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
                         assertTrue(result.affectedTopics().contains(topic),
                                 "Our topic should be in affectedTopics");
                     } else {
-                        // Consumer was stolen by a parallel test's global detection — verify it's DEAD
+                        // Consumer was stolen by a parallel test's global detection verify it's DEAD
                         return getStatus(topic, "detail-dead-2")
                                 .compose(status -> {
                                     assertEquals("DEAD", status,
@@ -550,7 +550,7 @@ public class DeadConsumerDetectorComprehensiveTest extends BaseIntegrationTest {
     }
 
     // ========================================================================
-    // Test 10: Boundary — heartbeat within timeout not detected
+    // Test 10: Boundary heartbeat within timeout not detected
     // ========================================================================
 
     /**

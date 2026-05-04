@@ -27,7 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  *
  * <p><strong>The bug:</strong> {@code pg_terminate_backend()} signals backends to terminate
  * but returns before they have fully disconnected. The current 100 ms timer assumes that OS
- * cleanup completes within that window — a false assumption under load or when backends are
+ * cleanup completes within that window a false assumption under load or when backends are
  * executing long-running queries when the signal arrives.
  *
  * <p><strong>The fix:</strong> replace the fixed timer with a poll loop that:
@@ -60,7 +60,7 @@ class DatabaseTemplateManagerDropDrainTest extends BaseIntegrationTest {
     }
 
     /**
-     * RED — the 100 ms fixed timer does not guarantee that all backends have left
+     * RED the 100 ms fixed timer does not guarantee that all backends have left
      * {@code pg_stat_activity} before {@code DROP DATABASE} is issued.
      *
      * <p>Three connections running {@code pg_sleep(1)} are established to the target database
@@ -86,7 +86,7 @@ class DatabaseTemplateManagerDropDrainTest extends BaseIntegrationTest {
             .compose(ignored -> {
 
                 // Step 2: open a pool to the newly created database and fire 3 long-running
-                // queries. pg_sleep(1) keeps 3 backend processes alive for 1 second — well
+                // queries. pg_sleep(1) keeps 3 backend processes alive for 1 second well
                 // beyond the 100 ms timer. pg_terminate_backend will signal these backends,
                 // but their cleanup is asynchronous at the OS level.
                 Pool targetPool = buildTargetPool(vertx, testDbName);
@@ -95,7 +95,7 @@ class DatabaseTemplateManagerDropDrainTest extends BaseIntegrationTest {
                     targetPool.query("SELECT pg_sleep(1)").execute();
                 }
 
-                // Step 3: call dropDatabase immediately — while the 3 pg_sleep backends are
+                // Step 3: call dropDatabase immediately while the 3 pg_sleep backends are
                 // still running. The current 100 ms timer races against their cleanup.
                 // The poll-based fix terminates and re-checks until the count is confirmed zero.
                 Pool adminPool = buildAdminPool(vertx);
@@ -103,7 +103,7 @@ class DatabaseTemplateManagerDropDrainTest extends BaseIntegrationTest {
                         databaseTemplateManager.dropDatabase(conn, testDbName))
                     .eventually(adminPool::close)
                     .eventually(() ->
-                        // close targetPool; may fail because the database was dropped — ignored by .eventually()
+                        // close targetPool; may fail because the database was dropped ignored by .eventually()
                         targetPool.close());
             })
             .compose(ignored -> {

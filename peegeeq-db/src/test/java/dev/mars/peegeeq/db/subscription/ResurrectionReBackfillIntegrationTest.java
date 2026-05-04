@@ -40,11 +40,11 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * <p>Test plan:</p>
  * <ol>
- *   <li>Resurrection triggers backfill — messages cleaned up during DEAD period are re-backfilled</li>
- *   <li>Resurrection without BackfillService — heartbeat succeeds, no backfill, no error</li>
- *   <li>Resurrection backfill failure — heartbeat still succeeds</li>
- *   <li>ACTIVE heartbeat does NOT trigger backfill — only DEAD→ACTIVE transitions</li>
- *   <li>PAUSED heartbeat does NOT trigger backfill — PAUSED stays PAUSED</li>
+ *   <li>Resurrection triggers backfill messages cleaned up during DEAD period are re-backfilled</li>
+ *   <li>Resurrection without BackfillService heartbeat succeeds, no backfill, no error</li>
+ *   <li>Resurrection backfill failure heartbeat still succeeds</li>
+ *   <li>ACTIVE heartbeat does NOT trigger backfill only DEAD→ACTIVE transitions</li>
+ *   <li>PAUSED heartbeat does NOT trigger backfill PAUSED stays PAUSED</li>
  * </ol>
  *
  * @author Mark Andrew Ray-Smith Cityline Ltd
@@ -251,7 +251,7 @@ public class ResurrectionReBackfillIntegrationTest extends BaseIntegrationTest {
      */
     @Test
     void testResurrectionBackfillFailurePropagates(VertxTestContext testContext) {
-        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Resurrection re-backfill failed') is EXPECTED — this test deliberately uses a broken connection manager to verify backfill failure propagates from heartbeat");
+        logger.warn("===== INTENTIONAL WARN TEST ===== The next WARN log ('Resurrection re-backfill failed') is EXPECTED this test deliberately uses a broken connection manager to verify backfill failure propagates from heartbeat");
         logger.info("=== Testing resurrection backfill failure propagates ===");
 
         String topic = "test-resurrect-fail-" + UUID.randomUUID().toString().substring(0, 8);
@@ -272,7 +272,7 @@ public class ResurrectionReBackfillIntegrationTest extends BaseIntegrationTest {
             .transform(ar -> {
                 if (ar.succeeded()) {
                     return Future.failedFuture(new AssertionError(
-                        "Heartbeat must fail when backfill fails — failure must propagate"));
+                        "Heartbeat must fail when backfill fails failure must propagate"));
                 }
                 try {
                     assertNotNull(ar.cause().getMessage());
@@ -325,7 +325,7 @@ public class ResurrectionReBackfillIntegrationTest extends BaseIntegrationTest {
             .compose(v -> countMessagesWithRequiredGroups(topic, 2))
             .compose(twoGroupMsgs -> {
                 assertEquals(messageCount, twoGroupMsgs,
-                    "Messages should still require 2 groups — ACTIVE heartbeat should not trigger backfill");
+                    "Messages should still require 2 groups ACTIVE heartbeat should not trigger backfill");
                 return subscriptionManager.getSubscription(topic, activeGroup);
             })
             .onSuccess(after -> testContext.verify(() -> {

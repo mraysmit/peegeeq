@@ -537,7 +537,7 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
     @Test
     @Order(8)
     void testSchemaValidation_InvalidSchemaName(VertxTestContext ctx) {
-        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Schema validation failed') is EXPECTED — this test deliberately passes a SQL injection schema name to verify validation");
+        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Schema validation failed') is EXPECTED this test deliberately passes a SQL injection schema name to verify validation");
         logger.info("=== Testing Schema Validation: Invalid Schema Name ===");
 
         // Create database configuration with invalid schema name (SQL injection attempt)

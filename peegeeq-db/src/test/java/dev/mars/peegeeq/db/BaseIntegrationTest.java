@@ -119,14 +119,14 @@ public abstract class BaseIntegrationTest {
     void tearDownBaseIntegration(VertxTestContext testContext) {
         logger.info("Tearing down integration test for profile: {}", testProfile);
 
-        // Capture Vertx reference before nulling manager — we need it for the
+        // Capture Vertx reference before nulling manager we need it for the
         // belt-and-suspenders close below (Tier 2 fix for connection exhaustion).
         Vertx vertxRef = (manager != null) ? manager.getVertx() : null;
         PeeGeeQManager currentManager = manager;
         manager = null;
 
         // closeReactive() handles dead Vertx internally (step 7 catch).
-        // No grace timer needed — it serves no documented purpose and
+        // No grace timer needed it serves no documented purpose and
         // throws RejectedExecutionException when the event loop is dead.
         Future<Void> closeManager = (currentManager != null)
             ? currentManager.closeReactive()

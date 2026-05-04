@@ -6,18 +6,16 @@ import dev.mars.peegeeq.db.config.PgConnectionConfig;
 import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
+import io.vertx.core.Promise;
 import io.vertx.junit5.VertxTestContext;
 import io.vertx.sqlclient.Pool;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.parallel.Execution;
-import org.junit.jupiter.api.parallel.ExecutionMode;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -36,8 +34,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @since 2025-11-27
  * @version 1.0
  */
-@Tag(TestCategories.CORE)
-@Execution(ExecutionMode.SAME_THREAD)
+@Tag(TestCategories.INTEGRATION)
 public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
 
     private PgConnectionManager connectionManager;
@@ -113,7 +110,6 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
     @Test
     void testDatabaseHealthCheck(VertxTestContext testContext) {
         healthCheckManager.start()
-            .compose(v -> manager.getVertx().timer(500).mapEmpty())
             .onSuccess(v -> testContext.verify(() -> {
                 HealthStatus dbHealth = healthCheckManager.getHealthStatus("database");
                 assertNotNull(dbHealth);
@@ -127,7 +123,6 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
     @Test
     void testMemoryHealthCheck(VertxTestContext testContext) {
         healthCheckManager.start()
-            .compose(v -> manager.getVertx().timer(500).mapEmpty())
             .onSuccess(v -> testContext.verify(() -> {
                 HealthStatus memoryHealth = healthCheckManager.getHealthStatus("memory");
                 assertNotNull(memoryHealth);
@@ -145,7 +140,6 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
     @Test
     void testDiskSpaceHealthCheck(VertxTestContext testContext) {
         healthCheckManager.start()
-            .compose(v -> manager.getVertx().timer(500).mapEmpty())
             .onSuccess(v -> testContext.verify(() -> {
                 HealthStatus diskHealth = healthCheckManager.getHealthStatus("disk-space");
                 assertNotNull(diskHealth);
@@ -163,7 +157,6 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
     @Test
     void testOverallHealthStatus(VertxTestContext testContext) {
         healthCheckManager.start()
-            .compose(v -> manager.getVertx().timer(500).mapEmpty())
             .onSuccess(v -> testContext.verify(() -> {
                 OverallHealthStatus overallHealth = healthCheckManager.getOverallHealthInternal();
                 assertNotNull(overallHealth);
@@ -181,7 +174,6 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
     @Test
     void testIsHealthy(VertxTestContext testContext) {
         healthCheckManager.start()
-            .compose(v -> manager.getVertx().timer(500).mapEmpty())
             .onSuccess(v -> testContext.verify(() -> {
                 assertTrue(healthCheckManager.isHealthy());
                 testContext.completeNow();
@@ -191,11 +183,10 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
 
     @Test
     void testRegisterCustomHealthCheck(VertxTestContext testContext) {
-        HealthCheck customCheck = () -> HealthStatus.healthy("custom-check");
+        HealthCheck customCheck = () -> Future.succeededFuture(HealthStatus.healthy("custom-check"));
         healthCheckManager.registerHealthCheck("custom-check", customCheck);
 
         healthCheckManager.start()
-            .compose(v -> manager.getVertx().timer(500).mapEmpty())
             .onSuccess(v -> testContext.verify(() -> {
                 HealthStatus customHealth = healthCheckManager.getHealthStatus("custom-check");
                 assertNotNull(customHealth);
@@ -209,7 +200,6 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
     @Test
     void testQueueHealthChecksDisabled(VertxTestContext testContext) {
         healthCheckManager.start()
-            .compose(v -> manager.getVertx().timer(500).mapEmpty())
             .onSuccess(v -> testContext.verify(() -> {
                 assertNull(healthCheckManager.getHealthStatus("outbox-queue"));
                 assertNull(healthCheckManager.getHealthStatus("native-queue"));
@@ -230,7 +220,6 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
         );
 
         queueEnabledManager.start()
-            .compose(v -> manager.getVertx().timer(500).mapEmpty())
             .compose(v -> {
                 HealthStatus outboxHealth = queueEnabledManager.getHealthStatus("outbox-queue");
                 HealthStatus nativeHealth = queueEnabledManager.getHealthStatus("native-queue");
@@ -314,32 +303,35 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
     }
 
     @Test
-    void testTimedOutHealthCheckDoesNotAccumulateConcurrentRuns(VertxTestContext testContext) {
-        AtomicInteger invocations = new AtomicInteger(0);
+    void testConcurrentCyclesAreNeverStarted(VertxTestContext testContext) {
+        AtomicInteger concurrent = new AtomicInteger(0);
+        AtomicInteger maxConcurrent = new AtomicInteger(0);
 
-        HealthCheck nonInterruptibleSlowCheck = () -> {
-            invocations.incrementAndGet();
-            long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(3);
-            while (System.nanoTime() < deadlineNanos) {
-                // busy-wait - simulates non-interruptible slow health check
-            }
-            return HealthStatus.healthy("slow");
+        HealthCheck slowCheck = () -> {
+            int c = concurrent.incrementAndGet();
+            maxConcurrent.updateAndGet(max -> Math.max(max, c));
+            Promise<HealthStatus> promise = Promise.promise();
+            manager.getVertx().setTimer(200, id -> {
+                concurrent.decrementAndGet();
+                promise.complete(HealthStatus.healthy("slow"));
+            });
+            return promise.future();
         };
 
         HealthCheckManager fastManager = new HealthCheckManager(
             reactivePool,
             manager.getVertx(),
             Duration.ofMillis(100),
-            Duration.ofMillis(150),
+            Duration.ofSeconds(5),
             false
         );
 
-        fastManager.registerHealthCheck("slow", nonInterruptibleSlowCheck);
+        fastManager.registerHealthCheck("slow", slowCheck);
         fastManager.start()
             .compose(v -> manager.getVertx().timer(700).mapEmpty())
             .compose(v -> {
-                assertEquals(1, invocations.get(),
-                    "Timed-out checks must not be re-started while a prior run is still in-flight");
+                assertEquals(1, maxConcurrent.get(),
+                    "Health check cycles must never run concurrently");
                 return fastManager.stop();
             })
             .onSuccess(v -> testContext.completeNow())

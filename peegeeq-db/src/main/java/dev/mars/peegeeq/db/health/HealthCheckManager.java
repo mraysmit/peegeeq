@@ -294,8 +294,8 @@ public class HealthCheckManager implements HealthService {
                         status = HealthStatus.unhealthy(name, "Health check timed out");
                         logger.warn("Health check timed out: {}", name);
                     } else {
-                        status = HealthStatus.unhealthy(name, "Health check error: " + t.getMessage());
-                        logger.warn("Health check error: {}", name, t);
+                        status = HealthStatus.unhealthy(name, "Health check threw exception: " + t.getMessage());
+                        logger.warn("Health check threw exception: {}", name, t);
                     }
                     lastResults.put(name, status);
                 })
@@ -325,7 +325,16 @@ public class HealthCheckManager implements HealthService {
             }
         });
 
-        check.check()
+        Future<HealthStatus> checkFuture;
+        try {
+            checkFuture = check.check();
+        } catch (Throwable t) {
+            vertx.cancelTimer(timeoutId);
+            completed.set(true);
+            return Future.failedFuture(t);
+        }
+
+        checkFuture
             .onSuccess(status -> {
                 if (completed.compareAndSet(false, true)) {
                     vertx.cancelTimer(timeoutId);

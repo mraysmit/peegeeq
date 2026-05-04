@@ -2,7 +2,7 @@
 
 **Author**: Mark A Ray-Smith 
 **Date**: April 29, 2026 (updated April 30, 2026)  
-**Status**: COMPLETE — v1.5 (Phases 1–5 shipped; Decision 2 deferred to a future phase)  
+**Status**: COMPLETE v1.5 (Phases 1–5 shipped; Decision 2 deferred to a future phase)  
 **Version**: 1.5  
 **Priority**: P1 (Architectural Documentation & Pattern Guidance)
 
@@ -10,7 +10,7 @@
 
 ## Executive Summary
 
-**Problem**: PeeGeeQ achieves high throughput via `FOR UPDATE SKIP LOCKED`, which enables concurrent message processing but breaks ordering — message N+1 can complete before message N. This causes intermittent failures in order-sensitive workloads such as event sourcing, state machines, and financial transactions.
+**Problem**: PeeGeeQ achieves high throughput via `FOR UPDATE SKIP LOCKED`, which enables concurrent message processing but breaks ordering message N+1 can complete before message N. This causes intermittent failures in order-sensitive workloads such as event sourcing, state machines, and financial transactions.
 
 **Current State**: PeeGeeQ **already implements** the core solution (OFFSET_WATERMARK mode with `PartitionedConsumerEngine`). The infrastructure provides per-partition ordering today, but it ships with documented operational caveats (see *Operational Caveats & Lifecycle* below) and it is:
 
@@ -43,13 +43,13 @@ PeeGeeQ is designed for **throughput over ordering**. A simple `MessageConsumer`
 
 If simple consumers enforced global strict ordering:
 
-- Scaling to multiple instances would cause severe **head-of-line blocking** — Consumer A processing Message 1 would block Consumer B from accessing Message 2.
+- Scaling to multiple instances would cause severe **head-of-line blocking** Consumer A processing Message 1 would block Consumer B from accessing Message 2.
 - `FOR UPDATE SKIP LOCKED` would lose its primary benefit: concurrent, lock-free throughput.
 
 PeeGeeQ therefore divides consumer responsibilities cleanly:
 
-- **Simple Consumer (`MessageConsumer`)** — optimised for raw concurrent throughput. No coordination, no ordering guarantees, even when running as a single instance.
-- **Consumer Group (`ConsumerGroup`)** — optimised for coordinated state. Accepts the overhead of partition assignment, exclusivity, and fencing in exchange for a mathematical guarantee of order per partition.
+- **Simple Consumer (`MessageConsumer`)** optimised for raw concurrent throughput. No coordination, no ordering guarantees, even when running as a single instance.
+- **Consumer Group (`ConsumerGroup`)** optimised for coordinated state. Accepts the overhead of partition assignment, exclusivity, and fencing in exchange for a mathematical guarantee of order per partition.
 
 | Optimisation | Benefit | Cost |
 |---|---|---|
@@ -75,9 +75,9 @@ This split is intentional and correct for most use cases. Some workloads, howeve
 - Notification delivery
 - Cache invalidation
 
-### EventSourcingCQRSDemoTest — Failure Analysis
+### EventSourcingCQRSDemoTest Failure Analysis
 
-The intermittent failure is in **`testCQRS` (Order=2)**, not `testEventSourcing` (Order=1). `testEventSourcing` stores raw events in a `List`, sorts by version before asserting, and never applies events to a read model — it is therefore not order-sensitive.
+The intermittent failure is in **`testCQRS` (Order=2)**, not `testEventSourcing` (Order=1). `testEventSourcing` stores raw events in a `List`, sorts by version before asserting, and never applies events to a read model it is therefore not order-sensitive.
 
 **Failing test code** (current `testCQRS`):
 
@@ -85,7 +85,7 @@ The intermittent failure is in **`testCQRS` (Order=2)**, not `testEventSourcing`
 // Creates a simple MessageConsumer (no ordering guarantee)
 MessageConsumer<DomainEvent> eventConsumer = queueFactory.createConsumer(eventQueue, DomainEvent.class);
 
-// READ SIDE — updates read model from events
+// READ SIDE updates read model from events
 eventConsumer.subscribe(message -> {
     DomainEvent event = message.getPayload();
     readModelAggregate.applyEvent(event);  // Version-based guard fails on out-of-order arrival
@@ -108,11 +108,11 @@ public void applyEvent(DomainEvent event) {
 **What happens**:
 
 1. The consumer fetches a batch: `[v1, v2, v3, v4]`.
-2. All four events process concurrently — multiple futures in flight.
+2. All four events process concurrently multiple futures in flight.
 3. `v4` completes first, so `lastProcessedVersion = 4`.
 4. `v1`, `v2`, `v3` arrive later and are all rejected by `if (version <= 4)`.
 5. `totalTransactions` stays at 1; the balance reflects only the first event applied.
-6. The test fails: `assertEquals(2050.0, readAggregate.currentBalance)` — the actual value is wrong.
+6. The test fails: `assertEquals(2050.0, readAggregate.currentBalance)` the actual value is wrong.
 
 **Why the version guard cannot fix this**:
 
@@ -130,13 +130,13 @@ PeeGeeQ already has the infrastructure for guaranteed ordering via **partitioned
 
 All four components are already implemented:
 
-1. **`PartitionedConsumerEngine`** — `peegeeq-native/src/main/java/dev/mars/peegeeq/pgqueue/PartitionedConsumerEngine.java`
+1. **`PartitionedConsumerEngine`** `peegeeq-native/src/main/java/dev/mars/peegeeq/pgqueue/PartitionedConsumerEngine.java`
    Coordinates partition assignment, fetching, and offset commits. Processes each partition **sequentially** (no concurrent futures for the same partition).
 
-2. **`PartitionAssignmentService`** — `peegeeq-db/src/main/java/dev/mars/peegeeq/db/consumer/PartitionAssignmentService.java`
+2. **`PartitionAssignmentService`** `peegeeq-db/src/main/java/dev/mars/peegeeq/db/consumer/PartitionAssignmentService.java`
    Assigns partitions to consumer instances and rebalances when consumers join or leave.
 
-3. **`PartitionedOffsetManager`** — `peegeeq-db/src/main/java/dev/mars/peegeeq/db/consumer/PartitionedOffsetManager.java`
+3. **`PartitionedOffsetManager`** `peegeeq-db/src/main/java/dev/mars/peegeeq/db/consumer/PartitionedOffsetManager.java`
    Tracks per-(group, partition) offset cursors so consumption is resumable from the last committed offset.
 
 4. **`message_group` column** (database schema)
@@ -146,18 +146,18 @@ All four components are already implemented:
 
 The guarantee comes from a precise four-step mechanism that isolates partitions:
 
-1. **Routing** — Producers send each message with a `messageGroup` (the partition key, e.g. `account-123`). All messages for `account-123` route to the same partition.
-2. **Exclusive ownership** — `PartitionAssignmentService` assigns each partition to **exactly one consumer instance** in the group. No two consumers ever overlap on `account-123`. (See *How exclusive ownership is enforced* below for the four database-level mechanisms that combine to make this safe.)
-3. **Sequential processing loop** — Inside the assigned consumer, `PartitionedConsumerEngine` fetches messages for the partition in batches but processes them strictly one at a time, waiting for message N's `Future` to complete before dispatching message N+1.
-4. **Guarded fetching** — The engine will not fetch the next batch for a partition until the current batch's offset is committed, enforced by an atomic `fetchInProgress` guard.
+1. **Routing** Producers send each message with a `messageGroup` (the partition key, e.g. `account-123`). All messages for `account-123` route to the same partition.
+2. **Exclusive ownership** `PartitionAssignmentService` assigns each partition to **exactly one consumer instance** in the group. No two consumers ever overlap on `account-123`. (See *How exclusive ownership is enforced* below for the four database-level mechanisms that combine to make this safe.)
+3. **Sequential processing loop** Inside the assigned consumer, `PartitionedConsumerEngine` fetches messages for the partition in batches but processes them strictly one at a time, waiting for message N's `Future` to complete before dispatching message N+1.
+4. **Guarded fetching** The engine will not fetch the next batch for a partition until the current batch's offset is committed, enforced by an atomic `fetchInProgress` guard.
 
 The code below shows how each step is realised.
 
 #### How exclusive ownership is enforced
 
-The "exactly one consumer instance per partition" claim is **not** a convention or in-memory belief. It is enforced by four cooperating mechanisms — three at the database level, one in the engine's read path. Each layer addresses a different failure mode.
+The "exactly one consumer instance per partition" claim is **not** a convention or in-memory belief. It is enforced by four cooperating mechanisms three at the database level, one in the engine's read path. Each layer addresses a different failure mode.
 
-##### Layer 1 — Schema uniqueness on the assignment row
+##### Layer 1 Schema uniqueness on the assignment row
 
 The assignment table has a UNIQUE constraint on `(topic, group_name, partition_key)`:
 
@@ -178,7 +178,7 @@ CREATE TABLE IF NOT EXISTS outbox_partition_assignments (
 
 Postgres physically prevents two rows from claiming the same `(topic, group, partition)` triple. Even in the presence of a coding bug that tried to insert two assignments, the second `INSERT` would fail with a unique-constraint violation. Ownership is a database invariant, not an application invariant.
 
-##### Layer 2 — Serialized rebalance via `FOR UPDATE` on the subscription row
+##### Layer 2 Serialized rebalance via `FOR UPDATE` on the subscription row
 
 All `joinGroup` / `leaveGroup` calls funnel through `PartitionAssignmentService.lockAndBumpGeneration(...)`, which executes inside the same transaction as the rest of the rebalance:
 
@@ -190,9 +190,9 @@ WHERE topic = $1 AND group_name = $2
 RETURNING rebalance_generation
 ```
 
-The implicit row lock acquired by `UPDATE` is held until commit. Two simultaneous joins for the same `(topic, group)` queue behind this row lock and execute strictly one at a time. The entire rebalance — `DELETE FROM outbox_partition_assignments`, `INSERT` the new assignments, `UPDATE outbox_partition_offsets SET generation = ...` — runs inside a single transaction (`connectionManager.withTransaction`), so a partially rebalanced state is never visible to readers.
+The implicit row lock acquired by `UPDATE` is held until commit. Two simultaneous joins for the same `(topic, group)` queue behind this row lock and execute strictly one at a time. The entire rebalance `DELETE FROM outbox_partition_assignments`, `INSERT` the new assignments, `UPDATE outbox_partition_offsets SET generation = ...` runs inside a single transaction (`connectionManager.withTransaction`), so a partially rebalanced state is never visible to readers.
 
-##### Layer 3 — Generation fencing on every offset write
+##### Layer 3 Generation fencing on every offset write
 
 A rebalance increments `rebalance_generation` and also bumps every offset row's `generation`:
 
@@ -219,11 +219,11 @@ WHERE topic = $1 AND group_name = $2 AND partition_key = $3
 
 The engine observes `rows.rowCount() == 0` and logs `"Offset commit rejected (stale generation)"`. A displaced consumer cannot poison the offset cursor of the new owner, even if it processes messages fetched just before the rebalance.
 
-##### Layer 4 — Cooperative read isolation via the engine + `SKIP LOCKED`
+##### Layer 4 Cooperative read isolation via the engine + `SKIP LOCKED`
 
 `PartitionedConsumerEngine.fetchAllPartitions()` iterates only over its in-memory `assignedPartitions` map, which was populated from the engine's own `joinGroup` result. So an instance never *attempts* to fetch a partition that is not assigned to it.
 
-For the brief overlap window during a rebalance — where the previous owner has not yet noticed it has been displaced — the fetch query itself adds a second guard:
+For the brief overlap window during a rebalance where the previous owner has not yet noticed it has been displaced the fetch query itself adds a second guard:
 
 ```sql
 -- PartitionedFetcher.fetchMessages
@@ -240,7 +240,7 @@ FOR UPDATE OF o SKIP LOCKED
 
 `FOR UPDATE OF o SKIP LOCKED` ensures that even if both the old and new owner momentarily issue a fetch for `account-123`, they cannot both lock the same `outbox` row. One acquires the row lock; the other skips it. Combined with Layer 3, any messages the displaced instance still manages to process produce a stale-generation offset commit that is silently rejected, so the new owner re-fetches them and processes them in order under the new generation. **Per-partition order is preserved end-to-end across rebalance windows.**
 
-##### What this combination guarantees — and what it does not
+##### What this combination guarantees and what it does not
 
 - **Guaranteed**: at any committed point in time, exactly one assignment row exists per `(topic, group, partition)`, and exactly one instance can advance the offset cursor for that partition.
 - **Guaranteed**: per-partition message order is preserved across rebalance windows, because `SKIP LOCKED` prevents double row-locking and generation fencing prevents stale commits.
@@ -253,27 +253,27 @@ The four layers together turn "exclusive ownership" from a hopeful invariant int
 
 Two consumers ending up nominally "owning" the same partition is not an exotic edge case. It can be triggered by:
 
-- **A natural rebalance window** — instance B has just joined, instance A has not yet noticed it has been displaced.
-- **A consumer-side bug** — application code holds a stale `assignedPartitions` snapshot, or two threads inside the same JVM construct two engines for the same `(topic, group, instanceId)`.
-- **A misconfigured deployment** — the same `instanceId` is reused across two pods, or a pod's old container has not yet exited when the new one starts.
+- **A natural rebalance window** instance B has just joined, instance A has not yet noticed it has been displaced.
+- **A consumer-side bug** application code holds a stale `assignedPartitions` snapshot, or two threads inside the same JVM construct two engines for the same `(topic, group, instanceId)`.
+- **A misconfigured deployment** the same `instanceId` is reused across two pods, or a pod's old container has not yet exited when the new one starts.
 - **A network partition** that briefly hides instance A from the database; A continues fetching while B was promoted.
 
-This subsection traces what actually happens in the implementation under each scenario. It is not theoretical — every step references a specific SQL statement or method already shown above.
+This subsection traces what actually happens in the implementation under each scenario. It is not theoretical every step references a specific SQL statement or method already shown above.
 
-###### Scenario A — Two consumers join simultaneously (race at join time)
+###### Scenario A Two consumers join simultaneously (race at join time)
 
 Both call `assignmentService.joinGroup(topic, group, instanceId)` at the same moment. Each call runs inside its own `connectionManager.withTransaction(...)`.
 
 1. **Both transactions race for the subscription row lock.** The first statement in each transaction is the `UPDATE outbox_topic_subscriptions SET rebalance_generation = rebalance_generation + 1 ... RETURNING rebalance_generation` shown in Layer 2. Postgres takes a row-level lock as part of `UPDATE`. **Only one transaction acquires it.** The other blocks on that row lock.
 2. **Winner runs to completion.** It reads the partition list, computes consistent-hash assignments, deletes prior assignment rows, inserts new ones, bumps offset generations, commits. Generation is now `N+1`.
-3. **Loser unblocks against the post-commit state.** Its `UPDATE ... RETURNING` returns generation `N+2`. It re-reads partitions and current instances (now including the winner), recomputes assignments — itself included — deletes the just-committed assignment rows, inserts a fresh set at generation `N+2`, and bumps offsets again.
-4. **Net effect**: simultaneous joins are serialized by Postgres. There is no in-doubt state and no double-claim. The winner's view of the world is now stale (generation `N+1`); its next offset commit will be rejected (see Scenario B). The schema's `UNIQUE(topic, group_name, partition_key)` is the safety net if a coding bug ever bypassed Layer 2 — the second `INSERT` would fail with `23505` and the transaction would roll back cleanly.
+3. **Loser unblocks against the post-commit state.** Its `UPDATE ... RETURNING` returns generation `N+2`. It re-reads partitions and current instances (now including the winner), recomputes assignments itself included deletes the just-committed assignment rows, inserts a fresh set at generation `N+2`, and bumps offsets again.
+4. **Net effect**: simultaneous joins are serialized by Postgres. There is no in-doubt state and no double-claim. The winner's view of the world is now stale (generation `N+1`); its next offset commit will be rejected (see Scenario B). The schema's `UNIQUE(topic, group_name, partition_key)` is the safety net if a coding bug ever bypassed Layer 2 the second `INSERT` would fail with `23505` and the transaction would roll back cleanly.
 
-###### Scenario B — Two consumers believe they own the same partition during runtime
+###### Scenario B Two consumers believe they own the same partition during runtime
 
 A held `account-123` at generation `N`. B has just joined and now also believes it owns `account-123` at generation `N+1`. A's in-memory `assignedPartitions` map still has `account-123 → N`. For ~one fetch tick, both engines try to fetch.
 
-**Step 1 — Both call `PartitionedFetcher.fetch(...)`.** Each issues the partition fetch query shown in Layer 4 — `SELECT ... FROM outbox WHERE topic=$1 AND id>$2 AND status IN ('PENDING','PROCESSING') AND message_group=$3 ORDER BY id ASC LIMIT $4 FOR UPDATE OF o SKIP LOCKED`.
+**Step 1 Both call `PartitionedFetcher.fetch(...)`.** Each issues the partition fetch query shown in Layer 4 `SELECT ... FROM outbox WHERE topic=$1 AND id>$2 AND status IN ('PENDING','PROCESSING') AND message_group=$3 ORDER BY id ASC LIMIT $4 FOR UPDATE OF o SKIP LOCKED`.
 
 The query is `SKIP LOCKED`, **not** `NOWAIT`. Both queries run concurrently. For each candidate `outbox` row:
 
@@ -282,31 +282,31 @@ The query is `SKIP LOCKED`, **not** `NOWAIT`. Both queries run concurrently. For
 
 So in the worst case A and B receive **disjoint** subsets of `[v1, v2, v3, v4]`. They do not double-process the same row inside the same fetch tick.
 
-**Step 2 — Divergence at offset commit.** Suppose A locked `[v1, v2]` (generation `N`) and B locked `[v3, v4]` (generation `N+1`). They both process in id order and call `PartitionedOffsetManager.commitOffset(...)`, which is the CAS update shown in Layer 3.
+**Step 2 Divergence at offset commit.** Suppose A locked `[v1, v2]` (generation `N`) and B locked `[v3, v4]` (generation `N+1`). They both process in id order and call `PartitionedOffsetManager.commitOffset(...)`, which is the CAS update shown in Layer 3.
 
 The offset row's `generation` was just bumped to `N+1` by the rebalance. So:
 
 - **A's commit (`generation = N`)** matches zero rows. `rowCount == 0`. `commitOffset` returns `false`. The engine logs `"Offset commit rejected (stale generation): topic=..., partition=account-123, gen=N"` (`PartitionedConsumerEngine.processAndCommit`). **`committed_offset` does not advance for A.**
 - **B's commit (`generation = N+1`)** matches and advances `committed_offset` to `v4`'s id.
 
-**Step 3 — What happens to v1 and v2 — A's "successfully processed" messages?** A's handler did run for v1 and v2. Their side effects (read-model updates, downstream publishes, etc.) are real — that is why handlers must be idempotent. Because A's offset commit was rejected, the cursor stays at its pre-rebalance value. On the next fetch tick under generation `N+1`, B fetches `[v1, v2, v3, v4]` again starting from that pre-rebalance offset, processes them all in `ORDER BY id ASC`, and commits at generation `N+1`.
+**Step 3 What happens to v1 and v2 A's "successfully processed" messages?** A's handler did run for v1 and v2. Their side effects (read-model updates, downstream publishes, etc.) are real that is why handlers must be idempotent. Because A's offset commit was rejected, the cursor stays at its pre-rebalance value. On the next fetch tick under generation `N+1`, B fetches `[v1, v2, v3, v4]` again starting from that pre-rebalance offset, processes them all in `ORDER BY id ASC`, and commits at generation `N+1`.
 
-**Step 4 — End result**:
+**Step 4 End result**:
 
 | Property | Outcome | Enforced by |
 |---|---|---|
-| Row-level safety | Never double-locked in the same instant | Layer 4 — `SKIP LOCKED` |
-| Cursor safety | Cursor only advances under the current generation | Layer 3 — generation fencing on CAS |
+| Row-level safety | Never double-locked in the same instant | Layer 4 `SKIP LOCKED` |
+| Cursor safety | Cursor only advances under the current generation | Layer 3 generation fencing on CAS |
 | Order safety | B re-reads from the cursor's pre-rebalance value and processes in `id` order | Layer 4 fetch + Layer 3 fence combined |
 | **Idempotency cost** | A's handler may have applied v1/v2 once; B will apply them again | **Application's responsibility** |
 
 The application sees those messages **at-least-once with duplicates**, but in order. This is exactly the "ordering guaranteed; deduplication is the consumer's job" contract.
 
-###### Scenario C — Consumer-side bug: stale or duplicated engine in the same process
+###### Scenario C Consumer-side bug: stale or duplicated engine in the same process
 
 If application code (or a test harness) accidentally constructs two `PartitionedConsumerEngine` instances for the same `(topic, group, instanceId)`, or holds a stale assignment snapshot longer than expected, the behaviour reduces to Scenario B. Both engines independently call `joinGroup`; the second join produces a new generation; the first engine's subsequent commits are rejected. No data is lost, no row is double-locked, but duplicate handler invocations occur and the application must remain idempotent.
 
-If the duplication is across processes (e.g., two pods sharing an `instanceId`), the consistent-hash assignment treats them as a single instance (same `instanceId` collapses in the `LinkedHashSet`). They will *both* receive the same partition list, neither knows about the other, and both fetch concurrently. Layer 4 still prevents double row-locks; Layer 3 still prevents double commits — but only one set of commits will succeed at any given time, and which side "wins" is non-deterministic. **Reusing `instanceId` across processes is unsupported and should be considered an operational incident**, not a configuration option. A future enhancement could add a uniqueness check via `last_heartbeat_at` once the engine emits heartbeats (see *Operational Caveats & Lifecycle §2*).
+If the duplication is across processes (e.g., two pods sharing an `instanceId`), the consistent-hash assignment treats them as a single instance (same `instanceId` collapses in the `LinkedHashSet`). They will *both* receive the same partition list, neither knows about the other, and both fetch concurrently. Layer 4 still prevents double row-locks; Layer 3 still prevents double commits but only one set of commits will succeed at any given time, and which side "wins" is non-deterministic. **Reusing `instanceId` across processes is unsupported and should be considered an operational incident**, not a configuration option. A future enhancement could add a uniqueness check via `last_heartbeat_at` once the engine emits heartbeats (see *Operational Caveats & Lifecycle §2*).
 
 ###### Pathological sub-case: stale instance keeps fetching forever
 
@@ -318,7 +318,7 @@ Today's engine does not detect that its generation is stale. It will keep:
 
 It will not recover until the process restarts or another join/leave triggers a fresh rebalance that this instance participates in. **This is a real, documented gap.** It is the runtime sibling of the missing-heartbeat issue noted in *Operational Caveats & Lifecycle §2*: there is no "I have been fenced, refresh my assignment" path. Mitigations operators can apply today:
 
-- Alert on the `"Offset commit rejected (stale generation)"` log line — sustained occurrence indicates a fenced instance.
+- Alert on the `"Offset commit rejected (stale generation)"` log line sustained occurrence indicates a fenced instance.
 - Restart the affected consumer process; on restart its fresh `joinGroup` produces a current generation.
 - Avoid configurations that produce repeated rebalances (flapping pods, frequent scale-up/scale-down).
 
@@ -336,7 +336,7 @@ ConsumerGroup<DomainEvent> group = queueFactory.createConsumerGroup(
 // Set handler before starting
 group.setMessageHandler(message -> Future.succeededFuture());
 
-// start(SubscriptionOptions) returns Future<Void> — chain failure handling
+// start(SubscriptionOptions) returns Future<Void> chain failure handling
 SubscriptionOptions options = SubscriptionOptions.builder()
     .startPosition(StartPosition.FROM_BEGINNING)
     .build();
@@ -358,10 +358,10 @@ group.start(options)
 ```java
 // PartitionedConsumerEngine.fetchPartition():
 private void fetchPartition(String partitionKey, int generation) {
-    // computeIfAbsent — creates the guard lazily on first encounter
+    // computeIfAbsent creates the guard lazily on first encounter
     AtomicBoolean inProgress = fetchInProgress.computeIfAbsent(partitionKey, k -> new AtomicBoolean(false));
     if (!inProgress.compareAndSet(false, true)) {
-        return;  // Previous batch still processing — skip this cycle
+        return;  // Previous batch still processing skip this cycle
     }
 
     fetcher.fetch(topic, groupName, partitionKey, batchSize, generation)
@@ -395,7 +395,7 @@ The `.compose()` chain forces sequential execution: message N+1 cannot start unt
 
 ---
 
-### The `__default__` Partition — Critical Behaviour
+### The `__default__` Partition Critical Behaviour
 
 When a producer calls `send(payload)` or `send(payload, headers, correlationId)` without a `messageGroup`, the message is stored with `message_group = NULL`.
 
@@ -413,13 +413,13 @@ FROM outbox WHERE topic = $1 AND status IN ('PENDING', 'PROCESSING')
 | Producer call | Partition key | Behaviour |
 |---|---|---|
 | `send(event, headers, corrId, "account-123")` | `account-123` | Ordered per account; concurrent with other accounts |
-| `send(event)` | `__default__` | All ungrouped messages share **one** serial partition — no concurrency |
+| `send(event)` | `__default__` | All ungrouped messages share **one** serial partition no concurrency |
 
 **This is the single most common misconfiguration.** Configuring a topic as OFFSET_WATERMARK without passing a `messageGroup` on every `send()` funnels all messages through `__default__` and processes them serially, eliminating the throughput benefit of partitioning.
 
 **Rule**: Always set `messageGroup = aggregateId` (or the equivalent business key) when using OFFSET_WATERMARK. The `__default__` partition is a safety net, not a recommended usage.
 
-> **Caveat**: The `__default__` partition is also subject to the discovery gap described below — it is only assigned to an instance after at least one row with `message_group IS NULL` exists for the topic at the time `joinGroup` runs.
+> **Caveat**: The `__default__` partition is also subject to the discovery gap described below it is only assigned to an instance after at least one row with `message_group IS NULL` exists for the topic at the time `joinGroup` runs.
 
 ---
 
@@ -459,27 +459,27 @@ A `message_group` value that first appears in `outbox` *after* the consumer inst
 
 #### 4. At-least-once delivery still applies
 
-OFFSET_WATERMARK guarantees per-partition order. It does **not** guarantee exactly-once. Duplicates can occur on consumer restart before offset commit, on stale-generation rejection followed by retry, and on rebalance windows. Consumer logic must remain idempotent — see *Phase 2, step 6* below for the recommended idempotency-fence pattern.
+OFFSET_WATERMARK guarantees per-partition order. It does **not** guarantee exactly-once. Duplicates can occur on consumer restart before offset commit, on stale-generation rejection followed by retry, and on rebalance windows. Consumer logic must remain idempotent see *Phase 2, step 6* below for the recommended idempotency-fence pattern.
 
 #### 5. Partitions with all-COMPLETED rows are invisible at join time
 
 `PartitionAssignmentService.discoverPartitionsInternal` filters `status IN ('PENDING', 'PROCESSING')`. A `message_group` whose rows have all transitioned to `COMPLETED` (or `FAILED`, `DEAD_LETTER`) by the time a consumer joins will not appear in the partition-discovery query. The engine will not assign or fetch for it.
 
-When a new message with that same `message_group` is later published, it creates a `PENDING` row. If no rebalance has occurred since join, no instance has `account-123` in its `assignedPartitions` map, and the row accumulates in `PENDING` indefinitely — until another join or leave event triggers rediscovery.
+When a new message with that same `message_group` is later published, it creates a `PENDING` row. If no rebalance has occurred since join, no instance has `account-123` in its `assignedPartitions` map, and the row accumulates in `PENDING` indefinitely until another join or leave event triggers rediscovery.
 
 **This is the same class of problem as caveats §1 and §3.** All three share the same root cause: discovery is point-in-time, not continuous.
 
 **Implications for application code**:
 
 - Do **not** assume that a previously active partition remains assigned after all its messages drain. The assignment may be dropped on the next rebalance if discovery sees no `PENDING`/`PROCESSING` rows at that moment.
-- For long-lived aggregates that may go quiet and resume later, the safest model is to accept the rebalance latency and rely on a subsequent join/leave to re-surface the partition. Alternatively, keep at least one `PROCESSING`-status sentinel row alive during quiet periods (not recommended in most designs — document the trade-off if used).
+- For long-lived aggregates that may go quiet and resume later, the safest model is to accept the rebalance latency and rely on a subsequent join/leave to re-surface the partition. Alternatively, keep at least one `PROCESSING`-status sentinel row alive during quiet periods (not recommended in most designs document the trade-off if used).
 - If/when periodic rediscovery (Open Question 6) is implemented, this caveat and caveats §1/§3 are addressed together. Any change to that behaviour must update all three entries here.
 
 ---
 
 ### Decision 1: Adopt OFFSET_WATERMARK Mode ⭐
 
-**Status**: **✅ adopted — implement in Phases 1–5.**
+**Status**: **✅ adopted implement in Phases 1–5.**
 
 **Approach**: Migrate `EventSourcingCQRSDemoTest` to use a partitioned consumer group.
 
@@ -494,7 +494,7 @@ ON CONFLICT (topic) DO UPDATE
 SET completion_tracking_mode = 'OFFSET_WATERMARK';
 ```
 
-2. **Producer — set partition key (and compose the send future)**:
+2. **Producer set partition key (and compose the send future)**:
 
 ```java
 // Use the aggregate ID as partition key
@@ -510,7 +510,7 @@ return eventProducer.send(event, headers, correlationId, partitionKey)
 
 > **Reactive-only rule**: Never discard the `Future<Void>` returned by `send(...)`. Without composition, the command handler can complete before the event is persisted, breaking the CQRS contract.
 
-3. **Consumer — use a partitioned group**:
+3. **Consumer use a partitioned group**:
 
 ```java
 // Create a consumer group via QueueFactory (NOT a simple MessageConsumer)
@@ -523,7 +523,7 @@ ConsumerGroup<DomainEvent> eventGroup = queueFactory.createConsumerGroup(
 // Set message handler (required before start)
 eventGroup.setMessageHandler(message -> {
     DomainEvent event = message.getPayload();
-    // message.getMessageGroup() == event.getAggregateId() — same partition key as producer
+    // message.getMessageGroup() == event.getAggregateId() same partition key as producer
 
     AccountReadModel readModel = readModels.get(event.getAggregateId());
     readModel.applyEvent(event);  // ✅ Guaranteed in-order per account
@@ -544,7 +544,7 @@ eventGroup.start(options)
 **Why this works**:
 
 - ✅ All events for the same account go to the same partition.
-- ✅ Each partition is processed sequentially — no concurrent futures for that partition.
+- ✅ Each partition is processed sequentially no concurrent futures for that partition.
 - ✅ Ordering is guaranteed within a partition.
 - ✅ Concurrency is preserved across partitions (`account-123` and `account-456` run in parallel).
 - ✅ Adding more consumers triggers rebalancing.
@@ -565,7 +565,7 @@ eventGroup.start(options)
 
 #### Motivation
 
-OFFSET_WATERMARK provides *per-key* ordering: messages with the same `messageGroup` are processed sequentially, but different keys run concurrently. Some workloads need **total global ordering** across an entire topic — every message processed strictly in `id` order, with no concurrent dispatch — and cannot be partitioned at all:
+OFFSET_WATERMARK provides *per-key* ordering: messages with the same `messageGroup` are processed sequentially, but different keys run concurrently. Some workloads need **total global ordering** across an entire topic every message processed strictly in `id` order, with no concurrent dispatch and cannot be partitioned at all:
 
 - Append-only ledger streams where causality is global and not bound to a single aggregate.
 - Migration / replay pipelines that must reproduce historical order exactly.
@@ -590,7 +590,7 @@ Exclusivity is enforced **per topic**, not per consumer process. Multiple exclus
 
 #### Configuration API
 
-The proposal extends the existing `ConsumerConfig` builder in `peegeeq-native/src/main/java/dev/mars/peegeeq/pgqueue/ConsumerConfig.java` with a new nested `ExclusiveConfig` value object. Keeping it nested (rather than as five flat fields) avoids polluting `ConsumerConfig` and keeps the default — non-exclusive — single-line opt-out.
+The proposal extends the existing `ConsumerConfig` builder in `peegeeq-native/src/main/java/dev/mars/peegeeq/pgqueue/ConsumerConfig.java` with a new nested `ExclusiveConfig` value object. Keeping it nested (rather than as five flat fields) avoids polluting `ConsumerConfig` and keeps the default non-exclusive single-line opt-out.
 
 ```java
 ConsumerConfig config = ConsumerConfig.builder()
@@ -659,7 +659,7 @@ The default `fromTopic()` strategy hashes `schema + ":" + topic` so that:
 - The same topic across consumer restarts always resolves to the same lock key.
 - A 64-bit Murmur3 hash (the same hash already used by `PartitionAssignmentService`) is reused for consistency.
 
-The literal-key strategy lets advanced users couple exclusivity across multiple topics — for example, "only one of `orders` or `order-cancellations` may run at a time" — by configuring both consumers with the same literal key.
+The literal-key strategy lets advanced users couple exclusivity across multiple topics for example, "only one of `orders` or `order-cancellations` may run at a time" by configuring both consumers with the same literal key.
 
 #### Lifecycle and state machine
 
@@ -705,7 +705,7 @@ Transitions:
 5. **ACTIVE → RELEASING**: `stop()` called, or heartbeat detected the connection is dead.
 6. **RELEASING → STOPPED**: `pg_advisory_unlock(key)` issued (best effort), then connection closed. If the connection is already gone, Postgres releases the lock automatically.
 
-All transitions return `Future<Void>` and use `.compose()` chaining — no callbacks, no blocking waits — to comply with the project's reactive-only rules.
+All transitions return `Future<Void>` and use `.compose()` chaining no callbacks, no blocking waits to comply with the project's reactive-only rules.
 
 #### Failure modes and fencing
 
@@ -715,8 +715,8 @@ The exclusive consumer must remain safe under the following failure scenarios:
 |---|---|---|
 | Active consumer process crashes | TCP session ends; Postgres releases session-level lock automatically | A standby acquires the lock on its next retry. Maximum failover latency = `lockAcquisitionInterval` + RTT. |
 | Network partition (active consumer cut off from DB) | Heartbeat `SELECT 1` fails, OR Postgres terminates the session via `tcp_keepalives_idle` | Active consumer transitions to STOPPED. Standby takes over once Postgres releases the lock. |
-| Connection pool or proxy that does not preserve session lifetime | Advisory locks are session-scoped; returning the connection to a pool releases the lock silently | **Operator requirement**: the dedicated connection used by `ExclusiveConsumerCoordinator` must persist for the consumer's lifetime. Use a direct connection or a pool configured for session-level persistence. This is an operator responsibility — the engine cannot reliably detect whether a connection will be returned to a pool mid-session. |
-| Two instances both believe they hold the lock | Cannot happen at Postgres level — `pg_try_advisory_lock` is atomic | Application code never branches on a cached lock-state belief; it issues queries on the lock-holding connection and trusts Postgres. |
+| Connection pool or proxy that does not preserve session lifetime | Advisory locks are session-scoped; returning the connection to a pool releases the lock silently | **Operator requirement**: the dedicated connection used by `ExclusiveConsumerCoordinator` must persist for the consumer's lifetime. Use a direct connection or a pool configured for session-level persistence. This is an operator responsibility the engine cannot reliably detect whether a connection will be returned to a pool mid-session. |
+| Two instances both believe they hold the lock | Cannot happen at Postgres level `pg_try_advisory_lock` is atomic | Application code never branches on a cached lock-state belief; it issues queries on the lock-holding connection and trusts Postgres. |
 | Handler hangs indefinitely | No automatic fence today | Recommend: combine with the existing `ConsumerConfig.handlerTimeout` (separate proposal). Out of scope for this design. |
 
 There is intentionally **no zombie-fencing token mechanism** in this proposal. The advisory lock + dedicated session is the fence; if the session is alive, the lock is held; if the session dies, the lock is gone. This is simpler and more reliable than application-level epoch fencing.
@@ -725,10 +725,10 @@ There is intentionally **no zombie-fencing token mechanism** in this proposal. T
 
 The coordinator emits the following metrics (using the existing tracing/metrics conventions in `peegeeq-db`):
 
-- `peegeeq.consumer.exclusive.state` — gauge, one of `ACQUIRING / ACTIVE / RELEASING / STOPPED`.
-- `peegeeq.consumer.exclusive.lock_acquired_total` — counter; incremented on each successful acquisition.
-- `peegeeq.consumer.exclusive.lock_failover_seconds` — histogram; time from previous holder's release to acquisition by this instance.
-- `peegeeq.consumer.exclusive.standby_duration_seconds` — histogram; time spent waiting for the lock per acquisition.
+- `peegeeq.consumer.exclusive.state` gauge, one of `ACQUIRING / ACTIVE / RELEASING / STOPPED`.
+- `peegeeq.consumer.exclusive.lock_acquired_total` counter; incremented on each successful acquisition.
+- `peegeeq.consumer.exclusive.lock_failover_seconds` histogram; time from previous holder's release to acquisition by this instance.
+- `peegeeq.consumer.exclusive.standby_duration_seconds` histogram; time spent waiting for the lock per acquisition.
 - Structured logs at `INFO` for state transitions, at `WARN` for failed acquisitions or heartbeat failures.
 
 #### Trade-offs vs. partitioned consumer groups
@@ -736,12 +736,12 @@ The coordinator emits the following metrics (using the existing tracing/metrics 
 | Feature | Exclusive Consumer (`ExclusiveConfig.enabled = true`) | Partitioned Consumer Group (`OFFSET_WATERMARK`) |
 |---|---|---|
 | **Scope of ordering** | Total global ordering across the entire topic | Per-key ordering (within `messageGroup`) |
-| **Maximum throughput** | One thread, one instance — bounded by handler latency | Scales horizontally across instances and partitions |
+| **Maximum throughput** | One thread, one instance bounded by handler latency | Scales horizontally across instances and partitions |
 | **Fault tolerance** | Active/passive; failover latency ≈ `lockAcquisitionInterval` | Active/active; rebalance on join/leave |
 | **Complexity (production code)** | Low: one coordinator class, one extra connection | High: offset table, generations, watermark sweeper |
 | **Complexity (operator burden)** | Must use session-pooling or direct connections | Must choose partition keys correctly |
 | **Multi-tenant safe** | Yes, when `LockKey.fromTopic()` includes schema | Yes (existing) |
-| **Combinable with other modes** | No — mutually exclusive with OFFSET_WATERMARK | N/A |
+| **Combinable with other modes** | No mutually exclusive with OFFSET_WATERMARK | N/A |
 | **Observable failover** | Yes (failover metric) | N/A (always active) |
 
 #### TDD ordering for implementation
@@ -750,11 +750,11 @@ If/when this proposal is approved, implementation must follow:
 
 ```
 RED:
- 1. ExclusiveConsumerConfigValidationTest — builder + validation rules
- 2. ExclusiveConsumerLockAcquisitionIntegrationTest — single instance acquires, dequeues in id order
- 3. ExclusiveConsumerFailoverIntegrationTest — kill active, standby takes over within 2× interval
- 4. ExclusiveConsumerStrictOrderingIntegrationTest — 1000 messages, slow handler, asserts strict id order
- 5. ExclusiveConsumerIncompatibleWithOffsetWatermarkTest — start() fails on OFFSET_WATERMARK topic
+ 1. ExclusiveConsumerConfigValidationTest builder + validation rules
+ 2. ExclusiveConsumerLockAcquisitionIntegrationTest single instance acquires, dequeues in id order
+ 3. ExclusiveConsumerFailoverIntegrationTest kill active, standby takes over within 2× interval
+ 4. ExclusiveConsumerStrictOrderingIntegrationTest 1000 messages, slow handler, asserts strict id order
+ 5. ExclusiveConsumerIncompatibleWithOffsetWatermarkTest start() fails on OFFSET_WATERMARK topic
 
 GREEN:
  6. ExclusiveConfig + LockKey + builder validation
@@ -805,27 +805,27 @@ This TODO is intentionally scoped to OFFSET_WATERMARK. The exclusive-consumer su
 
 | Decision | Status | Rationale |
 |---|---|---|
-| **Decision 1 — OFFSET_WATERMARK + partitioned consumer group** | **✅ ADOPTED — implement now** | The infrastructure already exists; this decision makes the per-key ordering pattern visible and supported. It fixes the intermittent `testCQRS` failure with the architecturally correct pattern. |
-| **Decision 2 — Exclusive Consumer (advisory locks, total global ordering)** | **🕒 DEFERRED — future phase** | Genuinely useful for total-ordering workloads (ledgers, replays, single-writer projections), but distinct from per-key ordering. Implementing it after Decision 1 ships avoids conflating two design surfaces and lets us validate Decision 1's operational caveats before adding a second mode. |
+| **Decision 1 OFFSET_WATERMARK + partitioned consumer group** | **✅ ADOPTED implement now** | The infrastructure already exists; this decision makes the per-key ordering pattern visible and supported. It fixes the intermittent `testCQRS` failure with the architecturally correct pattern. |
+| **Decision 2 Exclusive Consumer (advisory locks, total global ordering)** | **🕒 DEFERRED future phase** | Genuinely useful for total-ordering workloads (ledgers, replays, single-writer projections), but distinct from per-key ordering. Implementing it after Decision 1 ships avoids conflating two design surfaces and lets us validate Decision 1's operational caveats before adding a second mode. |
 
 **Implications of this decision**:
 
 - The current implementation plan covers Decision 1 only.
-- Decision 2's full design (configuration API, lock keying, lifecycle, observability, TDD ordering) remains in this document as a *deferred future phase* — see Phase 6 below — so that no design work is lost.
+- Decision 2's full design (configuration API, lock keying, lifecycle, observability, TDD ordering) remains in this document as a *deferred future phase* see Phase 6 below so that no design work is lost.
 - The TODO under *Cross-Module API Alignment* is reduced in scope: the immediate concern is ensuring `peegeeq-outbox` and `peegeeq-bitemporal` can opt into OFFSET_WATERMARK. Their exclusive-consumer story is held until Decision 2's phase begins.
 
 ---
 
 ## Recommendation
 
-**For `EventSourcingCQRSDemoTest`** — use **Decision 1 (OFFSET_WATERMARK)** because it:
+**For `EventSourcingCQRSDemoTest`** use **Decision 1 (OFFSET_WATERMARK)** because it:
 
 1. demonstrates the **correct architectural pattern** for event sourcing,
 2. shows users **how to achieve ordering** in production,
 3. uses **existing infrastructure** (no new code required), and
 4. validates that **partitioned consumption** works correctly.
 
-**For general guidance** — document **both patterns**:
+**For general guidance** document **both patterns**:
 
 - Simple consumer + idempotency → use when order does not matter.
 - Partitioned consumer → use when per-key ordering is required.
@@ -835,9 +835,9 @@ This TODO is intentionally scoped to OFFSET_WATERMARK. The exclusive-consumer su
 
 ## Implementation Plan
 
-### TDD Ordering (mandatory — do not reverse)
+### TDD Ordering (mandatory do not reverse)
 
-This section defines the **execution order** across Phases 1–5. The phases below describe **what** is delivered in each work package; this section defines **when** each piece is written relative to the others. Read it as a cross-cutting checklist that interleaves the per-phase work — not as a sixth phase.
+This section defines the **execution order** across Phases 1–5. The phases below describe **what** is delivered in each work package; this section defines **when** each piece is written relative to the others. Read it as a cross-cutting checklist that interleaves the per-phase work not as a sixth phase.
 
 **Mapping to phases**:
 
@@ -845,7 +845,7 @@ This section defines the **execution order** across Phases 1–5. The phases bel
 |---|---|---|
 | RED 1 | Phase 2 | New failing test `testCQRS_multipleAccounts_perAccountOrdering` (Order=3) added to `EventSourcingCQRSDemoTest`. |
 | RED 2 | Phase 3 | New failing file `PartitionedOrderingDemoTest` (tests 2a–2d). |
-| RED 3 | Phase 2 | Confirm the existing `testCQRS` (Order=2) is already intermittently RED — baseline before any production change. |
+| RED 3 | Phase 2 | Confirm the existing `testCQRS` (Order=2) is already intermittently RED baseline before any production change. |
 | RED 3a | Phase 4 | Add the safety tests (Test A `…newMessageGroupAfterJoin_notAssignedUntilRebalance` and Test B handler-failure-mid-batch) as failing tests against current behaviour. |
 | GREEN 4 | Phase 2 | Insert `outbox_topics` OFFSET_WATERMARK row in test setup. |
 | GREEN 5 | Phase 2 | Producer change: `send(event, headers, correlationId, event.getAggregateId())` and compose returned `Future<Void>`. |
@@ -855,25 +855,25 @@ This section defines the **execution order** across Phases 1–5. The phases bel
 | VERIFY 9 | Phase 2 | `testCQRS` passes 10/10 consecutive runs. |
 | VERIFY 10 | Phase 2 | `testCQRS_multipleAccounts_perAccountOrdering` passes 10/10. |
 | VERIFY 11 | Phase 3 + Phase 4 | All `PartitionedOrderingDemoTest` and Phase 4 safety tests pass deterministically. |
-| VERIFY 12 | Regression gate | `testEventSourcing` (Order=1) still passes — no regression. |
+| VERIFY 12 | Regression gate | `testEventSourcing` (Order=1) still passes no regression. |
 | Documentation | Phase 1 + Phase 5 | Phase 1 (`PEEGEEQ_ORDERING_PATTERNS_GUIDE.md`) may be drafted at any point but is **finalised after VERIFY** so examples reflect the shipped APIs; Phase 5 (user-guide cross-references) lands last. |
 
-**Phase 6** (Deferred — Exclusive Consumer) and **Phase 7** (Deferred — Native-Table OFFSET_WATERMARK over `queue_messages`) each have their own, independent TDD ordering and are not part of the table above. They begin only when the triggers documented in *Phase 6 (Deferred)* and *Phase 7 (Deferred)* respectively are satisfied.
+**Phase 6** (Deferred Exclusive Consumer) and **Phase 7** (Deferred Native-Table OFFSET_WATERMARK over `queue_messages`) each have their own, independent TDD ordering and are not part of the table above. They begin only when the triggers documented in *Phase 6 (Deferred)* and *Phase 7 (Deferred)* respectively are satisfied.
 
 **Execution sequence in flat form** (the original list, retained for quick reference):
 
 ```
-RED PHASE — write failing tests first:
+RED PHASE write failing tests first:
   1. Write testCQRS_multipleAccounts_perAccountOrdering (Order=3) in EventSourcingCQRSDemoTest    [Phase 2]
      → RED: no OFFSET_WATERMARK topic setup, no messageGroup on producers
-  2. Write PartitionedOrderingDemoTest (new file) — tests 2a–2d                                    [Phase 3]
+  2. Write PartitionedOrderingDemoTest (new file) tests 2a–2d                                    [Phase 3]
      → RED: class does not exist
   3. The existing testCQRS (Order=2) is already intermittently RED.                                [Phase 2]
      Confirm by running 10 times before any code change.
   3a. Write Phase 4 safety tests A (newMessageGroupAfterJoin) and B (handler-failure-mid-batch)    [Phase 4]
      → RED against current behaviour.
 
-GREEN PHASE — implement minimum change to pass:
+GREEN PHASE implement minimum change to pass:
   4. Add outbox_topics OFFSET_WATERMARK row in @BeforeEach (or per-test setup)                     [Phase 2]
   5. Change testCQRS event producer: send with messageGroup = event.getAggregateId()               [Phase 2]
   6. Change testCQRS event consumer: ConsumerGroup + start(SubscriptionOptions)                    [Phase 2]
@@ -884,7 +884,7 @@ VERIFY:
   9.  testCQRS passes 10/10 consecutive runs                                                       [Phase 2] ✅ DONE
   10. testCQRS_multipleAccounts_perAccountOrdering passes 10/10                                    [Phase 2] ✅ DONE
   11. All PartitionedOrderingDemoTest and Phase 4 safety tests pass deterministically              [Phase 3 + Phase 4] ✅ DONE
-  12. testEventSourcing (Order=1) still passes — no regression                                     [Regression gate] ✅ DONE
+  12. testEventSourcing (Order=1) still passes no regression                                     [Regression gate] ✅ DONE
 
 DOCUMENTATION (lands after VERIFY so examples reflect shipped APIs):
   13. Finalise PEEGEEQ_ORDERING_PATTERNS_GUIDE.md                                                  [Phase 1] ✅ DONE
@@ -895,7 +895,7 @@ DOCUMENTATION (lands after VERIFY so examples reflect shipped APIs):
 
 ### Phase 1: Documentation
 
-**Status**: ✅ Complete — `docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md` delivered.
+**Status**: ✅ Complete `docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md` delivered.
 
 **New guide**: `docs/PEEGEEQ_ORDERING_PATTERNS_GUIDE.md`
 
@@ -906,8 +906,8 @@ DOCUMENTATION (lands after VERIFY so examples reflect shipped APIs):
    - Why `FOR UPDATE SKIP LOCKED` breaks ordering
    - When ordering matters
 2. **Consumer mode comparison**
-   - Simple consumer (`MessageConsumer`) — use cases
-   - Partitioned consumer (`ConsumerGroup` + OFFSET_WATERMARK) — use cases
+   - Simple consumer (`MessageConsumer`) use cases
+   - Partitioned consumer (`ConsumerGroup` + OFFSET_WATERMARK) use cases
    - Decision matrix
 3. **Pattern 1: Simple consumer + idempotency**
    - When to use (metrics, logs, notifications)
@@ -928,19 +928,19 @@ DOCUMENTATION (lands after VERIFY so examples reflect shipped APIs):
 
 ### Phase 2: Fix `testCQRS` in `EventSourcingCQRSDemoTest`
 
-**Status**: ✅ Complete — `testCQRS` migrated to OFFSET_WATERMARK + `ConsumerGroup`; `testCQRS_multipleAccounts_perAccountOrdering` (Order=3) added. Verified 10/10 consecutive passing runs (logs/verify-cqrs-run1.txt … logs/verify-cqrs-run10.txt).
+**Status**: ✅ Complete `testCQRS` migrated to OFFSET_WATERMARK + `ConsumerGroup`; `testCQRS_multipleAccounts_perAccountOrdering` (Order=3) added. Verified 10/10 consecutive passing runs (logs/verify-cqrs-run1.txt … logs/verify-cqrs-run10.txt).
 
 **File**: `peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/outbox/EventSourcingCQRSDemoTest.java`
 
 **Changes** (all inside `testCQRS`, Order=2):
 
 1. Before creating producers/consumers, insert the event queue topic into `outbox_topics` as OFFSET_WATERMARK.
-2. Change every `eventProducer.send(event)` call to `eventProducer.send(event, headers, correlationId, event.getAggregateId())` and **compose the returned `Future<Void>`** — never discard it. The command handler's returned future must complete only after every generated event's send future has resolved.
+2. Change every `eventProducer.send(event)` call to `eventProducer.send(event, headers, correlationId, event.getAggregateId())` and **compose the returned `Future<Void>`** never discard it. The command handler's returned future must complete only after every generated event's send future has resolved.
 3. **Prime partitions before consumer-group start.** Because `joinGroup` discovers partitions from existing `PENDING`/`PROCESSING` rows (see *Operational Caveats & Lifecycle*), the test must publish at least one event per `aggregateId` it intends to use before calling `eventGroup.start(options)`, OR sequence start strictly after the first batch of `send(...)` futures resolves. This avoids the empty-assignment trap where the consumer sits idle.
 4. Replace `MessageConsumer<DomainEvent> eventConsumer` with `ConsumerGroup<DomainEvent> eventGroup`.
 5. Replace `eventConsumer.subscribe(...)` with `eventGroup.setMessageHandler(...)` followed by `eventGroup.start(options).onFailure(...)`.
 6. Replace `eventConsumer.close()` with `eventGroup.stopGracefully()` (returns `Future<Void>`).
-7. **Repurpose the version guard as an idempotency fence — do NOT remove it.** OFFSET_WATERMARK guarantees per-partition ordering; it does not deduplicate. Keep the existing check in `AccountReadModel.applyEvent()`:
+7. **Repurpose the version guard as an idempotency fence do NOT remove it.** OFFSET_WATERMARK guarantees per-partition ordering; it does not deduplicate. Keep the existing check in `AccountReadModel.applyEvent()`:
 
    ```java
    public void applyEvent(DomainEvent event) {
@@ -955,15 +955,15 @@ DOCUMENTATION (lands after VERIFY so examples reflect shipped APIs):
    }
    ```
 
-   Update the comment to describe the guard's purpose under OFFSET_WATERMARK (idempotency, not ordering). Removing the guard would cause `totalTransactions`, `totalDeposits`, and `totalWithdrawals` to double-count on any redelivery — see Appendix row "Idempotency requirement".
+   Update the comment to describe the guard's purpose under OFFSET_WATERMARK (idempotency, not ordering). Removing the guard would cause `totalTransactions`, `totalDeposits`, and `totalWithdrawals` to double-count on any redelivery see Appendix row "Idempotency requirement".
 
 Add `testCQRS_multipleAccounts_perAccountOrdering` (Order=3) to verify that the pattern generalises across multiple aggregates processed concurrently.
 
 ---
 
-### Phase 3: New Example — `PartitionedOrderingDemoTest`
+### Phase 3: New Example `PartitionedOrderingDemoTest`
 
-**Status**: ✅ Complete — all 4 tests pass deterministically (logs/verify-ordering-demo.txt: Tests run: 4, Failures: 0). Note: file lives in the `outbox` package, not `nativequeue`.
+**Status**: ✅ Complete all 4 tests pass deterministically (logs/verify-ordering-demo.txt: Tests run: 4, Failures: 0). Note: file lives in the `outbox` package, not `nativequeue`.
 
 **File**: `peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/outbox/PartitionedOrderingDemoTest.java`
 
@@ -979,9 +979,9 @@ Add `testCQRS_multipleAccounts_perAccountOrdering` (Order=3) to verify that the 
 
 ---
 
-### Phase 4: Safety Tests — Handler Failure & Discovery Gap
+### Phase 4: Safety Tests Handler Failure & Discovery Gap
 
-**Status**: ✅ Complete — all 6 tests in `PartitionedConsumerSafetyIntegrationTest` pass (logs/safety-test-order6.txt: Tests run: 6, Failures: 0).
+**Status**: ✅ Complete all 6 tests in `PartitionedConsumerSafetyIntegrationTest` pass (logs/safety-test-order6.txt: Tests run: 6, Failures: 0).
 
 **File**: `peegeeq-native/src/test/java/dev/mars/peegeeq/pgqueue/PartitionedConsumerSafetyIntegrationTest.java`
 
@@ -1008,7 +1008,7 @@ The existing safety tests cover close-during-startup, stop-failure logging, and 
 
 - Insert 5 messages into one partition.
 - Handler returns `Future.succeededFuture()` for messages 1–2 and `Future.failedFuture(...)` for message 3.
-- After the fetch cycle completes, `committed_offset` must remain at its pre-batch value — the offset must not advance past the failure.
+- After the fetch cycle completes, `committed_offset` must remain at its pre-batch value the offset must not advance past the failure.
 - `fetchInProgress` for that partition must be `false` (released by `.eventually()`) so the next cycle can run.
 - On the **next fetch cycle**, messages 1–5 are re-fetched from the pre-batch offset and the handler is invoked again for messages 1–2 (at-least-once redelivery after failure). This assertion is required to prove the at-least-once + re-delivery contract, not merely the offset non-advancement.
 
@@ -1018,23 +1018,23 @@ This validates the `processAndCommit` → `.eventually(() -> inProgress.set(fals
 
 ### Phase 5: User Guide Updates
 
-**Status**: ✅ Complete — cross-references added to all three guides.
+**Status**: ✅ Complete cross-references added to all three guides.
 
 **Files updated**:
 
-- `docs/PEEGEEQ_COMPLETE_GUIDE.md` — "Ordering Guarantees?" callout added at top.
-- `docs/PEEGEEQ_EXAMPLES_GUIDE.md` — references to Ordering Patterns Guide added.
-- `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` — `PartitionedConsumerEngine` documented with link to Ordering Patterns Guide.
+- `docs/PEEGEEQ_COMPLETE_GUIDE.md` "Ordering Guarantees?" callout added at top.
+- `docs/PEEGEEQ_EXAMPLES_GUIDE.md` references to Ordering Patterns Guide added.
+- `docs/PEEGEEQ_ARCHITECTURE_API_GUIDE.md` `PartitionedConsumerEngine` documented with link to Ordering Patterns Guide.
 
 ---
 
-### Phase 6 (Deferred): Exclusive Consumer — Total Global Ordering
+### Phase 6 (Deferred): Exclusive Consumer Total Global Ordering
 
 **Status**: **deferred future phase.** Not in scope for the current implementation cycle.
 
 This phase implements Decision 2 (see *Decision 2 (Future Phase): Exclusive Consumer for Total Global Ordering* above). It is held back deliberately so that:
 
-- Decision 1 ships, is exercised in production, and its operational caveats (Open Question 6 — periodic rediscovery and engine heartbeats) are addressed first.
+- Decision 1 ships, is exercised in production, and its operational caveats (Open Question 6 periodic rediscovery and engine heartbeats) are addressed first.
 - The exclusive-consumer mode is implemented against a stable, documented per-key-ordering baseline rather than concurrently with it.
 - Demand can be validated against a real workload (ledger streams, replay pipelines, single-writer projections) before committing to a second ordering mode.
 
@@ -1057,7 +1057,7 @@ This phase implements Decision 2 (see *Decision 2 (Future Phase): Exclusive Cons
 
 ---
 
-### Phase 7 (Deferred): Native-Table OFFSET_WATERMARK — Partitioned Engine over `queue_messages`
+### Phase 7 (Deferred): Native-Table OFFSET_WATERMARK Partitioned Engine over `queue_messages`
 
 **Status**: **deferred future phase.** Not in scope for the current implementation cycle.
 
@@ -1078,17 +1078,17 @@ LIMIT $4
 FOR UPDATE OF o SKIP LOCKED;
 ```
 
-The **native** subsystem (`PgNativeQueueProducer` + `PgNativeQueueConsumer`) writes to a different table — `queue_messages` — using PostgreSQL `LISTEN/NOTIFY` for low-latency delivery. `PgNativeConsumerGroup.startPartitioned()` *does* register partition assignments when the topic is configured `OFFSET_WATERMARK`, but the partitioned engine then finds zero rows because the producer's writes never reach `outbox`. As a result, today the `EventSourcingCQRSDemoTest` Phase 2 GREEN demo runs over the **outbox factory** (see [`peegeeq-examples/.../EventSourcingCQRSDemoTest.java`](../../peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/outbox/EventSourcingCQRSDemoTest.java)). This is correct end-to-end behaviour but means OFFSET_WATERMARK currently has **no native-subsystem equivalent**.
+The **native** subsystem (`PgNativeQueueProducer` + `PgNativeQueueConsumer`) writes to a different table `queue_messages` using PostgreSQL `LISTEN/NOTIFY` for low-latency delivery. `PgNativeConsumerGroup.startPartitioned()` *does* register partition assignments when the topic is configured `OFFSET_WATERMARK`, but the partitioned engine then finds zero rows because the producer's writes never reach `outbox`. As a result, today the `EventSourcingCQRSDemoTest` Phase 2 GREEN demo runs over the **outbox factory** (see [`peegeeq-examples/.../EventSourcingCQRSDemoTest.java`](../../peegeeq-examples/src/test/java/dev/mars/peegeeq/examples/outbox/EventSourcingCQRSDemoTest.java)). This is correct end-to-end behaviour but means OFFSET_WATERMARK currently has **no native-subsystem equivalent**.
 
 #### Goal
 
-Make `PgNativeConsumerGroup` + OFFSET_WATERMARK fully functional against the native producer — so a single demo or production application can use the native subsystem (LISTEN/NOTIFY-driven low-latency delivery) **and** still get per-`messageGroup` ordering.
+Make `PgNativeConsumerGroup` + OFFSET_WATERMARK fully functional against the native producer so a single demo or production application can use the native subsystem (LISTEN/NOTIFY-driven low-latency delivery) **and** still get per-`messageGroup` ordering.
 
 #### Design Options
 
 1. **Sibling fetcher** (recommended): introduce `PartitionedNativeFetcher` (in `peegeeq-db` or `peegeeq-native`) that mirrors `PartitionedFetcher` but reads from `queue_messages`. `PartitionedConsumerEngine` selects the fetcher implementation based on the calling factory (native vs outbox) at construction time. Lowest-risk change; no shared SQL surface.
 2. **Parameterised fetcher**: extend `PartitionedFetcher` with a "source table" parameter (`outbox` | `queue_messages`) and column mapping. Higher coupling, requires care that locking semantics (`FOR UPDATE SKIP LOCKED`) remain correct against `queue_messages`'s indexes and status enum.
-3. **Cross-table view/MV**: a database view that unions outbox and native rows. Rejected — adds replication latency and complicates `FOR UPDATE`.
+3. **Cross-table view/MV**: a database view that unions outbox and native rows. Rejected adds replication latency and complicates `FOR UPDATE`.
 
 #### Required Production Changes (option 1)
 
@@ -1106,37 +1106,37 @@ Make `PgNativeConsumerGroup` + OFFSET_WATERMARK fully functional against the nat
 
 #### Scope when Phase 7 begins
 
-##### TDD ordering for Phase 7 (mandatory — do not reverse)
+##### TDD ordering for Phase 7 (mandatory do not reverse)
 
 ```
 RED:
  1. PartitionedNativeConsumerOrderingIntegrationTest
-    — topic configured OFFSET_WATERMARK; messages produced via PgNativeQueueProducer.send(..., messageGroup);
+    topic configured OFFSET_WATERMARK; messages produced via PgNativeQueueProducer.send(..., messageGroup);
       asserts per-partition strict ordering at the consumer (version order ascending per aggregateId).
  2. PartitionedNativeConsumerOffsetAdvancementIntegrationTest
-    — asserts outbox_partition_offsets.committed_offset advances after successful processing
+    asserts outbox_partition_offsets.committed_offset advances after successful processing
       when messages arrive via the native producer path.
  3. PartitionedNativeConsumerRestartResumesFromOffsetIntegrationTest
-    — consumer group stopped and restarted without offset reset; asserts engine resumes
+    consumer group stopped and restarted without offset reset; asserts engine resumes
       from committed_offset and does not re-deliver already-committed messages in normal path.
  4. PartitionedNativeConsumerConcurrentPartitionsIntegrationTest
-    — 2 accounts × 3 slow-handler events each; asserts total elapsed < 2 × single-partition time
+    2 accounts × 3 slow-handler events each; asserts total elapsed < 2 × single-partition time
       (cross-partition concurrency preserved on native path).
 
 GREEN:
- 5. PartitionedNativeFetcher — reads from queue_messages with the same contract as
+ 5. PartitionedNativeFetcher reads from queue_messages with the same contract as
     PartitionedFetcher (fetchMessages → setPendingOffset → getCommittedOffset).
     Confirm queue_messages has (topic, message_group, id) index; add partial index if absent.
  6. PgNativeQueueFactory (or PgNativeConsumerGroup) wires PartitionedNativeFetcher into
     PartitionedConsumerEngine instead of the outbox fetcher when topic mode is OFFSET_WATERMARK.
  7. Confirm outbox_partition_offsets is table-agnostic and can be shared; generalise if not.
  8. Disable or convert LISTEN/NOTIFY-based dispatch for OFFSET_WATERMARK topics on
-    PgNativeConsumerGroup — use NOTIFY as a fetch-trigger only, not for direct delivery.
+    PgNativeConsumerGroup use NOTIFY as a fetch-trigger only, not for direct delivery.
 
 VERIFY:
  9. All four RED tests pass deterministically (10/10 runs each).
 10. testCQRS and testCQRS_multipleAccounts_perAccountOrdering in EventSourcingCQRSDemoTest
-    still pass — no regression on the outbox path.
+    still pass no regression on the outbox path.
 11. Existing PartitionedNativeConsumerIntegrationTest (outbox-path tests 6.1–6.6) still pass.
 ```
 
@@ -1158,7 +1158,7 @@ VERIFY:
 ### Functional
 
 - ✅ `testCQRS` (Order=2) in `EventSourcingCQRSDemoTest` passes 10/10 consecutive runs. **Confirmed April 30, 2026** (logs/verify-cqrs-run1.txt … verify-cqrs-run10.txt: 3 tests, 0 failures each).
-- ✅ `testEventSourcing` (Order=1) still passes — no regression. **Confirmed** (same 10 runs).
+- ✅ `testEventSourcing` (Order=1) still passes no regression. **Confirmed** (same 10 runs).
 - ✅ `testCQRS_multipleAccounts_perAccountOrdering` (Order=3) passes 10/10 consecutive runs. **Confirmed** (included in the 3-test run count above).
 - ✅ `PartitionedOrderingDemoTest` tests 2a–2d all pass deterministically. **Confirmed April 30, 2026** (logs/verify-ordering-demo.txt: 4 tests, 0 failures).
 - ✅ `testHandlerFailure_offsetNotAdvanced` passes. **Confirmed** (logs/safety-test-order6.txt: 6 tests, 0 failures).
@@ -1178,7 +1178,7 @@ VERIFY:
 ### Technical
 
 - ✅ No new production code required (uses existing `PartitionedConsumerEngine`).
-- ✅ Backward compatible — existing simple consumers still work; REFERENCE_COUNTING topics unchanged.
+- ✅ Backward compatible existing simple consumers still work; REFERENCE_COUNTING topics unchanged.
 - ✅ Performance characteristics documented (concurrency across partitions, serial per partition).
 - ✅ Rebalancing behaviour tested (existing tests 6.5/6.6 in `PartitionedNativeConsumerIntegrationTest`).
 
@@ -1192,16 +1192,16 @@ VERIFY:
    - **Recommendation**: keep REFERENCE_COUNTING as the default. Make OFFSET_WATERMARK an explicit opt-in via `outbox_topics` configuration. This forces a deliberate choice and prevents accidental serial bottlenecks.
 
 2. **How should partition keys be chosen?** *(answered)*
-   - Aggregate ID — recommended for event sourcing and CQRS.
-   - User ID — for per-user workflows.
-   - Tenant ID — for per-tenant isolation (complements multi-tenant schema isolation).
-   - Custom business key — any key that defines the ordering boundary.
+   - Aggregate ID recommended for event sourcing and CQRS.
+   - User ID for per-user workflows.
+   - Tenant ID for per-tenant isolation (complements multi-tenant schema isolation).
+   - Custom business key any key that defines the ordering boundary.
    - **Rule**: the partition key must be the entity whose events must be strictly ordered relative to each other.
 
 3. **Should we provide automatic partition-key extraction?** *(rejected)*
 
    ```java
-   // Annotation extraction was considered and rejected — complexity for marginal gain.
+   // Annotation extraction was considered and rejected complexity for marginal gain.
    // The correct pattern is explicit:
    producer.send(event, headers, correlationId, event.getAggregateId());
    ```
@@ -1218,7 +1218,7 @@ VERIFY:
    - `PartitionedOrderingDemoTest` test 2b adds a concurrency timing assertion.
    - A detailed benchmark across multiple partition counts is deferred to the performance module.
 
-6. **Should `PartitionedConsumerEngine` perform periodic partition rediscovery and emit heartbeats?** *(deferred — separate design)*
+6. **Should `PartitionedConsumerEngine` perform periodic partition rediscovery and emit heartbeats?** *(deferred separate design)*
    - Today, discovery runs only inside `joinGroup`/`leaveGroup`, and the engine does not call `PartitionAssignmentService.heartbeat(...)`.
    - Options for a follow-up design: (A) periodic `refreshAssignments()` timer in the engine; (B) explicit public API `engine.refreshAssignments()` for application-driven triggers; (C) database-side notify on new `message_group` first-sighting.
    - Out of scope for v1.2; documented here so the limitation is not forgotten.
@@ -1229,24 +1229,24 @@ VERIFY:
 
 ### Existing Implementation
 
-- **`PartitionedConsumerEngine.java`** — main coordination logic.
-- **`PartitionAssignmentService.java`** — partition assignment and rebalancing.
-- **`PartitionedOffsetManager.java`** — offset tracking and commits.
-- **`PartitionedFetcher.java`** — per-partition message fetching.
-- **`WatermarkCalculator.java`** — cleanup coordination.
+- **`PartitionedConsumerEngine.java`** main coordination logic.
+- **`PartitionAssignmentService.java`** partition assignment and rebalancing.
+- **`PartitionedOffsetManager.java`** offset tracking and commits.
+- **`PartitionedFetcher.java`** per-partition message fetching.
+- **`WatermarkCalculator.java`** cleanup coordination.
 
 ### Design Documents
 
-- **`PEEGEEQ_OUTBOX_PARTITIONED_ORDERING_COMPLETE_GUIDE.md`** — original ordering design.
-- **`PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md`** — consumer group architecture.
-- **`CONSUMER_GROUP_OUTSTANDING_TASKS.md`** — OFFSET_WATERMARK implementation status.
+- **`PEEGEEQ_OUTBOX_PARTITIONED_ORDERING_COMPLETE_GUIDE.md`** original ordering design.
+- **`PEEGEEQ_CONSUMER_GROUP_FANOUT_DESIGN.md`** consumer group architecture.
+- **`CONSUMER_GROUP_OUTSTANDING_TASKS.md`** OFFSET_WATERMARK implementation status.
 
 ### Database Schema
 
-- **`V010__Create_Consumer_Group_Fanout_Tables.sql`** — subscription tracking.
-- **`outbox_partition_assignments`** — partition ownership.
-- **`outbox_partition_offsets`** — per-partition offset cursors.
-- **`outbox_topic_watermarks`** — cleanup boundaries.
+- **`V010__Create_Consumer_Group_Fanout_Tables.sql`** subscription tracking.
+- **`outbox_partition_assignments`** partition ownership.
+- **`outbox_partition_offsets`** per-partition offset cursors.
+- **`outbox_topic_watermarks`** cleanup boundaries.
 
 ---
 
@@ -1269,7 +1269,7 @@ VERIFY:
 
 ## Approval & Sign-Off
 
-**Decision recorded**: April 28, 2026 — v1.3. **Phases 1–5 complete**: April 30, 2026 — v1.5.
+**Decision recorded**: April 28, 2026 v1.3. **Phases 1–5 complete**: April 30, 2026 v1.5.
 
 **Recorded decisions** (the previous "Key decisions required" list, now resolved):
 
@@ -1285,7 +1285,7 @@ VERIFY:
 **Changelog v1.4** (April 29, 2026):
 
 - Corrected `EventSourcingCQRSDemoTest` package path in Phase 2 and Phase 7: `nativequeue/` → `outbox/` (the test uses `OutboxFactoryRegistrar` and lives in the `outbox` package).
-- Added **Operational Caveats & Lifecycle §5**: COMPLETED-row discovery gap — partitions whose rows have all drained to COMPLETED are invisible to `discoverPartitionsInternal` at join time; cross-referenced with §1 and §3 as the same root cause.
+- Added **Operational Caveats & Lifecycle §5**: COMPLETED-row discovery gap partitions whose rows have all drained to COMPLETED are invisible to `discoverPartitionsInternal` at join time; cross-referenced with §1 and §3 as the same root cause.
 - Renamed Phase 3 test 2d to `testPartitionedOrdering_consumerRestart_resumesFromCommittedOffset`; corrected description to assert cursor position rather than overstating "prevents re-delivery".
 - Added missing re-delivery assertion to Phase 4 Test B: next fetch cycle must re-invoke the handler for messages 1–2, proving the at-least-once + redelivery contract.
 - Fixed misleading producer snippet comment: "Compose it" replaced with accurate wording distinguishing `.onFailure` (terminal side-effect) from `.compose` (chaining).
@@ -1319,18 +1319,18 @@ VERIFY:
 - Retargeted failure analysis from `testEventSourcing` to `testCQRS` (the actual failing test).
 - Fixed `fetchPartition()` code snippet: `computeIfAbsent` instead of `get()` (the original would NPE).
 - Fixed partition-assignment pseudocode: `start(SubscriptionOptions)` returns `Future<Void>`; the no-arg `start()` returns `void`.
-- Added the `__default__` partition section — critical for correct OFFSET_WATERMARK usage.
+- Added the `__default__` partition section critical for correct OFFSET_WATERMARK usage.
 - Fixed the Decision 1 consumer code: `start(options).onFailure(...)` chaining.
 - Replaced the flat implementation plan with TDD-ordered phases.
 - Removed `IdempotentConsumerDemoTest` (wrong pattern for event sourcing).
 - Added the `PartitionedConsumerSafetyIntegrationTest` handler-failure-mid-batch test.
 - Updated success criteria and open questions.
 
-**Sign-off**: Mark Andrew Ray-Smith — ✅ **Phases 1–5 complete and verified April 30, 2026.**
+**Sign-off**: Mark Andrew Ray-Smith ✅ **Phases 1–5 complete and verified April 30, 2026.**
 
 **Changelog v1.5** (April 30, 2026):
 
-- Updated document status to `COMPLETE — v1.5`; all Phases 1–5 shipped.
+- Updated document status to `COMPLETE v1.5`; all Phases 1–5 shipped.
 - Added `**Status**: ✅ Complete` markers to Phases 1–5 with verification evidence references.
 - Fixed Phase 3 test 2d method name: `testPartitionedOrdering_consumerRestart_resumesFromCommittedOffset` → `testPartitionedOrdering_idempotentRedelivery` (actual shipped name) and corrected package path from `nativequeue/` to `outbox/`.
 - Fixed Phase 4 Test A name: `testPartitionedConsumer_newMessageGroupAfterJoin_notAssignedUntilRebalance` → `testNewMessageGroupAfterJoin_notAssignedUntilRebalance` (actual shipped name).

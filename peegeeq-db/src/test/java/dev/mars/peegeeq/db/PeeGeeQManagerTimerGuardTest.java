@@ -76,7 +76,7 @@ public class PeeGeeQManagerTimerGuardTest {
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQManagerTimerGuardTest.class);
     private static final String POSTGRES_IMAGE = PgTestImageConstant.POSTGRES_IMAGE;
 
-    /** Shared container — used for tests that need the DB alive throughout. */
+    /** Shared container used for tests that need the DB alive throughout. */
     @SuppressWarnings("resource")
     @Container
     static PostgreSQLContainer postgres = new PostgreSQLContainer(POSTGRES_IMAGE)
@@ -167,7 +167,7 @@ public class PeeGeeQManagerTimerGuardTest {
     @DisplayName("Timer failures escalate from WARN to ERROR after consecutive-failure threshold")
     void testTimerFailuresEscalateWarnToError(VertxTestContext testContext) {
         logger.error("===== INTENTIONAL ERROR TEST ===== The next 'Failed to refresh depth cache' " +
-                     "ERROR logs are EXPECTED — this test deliberately stops the DB container " +
+                     "ERROR logs are EXPECTED this test deliberately stops the DB container " +
                      "to verify that consecutive timer failures escalate from WARN to ERROR");
 
         // Own container so we can stop it without breaking other tests
@@ -186,7 +186,7 @@ public class PeeGeeQManagerTimerGuardTest {
 
         manager.start()
                 .compose(v -> {
-                    // Kill the DB — all subsequent timer ticks will fail
+                    // Kill the DB all subsequent timer ticks will fail
                     ownContainer.stop();
                     logCapture.clear();
                     // Wait for 5 timer ticks at 1 s interval → 5 consecutive failures
@@ -234,7 +234,7 @@ public class PeeGeeQManagerTimerGuardTest {
     }
 
     // ─────────────────────────────────────────────────────────────────
-    // Test 3: closing flag verified — race condition protection
+    // Test 3: closing flag verified race condition protection
     // ─────────────────────────────────────────────────────────────────
 
     @Test
@@ -256,11 +256,11 @@ public class PeeGeeQManagerTimerGuardTest {
         Vertx vertx = manager.getVertx();
 
         manager.start()
-                // Let a tick or two fire successfully — proves the timer is running
+                // Let a tick or two fire successfully proves the timer is running
                 .compose(v -> delay(vertx, 2500))
                 .compose(v -> {
                     logCapture.clear();
-                    // Close now — sets closing=true immediately (before any cancelTimer call).
+                    // Close now sets closing=true immediately (before any cancelTimer call).
                     // Timers still registered; fast 1 s interval means a tick may fire between
                     // closing=true and cancelTimer(). The guard must catch it.
                     Future<Void> close = manager.closeReactive();
@@ -412,12 +412,12 @@ public class PeeGeeQManagerTimerGuardTest {
         props.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
         props.setProperty("peegeeq.health.check-interval", "PT30S");
 
-        // Fast timer intervals — minimum allowed by configuration validation
+        // Fast timer intervals minimum allowed by configuration validation
         props.setProperty("peegeeq.metrics.enabled", "true");
         props.setProperty("peegeeq.metrics.reporting-interval", "PT1S");
         props.setProperty("peegeeq.metrics.depth-cache-interval", "PT1S");
 
-        // Disable slow/complex background tasks — focus the test on the 2 fast timers only
+        // Disable slow/complex background tasks focus the test on the 2 fast timers only
         props.setProperty("peegeeq.queue.recovery.enabled", "false");
         props.setProperty("peegeeq.queue.dead-consumer-detection.enabled", "false");
         props.setProperty("peegeeq.queue.consumer-group-retry.enabled", "false");
