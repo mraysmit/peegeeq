@@ -140,7 +140,7 @@ public class PgConnectionManagerCloseLogLevelTest {
     @Test
     @DisplayName("Positive: close after DB shutdown produces ERROR when pools fail to close")
     void testCloseAfterDbShutdownLogsError(Vertx vertx, VertxTestContext testContext) {
-        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Some pools failed to close cleanly') is EXPECTED — this test deliberately stops the DB container to verify error-level pool close failure logging");
+        logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR log ('Some pools failed to close cleanly') is EXPECTED this test deliberately stops the DB container to verify error-level pool close failure logging");
         // Create a dedicated container that we can stop
         @SuppressWarnings("resource")
         PostgreSQLContainer ownContainer = new PostgreSQLContainer(POSTGRES_IMAGE)

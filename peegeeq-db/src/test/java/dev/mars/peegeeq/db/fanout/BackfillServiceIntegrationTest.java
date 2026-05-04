@@ -414,7 +414,7 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
     /**
      * Minimal reproduction for: PENDING_ONLY multi-batch backfill stops after the first batch.
      *
-     * <p>Uses bulk INSERT (generate_series) — the same path as the failing performance tests —
+     * <p>Uses bulk INSERT (generate_series) the same path as the failing performance tests —
      * to fire the {@code create_consumer_group_entries_for_new_message} trigger at scale.
      * Running this test in isolation (SAME_THREAD) eliminates parallel-test contamination
      * as a variable and targets the trigger + status-change mechanism directly.

@@ -27,7 +27,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * <pre>
  *   WARN BlockedThreadChecker - Thread vert.x-eventloop-thread-0 has been blocked for Nms
  * </pre>
- * These WARNs are the PROOF that the anti-pattern is detectable at runtime — they are not
+ * These WARNs are the PROOF that the anti-pattern is detectable at runtime they are not
  * failures.  The test assertions verify that the observed timer delay is consistent with
  * the intentional blocking.
  */
@@ -45,7 +45,7 @@ class VertxEventLoopBlockingJoinTest {
         // to prove the anti-pattern causes detectable timer delay. The WARNs are the proof.
         logger.info("=== INTENTIONAL BLOCKING TEST START ===");
         logger.info("EXPECTED: Vert.x BlockedThreadChecker will emit WARN lines during this test.");
-        logger.info("Those WARNs are the test's evidence that event-loop blocking is detectable — they are NOT failures.");
+        logger.info("Those WARNs are the test's evidence that event-loop blocking is detectable they are NOT failures.");
         VertxOptions options = new VertxOptions()
             .setEventLoopPoolSize(1)
             .setBlockedThreadCheckInterval(50)

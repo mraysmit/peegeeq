@@ -82,7 +82,7 @@ public class SimpleConsumerGroupTestTest {
             entry.getKey().toString().startsWith("peegeeq."));
 
         if (manager != null) {
-            // Fire and forget — closeReactive() kills the manager's owned Vertx,
+            // Fire and forget closeReactive() kills the manager's owned Vertx,
             // so callbacks cannot dispatch after close. Resource cleanup completes asynchronously.
             manager.closeReactive()
                 .onFailure(t -> logger.warn("Error closing manager during tearDown: {}", t.getMessage()));
