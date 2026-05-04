@@ -67,6 +67,7 @@ class PeeGeeQMetricsTest {
     private io.vertx.sqlclient.Pool reactivePool;
     private MeterRegistry meterRegistry;
     private PeeGeeQMetrics metrics;
+    private boolean poolClosedIntentionally = false;
 
     @BeforeEach
     void setUp(Vertx vertx, VertxTestContext testContext) {
@@ -102,7 +103,7 @@ class PeeGeeQMetricsTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) {
-        Future<Void> cleanup = (reactivePool != null)
+        Future<Void> cleanup = (reactivePool != null && !poolClosedIntentionally)
             ? cleanupTestData()
                 .onFailure(e -> logger.warn("Failed to cleanup test data in tearDown: {}", e.getMessage()))
             : Future.succeededFuture();
@@ -422,6 +423,7 @@ class PeeGeeQMetricsTest {
 
         metrics.bindTo(meterRegistry);
 
+        poolClosedIntentionally = true;
         connectionManager.close()
             .compose(v -> {
                 logger.info("Testing that metrics recording continues to work despite database failure");

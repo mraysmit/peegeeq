@@ -31,6 +31,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import java.time.Duration;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -410,7 +411,93 @@ public class BackfillServiceIntegrationTest extends BaseIntegrationTest {
                 .onFailure(testContext::failNow);
     }
 
+    /**
+     * Minimal reproduction for: PENDING_ONLY multi-batch backfill stops after the first batch.
+     *
+     * <p>Uses bulk INSERT (generate_series) — the same path as the failing performance tests —
+     * to fire the {@code create_consumer_group_entries_for_new_message} trigger at scale.
+     * Running this test in isolation (SAME_THREAD) eliminates parallel-test contamination
+     * as a variable and targets the trigger + status-change mechanism directly.
+     *
+     * <p>Diagnosis by result:
+     * <ul>
+     *   <li>Fails → the bug reproduces in isolation; root cause is in the single-test data path.</li>
+     *   <li>Passes → the bug only manifests under parallel execution; root cause is cross-test
+     *       contamination via the un-scoped {@code create_consumer_group_entries_for_new_message}
+     *       trigger copying group names from other tests' {@code outbox_consumer_groups} rows.</li>
+     * </ul>
+     */
+    @Test
+    void testPendingOnly_MultipleBatches_BulkInsert_AllMessagesProcessed(VertxTestContext testContext) {
+        String topic = "test-pending-bulk-" + UUID.randomUUID().toString().substring(0, 8);
+        String backfillGroup = "pending-bulk-grp";
+        int messageCount = 20;
+        int batchSize = 5; // 4 batches required
+
+        topicConfigService.createTopic(TopicConfig.builder()
+                        .topic(topic)
+                        .semantics(TopicSemantics.PUB_SUB)
+                        .messageRetentionHours(24)
+                        .build())
+                // FROM_NOW: same pattern as the failing performance test
+                .compose(v -> subscriptionManager.subscribe(topic, "initial-group", SubscriptionOptions.defaults()))
+                .compose(v -> insertMessagesBulk(topic, messageCount))
+                .compose(v -> subscriptionManager.subscribe(topic, backfillGroup, SubscriptionOptions.fromBeginning()))
+                .compose(v -> backfillService.startBackfill(topic, backfillGroup, batchSize, 0, BackfillScope.PENDING_ONLY))
+                .compose(result -> {
+                    testContext.verify(() -> {
+                        assertEquals(BackfillResult.Status.COMPLETED, result.status(),
+                                "Backfill should reach COMPLETED status");
+                        assertEquals(messageCount, result.processedMessages(),
+                                "PENDING_ONLY should process ALL " + messageCount +
+                                " messages across " + (messageCount / batchSize) + " batches, got " +
+                                result.processedMessages());
+                    });
+                    // Diagnostic: verify message statuses after backfill to understand any truncation
+                    return queryMessageStatusCounts(topic);
+                })
+                .onSuccess(statusMap -> testContext.verify(() -> {
+                    logger.info("Message status distribution after backfill: {}", statusMap);
+                    testContext.completeNow();
+                }))
+                .onFailure(testContext::failNow);
+    }
+
     // Helper methods
+
+    private Future<Void> insertMessagesBulk(String topic, int count) {
+        return connectionManager.withConnection("peegeeq-main", connection -> {
+            String sql = """
+                INSERT INTO outbox (topic, payload, created_at, status)
+                SELECT $1, ('{"index": ' || generate_series || '}')::jsonb, $2, 'PENDING'
+                FROM generate_series(1, $3)
+                """;
+            return connection.preparedQuery(sql)
+                    .execute(Tuple.of(topic, OffsetDateTime.now(ZoneOffset.UTC), count))
+                    .mapEmpty();
+        });
+    }
+
+    private Future<List<String>> queryMessageStatusCounts(String topic) {
+        return connectionManager.withConnection("peegeeq-main", connection -> {
+            String sql = """
+                SELECT status, COUNT(*) AS cnt
+                FROM outbox
+                WHERE topic = $1
+                GROUP BY status
+                ORDER BY status
+                """;
+            return connection.preparedQuery(sql)
+                    .execute(Tuple.of(topic))
+                    .map(rows -> {
+                        List<String> results = new java.util.ArrayList<>();
+                        for (var row : rows) {
+                            results.add(row.getString("status") + "=" + row.getLong("cnt"));
+                        }
+                        return results;
+                    });
+        });
+    }
 
     private Future<Void> insertMessages(String topic, int count) {
         Future<Void> chain = Future.succeededFuture();
