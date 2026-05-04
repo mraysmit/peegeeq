@@ -143,7 +143,7 @@ public class PartitionedConsumptionRestIntegrationTest {
                     stmt.setString(1, TOPIC_NAME);
                     int updated = stmt.executeUpdate();
                     if (updated == 0) {
-                        // Topic doesn't exist yet — insert it
+                        // Topic doesn't exist yet insert it
                         try (PreparedStatement ins = conn.prepareStatement(
                                 "INSERT INTO outbox_topics (topic, completion_tracking_mode) VALUES (?, 'OFFSET_WATERMARK')")) {
                             ins.setString(1, TOPIC_NAME);
@@ -201,7 +201,7 @@ public class PartitionedConsumptionRestIntegrationTest {
     }
 
     // ========================================================================
-    // Test 5.10: POST join — returns assignments
+    // Test 5.10: POST join returns assignments
     // ========================================================================
 
     @Test
@@ -236,7 +236,7 @@ public class PartitionedConsumptionRestIntegrationTest {
     }
 
     // ========================================================================
-    // Test 5.11: DELETE leave — triggers rebalance (join second instance, leave first)
+    // Test 5.11: DELETE leave triggers rebalance (join second instance, leave first)
     // ========================================================================
 
     @Test
@@ -275,7 +275,7 @@ public class PartitionedConsumptionRestIntegrationTest {
     }
 
     // ========================================================================
-    // Test 5.12: GET partitions — returns assignment list
+    // Test 5.12: GET partitions returns assignment list
     // ========================================================================
 
     @Test
@@ -317,7 +317,7 @@ public class PartitionedConsumptionRestIntegrationTest {
     }
 
     // ========================================================================
-    // Test 5.13: POST fetch — returns messages in order
+    // Test 5.13: POST fetch returns messages in order
     // ========================================================================
 
     @Test
@@ -356,7 +356,7 @@ public class PartitionedConsumptionRestIntegrationTest {
     }
 
     // ========================================================================
-    // Test 5.14: POST commit — returns committed result
+    // Test 5.14: POST commit returns committed result
     // ========================================================================
 
     @Test

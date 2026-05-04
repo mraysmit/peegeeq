@@ -57,7 +57,7 @@ public class WatermarkCalculator {
 
     /**
      * Advances the stored watermark for a topic if the new value is higher.
-     * Watermark only moves forward — never retreats.
+     * Watermark only moves forward never retreats.
      *
      * @param topic the topic to advance watermark for
      * @param newWatermark the candidate watermark value

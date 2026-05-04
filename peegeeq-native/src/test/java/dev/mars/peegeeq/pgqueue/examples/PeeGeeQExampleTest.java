@@ -465,7 +465,7 @@ class PeeGeeQExampleTest {
         headers2.put("source", "user-service");
         headers2.put("version", "2.1");
 
-        // Simulate messages that failed processing — fire-and-forget, timer delay ensures completion
+        // Simulate messages that failed processing fire-and-forget, timer delay ensures completion
         dlqManager.moveToDeadLetterQueue("outbox_messages", 1001L, "order-processing",
             Map.of("orderId", "12345", "customerId", "cust-001", "amount", 99.99),
             Instant.now().minus(Duration.ofMinutes(5)), "Payment processing failed", 3,

@@ -57,7 +57,7 @@ public class MultiTenantIsolationTest extends SmokeTestBase {
      * Multi-tenant isolation is a load-bearing architectural guarantee. If the
      * server-side setup routing is misconfigured, a publish to setup A could
      * accidentally target setup B's database. This test catches that class of bug
-     * deterministically at the DB level — no timing, no webhooks required.
+     * deterministically at the DB level no timing, no webhooks required.
      *
      * <h3>Test flow</h3>
      * <ol>

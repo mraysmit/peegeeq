@@ -45,13 +45,13 @@ import static org.junit.jupiter.api.Assertions.*;
  * CORE tests for {@link PartitionedConsumerEngine}.
  *
  * <p>Covers state machine transitions, start/stop/close guard paths,
- * payload/header parsing, and start-failure handling — all without
+ * payload/header parsing, and start-failure handling all without
  * a database. The engine's constructor hardwires DB collaborators;
  * when no pool is registered, async operations fail with
  * {@code IllegalStateException} which exercises the failure paths.</p>
  */
 @Tag(TestCategories.CORE)
-@DisplayName("PartitionedConsumerEngine — CORE tests")
+@DisplayName("PartitionedConsumerEngine CORE tests")
 class PartitionedConsumerEngineLifecycleTest {
 
     private Vertx vertx;
@@ -321,7 +321,7 @@ class PartitionedConsumerEngineLifecycleTest {
     }
 
     // ========================================================================
-    // parsePayload — pure function, no DB
+    // parsePayload pure function, no DB
     // ========================================================================
 
     @Nested
@@ -412,7 +412,7 @@ class PartitionedConsumerEngineLifecycleTest {
     }
 
     // ========================================================================
-    // parseHeaders — pure function, no DB
+    // parseHeaders pure function, no DB
     // ========================================================================
 
     @Nested
@@ -454,7 +454,7 @@ class PartitionedConsumerEngineLifecycleTest {
     }
 
     // ========================================================================
-    // isOffsetWatermarkTopic — static method, no pool → failed future
+    // isOffsetWatermarkTopic static method, no pool → failed future
     // ========================================================================
 
     @Nested
@@ -474,7 +474,7 @@ class PartitionedConsumerEngineLifecycleTest {
     }
 
     // ========================================================================
-    // dispatchMessage — message construction and handler dispatch
+    // dispatchMessage message construction and handler dispatch
     // ========================================================================
 
     @Nested

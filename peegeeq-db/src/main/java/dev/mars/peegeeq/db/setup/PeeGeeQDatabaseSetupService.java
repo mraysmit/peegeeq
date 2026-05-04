@@ -100,7 +100,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
 
     /**
      * Registers pre-built setup state for a given setupId.
-     * Package-private — intended only for lifecycle tests that need to
+     * Package-private intended only for lifecycle tests that need to
      * verify teardown ordering without running the full setup flow.
      */
     void registerSetupForTesting(String setupId, DatabaseSetupResult result,
@@ -1123,7 +1123,7 @@ public class PeeGeeQDatabaseSetupService implements DatabaseSetupService {
         }
 
         // Close each active manager to cancel background timers and release pool connections.
-        // Do NOT call destroySetup() here — that would drop test databases, which must only
+        // Do NOT call destroySetup() here that would drop test databases, which must only
         // happen via an explicit destroySetup() call (e.g. from integration test teardown).
         List<Future<Void>> closeFutures = new ArrayList<>(activeManagers.values()).stream()
                 .map(manager -> manager.closeReactive()

@@ -41,11 +41,11 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * <p>Covers two complementary scenarios:
  * <ol>
- *   <li><b>API read path</b> — a message inserted directly into the
+ *   <li><b>API read path</b> a message inserted directly into the
  *       {@code dead_letter_queue} table must be returned by the DLQ REST API
  *       with all fields preserved. This tests the API's connection to the
  *       correct setup database and its response serialisation.</li>
- *   <li><b>End-to-end retry exhaustion</b> — a message published to an outbox
+ *   <li><b>End-to-end retry exhaustion</b> a message published to an outbox
  *       queue whose webhook always returns 5xx must exhaust its retry budget
  *       (maxRetries=0 → single attempt) and then appear in the DLQ. This
  *       tests the full retry → DLQ promotion pipeline.</li>
@@ -57,7 +57,7 @@ import static org.junit.jupiter.api.Assertions.*;
 public class DeadLetterQueueIntegrationTest extends SmokeTestBase {
 
     // -------------------------------------------------------------------------
-    // Test 1 — API read path (deterministic, no webhook required)
+    // Test 1 API read path (deterministic, no webhook required)
     // -------------------------------------------------------------------------
 
     /**
@@ -158,7 +158,7 @@ public class DeadLetterQueueIntegrationTest extends SmokeTestBase {
     }
 
     // -------------------------------------------------------------------------
-    // Test 2 — End-to-end retry exhaustion → DLQ promotion
+    // Test 2 End-to-end retry exhaustion → DLQ promotion
     // -------------------------------------------------------------------------
 
     /**

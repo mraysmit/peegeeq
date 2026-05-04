@@ -3,7 +3,7 @@
 ## 1. Objective
 
 Add a durable subscription option to:
-- peegeeq-bitemporal reactive subscription flow (greenfield — no durable infrastructure exists today)
+- peegeeq-bitemporal reactive subscription flow (greenfield no durable infrastructure exists today)
 - peegeeq-native outbox flow (extend existing infrastructure)
 
 The option must preserve current behavior by default (non-durable, in-memory), while enabling durable restart-safe consumer progress when explicitly configured.
@@ -62,17 +62,17 @@ Factory: `PeeGeeQManager.createSubscriptionService()`
 ### 3.4 Bitemporal Subscription State (In-Memory Only)
 
 `ReactiveNotificationHandler` has:
-- `SubscriptionKey` — private inner class with `eventType` (nullable, supports `*` wildcards) and `aggregateId` (nullable)
+- `SubscriptionKey` private inner class with `eventType` (nullable, supports `*` wildcards) and `aggregateId` (nullable)
 - Subscription storage: `ConcurrentHashMap<SubscriptionKey, CopyOnWriteArrayList<MessageHandler>>`
 - LISTEN/NOTIFY via PostgreSQL trigger `notify_bitemporal_event()` (V011)
-- **No persistence** — subscriptions lost on restart, no replay capability
+- **No persistence** subscriptions lost on restart, no replay capability
 
 ### 3.5 Bitemporal Event Table Ordering
 
 `bitemporal_event_log` has:
-- `id BIGSERIAL PRIMARY KEY` — guaranteed monotonic, auto-incrementing (the cursor column)
-- `transaction_time TIMESTAMPTZ` — when recorded, but can have ties across concurrent inserts
-- `valid_time TIMESTAMPTZ` — business time, not monotonic (can be backdated)
+- `id BIGSERIAL PRIMARY KEY` guaranteed monotonic, auto-incrementing (the cursor column)
+- `transaction_time TIMESTAMPTZ` when recorded, but can have ties across concurrent inserts
+- `valid_time TIMESTAMPTZ` business time, not monotonic (can be backdated)
 - `event_type`, `aggregate_id`, `correlation_id`, `causation_id`
 
 Existing index: `idx_bitemporal_valid_time ON bitemporal_event_log(valid_time)`
@@ -87,7 +87,7 @@ Bitemporal reactive subscriptions:
 - Subscription keys are in memory only (ConcurrentHashMap in ReactiveNotificationHandler)
 - Clients must resubscribe after process restart
 - LISTEN/NOTIFY events while disconnected are not replayed
-- `SubscriptionKey` is a private inner class — not directly persistable without extraction
+- `SubscriptionKey` is a private inner class not directly persistable without extraction
 
 Outbox subscriptions:
 - Already durable via `outbox_topic_subscriptions` with status lifecycle, heartbeats, and backfill
@@ -109,14 +109,14 @@ Outbox subscriptions:
 
 ### 6.1 Strategy: Extend, Don't Replace
 
-For the outbox module, extend the existing `outbox_topic_subscriptions` and `consumer_group_index` infrastructure rather than creating parallel tables. The outbox path already has durable subscriptions — the work is to formalize cursor semantics and expose a unified coordinator interface.
+For the outbox module, extend the existing `outbox_topic_subscriptions` and `consumer_group_index` infrastructure rather than creating parallel tables. The outbox path already has durable subscriptions the work is to formalize cursor semantics and expose a unified coordinator interface.
 
 For the bitemporal module, build new durable infrastructure that follows the same patterns established by the outbox tables but is scoped to bitemporal event replay.
 
 ### 6.2 Cursor Type Decisions
 
-- **Outbox cursor**: `outbox.id` (BIGSERIAL) — already stored as `consumer_group_index.last_processed_id`
-- **Bitemporal cursor**: `bitemporal_event_log.id` (BIGSERIAL) — guaranteed monotonic. Transaction time is NOT suitable because concurrent inserts can produce ties. The `id` column provides total ordering.
+- **Outbox cursor**: `outbox.id` (BIGSERIAL) already stored as `consumer_group_index.last_processed_id`
+- **Bitemporal cursor**: `bitemporal_event_log.id` (BIGSERIAL) guaranteed monotonic. Transaction time is NOT suitable because concurrent inserts can produce ties. The `id` column provides total ordering.
 
 ### 6.3 Core Pattern
 
@@ -136,12 +136,12 @@ These tables follow the existing naming convention (no `pgq_` prefix) and must b
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | `BIGSERIAL PRIMARY KEY` | |
-| `table_name` | `VARCHAR(255) NOT NULL` | Target bitemporal table (e.g., `order_events`) — scopes the subscription to a specific PgBiTemporalEventStore instance |
+| `table_name` | `VARCHAR(255) NOT NULL` | Target bitemporal table (e.g., `order_events`) scopes the subscription to a specific PgBiTemporalEventStore instance |
 | `subscription_name` | `VARCHAR(255) NOT NULL` | Human-readable name for the subscription |
 | `consumer_group` | `VARCHAR(255) NOT NULL` | Durable subscription identity component. Required for uniqueness and future coordination |
-| `event_type` | `VARCHAR(255)` | Nullable — null means all event types. Supports segment-based `*` wildcard matching using the same rules as `ReactiveNotificationHandler` |
-| `aggregate_id` | `VARCHAR(255)` | Nullable — null means all aggregates |
-| `subscription_status` | `VARCHAR(20) DEFAULT 'ACTIVE'` | CHECK IN ('ACTIVE', 'PAUSED', 'CANCELLED', 'DEAD') — matches outbox convention |
+| `event_type` | `VARCHAR(255)` | Nullable null means all event types. Supports segment-based `*` wildcard matching using the same rules as `ReactiveNotificationHandler` |
+| `aggregate_id` | `VARCHAR(255)` | Nullable null means all aggregates |
+| `subscription_status` | `VARCHAR(20) DEFAULT 'ACTIVE'` | CHECK IN ('ACTIVE', 'PAUSED', 'CANCELLED', 'DEAD') matches outbox convention |
 | `start_from_event_id` | `BIGINT` | Starting cursor position (bitemporal_event_log.id) |
 | `last_processed_id` | `BIGINT` | Last acknowledged cursor (bitemporal_event_log.id) |
 | `last_processed_at` | `TIMESTAMPTZ` | When cursor was last advanced |
@@ -170,7 +170,7 @@ The outbox already stores `last_processed_id` in `consumer_group_index`. No new 
 
 1. Ensure `consumer_group_index.last_processed_id` is treated as the canonical cursor.
 2. Add a `durable_enabled BOOLEAN DEFAULT TRUE` column to `outbox_topic_subscriptions` (outbox subscriptions are already effectively durable; this flag formalizes it for API parity with bitemporal).
-3. No migration of existing data — existing outbox subscriptions continue to work exactly as today.
+3. No migration of existing data existing outbox subscriptions continue to work exactly as today.
 
 ### 7.3 Schema-Tenancy Integration
 
@@ -198,10 +198,10 @@ CREATE INDEX idx_bitemporal_subs_table_status
 Add durable-subscription fields to the existing `SubscriptionOptions.Builder` rather than creating a separate options object:
 
 New builder methods:
-- `durableEnabled(boolean)` — default false for bitemporal, default true for outbox
-- `subscriptionName(String)` — required when durableEnabled=true
-- `consumerId(String)` — identifies this consumer instance
-- `replayBatchSize(int)` — number of events per catch-up batch (default 500)
+- `durableEnabled(boolean)` default false for bitemporal, default true for outbox
+- `subscriptionName(String)` required when durableEnabled=true
+- `consumerId(String)` identifies this consumer instance
+- `replayBatchSize(int)` number of events per catch-up batch (default 500)
 
 Phase 1 delivery mode:
 - Automatic cursor advancement only. Cursor advances after the handler completes successfully.
@@ -216,7 +216,7 @@ Add bitemporal-aware methods to `SubscriptionService` or create a parallel `BiTe
 Future<Void> subscribeBitemporal(String tableName, String subscriptionName,
     String eventType, String aggregateId, SubscriptionOptions options);
 
-// Option B: Separate interface (preferred — cleaner separation)
+// Option B: Separate interface (preferred cleaner separation)
 public interface BiTemporalSubscriptionService {
     Future<Void> subscribe(String tableName, String subscriptionName, String consumerGroup,
         String eventType, String aggregateId,
@@ -228,7 +228,7 @@ public interface BiTemporalSubscriptionService {
 }
 ```
 
-Decision: **Option B** — a separate `BiTemporalSubscriptionService` interface. Outbox subscriptions are keyed by `(topic, groupName)`. Bitemporal durable subscriptions are keyed by `(tableName, subscriptionName, consumerGroup)`, with `eventType` and `aggregateId` defining the delivery filter. Forcing both into one interface creates awkward unused parameters.
+Decision: **Option B** a separate `BiTemporalSubscriptionService` interface. Outbox subscriptions are keyed by `(topic, groupName)`. Bitemporal durable subscriptions are keyed by `(tableName, subscriptionName, consumerGroup)`, with `eventType` and `aggregateId` defining the delivery filter. Forcing both into one interface creates awkward unused parameters.
 
 Factory access:
 - Expose `createBiTemporalSubscriptionService()` on `PeeGeeQManager` and surface it through the database service/provider APIs in Phase 1, not Phase 3.
@@ -281,7 +281,7 @@ These are set through the existing configuration loading mechanism (properties f
 
 ### 9.1 Subscribe Call (durableEnabled=true)
 
-1. Validate inputs — `subscriptionName` and `consumerGroup` are required, and `tableName` must match the store's configured table
+1. Validate inputs `subscriptionName` and `consumerGroup` are required, and `tableName` must match the store's configured table
 2. UPSERT `bitemporal_subscriptions` row keyed by `(table_name, subscription_name, consumer_group)` with status=ACTIVE
 3. If `startPosition == FROM_BEGINNING`, set `start_from_event_id = 0`
 4. If `startPosition == FROM_NOW`, set `start_from_event_id = SELECT COALESCE(MAX(id), 0) FROM <validated_table_name>`
@@ -317,7 +317,7 @@ Processing loop:
 2. For each event that matches the subscription filter, invoke handler
 3. On successful handler return, UPDATE `bitemporal_subscriptions SET last_processed_id = :event_id, last_processed_at = NOW()` within the same transaction
 4. If batch size equals `replay_batch_size`, fetch next batch
-5. When batch returns fewer rows than `replay_batch_size`, catch-up is complete — proceed to live handoff
+5. When batch returns fewer rows than `replay_batch_size`, catch-up is complete proceed to live handoff
 
 ### 9.4 Catch-Up to Live Handoff Protocol
 
@@ -347,7 +347,7 @@ Mitigations:
 ### 9.6 Failure Handling
 
 - Handler throws exception: do not advance cursor. Log the failure. Retry with exponential backoff (configurable max retries). After max retries, mark subscription as DEAD.
-- Process crash during catch-up: cursor was last committed transactionally, so replay resumes from last acknowledged position. At-least-once semantics — the last batch may be partially re-delivered.
+- Process crash during catch-up: cursor was last committed transactionally, so replay resumes from last acknowledged position. At-least-once semantics the last batch may be partially re-delivered.
 - Process crash during live mode: on restart, application re-calls `subscribe()` with same `subscriptionName`, catch-up resumes from stored cursor, handoff protocol re-executes.
 
 ## 10. Module-Specific Plan
@@ -372,7 +372,7 @@ Changes required:
 - Add `durable_enabled` column to `outbox_topic_subscriptions` (defaults to TRUE for backward compatibility)
 - Formalize `consumer_group_index.last_processed_id` as the canonical cursor in documentation and in the coordinator interface
 - Implement `DurableOutboxSubscriptionCoordinator` wrapping existing `OutboxConsumerGroup` and `SubscriptionService` logic
-- No data migration needed — existing subscriptions are already durable
+- No data migration needed existing subscriptions are already durable
 
 ### 10.3 Shared Coordinator Interface
 
@@ -430,9 +430,9 @@ All changes are additive (no existing columns modified or removed). Rollback: dr
 ### 12.3 Rollback
 
 - Set `durableEnabled=false` on subscriptions to fall back to current in-memory/live behavior.
-- No destructive rollback needed — tables can remain dormant.
+- No destructive rollback needed tables can remain dormant.
 
-## 13. Test Design (Mandatory TestContainers — NO Mockito, NO Reflection)
+## 13. Test Design (Mandatory TestContainers NO Mockito, NO Reflection)
 
 All tests follow pgq-coding-principles.md. Database-touching tests use TestContainers with real PostgreSQL. Pure logic tests are @Tag(CORE). All others are @Tag(INTEGRATION). Every functional behavior has both positive proof (it works) and negative proof (it rejects or handles the wrong case correctly).
 
@@ -445,7 +445,7 @@ All tests follow pgq-coding-principles.md. Database-touching tests use TestConta
 | 1 | `shouldBuildWithDurableEnabledAndSubscriptionName` | Positive | Builder accepts `durableEnabled(true).subscriptionName("my-sub")` and getters return correct values |
 | 2 | `shouldDefaultDurableEnabledToFalse` | Positive | `SubscriptionOptions.defaults()` returns `durableEnabled == false` |
 | 3 | `shouldRejectDurableEnabledWithoutSubscriptionName` | Negative | `builder().durableEnabled(true).build()` throws `IllegalArgumentException` with message mentioning subscriptionName |
-| 4 | `shouldAcceptNonDurableWithoutSubscriptionName` | Positive | `builder().durableEnabled(false).build()` succeeds — subscriptionName not required when non-durable |
+| 4 | `shouldAcceptNonDurableWithoutSubscriptionName` | Positive | `builder().durableEnabled(false).build()` succeeds subscriptionName not required when non-durable |
 | 5 | `shouldRejectNullSubscriptionName` | Negative | `builder().durableEnabled(true).subscriptionName(null).build()` throws `IllegalArgumentException` |
 | 6 | `shouldRejectEmptySubscriptionName` | Negative | `builder().durableEnabled(true).subscriptionName("").build()` throws `IllegalArgumentException` |
 | 7 | `shouldRejectBlankSubscriptionName` | Negative | `builder().durableEnabled(true).subscriptionName("   ").build()` throws `IllegalArgumentException` |
@@ -476,8 +476,8 @@ All tests follow pgq-coding-principles.md. Database-touching tests use TestConta
 |---|-----------|------|-------|
 | 1 | `shouldCreateWithEventTypeAndAggregateId` | Positive | `SubscriptionKey.of("OrderCreated", "order-123")` stores both fields |
 | 2 | `shouldCreateAllEventsKey` | Positive | `SubscriptionKey.allEvents()` has null eventType and null aggregateId |
-| 3 | `shouldCreateWithNullEventType` | Positive | `SubscriptionKey.of(null, "order-123")` succeeds — matches all event types for that aggregate |
-| 4 | `shouldCreateWithNullAggregateId` | Positive | `SubscriptionKey.of("OrderCreated", null)` succeeds — matches all aggregates for that type |
+| 3 | `shouldCreateWithNullEventType` | Positive | `SubscriptionKey.of(null, "order-123")` succeeds matches all event types for that aggregate |
+| 4 | `shouldCreateWithNullAggregateId` | Positive | `SubscriptionKey.of("OrderCreated", null)` succeeds matches all aggregates for that type |
 | 5 | `shouldDetectWildcardEventType` | Positive | `SubscriptionKey.of("order.*", null).hasWildcardEventType()` returns true |
 | 6 | `shouldDetectNonWildcardEventType` | Negative | `SubscriptionKey.of("order.created", null).hasWildcardEventType()` returns false |
 | 7 | `shouldMatchAnyAggregateWhenAggregateIdIsNull` | Positive | Key with null aggregateId matches any incoming aggregateId |
@@ -501,7 +501,7 @@ All tests follow pgq-coding-principles.md. Database-touching tests use TestConta
 | 6 | `shouldRejectZeroReplayBatchSize` | Negative | Config validation rejects 0 |
 | 7 | `shouldRejectNegativeRecoveryPollInterval` | Negative | Config validation rejects -1 |
 
-### 13.5 Schema DDL — Bitemporal Subscriptions Table
+### 13.5 Schema DDL Bitemporal Subscriptions Table
 
 **Test class**: `BiTemporalSubscriptionSchemaTest` (@Tag(INTEGRATION), @Testcontainers)
 
@@ -518,7 +518,7 @@ All tests follow pgq-coding-principles.md. Database-touching tests use TestConta
 | 9 | `shouldCreateCompositeIndexOnIdTypeAgg` | Positive | Index `idx_bitemporal_event_log_id_type_agg` exists on `bitemporal_event_log` |
 | 10 | `shouldCreateIndexOnTableAndStatus` | Positive | Index `idx_bitemporal_subs_table_status` exists on `bitemporal_subscriptions` |
 
-### 13.6 Schema DDL — Outbox Extensions
+### 13.6 Schema DDL Outbox Extensions
 
 **Test class**: `OutboxDurableColumnSchemaTest` (@Tag(INTEGRATION), @Testcontainers)
 
@@ -527,7 +527,7 @@ All tests follow pgq-coding-principles.md. Database-touching tests use TestConta
 | 1 | `shouldAddDurableEnabledColumnToOutboxTopicSubscriptions` | Positive | After migration, `durable_enabled` column exists on `outbox_topic_subscriptions` |
 | 2 | `shouldDefaultDurableEnabledToTrue` | Positive | INSERT without specifying durable_enabled → row has `durable_enabled = true` |
 | 3 | `shouldAllowSettingDurableEnabledToFalse` | Positive | INSERT with `durable_enabled = false` succeeds and value is stored |
-| 4 | `shouldNotBreakExistingOutboxSubscriptionInserts` | Positive | Existing INSERT statements (without durable_enabled) continue to work — backward compatible |
+| 4 | `shouldNotBreakExistingOutboxSubscriptionInserts` | Positive | Existing INSERT statements (without durable_enabled) continue to work backward compatible |
 
 ### 13.7 Schema-Tenancy
 
@@ -539,7 +539,7 @@ All tests follow pgq-coding-principles.md. Database-touching tests use TestConta
 | 2 | `shouldIsolateSubscriptionsBetweenTenantSchemas` | Positive | Subscription inserted in schema_a is not visible from schema_b |
 | 3 | `shouldIncludeTemplateInManifest` | Positive | The `.manifest` file includes the new `09a-bitemporal-subscriptions.sql` template |
 
-### 13.8 Durable Subscribe — Persistence
+### 13.8 Durable Subscribe Persistence
 
 **Test class**: `DurableBiTemporalSubscribeTest` (@Tag(INTEGRATION), @Testcontainers)
 
@@ -555,7 +555,7 @@ All tests follow pgq-coding-principles.md. Database-touching tests use TestConta
 | 8 | `shouldResumeFromStoredCursorOnResubscribe` | Positive | Subscribe durable → process events to cursor=50 → unsubscribe → resubscribe with same business key → cursor starts at 50, not 0 |
 | 9 | `shouldReactivatePausedSubscriptionOnResubscribe` | Positive | Pause a subscription → resubscribe with same business key → status changes from PAUSED back to ACTIVE |
 | 10 | `shouldNotPersistWhenDurableEnabledIsFalse` | Negative | Subscribe with durableEnabled=false → no row in `bitemporal_subscriptions` (in-memory only, as today) |
-| 11 | `shouldStillWorkNonDurablyWithNullOptions` | Positive | `subscribe(eventType, aggId, handler)` (existing API, no options) continues to work with no database row — backward compatible |
+| 11 | `shouldStillWorkNonDurablyWithNullOptions` | Positive | `subscribe(eventType, aggId, handler)` (existing API, no options) continues to work with no database row backward compatible |
 | 12 | `shouldRejectSubscribeAfterCancelled` | Negative | Cancel a subscription → resubscribe with same business key → fails (CANCELLED is terminal) or creates a new subscription (decide and test the chosen behavior) |
 
 ### 13.9 Startup Recovery
@@ -620,7 +620,7 @@ All tests follow pgq-coding-principles.md. Database-touching tests use TestConta
 | 5 | `shouldNotReplayToDeadSubscription` | Negative | Subscription marked DEAD → no further events delivered to its handler |
 | 6 | `shouldResumeFromCursorAfterProcessCrash` | Positive | Subscribe durable → process 5 of 10 events → simulate crash (destroy coordinator) → recreate and resubscribe → remaining 5 events delivered starting from cursor |
 | 7 | `shouldRedeliverPartialBatchAfterCrash` | Positive | Process 3 events of a batch of 5 (cursor committed after event 3) → crash → resume → events 4 and 5 re-delivered (at-least-once) |
-| 8 | `shouldNotAdvanceCursorBeyondActualProcessedEvent` | Negative | During batch processing, if event 3 of 5 fails, cursor does NOT jump to event 5 — stays at event 2 (last successfully processed) |
+| 8 | `shouldNotAdvanceCursorBeyondActualProcessedEvent` | Negative | During batch processing, if event 3 of 5 fails, cursor does NOT jump to event 5 stays at event 2 (last successfully processed) |
 | 9 | `shouldLogHandlerFailureWithException` | Positive | Handler throws → log output contains exception message and subscription_name |
 | 10 | `shouldLogSubscriptionMarkedDead` | Positive | Subscription transitions to DEAD → log output contains ERROR level entry with subscription_name |
 
@@ -677,7 +677,7 @@ All tests follow pgq-coding-principles.md. Database-touching tests use TestConta
 
 | # | Test Name | Type | Proof |
 |---|-----------|------|-------|
-| 1 | `shouldPreserveExistingSubscribeApiWithoutOptions` | Positive | `subscribe(eventType, aggId, handler)` works exactly as before — no DB row, in-memory only |
+| 1 | `shouldPreserveExistingSubscribeApiWithoutOptions` | Positive | `subscribe(eventType, aggId, handler)` works exactly as before no DB row, in-memory only |
 | 2 | `shouldPreserveExistingNonDurableDelivery` | Positive | Non-durable subscriber receives NOTIFY events as before |
 | 3 | `shouldNotRequireBiTemporalSubscriptionsTableForNonDurableUse` | Positive | If migration hasn't run, non-durable subscribe still works (no table access) |
 | 4 | `shouldPreserveMultiHandlerPerKeyBehavior` | Positive | Multiple non-durable handlers for same key all receive events (CopyOnWriteArrayList behavior preserved) |
@@ -737,18 +737,18 @@ All tests follow pgq-coding-principles.md. Database-touching tests use TestConta
 | 6 | `shouldPauseResumeAndContinueFromCorrectPosition` | Positive | Process to cursor=30 → pause → insert 20 more events → resume → catch-up replays 20 events from cursor=30 |
 | 7 | `shouldResetCursorAndReplayFromNewPosition` | Positive | Process to cursor=100 → resetCursor to 50 → catch-up replays events from id > 50 |
 | 8 | `shouldDeliverAtLeastOnceUnderCrashConditions` | Positive | Process events → crash mid-batch → restart → verify all events delivered at least once (some may be duplicated, none lost) |
-| 9 | `shouldNotDeliverEventsToNonDurableSubscriberAfterRestart` | Negative | Non-durable subscriber does NOT receive missed events after restart — only durable subscribers catch up |
+| 9 | `shouldNotDeliverEventsToNonDurableSubscriberAfterRestart` | Negative | Non-durable subscriber does NOT receive missed events after restart only durable subscribers catch up |
 | 10 | `shouldMaintainEventOrderAcrossCatchUpAndLive` | Positive | All events received by handler are in strictly ascending id order, even across the catch-up → live boundary |
 
 ## 14. Observability and Operations
 
 ### 14.1 Metrics
 
-- `bitemporal_subscription_replay_lag` — difference between `MAX(id)` and `last_processed_id`
-- `bitemporal_subscription_cursor_commit_latency` — time to persist cursor advancement
-- `bitemporal_subscription_replay_batch_duration` — time per catch-up batch
-- `bitemporal_subscription_handler_failures_total` — handler exception count
-- `bitemporal_subscription_handoff_count` — catch-up to live transitions
+- `bitemporal_subscription_replay_lag` difference between `MAX(id)` and `last_processed_id`
+- `bitemporal_subscription_cursor_commit_latency` time to persist cursor advancement
+- `bitemporal_subscription_replay_batch_duration` time per catch-up batch
+- `bitemporal_subscription_handler_failures_total` handler exception count
+- `bitemporal_subscription_handoff_count` catch-up to live transitions
 
 ### 14.2 Logs
 
@@ -822,7 +822,7 @@ All tests follow pgq-coding-principles.md. Database-touching tests use TestConta
 
 ## 17. Acceptance Criteria
 
-1. Non-durable default path remains backward-compatible — all existing tests pass unchanged.
+1. Non-durable default path remains backward-compatible all existing tests pass unchanged.
 2. Durable bitemporal subscription survives simulated restart without client data loss once the application re-registers the same durable subscription and handler.
 3. Replay from persisted cursor delivers all events in `id` order with no gaps.
 4. Catch-up to live handoff produces no duplicates and no missed events.
@@ -833,7 +833,7 @@ All tests follow pgq-coding-principles.md. Database-touching tests use TestConta
 
 ## 18. Immediate Next Steps
 
-1. Review and approve this design — specifically the decision to use `BiTemporalSubscriptionService` (Option B) vs extending `SubscriptionService`.
+1. Review and approve this design specifically the decision to use `BiTemporalSubscriptionService` (Option B) vs extending `SubscriptionService`.
 2. Validate the `bitemporal_subscriptions` table schema against the existing `outbox_topic_subscriptions` schema for consistency.
 3. Confirm the durable business key `(table_name, subscription_name, consumer_group)` and the public factory access path for `BiTemporalSubscriptionService`.
 4. Implement Phase 0: DDL migration, template script, interface definitions, public factory surface, and `SubscriptionOptions` extensions.

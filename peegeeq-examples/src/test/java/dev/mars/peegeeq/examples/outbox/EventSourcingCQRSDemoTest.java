@@ -1037,7 +1037,7 @@ class EventSourcingCQRSDemoTest {
     }
 
     /**
-     * RED test (Phase 2 — Decision 1): per-account ordering with multiple aggregates.
+     * RED test (Phase 2 Decision 1): per-account ordering with multiple aggregates.
      *
      * <p>This test demonstrates the same out-of-order failure as {@link #testCQRS} but
      * across multiple aggregates concurrently. With a simple {@link MessageConsumer}
@@ -1252,7 +1252,7 @@ class EventSourcingCQRSDemoTest {
         assertEquals(totalCommands, eventsProcessed.get(),
                 "Should have processed " + totalCommands + " events");
 
-        // Per-account assertions on the READ model — these are the assertions that
+        // Per-account assertions on the READ model these are the assertions that
         // fail when events are processed out of order.
         for (String accountId : accountIds) {
             BankAccountAggregate writeAggregate = writeModel.get(accountId);

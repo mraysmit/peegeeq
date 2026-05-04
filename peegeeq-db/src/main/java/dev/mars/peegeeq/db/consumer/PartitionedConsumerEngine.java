@@ -240,7 +240,7 @@ public class PartitionedConsumerEngine<T> {
     private void fetchPartition(String partitionKey, int generation) {
         AtomicBoolean inProgress = fetchInProgress.computeIfAbsent(partitionKey, k -> new AtomicBoolean(false));
         if (!inProgress.compareAndSet(false, true)) {
-            // Previous fetch+process+commit still running — skip this tick
+            // Previous fetch+process+commit still running skip this tick
             return;
         }
 
@@ -369,7 +369,7 @@ public class PartitionedConsumerEngine<T> {
                 ).execute(Tuple.of(topic))
                 .map(rows -> {
                     if (rows.size() == 0) {
-                        return false; // Topic not configured — default to REFERENCE_COUNTING behavior
+                        return false; // Topic not configured default to REFERENCE_COUNTING behavior
                     }
                     String mode = rows.iterator().next().getString("completion_tracking_mode");
                     return "OFFSET_WATERMARK".equals(mode);

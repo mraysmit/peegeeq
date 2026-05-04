@@ -63,7 +63,7 @@ import static org.junit.jupiter.api.Assertions.*;
  *
  * <p><b>Implementation notes (reactive migration):</b>
  * <ul>
- *   <li>All blocking {@code await()} helpers removed — tests use {@code .compose()} chains
+ *   <li>All blocking {@code await()} helpers removed tests use {@code .compose()} chains
  *       with {@code VertxTestContext} for async coordination.</li>
  *   <li>All {@code awaitAsyncDelay()} calls replaced with {@code delay()} returning
  *       {@code Future<Void>} via Vert.x timer, composed into the chain.</li>
@@ -1850,7 +1850,7 @@ class PgBiTemporalEventStoreComplexTest {
     /**
      * Build a true chain A → B → C where each correction targets the previous
      * correction (not the root).  Verify version numbers are 1, 2, 3 with no
-     * duplicates — this is the bug the shallow query used to miss.
+     * duplicates this is the bug the shallow query used to miss.
      */
     @Test
     void testChainedCorrectionVersionNumbersAreSequential(VertxTestContext testContext) throws Exception {
@@ -1896,7 +1896,7 @@ class PgBiTemporalEventStoreComplexTest {
 
     /**
      * getAllVersions must return the full family regardless of which member's
-     * event ID is passed — root, middle, or leaf.
+     * event ID is passed root, middle, or leaf.
      */
     @Test
     void testGetAllVersionsFromAnyCorrectionIdReturnsFullFamily(VertxTestContext testContext) throws Exception {
@@ -1915,7 +1915,7 @@ class PgBiTemporalEventStoreComplexTest {
                                      leaf.getEventId()))
             )
             .compose(ids -> {
-                // Query from root, middle, and leaf — all should return 3 versions
+                // Query from root, middle, and leaf all should return 3 versions
                 return Future.all(
                     eventStore.getAllVersions(ids.get(0)),
                     eventStore.getAllVersions(ids.get(1)),
@@ -1964,13 +1964,13 @@ class PgBiTemporalEventStoreComplexTest {
                 .map(b -> Map.entry(a, b))
             )
             .compose(ab ->
-                // C corrects A (version 3 — the family already has 1, 2)
+                // C corrects A (version 3 the family already has 1, 2)
                 eventStore.appendCorrection(ab.getKey().getEventId(), "FanOut",
                     new TestEvent("c", "child2", 3), validTime, "branch 2")
                 .map(c -> List.of(ab.getKey(), ab.getValue(), c))
             )
             .compose(abc ->
-                // D corrects B (version 4 — the family already has 1, 2, 3)
+                // D corrects B (version 4 the family already has 1, 2, 3)
                 eventStore.appendCorrection(abc.get(1).getEventId(), "FanOut",
                     new TestEvent("d", "grandchild", 4), validTime, "deeper")
                 .map(d -> abc.get(0).getEventId())
@@ -2063,9 +2063,9 @@ class PgBiTemporalEventStoreComplexTest {
                 Instant tBeforeAll = entry.getKey().minusSeconds(1);
                 String leafId = entry.getValue().getEventId();
                 return Future.all(
-                    // Before any event existed — should return null
+                    // Before any event existed should return null
                     eventStore.getAsOfTransactionTime(leafId, tBeforeAll),
-                    // Now — should return the latest version
+                    // Now should return the latest version
                     eventStore.getAsOfTransactionTime(leafId, Instant.now())
                 ).map(cf -> {
                     // Arrays.asList allows nulls; List.of does not
@@ -2109,7 +2109,7 @@ class PgBiTemporalEventStoreComplexTest {
                 }));
         } catch (NullPointerException e) {
             logger.error("THIS IS AN INTENTIONAL TEST ERROR: Captured expected synchronous NullPointerException for null originalEventId = {}", e.getMessage());
-            // Thrown synchronously — also acceptable
+            // Thrown synchronously also acceptable
             testContext.completeNow();
         }
 

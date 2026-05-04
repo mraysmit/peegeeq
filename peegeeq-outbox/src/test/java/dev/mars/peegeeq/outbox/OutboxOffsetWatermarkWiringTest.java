@@ -62,15 +62,15 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * starting a consumer group on an OFFSET_WATERMARK topic must cause the engine to join
  * the partitioned group, which is visible as one or more rows in
  * {@code outbox_partition_assignments}. If the engine is not wired in, the row count
- * stays at zero — that is exactly what this test catches.</p>
+ * stays at zero that is exactly what this test catches.</p>
  *
- * <p>Vert.x 5 reactive only — no {@code CompletableFuture}, no blocking
+ * <p>Vert.x 5 reactive only no {@code CompletableFuture}, no blocking
  * {@code .get()}/{@code .join()}, no {@code Thread.sleep}.</p>
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
-@DisplayName("Outbox OFFSET_WATERMARK — engine wiring verification")
+@DisplayName("Outbox OFFSET_WATERMARK engine wiring verification")
 class OutboxOffsetWatermarkWiringTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxOffsetWatermarkWiringTest.class);
@@ -168,7 +168,7 @@ class OutboxOffsetWatermarkWiringTest {
                                 logger.info("partition assignments after start: {}", count);
                                 assertTrue(count >= 1,
                                         "OutboxConsumerGroup must wire PartitionedConsumerEngine on " +
-                                        "OFFSET_WATERMARK topics — expected >= 1 row in " +
+                                        "OFFSET_WATERMARK topics expected >= 1 row in " +
                                         "outbox_partition_assignments, got " + count);
                                 return (Void) null;
                             })

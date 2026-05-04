@@ -74,7 +74,7 @@ class OutboxConsumerGroupClientIdPropagationTest {
         OutboxConsumerGroup<String> outboxGroup = (OutboxConsumerGroup<String>) group;
 
         // Verify clientId is present on the consumer group itself
-        // (currently fails — OutboxConsumerGroup has no clientId field)
+        // (currently fails OutboxConsumerGroup has no clientId field)
         String actualClientId = getPrivateField(outboxGroup, "clientId", String.class);
         assertEquals(expectedClientId, actualClientId,
                 "Consumer group should hold the factory's clientId for propagation to its underlying consumer");
@@ -108,7 +108,7 @@ class OutboxConsumerGroupClientIdPropagationTest {
         try {
             group.start();
         } catch (Exception ignored) {
-            // Expected — no real database available
+            // Expected no real database available
         }
 
         // Then: the underlying consumer should have the same clientId
@@ -118,7 +118,7 @@ class OutboxConsumerGroupClientIdPropagationTest {
             assertEquals(expectedClientId, actualClientId,
                     "Underlying consumer created by start() should have the group's clientId");
         }
-        // If underlyingConsumer is null, start() failed before creating it — acceptable in unit context
+        // If underlyingConsumer is null, start() failed before creating it acceptable in unit context
 
         group.close();
     }
@@ -212,7 +212,7 @@ class OutboxConsumerGroupClientIdPropagationTest {
     }
 
     /**
-     * Minimal DatabaseService stub for unit tests — no real database needed.
+     * Minimal DatabaseService stub for unit tests no real database needed.
      */
     private static class StubDatabaseService implements DatabaseService {
         @Override public io.vertx.core.Future<Void> initialize() { return io.vertx.core.Future.succeededFuture(); }

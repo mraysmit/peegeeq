@@ -47,7 +47,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * Unit tests for PeeGeeQRestServer verticle lifecycle.
  *
- * These are pure unit tests — no database, no Testcontainers.
+ * These are pure unit tests no database, no Testcontainers.
  * They verify the shutdown contract: stop() must call setupService.close().
  */
 @Tag("core")

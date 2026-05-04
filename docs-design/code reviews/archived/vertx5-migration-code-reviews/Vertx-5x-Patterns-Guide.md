@@ -34,7 +34,7 @@ Note: Vert.x 5 uses Future-only APIs and builder patterns across the stack. For 
 
 ## Modern Vert.x 5.x Composable Patterns
 
-Vert.x 5.x provides elegant composable Future patterns (`.compose()`, `.onSuccess()`, `.onFailure()`, `.map()`, `.transform()`, `.eventually()`) that prioritize functional composition and developer experience. This section demonstrates the patterns implemented throughout PeeGeeQ, transforming the codebase from callback-style programming to modern, composable asynchronous patterns. **Note: `.recover()` is banned in PeeGeeQ — see `docs-design/dev/pgq-coding-principles.md`.**
+Vert.x 5.x provides elegant composable Future patterns (`.compose()`, `.onSuccess()`, `.onFailure()`, `.map()`, `.transform()`, `.eventually()`) that prioritize functional composition and developer experience. This section demonstrates the patterns implemented throughout PeeGeeQ, transforming the codebase from callback-style programming to modern, composable asynchronous patterns. **Note: `.recover()` is banned in PeeGeeQ see `docs-design/dev/pgq-coding-principles.md`.**
 
 ### Key Pattern: Composable Future Chains
 
@@ -88,8 +88,8 @@ vertx.createHttpServer()
         logger.info("PeeGeeQ Service Manager started successfully on port {}", port);
 
         // Register this service manager with Consul (optional).
-        // CORRECT: .transform() for optional steps — warn on failure, continue chain.
-        // BANNED: .recover(e -> Future.succeededFuture()) — that pattern is ERASURE-IN-SHUTDOWN.
+        // CORRECT: .transform() for optional steps warn on failure, continue chain.
+        // BANNED: .recover(e -> Future.succeededFuture()) that pattern is ERASURE-IN-SHUTDOWN.
         return registerSelfWithConsul()
             .transform(ar -> {
                 if (ar.failed()) {
@@ -124,7 +124,7 @@ return client.post(REST_PORT, "localhost", "/api/v1/database-setup/create")
             return Future.<Void>failedFuture("Database setup failed with status: " + response.statusCode());
         }
     })
-    // CORRECT: .transform() for optional steps — warn on failure, continue chain.
+    // CORRECT: .transform() for optional steps warn on failure, continue chain.
     // BANNED: .recover() is not permitted.
     .transform(ar -> {
         if (ar.failed()) {
@@ -154,7 +154,7 @@ return client.get(REST_PORT, "localhost", "/health")
         }
         return Future.succeededFuture();
     })
-    // CORRECT: .transform() for optional terminal step — warn and continue.
+    // CORRECT: .transform() for optional terminal step warn and continue.
     // BANNED: .recover(e -> Future.succeededFuture()) is not permitted.
     .transform(ar -> {
         if (ar.failed()) {
@@ -187,10 +187,10 @@ queue.send(message)
 
 ### 5. Resource Cleanup with Composition
 
-**✅ Modern Style** — use `.eventually()` so cleanup always runs even after failure:
+**✅ Modern Style** use `.eventually()` so cleanup always runs even after failure:
 ```java
 // .eventually() runs vertx.close() whether queue.close() succeeded or failed.
-// .compose() would skip vertx.close() if queue.close() failed — WRONG for teardown.
+// .compose() would skip vertx.close() if queue.close() failed WRONG for teardown.
 queue.close()
     .eventually(() -> vertx.close())
     .onSuccess(v -> latch.countDown())
@@ -207,7 +207,7 @@ queue.close()
 ### 2. **Improved Error Handling**
 - Centralized error handling with `.onFailure()`
 - Cleanup that always runs with `.eventually()` regardless of prior failure
-- Error propagation through the chain (`.recover()` is banned — use `.transform()` for optional steps)
+- Error propagation through the chain (`.recover()` is banned use `.transform()` for optional steps)
 
 ### 3. **Enhanced Maintainability**
 - Easier to add new steps in the sequence
@@ -231,7 +231,7 @@ operation1()
     .onFailure(throwable -> handleError(throwable));
 ```
 
-### 2. **`.recover()` Is Banned — Use `.transform()` or `.eventually()`**
+### 2. **`.recover()` Is Banned Use `.transform()` or `.eventually()`**
 
 `.recover()` has zero legitimate uses in this codebase. Use:
 - `.transform(ar -> ...)` for optional steps where failure should warn but not stop the chain
@@ -246,7 +246,7 @@ primaryOperation()
         return fallbackOperation();
     });
 
-// ✅ CORRECT — optional step, warn and continue
+// ✅ CORRECT optional step, warn and continue
 optionalOperation()
     .transform(ar -> {
         if (ar.failed()) {
@@ -255,7 +255,7 @@ optionalOperation()
         return Future.succeededFuture();
     });
 
-// ✅ CORRECT — cleanup always runs
+// ✅ CORRECT cleanup always runs
 resource.doWork()
     .eventually(() -> resource.close());
 ```
@@ -268,16 +268,16 @@ return someFuture.mapEmpty();           // end of chain producing Void
 return Future.failedFuture("Error");   // failure case
 ```
 
-### 4. **Proper Resource Management — Use `.eventually()` for Teardown**
+### 4. **Proper Resource Management Use `.eventually()` for Teardown**
 ```java
-// ✅ CORRECT — each close runs even if a prior close failed
+// ✅ CORRECT each close runs even if a prior close failed
 resource1.close()
     .eventually(() -> resource2.close())
     .eventually(() -> resource3.close())
     .onSuccess(v -> logger.info("All resources closed"))
     .onFailure(throwable -> logger.error("Cleanup failed", throwable));
 
-// ❌ WRONG — resource2.close() is skipped when resource1.close() fails
+// ❌ WRONG resource2.close() is skipped when resource1.close() fails
 resource1.close()
     .compose(v -> resource2.close())
     .compose(v -> resource3.close());
@@ -539,7 +539,7 @@ Through careful implementation of Vert.x 5.x best practices, PeeGeeQ achieved si
 
 - Fact: Command pipelining is a connection-level feature. Enable it with `PgConnectOptions#setPipeliningLimit(...)`. The default is 256; setting it to 1 disables pipelining.
 - Pool-created connections and pooled `SqlClient` connections honor this setting. Typically you set it when you build a `Pool`/`SqlClient` so the pool creates connections with that option.
-- Nuance: pool operations borrow a connection per operation; to pipeline multiple commands on the same connection, keep the connection (e.g., `withConnection`/`withTransaction`) or use a facade that supports pool-level pipelining. Measure — gains depend on workload and network RTT.
+- Nuance: pool operations borrow a connection per operation; to pipeline multiple commands on the same connection, keep the connection (e.g., `withConnection`/`withTransaction`) or use a facade that supports pool-level pipelining. Measure gains depend on workload and network RTT.
 
 ```java
 PgConnectOptions connectOptions = new PgConnectOptions()
@@ -638,7 +638,7 @@ poolOptions.setIdleTimeout(600000); // 10 minutes
 ```
 
 **Wait Queue Size Note:**
-In Vert.x 5, the max wait queue size is unbounded by default (`-1`). If you set it to a finite value (e.g., 200), you'll see "max wait queue size reached" when you hit back-pressure — that's expected. For bursty workloads, consider sizing it relative to pool size (e.g., 5–10x) and measure the impact.
+In Vert.x 5, the max wait queue size is unbounded by default (`-1`). If you set it to a finite value (e.g., 200), you'll see "max wait queue size reached" when you hit back-pressure that's expected. For bursty workloads, consider sizing it relative to pool size (e.g., 5–10x) and measure the impact.
 
 ### 3. ✅ Deploy multiple instances of your verticles (≃ cores)
 
@@ -1703,7 +1703,7 @@ This comprehensive guide provides both the modern composable Future patterns and
 
 1. **Use Composable Patterns**: Modern `.compose()`, `.onSuccess()`, `.onFailure()` patterns provide better readability and maintainability than callback-style programming.
 
-2. **Optimize for Performance**: Research-based configuration with proper pool sizing, pipelining, and shared resources can yield significant improvements — quantify with your own benchmarks.
+2. **Optimize for Performance**: Research-based configuration with proper pool sizing, pipelining, and shared resources can yield significant improvements quantify with your own benchmarks.
 
 3. **Monitor and Tune**: Continuous monitoring and tuning based on real metrics ensures optimal performance in production environments.
 

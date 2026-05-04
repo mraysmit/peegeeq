@@ -56,7 +56,7 @@ public class DeadLetterQueueManager implements DeadLetterService {
     private final Pool reactivePool;
     private final ObjectMapper objectMapper;
 
-    // Shutdown coordination — prevents database operations during closeReactive()
+    // Shutdown coordination prevents database operations during closeReactive()
     private volatile boolean closing = false;
 
     /**

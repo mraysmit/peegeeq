@@ -1,4 +1,4 @@
-Alright Mark — here’s the straight talk. You’ve got a solid skeleton and you’re pointed in the right direction (Vert.x 5 pool, no JDBC, nice separation of concerns). But there are several foot-guns and “works in dev, bites in prod” issues. I’ll group them by priority and give concrete fixes.
+Alright Mark here’s the straight talk. You’ve got a solid skeleton and you’re pointed in the right direction (Vert.x 5 pool, no JDBC, nice separation of concerns). But there are several foot-guns and “works in dev, bites in prod” issues. I’ll group them by priority and give concrete fixes.
 
 ---
 
@@ -258,18 +258,18 @@ public void close() {
 
 * `t.setDaemon(false)` on the scheduled executor “to ensure proper shutdown” is backwards. Daemon **true** means JVM won’t wait for the thread; **false** can keep JVM alive. Once you move to Vert.x timers, this goes away.
 * Consider a constant for `EVENT_BUS_ADDR = "peegeeq.lifecycle"`.
-* `publishLifecycleEvent` returns `Future.succeededFuture()` — harmless. If you ever need delivery guarantees, use `request` with a reply.
-* `isHealthy()` returns a boolean; expose a reason enum/message for dashboards (you already have `OverallHealthStatus` — return that from a `getHealth()`).
+* `publishLifecycleEvent` returns `Future.succeededFuture()` harmless. If you ever need delivery guarantees, use `request` with a reply.
+* `isHealthy()` returns a boolean; expose a reason enum/message for dashboards (you already have `OverallHealthStatus` return that from a `getHealth()`).
 
 ---
 
 # What’s good (keep it)
 
-* Vert.x SQL Pool usage, `withConnection` for connectivity check — ✅
-* Clear separation of managers (health, circuit breaker, backpressure, DLQ, recovery) — ✅
-* Metrics integration behind an interface — ✅
-* Reflection bridge for optional modules — pragmatic — ✅
-* `volatile boolean started` and idempotent `startReactive` check — ✅
+* Vert.x SQL Pool usage, `withConnection` for connectivity check ✅
+* Clear separation of managers (health, circuit breaker, backpressure, DLQ, recovery) ✅
+* Metrics integration behind an interface ✅
+* Reflection bridge for optional modules pragmatic ✅
+* `volatile boolean started` and idempotent `startReactive` check ✅
 
 ---
 
@@ -281,7 +281,7 @@ public void close() {
 * Make stop/close fully async and symmetric.
 * Move magic numbers to config; reduce log duplication.
 
-If you want, paste `PgClientFactory` and `HealthCheckManager` next — I’ll check for thread/loop violations and pool closure semantics.
+If you want, paste `PgClientFactory` and `HealthCheckManager` next I’ll check for thread/loop violations and pool closure semantics.
 
 ---
 

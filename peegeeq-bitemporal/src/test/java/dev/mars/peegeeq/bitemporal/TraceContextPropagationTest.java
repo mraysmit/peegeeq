@@ -53,13 +53,13 @@ import static org.junit.jupiter.api.Assertions.*;
  * Tests verifying W3C traceparent propagation across the event bus to
  * DatabaseWorkerVerticle and correct Vert.x context usage.
  *
- * <h3>Bug 1 — traceparent header propagation</h3>
+ * <h3>Bug 1 traceparent header propagation</h3>
  * <ul>
  *   <li>POSITIVE: caller's trace ID survives the event bus hop</li>
  *   <li>NEGATIVE: absent traceparent creates a fresh root trace (no crash)</li>
  * </ul>
  *
- * <h3>Bug 2 — Vert.x context source in worker</h3>
+ * <h3>Bug 2 Vert.x context source in worker</h3>
  * <ul>
  *   <li>POSITIVE: trace stored on handler context survives into async callbacks</li>
  *   <li>NEGATIVE: concurrent messages get independent trace contexts</li>
@@ -168,7 +168,7 @@ class TraceContextPropagationTest {
     }
 
     // ========================================================================
-    // Bug 1 — traceparent header propagation on the event bus
+    // Bug 1 traceparent header propagation on the event bus
     // ========================================================================
 
     @Test
@@ -206,7 +206,7 @@ class TraceContextPropagationTest {
     }
 
     @Test
-    @DisplayName("POSITIVE: raw event bus message with traceparent header — worker receives caller trace ID")
+    @DisplayName("POSITIVE: raw event bus message with traceparent header worker receives caller trace ID")
     void rawEventBusMessageWithTraceparentHeader(Vertx vertx, VertxTestContext testContext) throws Exception {
         String callerTraceId = "eeee5555ffff6666aaaa7777bbbb8888";
         String callerSpanId = "5555666677778888";
@@ -239,11 +239,11 @@ class TraceContextPropagationTest {
     }
 
     @Test
-    @DisplayName("NEGATIVE: raw event bus message without traceparent — worker creates fresh root (no crash)")
+    @DisplayName("NEGATIVE: raw event bus message without traceparent worker creates fresh root (no crash)")
     void rawEventBusMessageWithoutTraceparent(Vertx vertx, VertxTestContext testContext) throws Exception {
         String address = PgBiTemporalEventStore.databaseOperationAddress(TABLE_NAME);
 
-        // Send with NO traceparent header — no DeliveryOptions at all
+        // Send with NO traceparent header no DeliveryOptions at all
         JsonObject message = buildAppendMessage(eventStore);
 
         vertx.eventBus().<JsonObject>request(address, message)
@@ -251,7 +251,7 @@ class TraceContextPropagationTest {
                     JsonObject result = reply.body();
                     assertNotNull(result.getString("id"),
                             "Worker must still process successfully with no traceparent");
-                    logger.info("NEGATIVE: No traceparent header — worker created fresh root trace without crashing");
+                    logger.info("NEGATIVE: No traceparent header worker created fresh root trace without crashing");
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
@@ -263,7 +263,7 @@ class TraceContextPropagationTest {
     }
 
     @Test
-    @DisplayName("NEGATIVE: malformed traceparent header — worker creates fresh root (no crash)")
+    @DisplayName("NEGATIVE: malformed traceparent header worker creates fresh root (no crash)")
     void malformedTraceparentHeader(Vertx vertx, VertxTestContext testContext) throws Exception {
         String address = PgBiTemporalEventStore.databaseOperationAddress(TABLE_NAME);
 
@@ -277,7 +277,7 @@ class TraceContextPropagationTest {
                     JsonObject result = reply.body();
                     assertNotNull(result.getString("id"),
                             "Worker must handle malformed traceparent gracefully");
-                    logger.info("NEGATIVE: Malformed traceparent — worker created fresh root trace");
+                    logger.info("NEGATIVE: Malformed traceparent worker created fresh root trace");
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
@@ -289,7 +289,7 @@ class TraceContextPropagationTest {
     }
 
     // ========================================================================
-    // Bug 2 — correct Vert.x context usage (currentContext vs getOrCreateContext)
+    // Bug 2 correct Vert.x context usage (currentContext vs getOrCreateContext)
     // ========================================================================
 
     @Test
@@ -332,7 +332,7 @@ class TraceContextPropagationTest {
     @DisplayName("NEGATIVE: concurrent messages each receive independent trace contexts")
     void concurrentMessagesGetIndependentTraceContexts(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Send two concurrent messages with DIFFERENT trace IDs.
-        // Both must succeed — proving each handler invocation gets its own context
+        // Both must succeed proving each handler invocation gets its own context
         // rather than sharing/overwriting a single context (which would happen with
         // getOrCreateContext() on the same verticle).
         String traceIdA = "aaaa0000aaaa0000aaaa0000aaaa0000";
@@ -412,7 +412,7 @@ class TraceContextPropagationTest {
     }
 
     @Test
-    @DisplayName("NEGATIVE: sendDatabaseOperation with empty MDC — no traceparent header, worker still succeeds")
+    @DisplayName("NEGATIVE: sendDatabaseOperation with empty MDC no traceparent header, worker still succeeds")
     void sendDatabaseOperationWithEmptyMDC(Vertx vertx, VertxTestContext testContext) throws Exception {
         // Clear MDC to guarantee captureTraceContext() returns null
         MDC.remove(TraceContextUtil.MDC_TRACE_ID);
@@ -424,7 +424,7 @@ class TraceContextPropagationTest {
                 .onSuccess(event -> {
                     assertNotNull(event.getEventId(),
                             "Event bus path must succeed even when no trace is in MDC");
-                    logger.info("NEGATIVE: No MDC trace — worker created fresh root trace, event stored OK");
+                    logger.info("NEGATIVE: No MDC trace worker created fresh root trace, event stored OK");
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);

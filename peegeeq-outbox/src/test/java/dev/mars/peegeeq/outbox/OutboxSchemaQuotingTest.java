@@ -47,7 +47,7 @@ import org.slf4j.LoggerFactory;
  * {@code "%s.outbox".formatted(schema)} without quoting the schema identifier.
  * While {@code PgConnectionManager.normalizeSearchPath()} rejects non-alphanumeric
  * characters (hyphens, etc.), SQL reserved words like "order", "select", "table"
- * pass validation — they are valid Java identifiers made of letters only —
+ * pass validation they are valid Java identifiers made of letters only —
  * but generate malformed SQL when used unquoted as schema identifiers.</p>
  *
  * <p>For example, schema "order" produces {@code FROM order.outbox} which PostgreSQL
@@ -230,12 +230,12 @@ class OutboxSchemaQuotingTest {
     // ========================================================================
 
     @Test
-    @DisplayName("Schema 'order' (reserved word) should work when properly quoted — getStatsAsync")
+    @DisplayName("Schema 'order' (reserved word) should work when properly quoted getStatsAsync")
     void reservedWordOrderShouldWorkForStats(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Test: reserved word order should work for stats");
         // "order" passes PgConnectionManager's regex [A-Za-z0-9_,\s]+ but is a SQL reserved word.
-        // Unquoted SQL: FROM order.outbox — PostgreSQL parses "order" as ORDER BY keyword.
-        // Quoted SQL: FROM "order".outbox — correct.
+        // Unquoted SQL: FROM order.outbox PostgreSQL parses "order" as ORDER BY keyword.
+        // Quoted SQL: FROM "order".outbox correct.
         String schema = "order";
         createSchemaWithQuotedDDL(schema);
 
@@ -257,7 +257,7 @@ class OutboxSchemaQuotingTest {
                 // Either way, getting 0 when we inserted 1 is evidence of the bug.
                 assertEquals(1, stats.getPendingMessages(),
                     "getStatsAsync with reserved-word schema 'order' should return 1 pending message. " +
-                    "Got 0 because unquoted 'FROM order.outbox' is a SQL syntax error — the query fails instead of returning 1.");
+                    "Got 0 because unquoted 'FROM order.outbox' is a SQL syntax error the query fails instead of returning 1.");
                 producer.close();
                 testContext.completeNow();
             }))
@@ -267,7 +267,7 @@ class OutboxSchemaQuotingTest {
     }
 
     @Test
-    @DisplayName("Schema 'order' (reserved word) should work when properly quoted — countMessagesAsync")
+    @DisplayName("Schema 'order' (reserved word) should work when properly quoted countMessagesAsync")
     void reservedWordOrderShouldWorkForCount(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Test: reserved word order should work for count");
         String schema = "order";
@@ -298,7 +298,7 @@ class OutboxSchemaQuotingTest {
     }
 
     @Test
-    @DisplayName("Schema 'order' (reserved word) should work when properly quoted — purgeMessagesAsync")
+    @DisplayName("Schema 'order' (reserved word) should work when properly quoted purgeMessagesAsync")
     void reservedWordOrderShouldWorkForPurge(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Test: reserved word order should work for purge");
         String schema = "order";

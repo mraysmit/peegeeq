@@ -156,10 +156,10 @@ mvn test -Pintegration-tests -pl :peegeeq-examples-spring 2>&1 | Tee-Object -Fil
 
 **Windows users must use Maven commands directly** (PowerShell):
 ```powershell
-# Core tests — single module
+# Core tests single module
 mvn test -Pcore-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-core-20260501.txt
 
-# Integration tests — single module
+# Integration tests single module
 mvn test -Pintegration-tests -pl :peegeeq-outbox 2>&1 | Tee-Object -FilePath logs\peegeeq-outbox-integration-20260501.txt
 ```
 
@@ -287,12 +287,12 @@ Not all modules implement the full standard profile set. The following modules b
 
 | Module | Exception |
 |---|---|
-| `peegeeq-migrations` | No test-category profiles. All 5 tests are `@Tag("integration")`. No Surefire groups filtering — all tests run on `mvn test`. Run with `mvn test -pl :peegeeq-migrations`. |
-| `peegeeq-runtime` | No test-category profiles. Uses root pom Surefire `pluginManagement` with no groups filtering — all tests run on `mvn test`. |
+| `peegeeq-migrations` | No test-category profiles. All 5 tests are `@Tag("integration")`. No Surefire groups filtering all tests run on `mvn test`. Run with `mvn test -pl :peegeeq-migrations`. |
+| `peegeeq-runtime` | No test-category profiles. Uses root pom Surefire `pluginManagement` with no groups filtering all tests run on `mvn test`. |
 | `peegeeq-rest-client` | No test-category profiles. Surefire references `${test.groups}` / `${test.excludedGroups}` but no profile sets those values. Always specify a profile explicitly (e.g. `-Pintegration-tests`) to avoid undefined behaviour. |
-| `peegeeq-integration-tests` | Default profile is `smoke-tests`, **not** `core-tests`. Only has `smoke-tests`, `integration-tests`, and `all-tests` profiles — no `core-tests`, `performance-tests`, or `slow-tests`. |
+| `peegeeq-integration-tests` | Default profile is `smoke-tests`, **not** `core-tests`. Only has `smoke-tests`, `integration-tests`, and `all-tests` profiles no `core-tests`, `performance-tests`, or `slow-tests`. |
 | `peegeeq-native`, `peegeeq-db`, `peegeeq-bitemporal` | Do not have a `slow-tests` profile. Use `-Pall-tests` to run all tests in these modules. |
-| `peegeeq-openapi` | No `src/test` directory — no tests to run. |
+| `peegeeq-openapi` | No `src/test` directory no tests to run. |
 
 ### Single Module Examples
 
@@ -414,7 +414,7 @@ The PeeGeeQ project uses **Maven profiles** to control test execution through JU
 | `slow-tests` | `@Tag("slow")` | 15+ minutes | Comprehensive testing |
 | `all-tests` | All tags | Variable | Complete test suite |
 
-> **Note**: Profiles are defined per module, not in the root pom. Most modules define all standard profiles. `slow-tests` is not defined in `peegeeq-native`, `peegeeq-db`, or `peegeeq-bitemporal` — use `-Pall-tests` in those modules to include slow tests. See *Module-Specific Profile Exceptions* in the Module-Specific Testing section for the full list of exceptions.
+> **Note**: Profiles are defined per module, not in the root pom. Most modules define all standard profiles. `slow-tests` is not defined in `peegeeq-native`, `peegeeq-db`, or `peegeeq-bitemporal` use `-Pall-tests` in those modules to include slow tests. See *Module-Specific Profile Exceptions* in the Module-Specific Testing section for the full list of exceptions.
 
 ### Why Profiles Are Required
 
@@ -422,11 +422,11 @@ The PeeGeeQ project uses **Maven profiles** to control test execution through JU
 
 Using an explicit `-P<profile>` flag deactivates the default profile and activates only the named one:
 
-- `-Pcore-tests` — runs only `@Tag("core")` tests (activeByDefault in most modules)
-- `-Pintegration-tests` — runs only `@Tag("integration")` tests
-- `-Pperformance-tests` — runs only `@Tag("performance")` tests
-- `-Pslow-tests` — runs only `@Tag("slow")` tests. **Not defined in `peegeeq-native`, `peegeeq-db`, or `peegeeq-bitemporal`** — use `-Pall-tests` in those modules.
-- `-Pall-tests` — runs core + integration + performance + slow + smoke
+- `-Pcore-tests` runs only `@Tag("core")` tests (activeByDefault in most modules)
+- `-Pintegration-tests` runs only `@Tag("integration")` tests
+- `-Pperformance-tests` runs only `@Tag("performance")` tests
+- `-Pslow-tests` runs only `@Tag("slow")` tests. **Not defined in `peegeeq-native`, `peegeeq-db`, or `peegeeq-bitemporal`** use `-Pall-tests` in those modules.
+- `-Pall-tests` runs core + integration + performance + slow + smoke
 
 This design ensures:
 - ✅ Fast feedback during daily development (core-tests default, ~30s)
@@ -436,7 +436,7 @@ This design ensures:
 ### Profile Activation Examples
 
 ```powershell
-# ✅ Explicit — activates core-tests profile regardless of module defaults
+# ✅ Explicit activates core-tests profile regardless of module defaults
 mvn test -Pcore-tests 2>&1 | Tee-Object -FilePath logs\core-tests-20260501.txt
 
 # ✅ Equivalent to -Pcore-tests in most modules (core-tests is activeByDefault=true)
@@ -746,7 +746,7 @@ The script uses these Maven profiles internally:
 - `smoke-tests` - Ultra-fast validation  
 - `integration-tests` - TestContainers integration
 - `performance-tests` - Load and throughput
-- `slow-tests` - Long-running comprehensive (not available in `peegeeq-native`, `peegeeq-db`, `peegeeq-bitemporal` — use `-Pall-tests` in those modules)
+- `slow-tests` - Long-running comprehensive (not available in `peegeeq-native`, `peegeeq-db`, `peegeeq-bitemporal` use `-Pall-tests` in those modules)
 - `all-tests` - Complete test suite
 
 ### Direct Maven Usage (Windows/PowerShell)
@@ -770,7 +770,7 @@ This section provides comprehensive information about the test categorization sy
 - **Target Time**: < 30 seconds total
 - **Includes**: Configuration loading, validation logic, basic CRUD operations, error handling
 - **Usage**: `@Tag(TestCategories.CORE)`
-- **Run**: `mvn test -Pcore-tests` (or plain `mvn test` — `core-tests` is `activeByDefault=true` in most modules)
+- **Run**: `mvn test -Pcore-tests` (or plain `mvn test` `core-tests` is `activeByDefault=true` in most modules)
 
 #### 🔧 **INTEGRATION** - Infrastructure Tests
 - **Purpose**: End-to-end functionality with real PostgreSQL/TestContainers
@@ -791,7 +791,7 @@ This section provides comprehensive information about the test categorization sy
 - **Target Time**: 5+ minutes
 - **Includes**: Full system integration, multi-container orchestration, extended reliability
 - **Usage**: `@Tag(TestCategories.SLOW)`
-- **Run**: `mvn test -Pslow-tests` (or `mvn test -Pall-tests`). **Not defined in `peegeeq-native`, `peegeeq-db`, or `peegeeq-bitemporal`** — use `-Pall-tests` in those modules.
+- **Run**: `mvn test -Pslow-tests` (or `mvn test -Pall-tests`). **Not defined in `peegeeq-native`, `peegeeq-db`, or `peegeeq-bitemporal`** use `-Pall-tests` in those modules.
 
 #### 🔥 **SMOKE** - Ultra-Fast Verification
 - **Purpose**: Basic "system works" verification
@@ -1028,7 +1028,7 @@ mvn test -Pcore-tests -pl :peegeeq-api,:peegeeq-db,:peegeeq-native,:peegeeq-bite
 
 ### Before Test Categorization
 
-Previously: `mvn test` with no profile — ran all tests, 12+ minutes with no control over what executed.
+Previously: `mvn test` with no profile ran all tests, 12+ minutes with no control over what executed.
 
 ### After Test Categorization
 ```bash

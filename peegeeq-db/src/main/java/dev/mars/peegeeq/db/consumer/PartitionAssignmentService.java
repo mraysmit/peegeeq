@@ -122,7 +122,7 @@ public class PartitionAssignmentService {
                                                 return deleteOldAssignments(conn, topic, groupName)
                                                         .compose(v -> {
                                                             if (remainingInstances.isEmpty() || partitions.isEmpty()) {
-                                                                // No remaining instances or no partitions — just clean up
+                                                                // No remaining instances or no partitions just clean up
                                                                 return Future.succeededFuture();
                                                             }
                                                             Map<String, String> assignments = computeAssignments(partitions, remainingInstances);

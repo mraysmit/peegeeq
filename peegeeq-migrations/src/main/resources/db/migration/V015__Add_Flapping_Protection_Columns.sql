@@ -15,7 +15,7 @@
 --   - Prefer moderate heartbeat intervals (30-60s) unless faster failure detection is required.
 --   - Do not index consecutive_misses or dead_after_misses unless a proven query requires it.
 --   - State is kept on the subscription row deliberately so it survives process restarts
---     and detector/job instance changes — do not move this to in-memory tracking.
+--     and detector/job instance changes do not move this to in-memory tracking.
 --   - At 10,000 subscriptions with 60s heartbeat intervals, expect ~167 row updates/sec.
 --     Monitor autovacuum and dead tuples on outbox_topic_subscriptions at higher scale.
 

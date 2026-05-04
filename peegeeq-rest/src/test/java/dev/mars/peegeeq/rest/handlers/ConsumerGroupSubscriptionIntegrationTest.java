@@ -799,7 +799,7 @@ public class ConsumerGroupSubscriptionIntegrationTest {
                             assertTrue(events.contains("\"heartbeatIntervalSeconds\":30"),
                                 "SSE should have started with 30s heartbeat"));
 
-                        // Trigger subscription update directly — no timer needed
+                        // Trigger subscription update directly no timer needed
                         JsonObject updatedOptions = new JsonObject()
                             .put("startPosition", "FROM_BEGINNING")
                             .put("heartbeatIntervalSeconds", 45);

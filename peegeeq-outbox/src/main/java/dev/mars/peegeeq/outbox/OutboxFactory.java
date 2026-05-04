@@ -565,7 +565,7 @@ public class OutboxFactory implements QueueFactory {
     /**
      * Closes all tracked resources asynchronously. Consumers and consumer groups
      * use their async close path; producers and browsers use sync close (lightweight).
-     * Idempotent — safe to call from both the close hook and explicit close().
+     * Idempotent safe to call from both the close hook and explicit close().
      */
     private io.vertx.core.Future<Void> closeTrackedResourcesAsync() {
         if (!closed.compareAndSet(false, true)) {

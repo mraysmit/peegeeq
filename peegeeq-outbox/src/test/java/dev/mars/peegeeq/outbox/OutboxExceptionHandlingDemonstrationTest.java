@@ -248,7 +248,7 @@ public class OutboxExceptionHandlingDemonstrationTest {
         testContext.completeNow();
     }
 
-    // Helper methods removed — test phases are now inline using Promises
+    // Helper methods removed test phases are now inline using Promises
     // to avoid VertxTestContext checkpoint accumulation across phases.
 }
 

@@ -331,7 +331,7 @@ class ConsumerGroupSubscriptionTest {
 
             SubscriptionOptions options = SubscriptionOptions.defaults();
 
-            // Act & Assert — async method returns a failed future, not a thrown exception
+            // Act & Assert async method returns a failed future, not a thrown exception
             Future<Void> result = group.start(options);
             assertTrue(result.failed(), "Should fail when starting a closed group");
             assertInstanceOf(IllegalStateException.class, result.cause());

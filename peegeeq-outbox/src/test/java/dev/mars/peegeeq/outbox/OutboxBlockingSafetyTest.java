@@ -70,7 +70,7 @@ class OutboxBlockingSafetyTest {
                 return null;
             });
 
-            // No synchronous exception should be thrown — async failures are in the Future
+            // No synchronous exception should be thrown async failures are in the Future
             assertNull(thrown,
                     "start(SubscriptionOptions) should not throw on event loop; got: " + thrown);
         } finally {

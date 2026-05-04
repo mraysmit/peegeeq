@@ -95,7 +95,7 @@ public class BiTemporalPoolFactory {
                     logger.warn("PgClientFactory not found in PeeGeeQManager, cannot create pool");
                 }
 
-                // No fallback — explicit configuration is required
+                // No fallback explicit configuration is required
                 throw new IllegalStateException(
                         "Cannot create Vert.x Pool: PeeGeeQManager configuration is missing or incomplete. "
                         + "Provide a valid PgClientFactory with connection and pool configuration.");
