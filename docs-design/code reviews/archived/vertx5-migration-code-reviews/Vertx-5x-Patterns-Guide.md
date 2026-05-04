@@ -34,7 +34,7 @@ Note: Vert.x 5 uses Future-only APIs and builder patterns across the stack. For 
 
 ## Modern Vert.x 5.x Composable Patterns
 
-Vert.x 5.x provides elegant composable Future patterns (`.compose()`, `.onSuccess()`, `.onFailure()`, `.map()`, `.recover()`) that prioritize functional composition and developer experience. This section demonstrates the patterns implemented throughout PeeGeeQ, transforming the codebase from callback-style programming to modern, composable asynchronous patterns.
+Vert.x 5.x provides elegant composable Future patterns (`.compose()`, `.onSuccess()`, `.onFailure()`, `.map()`, `.transform()`, `.eventually()`) that prioritize functional composition and developer experience. This section demonstrates the patterns implemented throughout PeeGeeQ, transforming the codebase from callback-style programming to modern, composable asynchronous patterns. **Note: `.recover()` is banned in PeeGeeQ — see `docs-design/dev/pgq-coding-principles.md`.**
 
 ### Key Pattern: Composable Future Chains
 
@@ -87,12 +87,15 @@ vertx.createHttpServer()
         server = httpServer;
         logger.info("PeeGeeQ Service Manager started successfully on port {}", port);
 
-        // Register this service manager with Consul (optional)
+        // Register this service manager with Consul (optional).
+        // CORRECT: .transform() for optional steps — warn on failure, continue chain.
+        // BANNED: .recover(e -> Future.succeededFuture()) — that pattern is ERASURE-IN-SHUTDOWN.
         return registerSelfWithConsul()
-            .recover(throwable -> {
-                logger.warn("Failed to register with Consul (continuing without Consul): {}",
-                        throwable.getMessage());
-                // Continue even if Consul registration fails
+            .transform(ar -> {
+                if (ar.failed()) {
+                    logger.warn("Failed to register with Consul (optional, continuing): {}",
+                            ar.cause().getMessage());
+                }
                 return Future.succeededFuture();
             });
     })
@@ -121,9 +124,14 @@ return client.post(REST_PORT, "localhost", "/api/v1/database-setup/create")
             return Future.<Void>failedFuture("Database setup failed with status: " + response.statusCode());
         }
     })
-    .recover(throwable -> {
-        logger.warn("⚠️ Database setup failed, using fallback configuration: {}", throwable.getMessage());
-        return performFallbackDatabaseSetup(client);
+    // CORRECT: .transform() for optional steps — warn on failure, continue chain.
+    // BANNED: .recover() is not permitted.
+    .transform(ar -> {
+        if (ar.failed()) {
+            logger.warn("⚠️ Database setup failed, using fallback configuration: {}", ar.cause().getMessage());
+            return performFallbackDatabaseSetup(client);
+        }
+        return Future.succeededFuture();
     });
 ```
 
@@ -146,9 +154,13 @@ return client.get(REST_PORT, "localhost", "/health")
         }
         return Future.succeededFuture();
     })
-    .recover(throwable -> {
-        logger.warn("⚠️ Some service interactions failed: {}", throwable.getMessage());
-        return Future.succeededFuture(); // Continue despite failures
+    // CORRECT: .transform() for optional terminal step — warn and continue.
+    // BANNED: .recover(e -> Future.succeededFuture()) is not permitted.
+    .transform(ar -> {
+        if (ar.failed()) {
+            logger.warn("⚠️ Some service interactions failed: {}", ar.cause().getMessage());
+        }
+        return Future.<Void>succeededFuture();
     });
 ```
 
@@ -175,12 +187,14 @@ queue.send(message)
 
 ### 5. Resource Cleanup with Composition
 
-**✅ Modern Style**:
+**✅ Modern Style** — use `.eventually()` so cleanup always runs even after failure:
 ```java
+// .eventually() runs vertx.close() whether queue.close() succeeded or failed.
+// .compose() would skip vertx.close() if queue.close() failed — WRONG for teardown.
 queue.close()
-    .compose(v -> vertx.close())
+    .eventually(() -> vertx.close())
     .onSuccess(v -> latch.countDown())
-    .onFailure(throwable -> latch.countDown()); // Continue even if close fails
+    .onFailure(throwable -> latch.countDown());
 ```
 
 ## Key Benefits of Composable Patterns
@@ -192,8 +206,8 @@ queue.close()
 
 ### 2. **Improved Error Handling**
 - Centralized error handling with `.onFailure()`
-- Graceful degradation with `.recover()`
-- Error propagation through the chain
+- Cleanup that always runs with `.eventually()` regardless of prior failure
+- Error propagation through the chain (`.recover()` is banned — use `.transform()` for optional steps)
 
 ### 3. **Enhanced Maintainability**
 - Easier to add new steps in the sequence
@@ -217,15 +231,33 @@ operation1()
     .onFailure(throwable -> handleError(throwable));
 ```
 
-### 2. **Use .recover() for Graceful Degradation**
+### 2. **`.recover()` Is Banned — Use `.transform()` or `.eventually()`**
+
+`.recover()` has zero legitimate uses in this codebase. Use:
+- `.transform(ar -> ...)` for optional steps where failure should warn but not stop the chain
+- `.eventually(() -> ...)` for cleanup that must always run
+- `.onFailure(e -> log(e))` to observe an error without affecting the chain
+
 ```java
-// ✅ Good - Continue with fallback if primary operation fails
+// ❌ BANNED
 primaryOperation()
     .recover(throwable -> {
         logger.warn("Primary failed, using fallback: {}", throwable.getMessage());
         return fallbackOperation();
-    })
-    .onSuccess(result -> handleResult(result));
+    });
+
+// ✅ CORRECT — optional step, warn and continue
+optionalOperation()
+    .transform(ar -> {
+        if (ar.failed()) {
+            logger.warn("Optional step failed (continuing): {}", ar.cause().getMessage());
+        }
+        return Future.succeededFuture();
+    });
+
+// ✅ CORRECT — cleanup always runs
+resource.doWork()
+    .eventually(() -> resource.close());
 ```
 
 ### 3. Return Void cleanly
@@ -236,14 +268,19 @@ return someFuture.mapEmpty();           // end of chain producing Void
 return Future.failedFuture("Error");   // failure case
 ```
 
-### 4. **Proper Resource Management**
+### 4. **Proper Resource Management — Use `.eventually()` for Teardown**
 ```java
-// ✅ Good - Compose cleanup operations
+// ✅ CORRECT — each close runs even if a prior close failed
 resource1.close()
-    .compose(v -> resource2.close())
-    .compose(v -> resource3.close())
+    .eventually(() -> resource2.close())
+    .eventually(() -> resource3.close())
     .onSuccess(v -> logger.info("All resources closed"))
     .onFailure(throwable -> logger.error("Cleanup failed", throwable));
+
+// ❌ WRONG — resource2.close() is skipped when resource1.close() fails
+resource1.close()
+    .compose(v -> resource2.close())
+    .compose(v -> resource3.close());
 ```
 
 
@@ -672,11 +709,13 @@ public Future<Void> appendEvent(String streamId, String eventData) {
 public <T> Future<T> inTransaction(Function<SqlConnection, Future<T>> work) {
     return pool.withTransaction(TransactionOptions.options().setDeferrable(true), conn ->
         work.apply(conn)
-    ).recover(err -> {
-        if (isRetryable(err)) {
+    // CORRECT: use .transform() to inspect the AsyncResult and retry or re-fail.
+    // BANNED: .recover() is not permitted.
+    ).transform(ar -> {
+        if (ar.failed() && isRetryable(ar.cause())) {
             return retry(work);
         }
-        return Future.failedFuture(err);
+        return ar.failed() ? Future.failedFuture(ar.cause()) : Future.succeededFuture(ar.result());
     });
 }
 
@@ -1173,11 +1212,16 @@ public Future<Boolean> checkHealth(String serviceId) {
     Pool pool = pools.get(serviceId);
     if (pool == null) return Future.succeededFuture(false);
 
+    // CORRECT: .transform() converts failure to false without swallowing the error trace.
+    // BANNED: .recover(err -> Future.succeededFuture(false)) is not permitted.
     return pool.withConnection(conn ->
         conn.query("SELECT 1").execute().map(rs -> true)
-    ).recover(err -> {
-        logger.warn("Health check failed for {}: {}", serviceId, err.getMessage());
-        return Future.succeededFuture(false);
+    ).transform(ar -> {
+        if (ar.failed()) {
+            logger.warn("Health check failed for {}: {}", serviceId, ar.cause().getMessage());
+            return Future.succeededFuture(false);
+        }
+        return Future.succeededFuture(ar.result());
     });
 }
 ```
@@ -1768,11 +1812,16 @@ public Future<Boolean> checkHealth(String serviceId) {
     Pool pool = pools.get(serviceId);
     if (pool == null) return Future.succeededFuture(false);
 
+    // CORRECT: .transform() converts failure to false without swallowing the error trace.
+    // BANNED: .recover(err -> Future.succeededFuture(false)) is not permitted.
     return pool.withConnection(conn ->
         conn.query("SELECT 1").execute().map(rs -> true)
-    ).recover(err -> {
-        logger.warn("Health check failed for {}: {}", serviceId, err.getMessage());
-        return Future.succeededFuture(false);
+    ).transform(ar -> {
+        if (ar.failed()) {
+            logger.warn("Health check failed for {}: {}", serviceId, ar.cause().getMessage());
+            return Future.succeededFuture(false);
+        }
+        return Future.succeededFuture(ar.result());
     });
 }
 ```

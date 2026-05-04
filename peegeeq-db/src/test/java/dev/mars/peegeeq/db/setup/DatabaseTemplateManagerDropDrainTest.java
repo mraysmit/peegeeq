@@ -103,8 +103,8 @@ class DatabaseTemplateManagerDropDrainTest extends BaseIntegrationTest {
                         databaseTemplateManager.dropDatabase(conn, testDbName))
                     .eventually(adminPool::close)
                     .eventually(() ->
-                        // close targetPool; may fail because the database was dropped — ignore
-                        targetPool.close().recover(err -> Future.succeededFuture()));
+                        // close targetPool; may fail because the database was dropped — ignored by .eventually()
+                        targetPool.close());
             })
             .compose(ignored -> {
 

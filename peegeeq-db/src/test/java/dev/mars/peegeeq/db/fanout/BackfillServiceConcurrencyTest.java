@@ -339,8 +339,7 @@ public class BackfillServiceConcurrencyTest extends BaseIntegrationTest {
                             .compose(v2 -> backfillService.cancelBackfill(topic, groupName))
                             .compose(v2 -> {
                                 // Give cancellation time to take effect
-                                return manager.getVertx().timer(100)
-                                        .recover(err -> Future.succeededFuture());
+                                return manager.getVertx().timer(100);
                             })
                             .map(v2 -> null);
                 })
