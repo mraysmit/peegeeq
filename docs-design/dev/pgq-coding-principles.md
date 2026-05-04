@@ -355,13 +355,13 @@ class OutboxFactoryTest {
       .onSuccess(v -> System.out.println("Server is ready"))
       .onFailure(Throwable::printStackTrace);
 
-  // GOOD: Error recovery with graceful degradation
+  // GOOD: Log terminal error, propagate unchanged
   primaryOperation()
-      .recover(throwable -> {
-          logger.warn("Primary failed, using fallback: {}", throwable.getMessage());
-          return fallbackOperation();
-      })
+      .onFailure(throwable -> logger.warn("Primary failed: {}", throwable.getMessage()))
       .onSuccess(result -> handleResult(result));
+
+  // NOTE: .recover() is BANNED. For optional steps where failure should not stop
+  // the chain, use .transform(). For real retry/failover, use circuit breaker middleware.
 
   // BAD: Old .onComplete(ar -> { if (ar.succeeded()) ... }) pattern
   queue.send(message)
@@ -378,6 +378,188 @@ class OutboxFactoryTest {
       .onSuccess(v -> latch.countDown())
       .onFailure(throwable -> fail("Failed: " + throwable.getMessage()));
   ```
+
+## **Forbidden Reactive Patterns (Hard Rules)**
+
+These patterns are banned everywhere in PeeGeeQ — production code, tests, and examples.
+They appear as "convenient" shorthands but all hide failures or block threads.
+
+### ❌ `.recover()` — Zero Legitimate Uses
+
+`.recover()` has been audited across 117 instances in the codebase. All 117 were wrong.
+The correct replacements are listed in Best Practice 2 above.
+
+```java
+// ALL of these are BANNED
+future.recover(e -> Future.succeededFuture());               // error silencing
+future.recover(e -> { logger.warn(...); return Future.succeededFuture(); }); // ERASURE-IN-SHUTDOWN
+future.recover(e -> fallback());                             // use circuit breaker / retry instead
+```
+
+### ❌ `.onComplete(ar -> { if (ar.succeeded()) ... })` — Use `.onSuccess()`/`.onFailure()`
+
+```java
+// ❌ BANNED
+future.onComplete(ar -> {
+    if (ar.succeeded()) { doSuccess(ar.result()); }
+    else { logger.error("failed", ar.cause()); }
+});
+
+// ✅ CORRECT
+future
+    .onSuccess(result -> doSuccess(result))
+    .onFailure(e -> logger.error("failed", e));
+```
+
+### ❌ Fire-and-Forget Futures
+
+```java
+// ❌ BANNED — send failure is silently lost
+producer.send("message");
+
+// ✅ CORRECT — chain or observe
+producer.send("message")
+    .onFailure(testContext::failNow);
+```
+
+### ❌ Blocking Waits on the Event Loop
+
+```java
+// ALL of these are BANNED on the Vert.x event loop thread
+Thread.sleep(500);
+LockSupport.parkNanos(200_000_000L);
+future.toCompletionStage().toCompletableFuture().get();
+future.toCompletionStage().toCompletableFuture().join();
+
+// ✅ CORRECT — event-driven delay
+vertx.timer(500).compose(v -> nextStep());
+```
+
+### ❌ `setTimer` as a Readiness Guard
+
+```java
+// ❌ BANNED — timers mask races; they do not guarantee readiness
+vertx.setTimer(100, id -> testContext.completeNow());
+
+// ✅ CORRECT — chain directly off the async operation
+deployVerticle().compose(v -> doWork()).onSuccess(v -> testContext.completeNow());
+```
+
+### ❌ Raw JDBC in Tests
+
+```java
+// ❌ BANNED
+Connection conn = DriverManager.getConnection(url, user, pass);
+PreparedStatement ps = conn.prepareStatement("SELECT ...");
+
+// ✅ CORRECT — use Vert.x PgClient
+pool.withConnection(conn -> conn.preparedQuery("SELECT ...").execute(Tuple.of(...)));
+```
+
+---
+
+## **Database Write Operations**
+
+### **Principle: "Writes Require Transactions"**
+
+**ALL DML operations (`INSERT`, `UPDATE`, `DELETE`) must use `pool.withTransaction()`,
+never `pool.withConnection()`.**
+
+`pool.withConnection()` borrows a connection from the pool but does **not** begin a
+transaction. Writes execute in auto-commit mode only if the driver defaults to it;
+failures leave partial state with no rollback.
+
+```java
+// ❌ WRONG — no transaction; write may not commit; no rollback on failure
+return pool.withConnection(conn ->
+    conn.preparedQuery("DELETE FROM outbox_messages WHERE id = $1")
+        .execute(Tuple.of(id)));
+
+// ✅ CORRECT — commit on success, rollback on failure
+return pool.withTransaction(conn ->
+    conn.preparedQuery("DELETE FROM outbox_messages WHERE id = $1")
+        .execute(Tuple.of(id)));
+```
+
+Use `pool.withConnection()` only for read-only queries where auto-commit semantics are
+acceptable and no transactional guarantee is required.
+
+---
+
+## **Test Infrastructure Integrity**
+
+### **Principle: "Test Setup Must Be Verified by Tests"**
+
+Test infrastructure code — property writes, pool configuration, container setup — must
+itself have contract tests. A misconfigured test base class silently degrades every
+downstream test in the project without any individual test failing for the right reason.
+
+#### Rule 1: Property keys must exactly match what the loader reads
+
+```java
+// ❌ WRONG — Duration string form; loader reads millisecond long form
+System.setProperty("peegeeq.database.pool.idle-timeout", "PT10S");
+
+// ✅ CORRECT — matches the key name in PeeGeeQConfiguration.getPoolConfig()
+System.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
+```
+
+#### Rule 2: Test pools must use `shared=false`
+
+With `shared=true` (the production default), `Pool.close()` uses reference counting
+and does NOT deterministically release TCP sockets. Integration tests need deterministic
+teardown.
+
+```java
+// ❌ WRONG — inherits shared=true; Pool.close() is non-deterministic
+// (property not set → production default applies)
+
+// ✅ CORRECT — always set explicitly in test setup
+System.setProperty("peegeeq.database.pool.shared", "false");
+```
+
+#### Rule 3: Secondary `PgConnectionManager` fields must be closed in `@AfterEach`
+
+```java
+// ❌ WRONG — leaked pool; base class only closes its own manager
+@BeforeEach void setUp() {
+    connectionManager = new PgConnectionManager(manager.getVertx(), null);
+    connectionManager.getOrCreateReactivePool("peegeeq-main", cfg, poolCfg);
+    // never closed
+}
+
+// ✅ CORRECT
+@AfterEach void tearDown() throws Exception {
+    if (connectionManager != null) {
+        connectionManager.close();
+    }
+}
+```
+
+#### Rule 4: Test infrastructure must have `@Tag(CORE)` contract tests
+
+```java
+// Every test base class that sets pool system properties must have a contract test:
+@Tag(TestCategories.CORE)
+class BaseIntegrationTestPoolConfigContractCoreTest {
+    @BeforeEach void setUp() { BaseIntegrationTest.setupTestConfiguration(); }
+    @AfterEach void tearDown() {
+        System.clearProperty("peegeeq.database.pool.idle-timeout-ms");
+        // clear all properties set in setUp
+    }
+
+    @Test void poolIdleTimeoutIsShort() {
+        assertThat(new PeeGeeQConfiguration("test").getPoolConfig().getIdleTimeout())
+            .isLessThanOrEqualTo(Duration.ofSeconds(5));
+    }
+    // one assertion per documented property
+}
+```
+
+This test runs on every `mvn test` (no `-Pintegration-tests` required) and catches
+property-key regressions before they silently exhaust the connection pool.
+
+---
 
 ## **Summary: Core Principles**
 
@@ -579,7 +761,7 @@ Also , here’s a **no-nonsense migration checklist** for moving from **Vert.x 4
 
 ### Composition is Cleaner
 
-* `.compose()`, `.map()`, `.recover()` replace `future.setHandler()` spaghetti.
+* `.compose()`, `.map()`, `.transform()`, `.eventually()` replace `future.setHandler()` spaghetti.
 
 ---
 
@@ -679,7 +861,7 @@ PostgreSQL Event-Driven Queue System
 
 ## Overview
 
-I have now fully upgraded all PeeGeeQ modules to Vert.x 5.x and implemented the brilliant new composable `Future<T>` patterns. While SmallRye Mutiny provides its own developer-first DSL with sentence-like APIs (`onItem().transform()`, `onFailure().recoverWithItem()`), Vert.x 5.x's native Future API offers its own elegant composable patterns (`.compose()`, `.onSuccess()`, `.onFailure()`, `.map()`, `.recover()`) that prioritize functional composition and developer experience. This comprehensive migration transforms the entire codebase from callback-style programming to modern, composable asynchronous patterns using pure Vert.x 5.x Future APIs.
+I have now fully upgraded all PeeGeeQ modules to Vert.x 5.x and implemented the composable `Future<T>` patterns. Vert.x 5.x's native Future API offers elegant composable patterns (`.compose()`, `.onSuccess()`, `.onFailure()`, `.map()`, `.transform()`, `.eventually()`) that prioritize functional composition and developer experience. This migration transforms the entire codebase from callback-style programming to modern, composable asynchronous patterns using pure Vert.x 5.x Future APIs. **Note: `.recover()` is banned — see the Forbidden Reactive Patterns section.**
 
 This guide demonstrates the modern Vert.x 5.x composable Future patterns that have been implemented throughout the PeeGeeQ project. These patterns provide significantly better readability, error handling, and maintainability compared to the traditional callback-style programming we've moved away from.
 
@@ -738,10 +920,14 @@ vertx.createHttpServer()
         
         // Register this service manager with Consul (optional)
         return registerSelfWithConsul()
-            .recover(throwable -> {
-                logger.warn("Failed to register with Consul (continuing without Consul): {}", 
-                        throwable.getMessage());
-                // Continue even if Consul registration fails
+            // CORRECT: .transform() converts the AsyncResult regardless of success/failure.
+            // Use this when the operation is genuinely optional (warn on failure, continue).
+            // NEVER use .recover(e -> Future.succeededFuture()) — .recover() is banned.
+            .transform(ar -> {
+                if (ar.failed()) {
+                    logger.warn("Failed to register with Consul (optional, continuing): {}",
+                            ar.cause().getMessage());
+                }
                 return Future.succeededFuture();
             });
     })
@@ -772,9 +958,14 @@ return client.post(REST_PORT, "localhost", "/api/v1/database-setup/create")
             return Future.<Void>failedFuture("Database setup failed with status: " + response.statusCode());
         }
     })
-    .recover(throwable -> {
-        logger.warn("⚠️ Database setup failed, using fallback configuration: {}", throwable.getMessage());
-        return performFallbackDatabaseSetup(client);
+    // If database setup is optional, use .transform() to warn and continue.
+    // If it is required, let the failure propagate — do not use .recover().
+    .transform(ar -> {
+        if (ar.failed()) {
+            logger.warn("⚠️ Database setup failed, using fallback configuration: {}", ar.cause().getMessage());
+            return performFallbackDatabaseSetup(client);
+        }
+        return Future.succeededFuture();
     });
 ```
 
@@ -797,9 +988,13 @@ return client.get(REST_PORT, "localhost", "/health")
         }
         return Future.<Void>succeededFuture();
     })
-    .recover(throwable -> {
-        logger.warn("⚠️ Some service interactions failed: {}", throwable.getMessage());
-        return Future.<Void>succeededFuture(); // Continue despite failures
+    // CORRECT: .transform() for optional terminal step — warn and continue.
+    // NEVER use .recover(e -> Future.succeededFuture()) — .recover() is banned.
+    .transform(ar -> {
+        if (ar.failed()) {
+            logger.warn("⚠️ Some service interactions failed: {}", ar.cause().getMessage());
+        }
+        return Future.<Void>succeededFuture();
     });
 ```
 
@@ -828,19 +1023,18 @@ queue.send(message)
 
 **✅ Modern Style**:
 ```java
+// Use .eventually() so vertx.close() runs even when queue.close() fails
 queue.close()
-    .compose(v -> vertx.close())
+    .eventually(() -> vertx.close())
     .onSuccess(v -> latch.countDown())
-    .onFailure(throwable -> latch.countDown()); // Continue even if close fails
+    .onFailure(throwable -> latch.countDown());
 ```
 
-**❌ Old Style**:
+**❌ Old Style** (skips `vertx.close()` when `queue.close()` fails):
 ```java
 queue.close()
-    .onComplete(ar -> {
-        vertx.close()
-            .onComplete(v -> latch.countDown());
-    });
+    .compose(v -> vertx.close())
+    .onComplete(v -> latch.countDown());
 ```
 
 ## Key Benefits of Composable Patterns
@@ -852,8 +1046,8 @@ queue.close()
 
 ### 2. **Improved Error Handling**
 - Centralized error handling with `.onFailure()`
-- Graceful degradation with `.recover()`
-- Error propagation through the chain
+- Cleanup always runs with `.eventually()` regardless of prior failure
+- Error propagation through the chain (`.recover()` is banned — see Forbidden Reactive Patterns)
 
 ### 3. **Enhanced Maintainability**
 - Easier to add new steps in the sequence
@@ -894,15 +1088,46 @@ operation1()
     .onFailure(throwable -> handleError(throwable));
 ```
 
-### 2. **Use .recover() for Graceful Degradation**
+### 2. **`.recover()` Is Banned — Use `.transform()` or `.eventually()`**
+
+`.recover()` has zero legitimate uses in this codebase. All 117 instances audited were wrong.
+See [`docs-design/code reviews/vertx-recover-usage.md`](../code%20reviews/vertx-recover-usage.md) for the full audit.
+
+| Intent | Correct pattern |
+|---|---|
+| Log error, do not affect chain outcome | `.onFailure(e -> logger.warn(...))` |
+| Cleanup that must run regardless of prior failure | `.eventually(() -> resource.close())` |
+| Optional step — warn on failure, continue chain | `.transform(ar -> { if (ar.failed()) log; return Future.succeededFuture(); })` |
+| Retry / circuit-break on failure | Retry middleware or Resilience4j `CircuitBreaker` via `HealthCheckManager` |
+
 ```java
-// ✅ Good - Continue with fallback if primary operation fails
-primaryOperation()
-    .recover(throwable -> {
-        logger.warn("Primary failed, using fallback: {}", throwable.getMessage());
-        return fallbackOperation();
-    })
-    .onSuccess(result -> handleResult(result));
+// ❌ BANNED — silences errors in shutdown cleanup
+resource.doWork()
+    .recover(e -> {
+        logger.warn("failed: {}", e.getMessage());
+        return Future.succeededFuture();   // ← ERASURE-IN-SHUTDOWN
+    });
+
+// ❌ BANNED — swallows error silently
+pool.close()
+    .recover(e -> Future.succeededFuture());
+
+// ✅ CORRECT — cleanup that must always run
+resource.doWork()
+    .eventually(() -> resource.close());   // runs on success AND failure
+
+// ✅ CORRECT — log and continue (optional step)
+optionalOperation()
+    .transform(ar -> {
+        if (ar.failed()) {
+            logger.warn("Optional step failed (continuing): {}", ar.cause().getMessage());
+        }
+        return Future.succeededFuture();
+    });
+
+// ✅ CORRECT — observe error, propagate unchanged
+resource.doWork()
+    .onFailure(e -> logger.warn("doWork failed: {}", e.getMessage()));
 ```
 
 ### 3. **Explicit Type Parameters When Needed**
@@ -912,14 +1137,23 @@ return Future.<Void>succeededFuture();
 return Future.<Void>failedFuture("Error message");
 ```
 
-### 4. **Proper Resource Management**
+### 4. **Use `.eventually()` for Resource Cleanup**
+
+`.eventually()` runs the cleanup step regardless of whether the chain succeeded or failed.
+`.compose()` skips steps after a failure — do NOT use it for teardown.
+
 ```java
-// ✅ Good - Compose cleanup operations
-resource1.close()
-    .compose(v -> resource2.close())
-    .compose(v -> resource3.close())
-    .onSuccess(v -> logger.info("All resources closed"))
-    .onFailure(throwable -> logger.error("Cleanup failed", throwable));
+// ✅ CORRECT — vertx.close() runs even if queue.close() failed
+queue.close()
+    .eventually(() -> vertx.close())
+    .onSuccess(v -> latch.countDown())
+    .onFailure(throwable -> latch.countDown());
+
+// ❌ WRONG — vertx.close() is skipped when queue.close() fails
+queue.close()
+    .compose(v -> vertx.close())
+    .onSuccess(v -> latch.countDown())
+    .onFailure(throwable -> latch.countDown());
 ```
 
 ## Conclusion

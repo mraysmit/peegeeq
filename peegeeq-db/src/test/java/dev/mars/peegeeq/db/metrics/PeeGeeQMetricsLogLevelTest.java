@@ -195,8 +195,8 @@ public class PeeGeeQMetricsLogLevelTest {
         logCapture.clear();
 
         ownMetrics.persistMetrics(registry)
-                .recover(t -> Future.succeededFuture())
-                .eventually(() -> ownConnMgr.close().recover(t -> Future.succeededFuture()))
+                .transform(ar -> Future.succeededFuture())
+                .eventually(() -> ownConnMgr.close())
                 .onSuccess(v -> testContext.verify(() -> {
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
                     boolean hasErrorForPersist = errors.stream()

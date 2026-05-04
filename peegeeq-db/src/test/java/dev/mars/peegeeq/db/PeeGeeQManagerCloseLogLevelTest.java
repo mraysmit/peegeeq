@@ -111,11 +111,12 @@ public class PeeGeeQManagerCloseLogLevelTest {
 
         if (manager != null) {
             manager.closeReactive()
-                    .recover(e -> Future.succeededFuture())
-                    .onSuccess(v -> {
+                    .eventually(() -> {
                         clearSystemProperties();
-                        testContext.completeNow();
-                    });
+                        return Future.succeededFuture();
+                    })
+                    .onSuccess(v -> testContext.completeNow())
+                    .onFailure(testContext::failNow);
         } else {
             clearSystemProperties();
             testContext.completeNow();

@@ -139,30 +139,21 @@ class HealthCheckManagerTest {
         if (healthCheckManager != null) {
             cleanupChain = cleanupChain
                 .compose(v -> stopManagerAsync(healthCheckManager))
-                .recover(err -> {
-                    logger.warn("Failed to stop HealthCheckManager: {}", err.getMessage());
-                    return Future.succeededFuture();
-                });
+                .onFailure(err -> logger.warn("Failed to stop HealthCheckManager: {}", err.getMessage()));
         }
 
         // Clean up test data
         if (reactivePool != null) {
             cleanupChain = cleanupChain
-                .compose(v -> cleanupTestData())
-                .recover(err -> {
-                    logger.warn("Failed to cleanup test data in tearDown: {}", err.getMessage());
-                    return Future.succeededFuture();
-                });
+                .eventually(() -> cleanupTestData()
+                    .onFailure(err -> logger.warn("Failed to cleanup test data in tearDown: {}", err.getMessage())));
         }
 
         // Close connection manager
         if (connectionManager != null) {
             cleanupChain = cleanupChain
-                .compose(v -> connectionManager.close())
-                .recover(err -> {
-                    logger.warn("Failed to close connectionManager: {}", err.getMessage());
-                    return Future.succeededFuture();
-                });
+                .eventually(() -> connectionManager.close()
+                    .onFailure(err -> logger.warn("Failed to close connectionManager: {}", err.getMessage())));
         }
 
         cleanupChain

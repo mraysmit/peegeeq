@@ -131,25 +131,18 @@ public abstract class BaseIntegrationTest {
         Future<Void> closeManager = (currentManager != null)
             ? currentManager.closeReactive()
                 .onSuccess(v -> logger.info("PeeGeeQ Manager closed successfully for profile: {}", testProfile))
-                .recover(e -> {
-                    logger.error("Error closing PeeGeeQ Manager for profile: {}", testProfile, e);
-                    return Future.succeededFuture();
-                })
+                .onFailure(e -> logger.error("Error closing PeeGeeQ Manager for profile: {}", testProfile, e))
             : Future.succeededFuture();
 
         // Tier 2: Eagerly close Vert.x to guarantee TCP socket release before the
-        // next test starts. closeReactive() step 7 attempts this, but .eventually()
-        // swallows failures (e.g. RejectedExecutionException when the event loop is
-        // already dead). A second vertx.close() call is idempotent and ensures
-        // all Netty channels are torn down.
+        // next test starts. closeReactive() step 7 attempts this, but the Vert.x
+        // instance may already be closed (RejectedExecutionException). Use .eventually()
+        // so this cleanup always runs without affecting the outcome of the chain.
         closeManager
-            .compose(v -> vertxRef != null
+            .eventually(() -> vertxRef != null
                 ? vertxRef.close()
                     .onSuccess(ignored -> logger.info("Vert.x instance closed explicitly for profile: {}", testProfile))
-                    .recover(e -> {
-                        logger.debug("Vert.x close after manager shutdown (expected if already closed): {}", e.getMessage());
-                        return Future.succeededFuture();
-                    })
+                    .onFailure(e -> logger.debug("Vert.x close after manager shutdown (expected if already closed): {}", e.getMessage()))
                 : Future.succeededFuture())
             .onSuccess(v -> {
                 logger.info("Integration test teardown completed for profile: {}", testProfile);

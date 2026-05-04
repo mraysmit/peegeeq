@@ -127,7 +127,14 @@ public class P4_BackfillVsOLTPTest extends BaseIntegrationTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) {
         if (connectionManager != null) {
-            connectionManager.close().onSuccess(v -> testContext.completeNow()).onFailure(testContext::failNow);
+            connectionManager.withConnection("peegeeq-main", connection ->
+                connection.preparedQuery("DELETE FROM outbox WHERE topic LIKE 'perf-test-backfill-%' OR topic LIKE 'perf-regular-backfill-%'")
+                    .execute()
+                    .mapEmpty()
+            )
+            .compose(v -> connectionManager.close())
+            .onSuccess(v -> testContext.completeNow())
+            .onFailure(testContext::failNow);
         } else {
             testContext.completeNow();
         }
