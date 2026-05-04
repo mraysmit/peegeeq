@@ -42,7 +42,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @author Mark Andrew Ray-Smith Cityline Ltd
  * @since 2025-10-02
  */
-@Tag(TestCategories.SLOW)
+@Tag(TestCategories.INTEGRATION)
 @DisplayName("Resource Leak Detection Tests")
 @ExtendWith(SharedPostgresTestExtension.class)
 @Isolated("Resource leak detection must run in complete isolation")
@@ -238,9 +238,6 @@ public class ResourceLeakDetectionTest {
         System.gc();
         Thread.sleep(1000);
 
-        // Wait for Vert.x event loop shutdown to settle before leak accounting.
-        waitForVertxThreadsToTerminate();
-
         // Capture final thread state
         Set<Long> finalThreadIds = getCurrentThreadIds();
         int finalThreadCount = finalThreadIds.size();
@@ -299,9 +296,6 @@ public class ResourceLeakDetectionTest {
         System.gc();
         Thread.sleep(1000);
 
-        // Wait for any remaining Vert.x threads from previous tests to terminate
-        waitForVertxThreadsToTerminate();
-
         // Check only the specific threads created by THIS test's manager
         ThreadMXBean threadMXBean = ManagementFactory.getThreadMXBean();
 
@@ -324,9 +318,17 @@ public class ResourceLeakDetectionTest {
     @Test
     @DisplayName("Should not leak scheduler threads")
     void testNoSchedulerThreadLeaks() throws Exception {
+        // Capture thread IDs before creating this test's manager
+        Set<Long> threadsBefore = getCurrentThreadIds();
+
         // Create and start test manager
         testManager = new PeeGeeQManager(configuration, new SimpleMeterRegistry());
         testManager.start().await();
+
+        // Capture thread IDs created by this manager's startup
+        Set<Long> threadsAfterStart = getCurrentThreadIds();
+        Set<Long> thisTestThreadIds = new HashSet<>(threadsAfterStart);
+        thisTestThreadIds.removeAll(threadsBefore);
 
         // Close test manager — Vert.x runtime is gone after this
         testManager.closeReactive().await();
@@ -337,62 +339,27 @@ public class ResourceLeakDetectionTest {
         System.gc();
         Thread.sleep(1000);
 
-        // Wait for any remaining Vert.x threads to terminate
-        waitForVertxThreadsToTerminate();
-
-        // Check for scheduler threads
+        // Check only the specific threads created by THIS test's manager
         ThreadMXBean threadMXBean = ManagementFactory.getThreadMXBean();
-        long[] threadIds = threadMXBean.getAllThreadIds();
 
-        Set<String> schedulerThreads = new HashSet<>();
-        Set<String> currentTestThreads = new HashSet<>();
-        long currentTestTime = System.currentTimeMillis();
-
-        for (long threadId : threadIds) {
+        Set<String> leakedSchedulerThreads = new HashSet<>();
+        for (long threadId : thisTestThreadIds) {
             ThreadInfo threadInfo = threadMXBean.getThreadInfo(threadId);
             if (threadInfo != null &&
                 (threadInfo.getThreadName().contains("PeeGeeQ-") ||
                  threadInfo.getThreadName().contains("pool-"))) {
-
-                String threadName = threadInfo.getThreadName();
-                schedulerThreads.add(threadName);
-
-                // Filter threads from current test vs other parallel tests
-                if (threadName.contains("PeeGeeQ-Migration-")) {
-                    // Extract timestamp from thread name
-                    try {
-                        String timestampStr = threadName.substring(threadName.indexOf("PeeGeeQ-Migration-") + 18);
-                        timestampStr = timestampStr.substring(0, timestampStr.indexOf(" "));
-                        long threadTimestamp = Long.parseLong(timestampStr);
-
-                        // Only count threads created within the last 60 seconds (current test timeframe)
-                        if (currentTestTime - threadTimestamp < 60000) {
-                            currentTestThreads.add(threadName);
-                        } else {
-                            logger.debug("Ignoring thread from previous test: {} (age: {}ms)",
-                                threadName, currentTestTime - threadTimestamp);
-                        }
-                    } catch (NumberFormatException | StringIndexOutOfBoundsException e) {
-                        // If we can't parse timestamp, assume it's from current test
-                        currentTestThreads.add(threadName);
-                    }
-                } else {
-                    // Non-PeeGeeQ threads are always counted
-                    currentTestThreads.add(threadName);
-                }
+                leakedSchedulerThreads.add(threadInfo.getThreadName() + " (id=" + threadId + ")");
             }
         }
 
-        if (!schedulerThreads.isEmpty()) {
-            logger.warn("[LEAK DETECTION] All scheduler threads detected: {}", schedulerThreads);
-            logger.warn("[LEAK DETECTION] Scheduler threads from current test: {}", currentTestThreads);
+        if (!leakedSchedulerThreads.isEmpty()) {
+            logger.error("This test's scheduler threads still alive after manager.close(): {}", leakedSchedulerThreads);
         } else {
             logger.info("[testNoSchedulerThreadLeaks] No scheduler thread leaks detected — PASSED");
         }
 
-        assertEquals(0, currentTestThreads.size(),
-            "No scheduler threads should be leaked from current test. Found: " + currentTestThreads +
-            " (Total threads detected: " + schedulerThreads.size() + ")");
+        assertEquals(0, leakedSchedulerThreads.size(),
+            "No scheduler threads should be leaked from current test. Found: " + leakedSchedulerThreads);
     }
     
     @Test
@@ -413,9 +380,6 @@ public class ResourceLeakDetectionTest {
         Thread.sleep(3000);
         System.gc();
         Thread.sleep(1000);
-
-        // Ensure background Vert.x cleanup from closeReactive has completed.
-        waitForVertxThreadsToTerminate();
 
         // Capture final thread state
         Set<Long> finalThreadIds = getCurrentThreadIds();
@@ -440,46 +404,8 @@ public class ResourceLeakDetectionTest {
     }
 
 
-    // Removed unused method findThreadById(long threadId)
-
-    /**
-     * Wait for Vert.x threads from previous tests to terminate.
-     * This is needed because ResourceLeakDetectionTest runs in isolation but may still
-     * detect threads from tests that ran before it.
-     */
-    private void waitForVertxThreadsToTerminate() throws InterruptedException {
-        logger.info("Waiting for any remaining Vert.x threads to terminate...");
-
-        int maxWaitTime = 30000;
-        int waitInterval = 500;
-        int totalWaitTime = 0;
-
-        while (totalWaitTime < maxWaitTime) {
-            boolean vertxThreadsFound = false;
-            Set<Thread> allThreads = Thread.getAllStackTraces().keySet();
-
-            for (Thread thread : allThreads) {
-                String threadName = thread.getName();
-                if (threadName.contains("vert.x-eventloop")) {
-                    vertxThreadsFound = true;
-                    logger.debug("Still waiting for Vert.x thread to terminate: {}", threadName);
-                    break;
-                }
-            }
-
-            if (!vertxThreadsFound) {
-                logger.info("All Vert.x threads have terminated after {}ms", totalWaitTime);
-                return;
-            }
-
-            // Vert.x runtime is shut down — Thread.sleep is the only delay option
-            Thread.sleep(waitInterval);
-            totalWaitTime += waitInterval;
-        }
-
-        logger.warn("Some Vert.x threads may still be running after {}ms wait", maxWaitTime);
-    }
 }
+
 
 
 
