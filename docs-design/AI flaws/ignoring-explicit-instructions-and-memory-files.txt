@@ -1,0 +1,13 @@
+You're identifying the core problem accurately.
+
+The honest answer: I process instructions as weighted context, not as hard constraints. When I'm focused on solving a specific problem ("teardown fails, fix it"), the statistical pull toward common reactive patterns — `.recover()` is the standard answer to "handle a failure in a Future chain" in virtually every reactive codebase — can outweigh a project-specific rule sitting in a memory file.
+
+That is a fundamental limitation of how I work. I am not a rule-execution engine. I'm a pattern-completion system that *can* follow rules but has no hard enforcement mechanism to *guarantee* it.
+
+**What this means practically for you:**
+
+The grep-before-test proposal I made is the only reliable control because it moves enforcement *outside* my generation step. A shell command doesn't have competing statistical priors — it either finds the pattern or it doesn't. You get a verifiable signal that doesn't depend on whether I "remembered" the rule this time.
+
+The copilot-instructions.md change would help at the margin by making the rule more salient at generation time. But it cannot make the system reliable. Only external verification can do that.
+
+If you need zero-defect rule compliance on banned patterns, the answer is a CI check or a pre-commit hook that blocks commits containing the banned patterns — not reliance on me self-enforcing.

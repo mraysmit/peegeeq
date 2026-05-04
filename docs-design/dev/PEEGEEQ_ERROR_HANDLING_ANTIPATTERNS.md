@@ -1419,3 +1419,52 @@ The bug was not introduced in a single commit. It accumulated incrementally: the
 hook was left as a stub, the executor was never converted to a Vert.x timer, and each
 new error was handled with a log-and-continue block. At no point did a test fail. The
 only way to see the problem was to read thousands of log lines.
+
+---
+
+## ANTIPATTERN: Health Checks That Count the Wrong Thing
+
+### Problem
+
+A health check that counts all rows matching a state across an entire shared table is
+meaningless. In any multi-producer system — in production or in a parallel test suite —
+other producers are legitimately writing messages to the same table at the same time.
+Counting their rows as evidence of a problem in *your* queue is wrong.
+
+The canonical mistake:
+
+```sql
+-- WRONG: counts all PENDING rows created in the last hour across all topics
+SELECT COUNT(*) FROM outbox
+WHERE status = 'PENDING'
+AND created_at > NOW() - INTERVAL '1 hour'
+```
+
+This triggers false-positive "too many pending messages" failures whenever any concurrent
+workload — a performance test, another service instance, a backfill job — inserts messages
+into the same table. The health check is not measuring queue health; it is measuring
+total write throughput across all producers.
+
+### Rule
+
+**A health check must be scoped to what it owns.** Count only messages that indicate
+a real problem in the specific queue instance being checked:
+
+- Messages that have been **stuck** pending for longer than an expected processing
+  window (e.g. `created_at < NOW() - INTERVAL '5 minutes'`), not freshly-created ones.
+- Optionally further scoped to topics owned by this instance.
+
+```sql
+-- CORRECT: counts messages stuck pending beyond the expected processing window
+SELECT COUNT(*) FROM outbox
+WHERE status = 'PENDING'
+AND created_at < NOW() - INTERVAL '5 minutes'
+```
+
+### Why This Matters in Tests
+
+Tests that insert large volumes of data for performance validation will make health
+checks of co-running tests fail if the health check counts indiscriminately. The fix
+is never to serialize tests with `@ResourceLock` — that treats the symptom by removing
+concurrency. The fix is to make the health check correct so it is immune to concurrent
+producers by design, exactly as it must be in production.
