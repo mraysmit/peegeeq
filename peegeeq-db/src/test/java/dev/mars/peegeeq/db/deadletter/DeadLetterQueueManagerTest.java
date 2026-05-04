@@ -127,8 +127,7 @@ class DeadLetterQueueManagerTest {
     private Future<Void> cleanupTestData() {
         return reactivePool.withTransaction(connection ->
             connection.query("DELETE FROM dead_letter_queue").execute()
-                .compose(result -> connection.query("DELETE FROM outbox").execute())
-                .compose(result -> connection.query("DELETE FROM queue_messages").execute())
+                .compose(result -> connection.query("DELETE FROM queue_messages WHERE topic LIKE 'test-topic%'").execute())
         ).mapEmpty();
     }
 
