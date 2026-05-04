@@ -83,10 +83,8 @@ public class MultiConfigurationExampleTest {
         logger.info("Tearing down Multi Configuration Example Test");
 
         Future<Void> close = (configManager != null)
-            ? configManager.close().recover(e -> {
-                logger.warn("Error closing configManager during tearDown: {}", e.getMessage());
-                return Future.succeededFuture();
-              })
+            ? configManager.close()
+                .onFailure(e -> logger.warn("Error closing configManager during tearDown: {}", e.getMessage()))
             : Future.succeededFuture();
 
         close.onSuccess(v -> {

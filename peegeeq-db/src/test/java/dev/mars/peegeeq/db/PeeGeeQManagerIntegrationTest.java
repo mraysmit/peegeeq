@@ -104,15 +104,13 @@ public class PeeGeeQManagerIntegrationTest {
     void tearDown(VertxTestContext testContext) {
         if (manager != null) {
             manager.closeReactive()
-                .recover(t -> {
-                    logger.warn("Error during manager teardown: {}", t.getMessage());
-                    return Future.succeededFuture();
-                })
-                .onSuccess(v -> {
+                .onFailure(t -> logger.warn("Error during manager teardown: {}", t.getMessage()))
+                .eventually(() -> {
                     System.getProperties().entrySet().removeIf(entry ->
                         entry.getKey().toString().startsWith("peegeeq."));
-                    testContext.completeNow();
+                    return Future.succeededFuture();
                 })
+                .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
         } else {
             System.getProperties().entrySet().removeIf(entry ->

@@ -180,20 +180,42 @@ These should log or fail the test instead of silently continuing.
 
 ---
 
-## LOW: Production `.recover(→ Future.succeededFuture())` Patterns
+## SERIOUS: Production `.recover()` Patterns — All Wrong
 
-16 instances in production code. All examined instances fall into two categories:
+A full module-by-module audit (documented in `vertx-recover-usage.md`) found **117
+instances** of `.recover()` across production code. The previous version of this section
+assessed 16 of these as falling into two acceptable categories. Both assessments were
+wrong. Every `.recover()` in this codebase is the wrong API. The correct count and
+correct classification are in `vertx-recover-usage.md`.
 
-### 1. Shutdown/Cleanup Chains (Acceptable)
+### 1. Shutdown/Cleanup Chains (WRONG — use `.eventually()`)
 
 In `PeeGeeQManager.closeReactive()`, `DeadConsumerDetectionJob.stop()`,
 `PeeGeeQDatabaseSetupService.close()`, `OutboxConsumerGroup.stopGracefully()`,
 `PgNativeConsumerGroup.startPartitioned()` (abort path), `PgNativeQueueConsumer.close()`.
 
-During shutdown, continuing cleanup despite errors is correct behaviour. These log
-the error before recovering.
+The previous assessment labelled these "Acceptable." This is wrong.
 
-### 2. Background Timer Callbacks (Defensible, Could Be Better)
+`.recover()` converts a failed Future into a succeeded one. Using it for shutdown cleanup
+forces every callsite to explicitly return `Future.succeededFuture()` to avoid propagating
+the error — which is error erasure, even in shutdown context. The correct API is
+`.eventually()`, which runs a side-effect (close a pool, cancel a timer, leave a group)
+without altering whether the overall Future succeeds or fails:
+
+```java
+// WRONG: .recover() erases the error
+resource.close()
+    .recover(e -> { logger.warn("Close failed", e); return Future.succeededFuture(); })
+
+// CORRECT: .eventually() runs cleanup without touching the outcome
+operation()
+    .eventually(() -> resource.close())
+```
+
+These 27 ERASURE-IN-SHUTDOWN instances across the codebase should be converted to
+`.eventually()` chains.
+
+### 2. Background Timer Callbacks — Not a `.recover()` Problem
 
 In `PeeGeeQManager.startMetricsCollection()` and `startBackgroundTasks()`:
 
@@ -211,13 +233,19 @@ stuckMessageRecoveryManager.recoverStuckMessages()
     .onFailure(e -> logger.warn("Failed to recover stuck messages", e));
 ```
 
-These are fire-and-forget periodic tasks. A single failure is acceptable — the next
-timer tick will retry. However, unlike `DeadConsumerDetectionJob` which tracks
+These timer callbacks correctly use `.onFailure()` — not `.recover()`. `.onFailure()` is
+a terminal observer that does not alter the Future chain. This is the correct API for
+fire-and-forget periodic tasks.
+
+The remaining issue is escalation: unlike `DeadConsumerDetectionJob` which tracks
 `consecutiveFailures` and escalates to `logger.error` after a threshold, these four
-timers have no escalation. Persistent failures log at `warn` level indefinitely and
-are never surfaced.
+timers log at `warn` level indefinitely with no escalation. Persistent failures are
+never surfaced.
 
 ### Recommendation
+
+Convert all ERASURE-IN-SHUTDOWN `.recover()` calls to `.eventually()`. See
+`vertx-recover-usage.md` for the full classification of all 117 instances.
 
 Add consecutive failure tracking (matching `DeadConsumerDetectionJob`'s pattern) to:
 - `metrics.persistMetrics` timer
@@ -577,10 +605,25 @@ Found in: `OutboxConsumerNullHandlerTest` (class-level Javadoc).
 | LOW | Remove dead code after `testContext.failNow()` | Subscribe handlers with redundant `throw` after failNow |
 | LOW | Replace `assertTrue(x instanceof Y)` with `assertInstanceOf` / `assertNull` | Tests using weak assertion idioms |
 | MEDIUM | Replace commented-out `//@Test` with `@Disabled("reason")` or fix and re-enable | 1 test in OutboxConsumerFailureHandlingTest |
-| HIGH | Replace `LockSupport.parkNanos()` with `Vertx.setTimer()` or condition-based waits | 18 occurrences across 10 files |
+| HIGH | Replace `LockSupport.parkNanos()` / `Thread.sleep` with event-driven waits (future chains, checkpoints, DB state observation) | 18 occurrences across 10 files |
+| CRITICAL | Replace `setTimer → completeNow()` timeout handlers with `failNow()` (P2 pattern) | 7 tests in `peegeeq-rest` |
+| HIGH | Replace `setTimer` readiness guards with future chains off `subscribe()` / `deployVerticle()` | P3: 6 setUp methods in `peegeeq-rest`; P4: 9 data-wait timers |
+| P1 | Replace 100 ms drain delay in `DatabaseTemplateManager` with `pg_stat_activity` poll loop | `peegeeq-db/.../DatabaseTemplateManager.java:140` |
 | SERIOUS | Add `.await()` or `.onFailure(testContext::failNow)` to fire-and-forget `producer.send()` | 7 occurrences in OutboxConsumerErrorHandlingTest |
 | MEDIUM | Replace near-tautological handler-invocation assertions with outcome verification | OutboxConsumerNullHandlerTest |
 | LOW | Fix stale Javadoc referencing banned `CompletableFuture` type | OutboxConsumerNullHandlerTest |
+| MEDIUM | Replace `withConnection()` with `withTransaction()` for all write operations | `DeadLetterQueueManager` and any other class using `withConnection` for DML |
+| CRITICAL | Revert `Thread.sleep` "strategic delays" and threshold-based leak masking introduced as concurrency "fixes" | `peegeeq-db` test classes |
+| SERIOUS | Delete blocking `executeSupplier`/`executeRunnable`/`executeDatabaseOperation`/`executeQueueOperation` methods from `CircuitBreakerManager` | `peegeeq-db/.../resilience/CircuitBreakerManager.java` |
+| MEDIUM | Move misplaced tests to their correct subject class | `testCircuitBreakerIntegration` in `OutboxMetricsTest` |
+| MEDIUM | Move blocking waits inside `vertx.executeBlocking()` in `@ExtendWith(VertxExtension.class)` tests | `testHealthCheckIntegration` spin-poll in `OutboxMetricsTest` |
+| LOW | Fix logger messages that identify the wrong test (copy-paste contamination) | `OutboxMetricsTest` — 3 mismatched log strings |
+| SERIOUS | Fix property-key mismatch in `BaseIntegrationTest.setupTestConfiguration()` — use `*-ms` suffixed keys the loader actually reads | `BaseIntegrationTest.java` lines 179-183 |
+| SERIOUS | Add `peegeeq.database.pool.shared=false` in `BaseIntegrationTest.setupTestConfiguration()` | `BaseIntegrationTest.java` — currently absent, tests inherit `shared=true` production default |
+| SERIOUS | Add `@AfterEach` calling `connectionManager.close()` to 28 integration test classes that create secondary `PgConnectionManager` instances | All files listed in §3c of `test-suite-connection-exhaustion-investigation.md` |
+| SERIOUS | Guard `@AfterEach` grace timer so `closeReactive()` is always called even when the Vertx event loop is dead | `BaseIntegrationTest.tearDownBaseIntegration()` — 33% of teardowns silently skip `closeReactive()` |
+| LOW | Remove `System.gc()` from `BaseIntegrationTest.@AfterEach` | `BaseIntegrationTest.tearDownBaseIntegration()` — GC-based resource cleanup is not deterministic |
+| HIGH | Add contract tests for `BaseIntegrationTest` pool configuration so property-key regressions are caught automatically | New test class `BaseIntegrationTestPoolConfigContractCoreTest` (`@Tag(CORE)`) |
 
 ---
 
@@ -645,18 +688,141 @@ Problems:
 | `JdbcIntegrationHybridExampleTest` | 2 | 1ms each |
 | `AutomaticTransactionManagementExampleTest` | 1 | 1ms |
 
-**Fix:** Use `Vertx.setTimer()` for non-blocking delays, or redesign the test to
-react to an observable condition (future completion, checkpoint flag, row appearing
-in the database) instead of sleeping:
+**Fix:** Redesign the test to react to an observable condition: future completion,
+checkpoint flag, or a row appearing in the database. In a reactive Vert.x system there
+is no legitimate test use for a fixed-delay timer — if an operation produces a `Future`,
+chain off it; if it produces a side-effect, observe the side-effect directly.
+See the `setTimer` readiness guard section below for the full pattern inventory.
+
+---
+
+## HIGH: `setTimer` as a Readiness Guard
+
+Using `vertx.setTimer()` with an arbitrary delay to wait for an async setup operation
+to complete before acting on it. The timer fires after a wall-clock interval, not when
+the operation actually finishes.
 
 ```java
-// CORRECT: non-blocking timer
+// WRONG — races against actual readiness
+consumer.subscribe(handler);
 vertx.setTimer(1000, id -> {
-    verifyMessageExists(testMessage, "PENDING")
-        .onSuccess(v -> checkpoint.flag())
-        .onFailure(testContext::failNow);
+    producer.send("test message");
 });
 ```
+
+`MessageConsumer.subscribe()` returns `Future<Void>` that completes when the PostgreSQL
+`LISTEN` acknowledgement is received. The timer is a guess at when that completes. The
+correct pattern chains directly off the returned future:
+
+```java
+// CORRECT
+consumer.subscribe(handler)
+    .onSuccess(ignored -> producer.send("message").onFailure(testContext::failNow))
+    .onFailure(testContext::failNow);
+
+// CORRECT — multiple consumers
+Future.all(consumer1.subscribe(handler1), consumer2.subscribe(handler2))
+    .onSuccess(ignored -> producer.send("message").onFailure(testContext::failNow))
+    .onFailure(testContext::failNow);
+```
+
+**Rule:** In a reactive Vert.x system, timers have no place in tests. Every async
+operation produces a `Future` — chain off it. Every side-effect has an observable
+consequence — observe it directly. A timer is always a guess at when something will be
+ready; the correct answer is always to know when it is ready.
+
+### Variant: P2 — Timeout handler calls `completeNow()` instead of `failNow()`
+
+The most deceptive form. The timer fires when the expected event *has not arrived*, and
+instead of failing the test it marks it as passed:
+
+```java
+// WRONG — test passes if the event never arrives
+vertx.setTimer(1000, id -> {
+    logger.info("All endpoints integration test completed");
+    testContext.completeNow();  // no assertions made
+});
+```
+
+This is a variant of the CRITICAL placeholder-test pattern, implemented via a timer
+rather than `assertTrue(true)`. The test is behaviorally identical to a no-op.
+
+**Fix:** Replace `completeNow()` in timeout handlers with
+`testContext.failNow(new AssertionError("Expected event did not arrive within timeout"))`.
+
+Affected files in `peegeeq-rest`:
+
+| File | Line | Description |
+|---|---|---|
+| `EndToEndValidationTest.java` | 227 | `testAllEndpointsIntegration` — waits 1 s, `completeNow()`, zero assertions |
+| `WebSocketHandlerTest.java` | 301 | "No subscription confirmation" timeout → `completeNow()` |
+| `WebSocketHandlerTest.java` | 356 | "No configuration confirmation" timeout → `completeNow()` |
+| `SystemMonitoringHandlerTest.java` | 294 | "Metrics don't arrive" timeout → `completeNow()` |
+| `SystemMonitoringHandlerTest.java` | 443 | WS metrics timeout → `completeNow()` |
+| `SystemMonitoringHandlerTest.java` | 553 | SSE metrics timeout → `completeNow()` |
+| `ConsumerGroupSubscriptionIntegrationTest.java` | 1010 | SSE configured event timeout → `completeNow()` |
+
+### Variant: P3 — Post-`deployVerticle` readiness guard
+
+`deployVerticle()` only completes after `Verticle.start()` finishes. If `start()`
+awaits the `HttpServer.listen()` future, the server is listening the moment `onSuccess`
+fires. A subsequent `setTimer(1000, ...)` inside `onSuccess` is pure waste.
+
+```java
+// WRONG — timer after deploy is redundant if start() awaits listen()
+vertx.deployVerticle(server)
+    .onSuccess(id -> {
+        deploymentId = id;
+        vertx.setTimer(1000, timerId -> testContext.completeNow());
+    });
+
+// CORRECT — trust the deploy future
+vertx.deployVerticle(server)
+    .onSuccess(id -> { deploymentId = id; testContext.completeNow(); })
+    .onFailure(testContext::failNow);
+```
+
+Affected files (all in `peegeeq-rest`, all with `"Give server time to fully start"` comments):
+`EndToEndValidationTest.java:70`, `EventStoreIntegrationTest.java:83`,
+`ConsumerGroupSubscriptionIntegrationTest.java:96`, `SSEBasicStreamingIntegrationTest.java:113`,
+`SSEBatchingIntegrationTest.java:101`, `SSEReconnectionIntegrationTest.java:103`.
+
+**Fix:** Remove the timer and chain the next setup step directly off `onSuccess`. If the
+server is not ready when `start()` completes, fix `start()` to return a `Future` that
+resolves only after `HttpServer.listen()` completes.
+
+### Variant: P4 — Wall-clock wait for SSE/WebSocket buffer to accumulate
+
+Timers that fire after connecting to an SSE or WebSocket stream, wait N seconds, then
+inspect the accumulated receive buffer. They race against actual message delivery.
+
+Affected: 9 locations in `peegeeq-rest`, including `ConsumerGroupSubscriptionIntegrationTest`
+(lines 245, 354, 529, 785, 799, 1136), `CrossLayerPropagationIntegrationTest:262`,
+`SystemMonitoringIntegrationTest:138`, `QueueManagementE2ETest:223`.
+
+**Fix:** Use an event-driven handler that acts as soon as the expected event appears, then
+call `testContext.completeNow()`.
+
+### Variant: P1 — Production code timing assumption (correctness risk)
+
+**File:** `peegeeq-db/.../DatabaseTemplateManager.java:140`
+
+```java
+// WRONG — assumes 100 ms is long enough for terminated connections to drain
+return connection.preparedQuery(terminateConnectionsSql)
+    .execute(Tuple.of(databaseName))
+    .compose(rowSet -> Future.<Void>future(promise -> {
+        vertx.setTimer(100, id -> promise.complete());
+    }))
+    .compose(v -> connection.query("DROP DATABASE IF EXISTS ...").execute());
+```
+
+`pg_terminate_backend()` is asynchronous at the PostgreSQL level — backends may not
+have disconnected when the timer fires. Under load this causes `DROP DATABASE` to fail
+with "there are other sessions using the database."
+
+**Fix:** Replace with a polling loop that retries `DROP DATABASE` until `pg_stat_activity`
+reports zero connections for that database.
 
 ---
 
@@ -689,4 +855,567 @@ producer.send("test-message").await();
 producer.send("test-message")
     .onFailure(testContext::failNow);
 ```
+| SERIOUS | Convert all ERASURE-IN-SHUTDOWN `.recover()` calls to `.eventually()` | 27 production instances — see `vertx-recover-usage.md` |
 | LOW | Add consecutive failure tracking to background timer callbacks | 4 timers |
+
+---
+
+## SERIOUS: Blocking Wrapper Methods on a Reactive Factory (CircuitBreakerManager)
+
+`CircuitBreakerManager` is a registry and factory for Resilience4j `CircuitBreaker`
+objects. The established production pattern — used correctly in `HealthCheckManager` —
+is for callers to retrieve a `CircuitBreaker` and drive it themselves:
+
+```java
+// CORRECT — caller owns the permission check, timing, and result recording
+CircuitBreaker cb = circuitBreakerManager.getCircuitBreaker(cbName);
+if (!cb.tryAcquirePermission()) {
+    return Future.succeededFuture(HealthStatus.unhealthy(...));
+}
+long start = System.nanoTime();
+return operation.get()
+    .onSuccess(status -> cb.onSuccess(duration, TimeUnit.NANOSECONDS))
+    .onFailure(t   -> cb.onError(duration, TimeUnit.NANOSECONDS, t));
+```
+
+`CircuitBreakerManager` also contained four methods that violate this design:
+
+```java
+public <T> T executeSupplier(String name, Supplier<T> supplier)
+public void   executeRunnable(String name, Runnable runnable)
+public <T> T executeDatabaseOperation(String operation, Supplier<T> supplier)
+public <T> T executeQueueOperation(String queueType, String operation, Supplier<T> supplier)
+```
+
+These are wrong on multiple counts:
+
+1. **They block the Vert.x event loop.** All four accept synchronous `Supplier<T>` and
+   return raw `T` by executing the supplier inline. Any database or queue operation
+   passed through these methods blocks the calling thread.
+
+2. **They are dead code with no legitimate future use.** Every real operation in PeeGeeQ
+   is asynchronous. These methods exist only to make the class testable via a synchronous
+   test harness. They were written for test convenience, not for any production caller.
+
+3. **They smuggle the JDBC-era Resilience4j idiom into a reactive codebase.** The
+   `executeSupplier(name, () -> doSomethingBlocking())` pattern is designed for blocking
+   applications — JDBC, RestTemplate, blocking HTTP clients. PeeGeeQ uses the reactive
+   Vert.x PostgreSQL client. Introducing these methods here is the same category of
+   mistake as calling `DriverManager.getConnection()` in a test.
+
+4. **They introduced a second, incompatible usage pattern.** `HealthCheckManager` shows
+   the correct way to use circuit breakers. These four methods show a different, wrong
+   way. A future developer reading the class must now guess which pattern to follow.
+
+**Fix:** Delete all four methods. No reactive equivalent is needed — `HealthCheckManager`
+is the reference implementation for any future caller.
+
+---
+
+## MEDIUM: Scope Leakage — Tests Placed in the Wrong Class
+
+A test for subsystem B deposited inside the test class for subsystem A because A's setup
+happens to be available or convenient. Found in `OutboxMetricsTest`, which contained
+`testCircuitBreakerIntegration` — a test that called `CircuitBreakerManager` methods,
+needed a full Testcontainers PostgreSQL container, and used none of the outbox metrics
+infrastructure.
+
+**Three harms:**
+
+1. **The class's stated scope cannot be trusted.** If circuit-breaker tests are in
+   `OutboxMetricsTest`, anything else might be too. Readers cannot rely on the class name.
+
+2. **Failure attribution is wrong.** A `CircuitBreakerManager` regression surfaces as a
+   failure in the outbox metrics test run, misleading diagnosis.
+
+3. **The test becomes collateral damage.** When the wrong API was deleted from
+   `CircuitBreakerManager`, this test would have failed with a compile error in a class
+   that has nothing to do with the deletion.
+
+**Rule:** A test class owns exactly one subject. If a test requires setup from class A
+to test behaviour in class B, it belongs to class B's test suite. Never deposit tests in
+a host class because setup already exists there.
+
+---
+
+## MEDIUM: Blocking Wait on the Test Thread Under `VertxExtension`
+
+A polling loop executing directly on the test thread inside a class annotated with
+`@ExtendWith(VertxExtension.class)`. Found in `OutboxMetricsTest.testHealthCheckIntegration`:
+
+```java
+// WRONG — parks the test thread under VertxExtension
+while (System.currentTimeMillis() < deadline) {
+    var status = healthCheckManager.getOverallHealth();
+    if (status != null && status.isHealthy()) break;
+    LockSupport.parkNanos(200_000_000L);
+}
+```
+
+Under `VertxExtension`, the test thread shares lifecycle state with `VertxTestContext`.
+Parking it is indistinguishable from an unresponsive test, races with `VertxTestContext`
+timeout handling, and hides the wait from the Vert.x scheduler entirely.
+
+**Fix:** Move any blocking wait inside `vertx.executeBlocking()`, then chain the result
+back into the `VertxTestContext`:
+
+```java
+// CORRECT
+vertx.executeBlocking(() -> {
+    long deadline = System.currentTimeMillis() + 10_000;
+    while (System.currentTimeMillis() < deadline) {
+        var status = healthCheckManager.getOverallHealth();
+        if (status != null && status.isHealthy()) return status;
+        LockSupport.parkNanos(200_000_000L);
+    }
+    throw new AssertionError("Health check did not become healthy within 10 seconds");
+})
+.onSuccess(status -> testContext.verify(() -> {
+    assertTrue(status.isHealthy());
+    testContext.completeNow();
+}))
+.onFailure(testContext::failNow);
+```
+
+**Rule:** In `@ExtendWith(VertxExtension.class)` tests, any blocking wait — polling,
+`Thread.sleep`, `LockSupport.park`, `CountDownLatch.await` — belongs inside
+`vertx.executeBlocking()`, not on the test thread directly.
+
+---
+
+## LOW: Copy-Paste Contamination of Test Logger Messages
+
+Logger calls inside test methods that identify the wrong test — produced by copying
+a test's structure and updating the body without updating the log strings. Found in
+`OutboxMetricsTest`:
+
+```java
+// inside testMetricsIntegration — copied from circuit-breaker test, label not updated
+logger.info("Test: circuit breaker integration");
+
+// at start of testMultipleMessageMetrics — same stale string
+logger.info("Test: circuit breaker integration");
+```
+
+During a failure investigation, these messages direct a developer to the wrong test and
+the wrong subsystem. The longer the search takes, the more expensive the contamination.
+
+**Rule:** Logger calls inside tests must identify the test they are in. If per-test trace
+logging is kept at all, the message must match the actual test name. The safest approach
+is to omit per-test trace logs entirely and rely on the test runner's own reporting.
+
+---
+
+## MEDIUM: `withConnection()` for Write Operations — Missing Transaction
+
+Using `pool.withConnection()` for DML operations (`INSERT`, `UPDATE`, `DELETE`). The
+reactive PostgreSQL client's `withConnection()` borrows a connection from the pool but
+does **not** begin a transaction. Each statement executes in auto-commit mode only if
+the underlying driver defaults to it — otherwise the writes may not be committed at all,
+and any failure leaves partial state with no rollback.
+
+```java
+// WRONG — no transaction, write may not commit
+return pool.withConnection(conn ->
+    conn.preparedQuery("DELETE FROM dead_letter_queue WHERE id = $1")
+        .execute(Tuple.of(messageId)));
+
+// CORRECT — automatic commit on success, rollback on failure
+return pool.withTransaction(conn ->
+    conn.preparedQuery("DELETE FROM dead_letter_queue WHERE id = $1")
+        .execute(Tuple.of(messageId)));
+```
+
+This was the root cause of silent data loss in `DeadLetterQueueManager`: delete and
+re-process operations appeared to succeed (the Future completed) but the rows were
+never removed from the table.
+
+**Rule:** `withTransaction()` for all writes. `withConnection()` only for reads.
+
+---
+
+## CRITICAL: "Strategic Delay" and Threshold-Masking Anti-Fixes
+
+A category of changes made specifically to achieve a passing build rather than to fix
+the underlying problem. These are the test equivalent of `.recover(→ succeededFuture())`:
+they make failures invisible without removing their cause.
+
+### Pattern 1: `Thread.sleep()` labelled as "strategic delay"
+
+```java
+// WRONG — labelled "strategic" but is still the forbidden blocking pattern
+Thread.sleep(2000);   // "after concurrent operations that need time to complete"
+Thread.sleep(3000);   // "after manager close operations"
+Thread.sleep(500);    // "between retry attempts"
+```
+
+This is identical to `LockSupport.parkNanos()` — a fixed-duration block inserted to
+paper over a race condition instead of fixing the race condition. The word "strategic"
+does not change what the code does. If there is a race condition between two operations,
+the fix is to sequence them correctly using futures, not to hope the delay is long enough.
+
+These are present in `peegeeq-db` test classes and must be replaced with future chains
+that wait for the actual operation to complete.
+
+### Pattern 2: Threshold-based thread leak detection
+
+```java
+// WRONG — treats up to 5 real leaks as acceptable
+int maxAllowedVertxThreads = 5;
+if (allVertxThreads.size() > maxAllowedVertxThreads) {
+    fail("Excessive Vert.x event loop threads detected");
+}
+```
+
+This is a tautological assertion (the CRITICAL pattern) applied to leak detection. A
+threshold of 5 does not mean "no leak" — it means "I allow 5 leaks before I notice."
+The correct fix for threads appearing from other parallel tests is proper lifecycle
+management, not a tolerance budget.
+
+The outbox consumer lifecycle fix (see case study) eliminated the actual thread leaks.
+With proper lifecycle management, `ResourceLeakDetectionTest` should find zero leaked
+threads and the threshold should be zero.
+
+### Pattern 3: Timestamp extraction to filter "old" threads
+
+```java
+// WRONG — complex workaround for a lifecycle bug
+private long extractTimestampFromThreadName(String threadName) {
+    Pattern pattern = Pattern.compile("PeeGeeQ-Migration-(\\d+)");
+    Matcher matcher = pattern.matcher(threadName);
+    if (matcher.find()) return Long.parseLong(matcher.group(1));
+    return 0;
+}
+if (threadTimestamp < testStartTime) continue; // filter out "old" threads
+```
+
+If a thread survives past the end of its owning test, that is a leak — regardless of
+when it was created. Filtering by creation timestamp hides the leak rather than fixing it.
+The correct fix is to ensure the thread is stopped during shutdown (e.g., via a
+properly wired close hook or Vert.x lifecycle integration).
+
+### Why these patterns are dangerous
+
+All three share the same failure mode as the error-swallowing patterns documented
+throughout this file: a real problem is detected, and instead of being fixed, the
+detection is adjusted until the problem is no longer visible. The build goes green.
+The problem remains in production.
+
+The "100% test success rate" claim in the document that introduced these patterns is
+not evidence of correctness — it is evidence that the failure detectors were tuned to
+stop detecting failures.
+
+---
+
+## SERIOUS: Property-Key Mismatch Between Test Setup and Config Loader (Silent Misconfiguration)
+
+`BaseIntegrationTest.setupTestConfiguration()` set conservative pool tuning via
+`System.setProperty`, but the keys it used did not match the keys the configuration
+loader reads. The loader silently fell through to its hardcoded production defaults.
+
+```java
+// WRONG — keys the loader does NOT read
+System.setProperty("peegeeq.database.pool.connection-timeout", "PT10S");  // Duration string form
+System.setProperty("peegeeq.database.pool.idle-timeout",       "PT10S");  // Duration string form
+System.setProperty("peegeeq.database.pool.max-lifetime",       "PT2M");   // key not in loader at all
+
+// CORRECT — keys the loader actually reads (millisecond long form)
+System.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
+System.setProperty("peegeeq.database.pool.idle-timeout-ms",       "2000");
+// max-lifetime-ms — in peegeeq-default.properties but also not consumed; remove the dead property
+```
+
+**Consequence in the full test suite:** Idle timeout was effectively 600 seconds (10
+minutes) rather than 10 seconds as intended. At ~8.8 pool creations/second across forks,
+the 200-connection ceiling was consumed in seconds. The full suite produced 710 `FATAL:
+sorry, too many clients already` errors across 277 failing tests — all traceable to this
+single key-name typo in test infrastructure.
+
+**Why it survived:** No test asserted that `setupTestConfiguration()` produces the pool
+config it claims. The misconfiguration was invisible until the full multi-module suite
+was run on a single PostgreSQL container.
+
+**Rule:** Test-infrastructure property writes must be covered by a `@Tag(CORE)` contract
+test that verifies the loader reads what the test sets. A misconfigured baseline silently
+degrades every downstream integration test in the project.
+
+---
+
+## SERIOUS: `shared=true` in Test Pools — Non-Deterministic Connection Cleanup
+
+`BaseIntegrationTest.setupTestConfiguration()` never set `peegeeq.database.pool.shared`,
+so tests inherited the production default (`true`). With `shared=true`, Vert.x pools use
+reference counting to govern connection lifetime: `Pool.close()` does **not**
+deterministically release the underlying TCP sockets. Connections linger until the
+reference count reaches zero and the idle-eviction timer fires.
+
+```java
+// WRONG — shared=true, close() defers to reference-count + idle-eviction
+// (never set → inherits peegeeq-default.properties default of true)
+
+// CORRECT — add to setupTestConfiguration()
+System.setProperty("peegeeq.database.pool.shared", "false");
+```
+
+**Consequence:** Even if the idle-timeout were corrected to 2 seconds, `shared=true`
+still defers socket release past `Pool.close()` completion. Both the key-name fix and
+the `shared=false` fix are required together — fixing only one leaves the other root
+cause active.
+
+**Rule:** Integration tests must use `shared=false` pools. With `shared=false`, `pool.close()`
+is deterministic — the future resolves only after the underlying connections are released.
+`shared=true` is a production optimization for long-lived shared infrastructure, not for
+test isolation.
+
+---
+
+## SERIOUS: Secondary `PgConnectionManager` Instances Never Closed in `@AfterEach`
+
+28 integration test classes created a secondary `PgConnectionManager` field in
+`@BeforeEach` to supply component-level tests with a standalone pool. None of them
+closed it. `BaseIntegrationTest.tearDownBaseIntegration()` only closes the primary
+`manager` — it has no knowledge of secondary fields declared in subclasses.
+
+```java
+// WRONG — pool created, never closed
+@BeforeEach
+void setUp() throws Exception {
+    super.setUpBaseIntegration();
+
+    connectionManager = new PgConnectionManager(manager.getVertx(), null);
+    PgPoolConfig poolConfig = new PgPoolConfig.Builder()
+        .maxSize(10)          // hardcoded to 10 — no idle-timeout, shared=true by default
+        .build();
+    connectionManager.getOrCreateReactivePool("peegeeq-main", connectionConfig, poolConfig);
+    // nothing calls connectionManager.close() — ever
+}
+
+// CORRECT — add to every subclass that creates a secondary PgConnectionManager
+@AfterEach
+void tearDown() throws Exception {
+    if (connectionManager != null) {
+        connectionManager.close();
+    }
+}
+```
+
+**Consequence:** 28 test classes × up to 10/20/50 maxSize = up to 4,730 connections
+competing for 200 slots, all shared=true, none ever closed. After Tier-1 fixes corrected
+the primary manager's config, a second run revealed 473 secondary pools (38% of total)
+from this pattern — still fully leaked.
+
+**Rule:** Every field of type `PgConnectionManager` (or any resource-holding object)
+declared in a test subclass must be closed in an `@AfterEach` in that subclass, even
+when the base class already handles its own resources. The base class cannot close what
+it does not know about.
+
+---
+
+## SERIOUS: `@AfterEach` Grace Timer Skips `closeReactive()` When Vertx Event Loop Is Dead
+
+`BaseIntegrationTest.tearDownBaseIntegration()` called `manager.getVertx().timer(100)`
+as a grace delay *before* calling `closeReactive()`. When the Vertx event loop is dead
+(which happens whenever `manager.start()` fails due to pool exhaustion or any other
+startup error), `timer()` throws `RejectedExecutionException`. The `catch` block logged
+the error and continued to `finally`, which nulled `manager` — but `closeReactive()` was
+never called.
+
+```java
+// WRONG — timer throws if event loop is dead; closeReactive() is then skipped
+try {
+    awaitFuture(manager.getVertx().timer(100).mapEmpty());   // ← throws RejectedExecutionException
+    awaitFuture(manager.closeReactive());
+} catch (Exception e) {
+    logger.error("...", e);
+} finally {
+    manager = null;   // pool connections never released
+}
+
+// CORRECT — remove the grace timer; closeReactive() handles dead Vertx internally
+@AfterEach
+void tearDownBaseIntegration() throws Exception {
+    if (manager != null) {
+        try {
+            awaitFuture(manager.closeReactive());
+        } catch (Exception e) {
+            logger.error("Error closing PeeGeeQ Manager for profile: {}", testProfile, e);
+        } finally {
+            manager = null;
+        }
+    }
+}
+```
+
+**Evidence:** The full-suite log contained 232 occurrences of
+`RejectedExecutionException: event executor terminated` at the `BaseIntegrationTest`
+teardown line — 33% of all 696 `@BeforeEach` invocations. Each of those 232 teardowns
+left its pool connections open, compounding the connection exhaustion.
+
+**Rule:** Teardown logic must never place pool cleanup behind a conditional gate that
+can be skipped. Every code path through `@AfterEach` must reach `closeReactive()`.
+The grace timer served no documented purpose and must be removed.
+
+---
+
+## LOW: `System.gc()` in `@AfterEach` as Resource Cleanup
+
+`BaseIntegrationTest.tearDownBaseIntegration()` called `System.gc()` after teardown.
+GC does not deterministically release database connections. Connections are held by
+`PgConnectionManager`, which holds `Pool` references with explicit lifecycles. The GC
+cannot release these — only `close()` can.
+
+**Rule:** Resource cleanup must be explicit and deterministic via `close()` / `closeReactive()`.
+`System.gc()` is not a cleanup mechanism. Remove it.
+
+---
+
+## HIGH: No Contract Tests for Test Infrastructure (Zero Regression Coverage on Test Setup)
+
+The property-key mismatch described above survived because there were no tests asserting
+that `setupTestConfiguration()` produces the pool configuration it claims. A typo in
+test infrastructure silently degraded every integration test in the project.
+
+The fix is a `@Tag(CORE)` test class (no database dependency) that calls
+`setupTestConfiguration()` + `new PeeGeeQConfiguration(...)` directly and asserts on
+every pool tuning value:
+
+```java
+@Tag(TestCategories.CORE)
+class BaseIntegrationTestPoolConfigContractCoreTest {
+
+    @BeforeEach void setUp() { BaseIntegrationTest.setupTestConfiguration(); }
+
+    @AfterEach
+    void tearDown() {
+        System.clearProperty("peegeeq.database.pool.max-size");
+        System.clearProperty("peegeeq.database.pool.connection-timeout-ms");
+        System.clearProperty("peegeeq.database.pool.idle-timeout-ms");
+        System.clearProperty("peegeeq.database.pool.shared");
+    }
+
+    @Test void poolIdleTimeoutIsShortForFastTeardown() {
+        assertThat(cfg().getPoolConfig().getIdleTimeout()).isLessThanOrEqualTo(Duration.ofSeconds(5));
+    }
+
+    @Test void poolConnectionTimeoutIsShortForFastFailure() {
+        assertThat(cfg().getPoolConfig().getConnectionTimeout()).isLessThanOrEqualTo(Duration.ofSeconds(10));
+    }
+
+    @Test void poolIsNonSharedForDeterministicClose() {
+        assertThat(cfg().getPoolConfig().isShared()).isFalse();
+    }
+
+    @Test void poolMaxSizeIsSmallForParallelHeadroom() {
+        assertThat(cfg().getPoolConfig().getMaxSize()).isLessThanOrEqualTo(3);
+    }
+
+    private PeeGeeQConfiguration cfg() {
+        return new PeeGeeQConfiguration("test-t2b-" + UUID.randomUUID());
+    }
+}
+```
+
+This test is `@Tag(CORE)` — it runs on every `mvn test`, requires no database, and
+cannot be blocked by connection exhaustion. It is the regression lock that would have
+caught the property-key typo at PR review time.
+
+**Rule:** Test infrastructure classes that set system properties or configure shared
+resources must themselves have `@Tag(CORE)` contract tests verifying the configuration
+survives through to the loader. "It compiles" is not evidence it works.
+
+---
+
+## Case Study: Outbox Consumer Lifecycle Bug (Resolved)
+
+### The Symptom
+
+A full outbox integration test run (410 tests) produced **3,975 `"Client not found: null"`
+error log lines** spread across 36 test classes. The errors were silently absorbed — no
+test failed because of them, and no assertion checked for their presence. They were only
+visible by reading the raw log output.
+
+### The Root Cause
+
+A shutdown ordering bug: consumers kept polling against DB connection pools that had
+already been destroyed.
+
+**`OutboxFactory`'s close hook was a no-op:**
+
+```java
+// WRONG — registered but does nothing
+registrar.registerCloseHook(new PeeGeeQCloseHook() {
+    public io.vertx.core.Future<Void> closeReactive() {
+        return io.vertx.core.Future.succeededFuture();  // no-op
+    }
+});
+```
+
+`PeeGeeQManager.closeReactive()` destroys DB pools in step 4 of its shutdown sequence,
+but consumers were never told to stop. Their polling loop used a plain
+`java.util.concurrent.ScheduledExecutorService` — not a Vert.x timer — so it ran
+independently of Vert.x lifecycle and kept firing after both the pools and the Vert.x
+instance were destroyed.
+
+Each poll attempt generated `"Client not found: null"` from
+`PgConnectionProvider.getReactivePool()`. The polling loop's `.onFailure()` handler
+logged the error and returned — the scheduler fired again next interval.
+
+**Three layers of error erasure combined to make this invisible:**
+
+1. **No-op close hook** — manager shutdown never reached the consumers.
+2. **`ScheduledExecutorService` outside Vert.x lifecycle** — even if the hook had worked,
+   `vertx.close()` could not cancel a plain executor.
+3. **Log-and-continue `.onFailure()`** in the polling loop — every error was absorbed
+   without propagating, without failing a test, and without stopping the scheduler.
+
+Additionally, `isShutdownRelatedError()` contained string-matching hacks that classified
+`"Client not found"` and `"closed or shutting down"` messages as expected and silenced
+them at DEBUG level — treating the symptom rather than the cause, and introducing
+fragile coupling to error message text from a different module.
+
+### The Fix (all tasks completed)
+
+| Task | Change | File |
+|---|---|---|
+| 1 | Wire `OutboxFactory` close hook → `closeTrackedResourcesAsync()` | `OutboxFactory.java` |
+| 1b | `OutboxConsumer.closeAsync()` waits for in-flight processing | `OutboxConsumer.java` |
+| 2 | Remove string-matching from `isShutdownRelatedError()`, remove its side-effects | `OutboxConsumer.java` |
+| 3 | Remove `getConnectionProvider() == null` null-check hack from `processAvailableMessages` | `OutboxConsumer.java` |
+| 4 | Replace `ScheduledExecutorService` with `Vertx.setPeriodic()` | `OutboxConsumer.java`, `PgConnectionManager.java` |
+| 5a–5d | Migrate `FilterRetryManager`, `AsyncFilterRetryManager`, `OutboxConsumerGroupMember`, `OutboxConsumerGroup` to Vert.x timers | 4 files |
+
+The close hook fix (task 1) is the primary fix — it stops consumers in the correct
+shutdown step, before pools are destroyed. The Vert.x timer migration (tasks 4–5d)
+provides a safety net: even if a close hook fails, `vertx.close()` automatically cancels
+all registered timers.
+
+### Validation Result
+
+| Metric | Before | After |
+|--------|-------:|------:|
+| `"Client not found"` log lines | **3,975** | **0** |
+| Tests run | 410 | 372 |
+| Failures | 1 | 3 |
+
+The 372 vs 410 difference and the 3 failures are pre-existing issues unrelated to the
+lifecycle fix: missing `logger` field declarations in 11 test classes (compilation errors
+preventing those tests from loading), and schema-initialisation order errors in 3 example
+test classes (`initializeSchema()` called after `manager.start().await()`).
+
+### Connection to Antipatterns in This Document
+
+This case study is a concrete example of how the patterns documented above compound:
+
+- **CRITICAL placeholder tests** (section 1) — tests that always passed regardless of
+  outcome masked the 3,975 errors for the entire lifetime of the bug.
+- **SERIOUS `.onComplete` swallowing** — the polling loop used `.onFailure()` correctly
+  for logging but returned without propagating; the fire-and-forget scheduler ensured
+  failures never reached any test assertion.
+- **SERIOUS production `.recover()` patterns** — the no-op close hook itself returns
+  `Future.succeededFuture()`, the canonical ERASURE pattern, at the exact integration
+  point that should have stopped the consumers.
+
+The bug was not introduced in a single commit. It accumulated incrementally: the no-op
+hook was left as a stub, the executor was never converted to a Vert.x timer, and each
+new error was handled with a log-and-continue block. At no point did a test fail. The
+only way to see the problem was to read thousands of log lines.

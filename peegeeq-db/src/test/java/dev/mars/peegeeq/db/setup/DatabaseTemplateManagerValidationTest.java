@@ -86,17 +86,9 @@ class DatabaseTemplateManagerValidationTest {
             "localhost", 5432, "user", "pass",
             "valid_db", null, null, new HashMap<>()
         )
-        .recover(throwable -> {
-            // Connection failure is expected — we just want no IllegalArgumentException
-            if (throwable instanceof IllegalArgumentException) {
-                return io.vertx.core.Future.failedFuture(throwable);
-            }
-            // Any other error (like connection refused) is fine for this validation test
-            testContext.completeNow();
-            return io.vertx.core.Future.succeededFuture();
-        })
         .onSuccess(v -> testContext.completeNow())
         .onFailure(cause -> {
+            // Connection failure is expected — we just want no IllegalArgumentException
             if (cause instanceof IllegalArgumentException) {
                 testContext.failNow(cause);
             } else {
@@ -112,16 +104,9 @@ class DatabaseTemplateManagerValidationTest {
             "localhost", 5432, "user", "pass",
             "valid_db_name", "template0", "UTF8", new HashMap<>()
         )
-        .recover(throwable -> {
-            // Connection failure is expected
-            if (throwable instanceof IllegalArgumentException) {
-                return io.vertx.core.Future.failedFuture(throwable);
-            }
-            testContext.completeNow();
-            return io.vertx.core.Future.succeededFuture();
-        })
         .onSuccess(v -> testContext.completeNow())
         .onFailure(cause -> {
+            // Connection failure is expected
             if (cause instanceof IllegalArgumentException) {
                 testContext.failNow(cause);
             } else {

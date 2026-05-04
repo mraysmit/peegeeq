@@ -233,8 +233,10 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
                                 logger.info("Setup status after adding queue: {}", setupStatus);
                                 return setupStatus;
                             })
-                            .recover(throwable -> {
-                                logger.info("Dynamic queue addition failed as expected due to no queue implementations - this is normal in test environment: {}", throwable.getMessage());
+                            .transform(ar -> {
+                                if (ar.failed()) {
+                                    logger.info("Dynamic queue addition failed as expected due to no queue implementations - this is normal in test environment: {}", ar.cause().getMessage());
+                                }
                                 // This is expected when no queue implementations are available
                                 return io.vertx.core.Future.succeededFuture(null);
                             });
@@ -340,8 +342,8 @@ public class PeeGeeQDatabaseSetupServiceEnhancedTest extends BaseIntegrationTest
                 .compose(v -> {
                     // Verify it's gone - should fail
                     return setupService.getSetupStatus(testSetupId)
-                            .recover(throwable -> {
-                                // Expected to fail
+                            .transform(ar -> {
+                                // Expected to fail after destruction
                                 return io.vertx.core.Future.succeededFuture(null);
                             });
                 })

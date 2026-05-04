@@ -95,10 +95,7 @@ class PeeGeeQMetricsTest {
         metrics = new PeeGeeQMetrics(reactivePool, "test-instance");
 
         cleanupTestData()
-            .recover(e -> {
-                logger.warn("Failed to cleanup test data in setUp: {}", e.getMessage());
-                return Future.succeededFuture();
-            })
+            .onFailure(e -> logger.warn("Failed to cleanup test data in setUp: {}", e.getMessage()))
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);
     }
@@ -106,18 +103,14 @@ class PeeGeeQMetricsTest {
     @AfterEach
     void tearDown(VertxTestContext testContext) {
         Future<Void> cleanup = (reactivePool != null)
-            ? cleanupTestData().recover(e -> {
-                logger.warn("Failed to cleanup test data in tearDown: {}", e.getMessage());
-                return Future.succeededFuture();
-              })
+            ? cleanupTestData()
+                .onFailure(e -> logger.warn("Failed to cleanup test data in tearDown: {}", e.getMessage()))
             : Future.succeededFuture();
 
         cleanup
-            .compose(v -> connectionManager != null
-                ? connectionManager.close().recover(e -> {
-                    logger.debug("Connection manager close (may already be closed): {}", e.getMessage());
-                    return Future.succeededFuture();
-                  })
+            .eventually(() -> connectionManager != null
+                ? connectionManager.close()
+                    .onFailure(e -> logger.debug("Connection manager close (may already be closed): {}", e.getMessage()))
                 : Future.succeededFuture())
             .onSuccess(v -> testContext.completeNow())
             .onFailure(testContext::failNow);

@@ -301,7 +301,7 @@ public class PeeGeeQManagerTimerGuardTest {
                     
                     manager = null;
                     return close.compose(v2 -> Future.join(depthCache, persist))
-                                .recover(err -> Future.succeededFuture());
+                                .transform(ar -> Future.succeededFuture());
                 })
                 .onSuccess(v -> testContext.verify(() -> {
                     // With the fail-fast guard inside the tasks, no connection 
