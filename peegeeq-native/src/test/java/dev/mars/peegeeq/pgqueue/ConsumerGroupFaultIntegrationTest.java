@@ -43,8 +43,10 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -88,6 +90,7 @@ class ConsumerGroupFaultIntegrationTest {
     private VertxPoolAdapter adapter;
     private ObjectMapper mapper;
     private PgConnectionManager connectionManager;
+    private final List<String> testTopics = new ArrayList<>();
 
     @BeforeAll
     static void beforeAll() {
@@ -560,6 +563,7 @@ class ConsumerGroupFaultIntegrationTest {
     // ========================================================================
 
     private Future<Void> createTopic(String topic, String completionTrackingMode) {
+        testTopics.add(topic);
         return connectionManager.withConnection(SERVICE_ID, conn ->
                 conn.preparedQuery(
                         "INSERT INTO outbox_topics (topic, semantics, completion_tracking_mode) " +
@@ -591,13 +595,17 @@ class ConsumerGroupFaultIntegrationTest {
     }
 
     private Future<Void> cleanupTestData() {
+        if (testTopics.isEmpty()) {
+            return Future.succeededFuture();
+        }
+        String[] topics = testTopics.toArray(new String[0]);
         return connectionManager.withConnection(SERVICE_ID, conn ->
-                conn.query("DELETE FROM outbox_partition_assignments WHERE topic LIKE 'test-fault-%'").execute()
-                        .compose(v -> conn.query("DELETE FROM outbox_partition_offsets WHERE topic LIKE 'test-fault-%'").execute())
-                        .compose(v -> conn.query("DELETE FROM outbox_topic_watermarks WHERE topic LIKE 'test-fault-%'").execute())
-                        .compose(v -> conn.query("DELETE FROM outbox_topic_subscriptions WHERE topic LIKE 'test-fault-%'").execute())
-                        .compose(v -> conn.query("DELETE FROM outbox WHERE topic LIKE 'test-fault-%'").execute())
-                        .compose(v -> conn.query("DELETE FROM outbox_topics WHERE topic LIKE 'test-fault-%'").execute())
+                conn.preparedQuery("DELETE FROM outbox_partition_assignments WHERE topic = ANY($1::text[])").execute(Tuple.of(topics))
+                        .compose(v -> conn.preparedQuery("DELETE FROM outbox_partition_offsets WHERE topic = ANY($1::text[])").execute(Tuple.of(topics)))
+                        .compose(v -> conn.preparedQuery("DELETE FROM outbox_topic_watermarks WHERE topic = ANY($1::text[])").execute(Tuple.of(topics)))
+                        .compose(v -> conn.preparedQuery("DELETE FROM outbox_topic_subscriptions WHERE topic = ANY($1::text[])").execute(Tuple.of(topics)))
+                        .compose(v -> conn.preparedQuery("DELETE FROM outbox WHERE topic = ANY($1::text[])").execute(Tuple.of(topics)))
+                        .compose(v -> conn.preparedQuery("DELETE FROM outbox_topics WHERE topic = ANY($1::text[])").execute(Tuple.of(topics)))
                         .map(rows -> (Void) null)
         );
     }

@@ -83,14 +83,16 @@ public class PerformanceComparisonExampleTest {
             manager.closeReactive()
                 .onSuccess(v -> {
                     System.getProperties().entrySet().removeIf(entry ->
-                        entry.getKey().toString().startsWith("peegeeq."));
+                        entry.getKey().toString().startsWith("peegeeq.") &&
+                        !entry.getKey().toString().equals("peegeeq.performance.tests"));
                     logger.info("✓ Performance Comparison Example Test teardown completed");
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
         } else {
             System.getProperties().entrySet().removeIf(entry ->
-                entry.getKey().toString().startsWith("peegeeq."));
+                entry.getKey().toString().startsWith("peegeeq.") &&
+                !entry.getKey().toString().equals("peegeeq.performance.tests"));
             logger.info("✓ Performance Comparison Example Test teardown completed");
             testContext.completeNow();
         }

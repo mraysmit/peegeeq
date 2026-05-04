@@ -220,13 +220,16 @@ public class BackfillService {
                             .compose(totalMessages -> {
                                 if (totalMessages == 0L) {
                                     try (var scope = TraceContextUtil.mdcScope(trace)) {
-                                        logger.info("Backfill complete (no messages): topic='{}', group='{}', elapsedMs={}",
-                                                topic, groupName, System.currentTimeMillis() - startTimeMs);
+                                        logger.info("Backfill complete (no messages): topic='{}', group='{}', elapsedMs={}, alreadyProcessed={}",
+                                                topic, groupName, System.currentTimeMillis() - startTimeMs, processedSoFar);
                                     }
-                                    return markBackfillCompleted(trace, topic, groupName, 0L)
+                                    // Use processedSoFar (not 0L): if this is a resume after cancel where
+                                    // all messages were already processed, we must preserve the previously
+                                    // recorded count. Writing 0L here corrupts backfill_processed_messages.
+                                    return markBackfillCompleted(trace, topic, groupName, processedSoFar)
                                             .map(v -> new BackfillResult(
                                                     BackfillResult.Status.COMPLETED,
-                                                    0L,
+                                                    processedSoFar,
                                                     "No messages to backfill"));
                                 }
 
