@@ -190,11 +190,10 @@ public class PgConnectionManagerTest {
                     assertTrue(isHealthy, "Health check should pass for valid pool with real database"));
                 return connectionManager.checkHealth("non-existent");
             })
-            .onSuccess(nonExistentHealthy -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(nonExistentHealthy -> testContext.verify(() -> {
                 assertFalse(nonExistentHealthy, "Health check should fail for non-existent service");
                 logger.info("Health check test passed - database connectivity verified");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 }

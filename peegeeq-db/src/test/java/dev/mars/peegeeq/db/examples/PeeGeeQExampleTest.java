@@ -95,7 +95,7 @@ public class PeeGeeQExampleTest {
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
         manager.start()
             .compose(v -> manager.getSystemStatus())
-            .onSuccess(systemStatus -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(systemStatus -> testContext.verify(() -> {
                 assertNotNull(systemStatus, "System status should not be null");
                 assertNotNull(systemStatus.getHealthStatus(), "Health status should not be null");
                 logger.info("Health status retrieved: {}", systemStatus.getHealthStatus().getStatus());
@@ -110,8 +110,7 @@ public class PeeGeeQExampleTest {
                 
                 logger.info("Production readiness features validated successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -180,7 +179,7 @@ public class PeeGeeQExampleTest {
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
         manager.start()
             .compose(v -> manager.getSystemStatus())
-            .onSuccess(systemStatus -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(systemStatus -> testContext.verify(() -> {
                 // Health monitoring
                 assertNotNull(systemStatus.getHealthStatus());
                 logger.info("Health monitoring demonstrated: {}", systemStatus.getHealthStatus().getStatus());
@@ -196,8 +195,7 @@ public class PeeGeeQExampleTest {
                 
                 logger.info("Feature demonstrations validated successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     // Helper methods that replicate the original example's functionality

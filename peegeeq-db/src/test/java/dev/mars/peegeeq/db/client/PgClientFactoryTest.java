@@ -231,12 +231,11 @@ public class PgClientFactoryTest {
                 });
                 return factory.closeAsync();
             })
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 assertTrue(factory.getAvailableClients().isEmpty(), "All clients should be closed");
                 assertFalse(factory.getClient(client2Id).isPresent(), "No clients should remain after closeAsync");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test

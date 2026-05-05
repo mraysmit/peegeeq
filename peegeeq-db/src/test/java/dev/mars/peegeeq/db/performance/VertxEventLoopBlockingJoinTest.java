@@ -74,14 +74,13 @@ class VertxEventLoopBlockingJoinTest {
         });
 
         vertx.close()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 logger.info("=== INTENTIONAL BLOCKING TEST END: timer delay={}ms (expected >=150ms) ===", timerDelayMs.get());
                 logger.info("EXPECTED BlockedThreadChecker WARNs above confirm the anti-pattern was active.");
                 assertTrue(timerDelayMs.get() >= 150,
                     "Expected timer delay >= 150ms due to event-loop blocking, actual delay=" + timerDelayMs.get() + "ms");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -112,11 +111,10 @@ class VertxEventLoopBlockingJoinTest {
         workerThread.start();
 
         vertx.close()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 assertTrue(timerDelayMs.get() < 150,
                     "Expected timer delay < 150ms when blocking is off event loop, actual delay=" + timerDelayMs.get() + "ms");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 }
