@@ -167,7 +167,7 @@ public class OutboxResourceLeakDetectionTest {
                 // GC-settle: give time for shutdown
                 return vertx.timer(5000);
             })
-            .onSuccess(timerId -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(timerId -> testContext.verify(() -> {
                 // Capture threads after close
                 Set<Long> afterThreadIds = getCurrentThreadIds();
                 int afterCount = afterThreadIds.size();
@@ -190,8 +190,7 @@ public class OutboxResourceLeakDetectionTest {
 
                 logger.info("=== TEST: testNoThreadLeaksAfterProducerClose COMPLETED ===");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
@@ -230,7 +229,7 @@ public class OutboxResourceLeakDetectionTest {
                 // GC-settle: give scheduler time to shut down
                 return vertx.timer(5000);
             })
-            .onSuccess(timerId -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(timerId -> testContext.verify(() -> {
                 // Capture threads after close
                 Set<Long> afterThreadIds = getCurrentThreadIds();
                 int afterCount = afterThreadIds.size();
@@ -253,8 +252,7 @@ public class OutboxResourceLeakDetectionTest {
 
                 logger.info("=== TEST: testNoThreadLeaksAfterConsumerClose COMPLETED ===");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
@@ -297,7 +295,7 @@ public class OutboxResourceLeakDetectionTest {
             // GC-settle: allow GC and thread cleanup
             return vertx.timer(1000);
         })
-        .onSuccess(timerId -> testContext.verify(() -> {
+        .onComplete(testContext.succeeding(timerId -> testContext.verify(() -> {
             // Verify no threads leaked (excluding expected shared infrastructure threads)
             Set<Long> finalIds = getCurrentThreadIds();
             Set<Long> leakedIds = new HashSet<>(finalIds);
@@ -316,8 +314,7 @@ public class OutboxResourceLeakDetectionTest {
 
             logger.info("=== TEST: testNoThreadLeaksWithMultipleCycles COMPLETED ===");
             testContext.completeNow();
-        }))
-        .onFailure(testContext::failNow);
+        })));
         assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
     }
 
@@ -358,7 +355,7 @@ public class OutboxResourceLeakDetectionTest {
                 // GC-settle: give time for shutdown
                 return vertx.timer(5000);
             })
-            .onSuccess(timerId -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(timerId -> testContext.verify(() -> {
                 // Verify no new Vert.x threads remain compared to initial baseline
                 Set<String> remainingVertxThreads = getVertxThreadNames();
                 logger.info("Vert.x threads after close: {}", remainingVertxThreads);
@@ -382,8 +379,7 @@ public class OutboxResourceLeakDetectionTest {
 
                 logger.info("=== TEST: testSharedVertxInstancesClosed COMPLETED ===");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
