@@ -584,10 +584,176 @@ Found in: `OutboxConsumerNullHandlerTest` (class-level Javadoc).
 
 ---
 
+## CRITICAL: Exception Thrown in `onSuccess` Is Silently Swallowed
+
+Discovered: 2026-05-05 during full `peegeeq-db` test suite run (`feature/offset-watermark-phase1`).  
+Demonstrated by: `VertxOnSuccessExceptionSwallowTest` (`peegeeq-db/.../performance/`).
+
+### What Happens
+
+When a `RuntimeException` is thrown synchronously inside a `Future.onSuccess(v -> ...)` callback:
+
+1. The Vert.x event-loop context **catches the exception internally**.
+2. It is routed to `vertx.exceptionHandler` (logged as `ContextImpl - Unhandled exception` at ERROR level).
+3. The paired `.onFailure(...)` handler is **never called** — it only fires for Future pipeline failures, not for exceptions thrown inside callbacks.
+4. `VertxTestContext` receives neither `completeNow()` nor `failNow()` — the test **hangs silently** for the full timeout (default 30 seconds) then reports only "Timeout" with no root-cause information.
+
+The real exception is visible only as a buried ERROR log line, not as a test failure.
+
+### Real-World Instance
+
+`MultiConfigurationExampleTest.testMultipleConfigurationRegistration` (2026-05-05):
+
+```java
+vertx.timer(100).mapEmpty()
+    .compose(v -> vertx.timer(100).mapEmpty())
+    .compose(v -> vertx.timer(100).mapEmpty())
+    .onSuccess(v -> {
+        // ANTI-PATTERN: throws RuntimeException("Failed to register configuration: development")
+        // because peegeeq-test.properties has peegeeq.database.schema=test-schema (hyphens invalid).
+        // The exception is swallowed; neither completeNow() nor failNow() is ever called.
+        configManager.registerConfiguration("development", "test");
+        testContext.verify(() -> {
+            assertEquals(4, configManager.getConfigurationNames().size()); // unreachable
+            testContext.completeNow();                                      // unreachable
+        });
+    })
+    .onFailure(testContext::failNow); // never triggered — exception is not a Future failure
+```
+
+Log evidence:
+```
+09:57:17.653 ERROR PgConnectionManager  - Invalid schema config: test-schema
+09:57:17.655 ERROR MultiConfigurationManager - Failed to register configuration: development
+09:57:17.656 ERROR ContextImpl - Unhandled exception
+[ERROR] Time elapsed: 30.33 s — Timeout
+```
+
+### The Four Fixes (ranked by idiomaticness)
+
+**Fix 1 — `testContext.succeeding()` — canonical pattern from official Vert.x docs**
+
+The Vert.x JUnit 5 documentation shows this as the standard pattern. `testContext.succeeding(handler)`
+wraps the callback such that **any exception thrown inside it is automatically considered a test failure**,
+without any extra try-catch:
+
+```java
+.onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+    // Both succeeding() and verify() route exceptions to failNow() automatically.
+    configManager.registerConfiguration("development", "test");
+    assertEquals(4, configManager.getConfigurationNames().size());
+    testContext.completeNow();
+})));
+```
+
+Source: [Vert.x JUnit 5 docs](https://vertx.io/docs/vertx-junit5/java/) — "any exception thrown from the
+[succeeding] callback is considered as a test failure."
+
+This is the **preferred idiom** for all new test code. Do not use bare `onSuccess` when calling
+synchronous methods or making assertions.
+
+**Fix 2 — `testContext.verify()` wrapping inside `onSuccess` (ergonomic)**
+
+`testContext.verify(Executable)` automatically catches any exception thrown inside it
+and calls `failNow(e)`. Use it as the outermost wrapper around all assertion and
+sync-call logic inside `onSuccess`:
+
+```java
+.onSuccess(v -> testContext.verify(() -> {
+    // Any exception thrown here is automatically routed to failNow() — no silent swallow.
+    configManager.registerConfiguration("development", "test");
+    assertEquals(4, configManager.getConfigurationNames().size());
+    testContext.completeNow();
+}))
+```
+
+**Fix 3 — `try-catch` calling `testContext.failNow()` (minimum fix for existing code)**
+
+```java
+.onSuccess(v -> {
+    try {
+        configManager.registerConfiguration("development", "test");
+        testContext.verify(() -> {
+            assertEquals(4, configManager.getConfigurationNames().size());
+            testContext.completeNow();
+        });
+    } catch (Exception e) {
+        testContext.failNow(e); // surfaces the real cause immediately — no 30 s hang
+    }
+})
+```
+
+**Fix 4 — Move the synchronous call into the Future pipeline via `compose()`**
+
+Wrap the throwing call as a `Future` step so failures propagate through the pipeline
+and reach `onFailure` in the normal way:
+
+```java
+.compose(v -> {
+    try {
+        configManager.registerConfiguration("development", "test");
+        return Future.succeededFuture();
+    } catch (Exception e) {
+        return Future.failedFuture(e); // now .onFailure(testContext::failNow) fires correctly
+    }
+})
+.onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+    assertEquals(4, configManager.getConfigurationNames().size());
+    testContext.completeNow();
+})));
+```
+
+### Additional Warning from Official Vert.x Docs
+
+The Vert.x Core manual explicitly states:
+
+> **"Terminal operations like `onSuccess`, `onFailure` and `onComplete` provide no guarantee
+> whatsoever regarding the invocation order of callbacks."**
+
+This means registering multiple `onSuccess` handlers on the same future (or mixing
+`onSuccess` with `onFailure`) does not guarantee which fires first. The recommended
+workaround for ordered sequencing is `andThen()`, not stacked `onSuccess` calls.
+
+### Scope — Where This Pattern Exists
+
+Any `onSuccess` (or `onComplete(ar -> { if (ar.succeeded()) ...})`) callback that:
+- calls a synchronous method that may throw, or
+- contains `assertEquals` / `assertTrue` / `assertNotNull` outside a `testContext.verify()` block
+
+is silently swallowed if the exception fires. Search the test codebase for:
+
+```
+# Find onSuccess callbacks without verify() or try-catch
+grep -rn "\.onSuccess(" --include="*Test.java" | grep -v "testContext\.verify\|try {" | grep -v "::failNow\|testContext\.failing"
+
+# Find bare assertions outside testContext wrappers
+grep -rn "assertEquals\|assertTrue\|assertNotNull" --include="*Test.java" | grep -v "testContext\.verify\|testContext\.succeeding"
+```
+
+Every hit that contains assertions or sync calls without `testContext.succeeding()`, `testContext.verify()`,
+or `try-catch → failNow` is vulnerable.
+
+### Companion Test
+
+`VertxOnSuccessExceptionSwallowTest` in `peegeeq-db/.../performance/` provides
+six executable examples (three anti-pattern proofs, three safe-pattern counterparts):
+
+| Test | What it demonstrates |
+|---|---|
+| `antiPattern_exceptionInOnSuccess_bypassesOnFailure` | Exception bypasses `onFailure`; reaches `vertx.exceptionHandler` instead |
+| `safePattern_tryCatchInOnSuccess_preventsSwallow` | `try-catch` captures the exception |
+| `antiPattern_syncCallAfterTimerChain_causesSilentHang` | Exact mirror of the real-world failure — context never completes |
+| `safePattern_syncCallAfterTimerChain_preventsHang` | `try-catch` prevents the 30 s hang |
+| `safePattern_compose_keepFailuresInPipeline` | `Future.failedFuture()` in `compose()` properly reaches `onFailure` |
+| `safePattern_testContextVerify_autoRoutesExceptions` | `testContext.verify()` auto-routes exceptions to `failNow()` |
+
+---
+
 ## Summary of Required Actions
 
 | Priority | Action | Scope |
 |---|---|---|
+| CRITICAL | Replace bare `onSuccess` containing assertions or throwing calls with `testContext.succeeding(v -> testContext.verify(...))` — the canonical pattern from Vert.x JUnit 5 docs | All test classes with bare `onSuccess` callbacks |
 | CRITICAL | Replace `assertTrue(true, ...)` with real assertions or delete test | 27 tests |
 | SERIOUS | Replace `.onComplete(ar -> latch.countDown())` with `.onSuccess`/`.onFailure` | 50+ sends |
 | HIGH | Clear system properties in `@AfterEach` | Integration tests using `System.setProperty` |

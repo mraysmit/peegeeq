@@ -124,7 +124,7 @@ public class PgConnectionManagerCloseLogLevelTest {
 
         logCapture.clear();
         connectionManager.close()
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
                     boolean hasPoolCloseError = errors.stream()
                             .anyMatch(e -> e.getFormattedMessage().contains("pools failed to close cleanly"));
@@ -133,8 +133,7 @@ public class PgConnectionManagerCloseLogLevelTest {
 
                     connectionManager = null;
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -186,7 +185,7 @@ public class PgConnectionManagerCloseLogLevelTest {
                     ownCapture.clear();
                     return ownConnMgr.close();
                 })
-                .onSuccess(ar -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(ar -> testContext.verify(() -> {
                     // closeAsync() completes via .mapEmpty() even when pools fail
                     List<ILoggingEvent> errors = ownCapture.eventsAtLevel(Level.ERROR);
                     List<ILoggingEvent> warns = ownCapture.eventsAtLevel(Level.WARN);
@@ -200,8 +199,7 @@ public class PgConnectionManagerCloseLogLevelTest {
                     logger.detachAppender(ownCapture);
                     ownCapture.stop();
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -210,15 +208,14 @@ public class PgConnectionManagerCloseLogLevelTest {
         // Don't create any pools
         logCapture.clear();
         connectionManager.close()
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
                     assertTrue(errors.isEmpty(),
                             "Closing with no pools should produce no ERROR logs");
 
                     connectionManager = null;
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     static final class LogCaptureAppender extends AppenderBase<ILoggingEvent> {

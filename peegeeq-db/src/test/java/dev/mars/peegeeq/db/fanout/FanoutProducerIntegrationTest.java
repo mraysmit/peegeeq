@@ -114,13 +114,12 @@ public class FanoutProducerIntegrationTest extends BaseIntegrationTest {
         topicConfigService.createTopic(config)
             .compose(v -> insertMessage(topic, new JsonObject().put("test", "data")))
             .compose(messageId -> getRequiredConsumerGroups(messageId))
-            .onSuccess(requiredGroups -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(requiredGroups -> testContext.verify(() -> {
                 assertEquals(1, requiredGroups,
                     "QUEUE topics should have required_consumer_groups = 1 for backward compatibility");
                 logger.info("QUEUE topic backward compatibility verified");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -142,13 +141,12 @@ public class FanoutProducerIntegrationTest extends BaseIntegrationTest {
         topicConfigService.createTopic(config)
             .compose(v -> insertMessage(topic, new JsonObject().put("test", "data")))
             .compose(messageId -> getRequiredConsumerGroups(messageId))
-            .onSuccess(requiredGroups -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(requiredGroups -> testContext.verify(() -> {
                 assertEquals(0, requiredGroups,
                     "PUB_SUB topics with zero subscriptions should have required_consumer_groups = 0");
                 logger.info("PUB_SUB topic with zero subscriptions verified");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -172,13 +170,12 @@ public class FanoutProducerIntegrationTest extends BaseIntegrationTest {
             .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.defaults()))
             .compose(v -> insertMessage(topic, new JsonObject().put("test", "data")))
             .compose(messageId -> getRequiredConsumerGroups(messageId))
-            .onSuccess(requiredGroups -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(requiredGroups -> testContext.verify(() -> {
                 assertEquals(1, requiredGroups,
                     "PUB_SUB topics with one subscription should have required_consumer_groups = 1");
                 logger.info("PUB_SUB topic with one subscription verified");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -203,13 +200,12 @@ public class FanoutProducerIntegrationTest extends BaseIntegrationTest {
             .compose(v -> subscriptionManager.subscribe(topic, "group-c", SubscriptionOptions.defaults()))
             .compose(v -> insertMessage(topic, new JsonObject().put("test", "data")))
             .compose(messageId -> getRequiredConsumerGroups(messageId))
-            .onSuccess(requiredGroups -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(requiredGroups -> testContext.verify(() -> {
                 assertEquals(3, requiredGroups,
                     "PUB_SUB topics with three subscriptions should have required_consumer_groups = 3");
                 logger.info("PUB_SUB topic with multiple subscriptions verified");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -244,13 +240,12 @@ public class FanoutProducerIntegrationTest extends BaseIntegrationTest {
                 return subscriptionManager.subscribe(topic, "group-b", SubscriptionOptions.defaults())
                     .compose(v -> getRequiredConsumerGroups(messageIdRef.get()));
             })
-            .onSuccess(requiredGroupsAfter -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(requiredGroupsAfter -> testContext.verify(() -> {
                 assertEquals(1, (int) requiredGroupsAfter,
                     "required_consumer_groups should be immutable after message insertion (snapshot semantics)");
                 logger.info("Snapshot semantics (immutability) verified");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -264,13 +259,12 @@ public class FanoutProducerIntegrationTest extends BaseIntegrationTest {
         // Do NOT create topic configuration - let it default
         insertMessage(topic, new JsonObject().put("test", "data"))
             .compose(messageId -> getRequiredConsumerGroups(messageId))
-            .onSuccess(requiredGroups -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(requiredGroups -> testContext.verify(() -> {
                 assertEquals(1, requiredGroups,
                     "Unconfigured topics should default to QUEUE semantics (required_consumer_groups = 1)");
                 logger.info("Unconfigured topic defaults to QUEUE verified");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     // Helper methods

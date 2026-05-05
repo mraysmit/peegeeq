@@ -100,15 +100,14 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
                     "start_from_timestamp should be NULL for FROM_BEGINNING");
                 return subscriptionManager.getSubscription(topic, groupName);
             })
-            .onSuccess(subscription -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 assertNotNull(subscription, "Subscription should be retrievable via API");
                 SubscriptionOptions retrievedOptions = subscriptionToOptions(subscription);
                 assertEquals(StartPosition.FROM_BEGINNING, retrievedOptions.getStartPosition(),
                     "Retrieved StartPosition MUST be FROM_BEGINNING");
                 logger.info("Round-trip verification PASSED: FROM_BEGINNING");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -139,7 +138,7 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
                 assertNull(dbState.startFromTimestamp);
                 return subscriptionManager.getSubscription(topic, groupName);
             })
-            .onSuccess(subscription -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 SubscriptionOptions retrievedOptions = subscriptionToOptions(subscription);
                 assertTrue(
                     retrievedOptions.getStartPosition() == StartPosition.FROM_NOW ||
@@ -152,8 +151,7 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
                 }
                 logger.info("Round-trip verification PASSED: FROM_NOW");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -179,15 +177,14 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
                 assertNull(dbState.startFromTimestamp);
                 return subscriptionManager.getSubscription(topic, groupName);
             })
-            .onSuccess(subscription -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 SubscriptionOptions retrievedOptions = subscriptionToOptions(subscription);
                 assertEquals(StartPosition.FROM_MESSAGE_ID, retrievedOptions.getStartPosition());
                 assertEquals(explicitMessageId, retrievedOptions.getStartFromMessageId(),
                     "Retrieved message ID MUST match stored value");
                 logger.info("Round-trip verification PASSED: FROM_MESSAGE_ID");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     
     @Test
@@ -217,7 +214,7 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
                     String.format("Timestamp difference should be < 1 second (was %d ms)", diffMillis));
                 return subscriptionManager.getSubscription(topic, groupName);
             })
-            .onSuccess(subscription -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 SubscriptionOptions retrievedOptions = subscriptionToOptions(subscription);
                 assertEquals(StartPosition.FROM_TIMESTAMP, retrievedOptions.getStartPosition());
                 assertNotNull(retrievedOptions.getStartFromTimestamp());
@@ -227,8 +224,7 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
                     "Retrieved timestamp should match within 1 second");
                 logger.info("Round-trip verification PASSED: FROM_TIMESTAMP");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     
     @Test
@@ -246,14 +242,13 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
         createTopic(topic)
             .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
             .compose(v -> queryDatabaseState(topic, groupName))
-            .onSuccess(dbState -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(dbState -> testContext.verify(() -> {
                 assertNotNull(dbState);
                 assertEquals(0L, dbState.startFromMessageId,
                     "Should accept and store message ID = 0");
                 logger.info("Edge case PASSED: message ID = 0 handled correctly");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     
     @Test
@@ -285,7 +280,7 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
                     SubscriptionOptions.builder().startPosition(StartPosition.FROM_BEGINNING).build());
             })
             .compose(v -> queryDatabaseState(topic, groupName))
-            .onSuccess(updatedState -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(updatedState -> testContext.verify(() -> {
                 assertEquals(1L, updatedState.startFromMessageId,
                     "After update to FROM_BEGINNING, database should store start_from_message_id = 1");
                 assertNotEquals(initialStartIdRef.get(), updatedState.startFromMessageId,
@@ -293,8 +288,7 @@ public class StartPositionDatabaseStateTest extends BaseIntegrationTest {
                 logger.info("Update PASSED: {} -> 1 (FROM_NOW -> FROM_BEGINNING)",
                     initialStartIdRef.get());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     
     // ==================== Helper Methods ====================

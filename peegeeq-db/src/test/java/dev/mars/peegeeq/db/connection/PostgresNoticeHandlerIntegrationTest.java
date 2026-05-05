@@ -135,12 +135,11 @@ public class PostgresNoticeHandlerIntegrationTest {
             conn.query("DO $$ BEGIN RAISE INFO 'Test PeeGeeQ info message' USING DETAIL = 'PGQINF0001'; END $$")
                 .execute()
         )
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 double peeGeeQInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
                 assertTrue(peeGeeQInfoCount > 0, "PeeGeeQ info counter should be incremented");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -152,12 +151,11 @@ public class PostgresNoticeHandlerIntegrationTest {
             conn.query("DO $$ BEGIN RAISE NOTICE 'This is a standard PostgreSQL notice'; END $$")
                 .execute()
         )
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 double otherNoticeCount = meterRegistry.counter("peegeeq.notice.other").count();
                 assertTrue(otherNoticeCount > 0, "Other notice counter should be incremented");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -169,12 +167,11 @@ public class PostgresNoticeHandlerIntegrationTest {
             conn.query("DO $$ BEGIN RAISE WARNING 'This is a PostgreSQL warning'; END $$")
                 .execute()
         )
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 double warningCount = meterRegistry.counter("peegeeq.notice.postgres_warning").count();
                 assertTrue(warningCount > 0, "PostgreSQL warning counter should be incremented");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -199,12 +196,11 @@ public class PostgresNoticeHandlerIntegrationTest {
                 .execute()
                 .compose(v -> conn.query("SELECT test_warning_function()").execute())
         )
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 double warningCount = meterRegistry.counter("peegeeq.notice.postgres_warning").count();
                 assertTrue(warningCount > 0, "PostgreSQL warning counter should be incremented");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -229,7 +225,7 @@ public class PostgresNoticeHandlerIntegrationTest {
                 .execute()
                 .compose(v -> conn.query("SELECT test_multiple_notices()").execute())
         )
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 double peeGeeQInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
                 double otherNoticeCount = meterRegistry.counter("peegeeq.notice.other").count();
                 double warningCount = meterRegistry.counter("peegeeq.notice.postgres_warning").count();
@@ -237,8 +233,7 @@ public class PostgresNoticeHandlerIntegrationTest {
                 assertTrue(otherNoticeCount > 0, "Other notice counter should be incremented");
                 assertTrue(warningCount > 0, "PostgreSQL warning counter should be incremented");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -284,13 +279,12 @@ public class PostgresNoticeHandlerIntegrationTest {
                 .execute()
                 .compose(v -> conn.query("DROP SCHEMA IF EXISTS test_infra_schema CASCADE").execute())
         )
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 double finalInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
                 assertTrue(finalInfoCount > initialInfoCount,
                         "PeeGeeQ info counter should increase after schema creation");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -323,13 +317,12 @@ public class PostgresNoticeHandlerIntegrationTest {
                 .execute()
                 .compose(v -> conn.query("DROP TABLE IF EXISTS public.test_infra_table CASCADE").execute())
         )
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 double finalInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
                 assertTrue(finalInfoCount > initialInfoCount,
                         "PeeGeeQ info counter should increase after table creation");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -356,13 +349,12 @@ public class PostgresNoticeHandlerIntegrationTest {
                 })
                 .compose(v -> conn.query("DROP TABLE IF EXISTS public.test_index_table CASCADE").execute())
         )
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 double finalInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
                 assertTrue(finalInfoCount > initialInfoCount,
                         "PeeGeeQ info counter should increase after index creation");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -410,14 +402,13 @@ public class PostgresNoticeHandlerIntegrationTest {
                 .execute()
                 .compose(v -> conn.query("DROP SCHEMA IF EXISTS test_multi_schema CASCADE").execute())
         )
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 double finalInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
                 double messagesReceived = finalInfoCount - initialInfoCount;
                 assertTrue(messagesReceived >= 4,
                         "Should receive at least 4 PeeGeeQ info messages (schema, table, index, function), got: " + messagesReceived);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -452,12 +443,11 @@ public class PostgresNoticeHandlerIntegrationTest {
                 .execute()
                 .compose(v -> conn.query("DROP SCHEMA IF EXISTS test_trace_schema CASCADE").execute())
         )
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 double finalInfoCount = meterRegistry.counter("peegeeq.notice.peegeeq_info").count();
                 assertTrue(finalInfoCount > initialInfoCount,
                         "PeeGeeQ info counter should increase for traced operations");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 }
