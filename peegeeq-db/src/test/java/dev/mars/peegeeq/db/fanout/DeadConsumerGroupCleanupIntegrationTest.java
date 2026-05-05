@@ -281,15 +281,14 @@ public class DeadConsumerGroupCleanupIntegrationTest extends BaseIntegrationTest
                 .compose(v -> subscribe(topic, "group-a"))
                 .compose(v -> markSubscriptionDead(topic, "group-a"))
                 .compose(v -> cleanup.cleanupDeadGroup(topic, "group-a"))
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     assertEquals(0, result.messagesDecremented());
                     assertEquals(0, result.orphanRowsRemoved());
                     assertEquals(0, result.messagesAutoCompleted());
                     assertFalse(result.hadWork());
                     logger.info("Empty cleanup verified");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     /**

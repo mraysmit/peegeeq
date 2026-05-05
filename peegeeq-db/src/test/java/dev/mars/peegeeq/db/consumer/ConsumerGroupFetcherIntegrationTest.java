@@ -126,7 +126,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message2")))
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message3")))
                 .compose(v -> fetcher.fetchMessages(topic, groupName, 10))
-                .onSuccess(messages -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(messages -> testContext.verify(() -> {
                     logger.info("Fetched {} messages", messages.size());
                     assertEquals(3, messages.size(), "Should fetch 3 messages");
 
@@ -135,11 +135,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                     assertEquals("message2", messages.get(1).getPayload().getString("test"));
                     assertEquals("message3", messages.get(2).getPayload().getString("test"));
                     testContext.completeNow();
-                }))
-                .onFailure(throwable -> {
-                    logger.error("Test failed", throwable);
-                    testContext.failNow(throwable);
-                });
+                })));
 
         logger.info("=== TEST: testFetchMessagesBasic COMPLETED ===");
     }
@@ -168,15 +164,11 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message4")))
                 .compose(v -> insertMessage(topic, new JsonObject().put("test", "message5")))
                 .compose(v -> fetcher.fetchMessages(topic, groupName, 2))  // Batch size = 2
-                .onSuccess(messages -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(messages -> testContext.verify(() -> {
                     logger.info("Fetched {} messages with batch size 2", messages.size());
                     assertEquals(2, messages.size(), "Should fetch only 2 messages (batch size limit)");
                     testContext.completeNow();
-                }))
-                .onFailure(throwable -> {
-                    logger.error("Test failed", throwable);
-                    testContext.failNow(throwable);
-                });
+                })));
 
         logger.info("=== TEST: testFetchMessagesBatchSize COMPLETED ===");
     }
@@ -214,15 +206,11 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                     // Group2 should still see the message
                     return fetcher.fetchMessages(topic, group2, 10);
                 })
-                .onSuccess(group2Messages -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(group2Messages -> testContext.verify(() -> {
                     logger.info("Group2 fetched {} messages", group2Messages.size());
                     assertEquals(1, group2Messages.size(), "Group2 should fetch the message");
                     testContext.completeNow();
-                }))
-                .onFailure(throwable -> {
-                    logger.error("Test failed", throwable);
-                    testContext.failNow(throwable);
-                });
+                })));
 
         logger.info("=== TEST: testFetchMessagesFiltersByGroup COMPLETED ===");
     }
@@ -246,15 +234,11 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
         topicConfigService.createTopic(topicConfig)
                 .compose(v -> subscriptionManager.subscribe(topic, groupName, subscriptionOptions))
                 .compose(v -> fetcher.fetchMessages(topic, groupName, 10))
-                .onSuccess(messages -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(messages -> testContext.verify(() -> {
                     logger.info("Fetched {} messages (expected 0)", messages.size());
                     assertEquals(0, messages.size(), "Should fetch 0 messages when none exist");
                     testContext.completeNow();
-                }))
-                .onFailure(throwable -> {
-                    logger.error("Test failed", throwable);
-                    testContext.failNow(throwable);
-                });
+                })));
 
         logger.info("=== TEST: testFetchMessagesEmptyResult COMPLETED ===");
     }

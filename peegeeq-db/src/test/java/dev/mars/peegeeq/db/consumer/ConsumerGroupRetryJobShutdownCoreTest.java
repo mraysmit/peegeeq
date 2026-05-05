@@ -87,11 +87,10 @@ class ConsumerGroupRetryJobShutdownCoreTest {
         gate.complete(new ConsumerGroupRetryService.RetryResult(0, 0));
 
         stopFuture
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     assertTrue(stopFuture.succeeded(), "stop() should complete successfully once in-flight run completes");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -113,11 +112,10 @@ class ConsumerGroupRetryJobShutdownCoreTest {
         gate.fail(new RuntimeException("forced failure"));
 
         stopFuture
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     assertEquals(1, job.getTotalFailures(), "failed in-flight run should still increment failure stats");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     private static final class ControlledRetryService extends ConsumerGroupRetryService {

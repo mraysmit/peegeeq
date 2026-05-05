@@ -107,7 +107,7 @@ public class ConsumerTracingTest extends BaseIntegrationTest {
                 "Caller's spanId should be preserved on the calling thread");
 
         fetcher.fetchMessages("topic", "group", 10)
-                .onSuccess(messages -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(messages -> testContext.verify(() -> {
                     assertNotNull(messages);
                     // Callback runs on Vert.x event loop thread MDC is thread-local
                     // so caller MDC won't be present. Verify internal trace doesn't leak.
@@ -118,11 +118,7 @@ public class ConsumerTracingTest extends BaseIntegrationTest {
                     }
                     MDC.clear();
                     testContext.completeNow();
-                }))
-                .onFailure(throwable -> {
-                    MDC.clear();
-                    testContext.failNow(throwable);
-                });
+                })));
 
         MDC.clear();
     }
