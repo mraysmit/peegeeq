@@ -85,11 +85,10 @@ public class CompletionTrackerCoreTest extends BaseIntegrationTest {
                     .execute()
                     .map(rowSet -> rowSet.iterator().next().getInteger("count"))
             ))
-            .onSuccess(count -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(count -> testContext.verify(() -> {
                 assertEquals(1, count);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -108,11 +107,10 @@ public class CompletionTrackerCoreTest extends BaseIntegrationTest {
                     .execute()
                     .map(rowSet -> rowSet.iterator().next().getInteger("count"))
             ))
-            .onSuccess(count -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(count -> testContext.verify(() -> {
                 assertEquals(1, count);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -131,11 +129,10 @@ public class CompletionTrackerCoreTest extends BaseIntegrationTest {
                     .execute()
                     .map(rowSet -> rowSet.iterator().next().getInteger("completed_consumer_groups"))
             ))
-            .onSuccess(completedGroups -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(completedGroups -> testContext.verify(() -> {
                 assertEquals(1, completedGroups);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -159,11 +156,10 @@ public class CompletionTrackerCoreTest extends BaseIntegrationTest {
                     .execute()
                     .map(rowSet -> rowSet.iterator().next().getString("status"))
             ))
-            .onSuccess(status -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(status -> testContext.verify(() -> {
                 assertEquals("COMPLETED", status);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     private Future<Long> insertTestMessage(String topic, int requiredGroups) {

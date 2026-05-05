@@ -102,12 +102,11 @@ public class PgClientTest {
                     })
                     .eventually(() -> connection.close());
             })
-            .onSuccess(value -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(value -> testContext.verify(() -> {
                 assertNotNull(value);
                 assertEquals(1, value);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -120,12 +119,11 @@ public class PgClientTest {
                     return row.getInteger(0);
                 });
         })
-        .onSuccess(value -> testContext.verify(() -> {
+        .onComplete(testContext.succeeding(value -> testContext.verify(() -> {
             assertNotNull(value);
             assertEquals(1, value);
             testContext.completeNow();
-        }))
-        .onFailure(testContext::failNow);
+        })));
     }
 
     @Test
@@ -138,12 +136,11 @@ public class PgClientTest {
                     return row.getString("message");
                 });
         })
-        .onSuccess(value -> testContext.verify(() -> {
+        .onComplete(testContext.succeeding(value -> testContext.verify(() -> {
             assertNotNull(value);
             assertEquals("test", value);
             testContext.completeNow();
-        }))
-        .onFailure(testContext::failNow);
+        })));
     }
 
     @Test
@@ -182,10 +179,9 @@ public class PgClientTest {
                     })
                     .eventually(() -> connection.close());
             })
-            .onSuccess(answer -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(answer -> testContext.verify(() -> {
                 assertEquals(42, answer, "Pool should be functional");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 }

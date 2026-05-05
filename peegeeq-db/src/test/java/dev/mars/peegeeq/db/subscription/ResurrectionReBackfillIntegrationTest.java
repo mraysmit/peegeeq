@@ -149,13 +149,12 @@ public class ResurrectionReBackfillIntegrationTest extends BaseIntegrationTest {
                 assertEquals("COMPLETED", resurrected.backfillStatus(), "Backfill should complete after resurrection");
                 return countMessagesWithRequiredGroups(topic, 2);
             })
-            .onSuccess(rebackfilledMsgs -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(rebackfilledMsgs -> testContext.verify(() -> {
                 assertEquals(messageCount, rebackfilledMsgs,
                     "After resurrection re-backfill, messages should require 2 consumer groups again");
                 logger.info("Resurrection triggers backfill test passed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -173,13 +172,12 @@ public class ResurrectionReBackfillIntegrationTest extends BaseIntegrationTest {
             .compose(v -> setSubscriptionStatus(topic, groupName, "DEAD"))
             .compose(v -> subscriptionManager.updateHeartbeat(topic, groupName))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(resurrected -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(resurrected -> testContext.verify(() -> {
                 assertEquals(SubscriptionState.ACTIVE, resurrected.state(),
                     "Should be ACTIVE after heartbeat, even without BackfillService");
                 logger.info("Resurrection without BackfillService test passed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -221,7 +219,7 @@ public class ResurrectionReBackfillIntegrationTest extends BaseIntegrationTest {
                 .cleanupDeadGroup(topic, lateGroup).mapEmpty())
             .compose(v -> subscriptionManager.updateHeartbeat(topic, lateGroup))
             .compose(v -> subscriptionManager.getSubscription(topic, lateGroup))
-            .onSuccess(resurrected -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(resurrected -> testContext.verify(() -> {
                 assertEquals(SubscriptionState.ACTIVE, resurrected.state());
                 assertEquals("COMPLETED", resurrected.backfillStatus(),
                     "Re-backfill should complete fresh after resurrection");
@@ -230,8 +228,7 @@ public class ResurrectionReBackfillIntegrationTest extends BaseIntegrationTest {
                     "Processed: " + resurrected.backfillProcessedMessages());
                 logger.info("Resurrection resets backfill status test passed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -328,13 +325,12 @@ public class ResurrectionReBackfillIntegrationTest extends BaseIntegrationTest {
                     "Messages should still require 2 groups ACTIVE heartbeat should not trigger backfill");
                 return subscriptionManager.getSubscription(topic, activeGroup);
             })
-            .onSuccess(after -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(after -> testContext.verify(() -> {
                 assertEquals(backfillStatusRef.get(), after.backfillStatus(),
                     "Backfill status should be unchanged after ACTIVE heartbeat");
                 logger.info("ACTIVE heartbeat does not trigger backfill test passed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -360,13 +356,12 @@ public class ResurrectionReBackfillIntegrationTest extends BaseIntegrationTest {
                 return subscriptionManager.updateHeartbeat(topic, groupName);
             })
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(afterHeartbeat -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(afterHeartbeat -> testContext.verify(() -> {
                 assertEquals(SubscriptionState.PAUSED, afterHeartbeat.state(),
                     "PAUSED subscription should stay PAUSED after heartbeat");
                 logger.info("PAUSED heartbeat does not trigger backfill test passed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     // --- Helper methods ---

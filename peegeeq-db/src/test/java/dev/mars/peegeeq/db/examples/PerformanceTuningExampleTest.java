@@ -105,7 +105,7 @@ public class PerformanceTuningExampleTest {
         
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance"), new SimpleMeterRegistry());
         manager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 demonstrateConnectionPoolOptimization(manager);
                 
                 assertTrue(manager.isStarted(), "Manager should be started");
@@ -113,8 +113,7 @@ public class PerformanceTuningExampleTest {
                 
                 logger.info("Connection pool optimization validated successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -127,7 +126,7 @@ public class PerformanceTuningExampleTest {
         
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance"), new SimpleMeterRegistry());
         manager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 PerformanceMetrics metrics = demonstrateThroughputOptimization();
                 
                 assertNotNull(metrics, "Performance metrics should not be null");
@@ -136,8 +135,7 @@ public class PerformanceTuningExampleTest {
                 
                 logger.info("Throughput optimization validated successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -150,7 +148,7 @@ public class PerformanceTuningExampleTest {
         
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance"), new SimpleMeterRegistry());
         manager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 PerformanceMetrics metrics = demonstrateLatencyOptimization();
                 
                 assertNotNull(metrics, "Performance metrics should not be null");
@@ -160,8 +158,7 @@ public class PerformanceTuningExampleTest {
                 
                 logger.info("Latency optimization validated successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -174,7 +171,7 @@ public class PerformanceTuningExampleTest {
         
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance"), new SimpleMeterRegistry());
         manager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 PerformanceMetrics metrics = demonstrateBatchProcessingOptimization();
                 
                 assertNotNull(metrics, "Performance metrics should not be null");
@@ -182,8 +179,7 @@ public class PerformanceTuningExampleTest {
                 
                 logger.info("Batch processing optimization validated successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -196,7 +192,7 @@ public class PerformanceTuningExampleTest {
         
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance"), new SimpleMeterRegistry());
         manager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 PerformanceMetrics metrics = demonstrateConcurrentProcessingOptimization();
                 
                 assertNotNull(metrics, "Performance metrics should not be null");
@@ -204,8 +200,7 @@ public class PerformanceTuningExampleTest {
                 
                 logger.info("Concurrent processing optimization validated successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -218,7 +213,7 @@ public class PerformanceTuningExampleTest {
         
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance"), new SimpleMeterRegistry());
         manager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 long initialMemory = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
                 demonstrateMemoryOptimization();
                 long finalMemory = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
@@ -230,8 +225,7 @@ public class PerformanceTuningExampleTest {
                 logger.info("   Memory usage: Initial={}MB, Final={}MB", 
                     initialMemory / (1024 * 1024), finalMemory / (1024 * 1024));
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     // Helper methods that replicate the original example's functionality

@@ -107,16 +107,15 @@ public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
                 .execute()
                 .map(rowSet -> rowSet.iterator().next().getBoolean(0))
         ))
-        .onSuccess(tableExists -> {
+        .compose(tableExists -> {
             assertTrue(tableExists);
             // Clean up
-            reactivePool.withConnection(connection ->
+            return reactivePool.withConnection(connection ->
                 connection.query("DROP TABLE IF EXISTS test_simple_table").execute()
                     .map(rowSet -> (Void) null)
-            )
-            .onSuccess(v -> testContext.completeNow())
-            .onFailure(testContext::failNow);
+            );
         })
+        .onSuccess(v -> testContext.completeNow())
         .onFailure(testContext::failNow);
     }
 
@@ -135,16 +134,15 @@ public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
                 .execute()
                 .map(rowSet -> rowSet.iterator().next().getBoolean(0))
         ))
-        .onSuccess(tableExists -> {
+        .compose(tableExists -> {
             assertTrue(tableExists);
             // Clean up
-            reactivePool.withConnection(connection ->
+            return reactivePool.withConnection(connection ->
                 connection.query("DROP TABLE IF EXISTS test_another_table").execute()
                     .map(rowSet -> (Void) null)
-            )
-            .onSuccess(v -> testContext.completeNow())
-            .onFailure(testContext::failNow);
+            );
         })
+        .onSuccess(v -> testContext.completeNow())
         .onFailure(testContext::failNow);
     }
 

@@ -89,48 +89,44 @@ public class StuckMessageRecoveryManagerCoreTest extends BaseIntegrationTest {
     void testRecoverStuckMessagesWhenDisabled(VertxTestContext testContext) {
         StuckMessageRecoveryManager disabledManager = new StuckMessageRecoveryManager(pool, Duration.ofMinutes(5), false);
         disabledManager.recoverStuckMessages()
-            .onSuccess(recovered -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(recovered -> testContext.verify(() -> {
                 assertEquals(0, (int) recovered);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
     void testRecoverStuckMessagesNoStuckMessages(VertxTestContext testContext) {
         recoveryManager.recoverStuckMessages()
-            .onSuccess(recovered -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(recovered -> testContext.verify(() -> {
                 assertEquals(0, (int) recovered);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
     void testGetRecoveryStats(VertxTestContext testContext) {
         recoveryManager.getRecoveryStats()
-            .onSuccess(stats -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(stats -> testContext.verify(() -> {
                 assertNotNull(stats);
                 assertTrue(stats.isEnabled());
                 assertEquals(0, stats.getStuckMessagesCount());
                 assertEquals(0, stats.getTotalProcessingCount());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
     void testGetRecoveryStatsWhenDisabled(VertxTestContext testContext) {
         StuckMessageRecoveryManager disabledManager = new StuckMessageRecoveryManager(pool, Duration.ofMinutes(5), false);
         disabledManager.getRecoveryStats()
-            .onSuccess(stats -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(stats -> testContext.verify(() -> {
                 assertNotNull(stats);
                 assertFalse(stats.isEnabled());
                 assertEquals(0, stats.getStuckMessagesCount());
                 assertEquals(0, stats.getTotalProcessingCount());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -157,11 +153,10 @@ public class StuckMessageRecoveryManagerCoreTest extends BaseIntegrationTest {
                 assertTrue(count1 >= 0);
                 return recoveryManager.recoverStuckMessages();
             })
-            .onSuccess(count2 -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(count2 -> testContext.verify(() -> {
                 assertTrue(count2 >= 0);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -171,11 +166,10 @@ public class StuckMessageRecoveryManagerCoreTest extends BaseIntegrationTest {
                 assertNotNull(stats1);
                 return recoveryManager.getRecoveryStats();
             })
-            .onSuccess(stats2 -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(stats2 -> testContext.verify(() -> {
                 assertNotNull(stats2);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -187,11 +181,10 @@ public class StuckMessageRecoveryManagerCoreTest extends BaseIntegrationTest {
                 assertTrue(count1 >= 0);
                 return manager2.recoverStuckMessages();
             })
-            .onSuccess(count2 -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(count2 -> testContext.verify(() -> {
                 assertTrue(count2 >= 0);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 }
 
