@@ -74,14 +74,13 @@ public class ConsumerTracingTest extends BaseIntegrationTest {
     @Test
     void fetchMessages_mdcCleanAfterCompletion(VertxTestContext testContext) {
         fetcher.fetchMessages("non-existent-topic", "test-group", 10)
-                .onSuccess(messages -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(messages -> testContext.verify(() -> {
                     assertNotNull(messages);
                     assertEquals(0, messages.size());
                     assertNull(MDC.get("traceId"), "traceId should not leak after fetchMessages");
                     assertNull(MDC.get("spanId"), "spanId should not leak after fetchMessages");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -89,12 +88,11 @@ public class ConsumerTracingTest extends BaseIntegrationTest {
         assertNull(MDC.get("traceId"));
 
         fetcher.fetchMessages("some-topic", "group-a", 5)
-                .onSuccess(messages -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(messages -> testContext.verify(() -> {
                     assertNotNull(messages);
                     assertNull(MDC.get("traceId"));
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -301,24 +299,22 @@ public class ConsumerTracingTest extends BaseIntegrationTest {
 
         // When fetchMessages is called with a parent trace
         fetcher.fetchMessages("non-existent-topic", "test-group", 10, parentTrace)
-                .onSuccess(messages -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(messages -> testContext.verify(() -> {
                     assertNotNull(messages);
                     assertNull(MDC.get("traceId"),
                             "traceId should not leak after fetchMessages with parent trace");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
     void fetchMessages_withoutParentTrace_backwardCompatible(VertxTestContext testContext) {
         // The original 3-parameter method must still work
         fetcher.fetchMessages("non-existent-topic", "test-group", 10)
-                .onSuccess(messages -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(messages -> testContext.verify(() -> {
                     assertNotNull(messages);
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     // ---- Span Attribute (MDC) Tests ----

@@ -91,7 +91,7 @@ public class TopicConfigServiceCoreTest extends BaseIntegrationTest {
 
         topicConfigService.createTopic(config)
             .compose(v -> topicConfigService.getTopic(topic))
-            .onSuccess(retrieved -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(retrieved -> testContext.verify(() -> {
                 assertNotNull(retrieved);
                 assertEquals(topic, retrieved.getTopic());
                 assertEquals(TopicSemantics.QUEUE, retrieved.getSemantics());
@@ -102,8 +102,7 @@ public class TopicConfigServiceCoreTest extends BaseIntegrationTest {
                 assertNotNull(retrieved.getCreatedAt());
                 assertNotNull(retrieved.getUpdatedAt());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -121,7 +120,7 @@ public class TopicConfigServiceCoreTest extends BaseIntegrationTest {
 
         topicConfigService.createTopic(config)
             .compose(v -> topicConfigService.getTopic(topic))
-            .onSuccess(retrieved -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(retrieved -> testContext.verify(() -> {
                 assertNotNull(retrieved);
                 assertEquals(topic, retrieved.getTopic());
                 assertEquals(TopicSemantics.PUB_SUB, retrieved.getSemantics());
@@ -130,8 +129,7 @@ public class TopicConfigServiceCoreTest extends BaseIntegrationTest {
                 assertTrue(retrieved.isBlockWritesOnZeroSubscriptions());
                 assertEquals("OFFSET_WATERMARK", retrieved.getCompletionTrackingMode());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -153,13 +151,12 @@ public class TopicConfigServiceCoreTest extends BaseIntegrationTest {
         topicConfigService.createTopic(config1)
             .compose(v -> topicConfigService.createTopic(config2))
             .compose(v -> topicConfigService.getTopic(topic))
-            .onSuccess(retrieved -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(retrieved -> testContext.verify(() -> {
                 assertNotNull(retrieved);
                 assertEquals(TopicSemantics.PUB_SUB, retrieved.getSemantics());
                 assertEquals(48, retrieved.getMessageRetentionHours());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -184,7 +181,7 @@ public class TopicConfigServiceCoreTest extends BaseIntegrationTest {
         topicConfigService.createTopic(initialConfig)
             .compose(v -> topicConfigService.updateTopic(updatedConfig))
             .compose(v -> topicConfigService.getTopic(topic))
-            .onSuccess(retrieved -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(retrieved -> testContext.verify(() -> {
                 assertNotNull(retrieved);
                 assertEquals(TopicSemantics.PUB_SUB, retrieved.getSemantics());
                 assertEquals(72, retrieved.getMessageRetentionHours());
@@ -192,8 +189,7 @@ public class TopicConfigServiceCoreTest extends BaseIntegrationTest {
                 assertTrue(retrieved.isBlockWritesOnZeroSubscriptions());
                 assertEquals("OFFSET_WATERMARK", retrieved.getCompletionTrackingMode());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -219,11 +215,10 @@ public class TopicConfigServiceCoreTest extends BaseIntegrationTest {
         String topic = "test-topic-does-not-exist";
 
         topicConfigService.getTopic(topic)
-            .onSuccess(retrieved -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(retrieved -> testContext.verify(() -> {
                 assertNull(retrieved);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -241,7 +236,7 @@ public class TopicConfigServiceCoreTest extends BaseIntegrationTest {
         topicConfigService.createTopic(config1)
             .compose(v -> topicConfigService.createTopic(config2))
             .compose(v -> topicConfigService.listTopics())
-            .onSuccess(topics -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(topics -> testContext.verify(() -> {
                 assertNotNull(topics);
                 assertTrue(topics.size() >= 2, "Should have at least 2 topics");
                 assertTrue(topics.stream().anyMatch(tc -> tc.getTopic().equals("test-topic-list-1")),
@@ -249,8 +244,7 @@ public class TopicConfigServiceCoreTest extends BaseIntegrationTest {
                 assertTrue(topics.stream().anyMatch(tc -> tc.getTopic().equals("test-topic-list-2")),
                     "Should contain test-topic-list-2");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -269,11 +263,10 @@ public class TopicConfigServiceCoreTest extends BaseIntegrationTest {
                 return topicConfigService.deleteTopic(topic);
             })
             .compose(v -> topicConfigService.getTopic(topic))
-            .onSuccess(afterDelete -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(afterDelete -> testContext.verify(() -> {
                 assertNull(afterDelete);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -300,11 +293,10 @@ public class TopicConfigServiceCoreTest extends BaseIntegrationTest {
                 return topicConfigService.createTopic(config);
             })
             .compose(v -> topicConfigService.topicExists(topic))
-            .onSuccess(existsAfter -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(existsAfter -> testContext.verify(() -> {
                 assertTrue(existsAfter);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test

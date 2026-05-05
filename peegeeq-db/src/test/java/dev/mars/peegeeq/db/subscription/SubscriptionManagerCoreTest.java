@@ -108,7 +108,7 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
         topicConfigService.createTopic(topicConfig)
             .compose(v -> subscriptionManager.subscribe(topic, groupName))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(subscription -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 assertNotNull(subscription);
                 assertEquals(topic, subscription.topic());
                 assertEquals(groupName, subscription.groupName());
@@ -116,8 +116,7 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
                 assertNotNull(subscription.subscribedAt());
                 assertNotNull(subscription.lastHeartbeatAt());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -137,12 +136,11 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
         topicConfigService.createTopic(topicConfig)
             .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(subscription -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 assertNotNull(subscription);
                 assertEquals(1L, subscription.startFromMessageId());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -162,13 +160,12 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
         topicConfigService.createTopic(topicConfig)
             .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(subscription -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 assertNotNull(subscription);
                 assertNotNull(subscription.startFromMessageId());
                 assertTrue(subscription.startFromMessageId() >= 1);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -189,12 +186,11 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
         topicConfigService.createTopic(topicConfig)
             .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(subscription -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 assertNotNull(subscription);
                 assertEquals(100L, subscription.startFromMessageId());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -216,7 +212,7 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
         topicConfigService.createTopic(topicConfig)
             .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(subscription -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 assertNotNull(subscription);
                 assertNotNull(subscription.startFromTimestamp());
                 // PostgreSQL stores timestamps with microsecond precision, so truncate to micros for comparison
@@ -224,8 +220,7 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
                 Instant actualTruncated = subscription.startFromTimestamp().truncatedTo(java.time.temporal.ChronoUnit.MICROS);
                 assertEquals(expectedTruncated, actualTruncated);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -242,12 +237,11 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
             .compose(v -> subscriptionManager.subscribe(topic, groupName))
             .compose(v -> subscriptionManager.pause(topic, groupName))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(subscription -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 assertNotNull(subscription);
                 assertEquals(SubscriptionState.PAUSED, subscription.state());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -265,12 +259,11 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
             .compose(v -> subscriptionManager.pause(topic, groupName))
             .compose(v -> subscriptionManager.resume(topic, groupName))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(subscription -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 assertNotNull(subscription);
                 assertEquals(SubscriptionState.ACTIVE, subscription.state());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -287,12 +280,11 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
             .compose(v -> subscriptionManager.subscribe(topic, groupName))
             .compose(v -> subscriptionManager.cancel(topic, groupName))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(subscription -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 assertNotNull(subscription);
                 assertEquals(SubscriptionState.CANCELLED, subscription.state());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -316,12 +308,11 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
                     }
                     return subscriptionManager.getSubscription(topic, groupName);
                 }))
-            .onSuccess(subscription -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 assertNotNull(subscription);
                 assertEquals(SubscriptionState.CANCELLED, subscription.state());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -344,13 +335,12 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
             })
             .compose(v -> subscriptionManager.updateHeartbeat(topic, groupName))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(after -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(after -> testContext.verify(() -> {
                 assertNotNull(after.lastHeartbeatAt());
                 assertTrue(after.lastHeartbeatAt().isAfter(initialHeartbeatRef.get()),
                     "Heartbeat should be updated to a later time");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -367,7 +357,7 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
             .compose(v -> subscriptionManager.subscribe(topic, "group-2"))
             .compose(v -> subscriptionManager.subscribe(topic, "group-3"))
             .compose(v -> subscriptionManager.listSubscriptions(topic))
-            .onSuccess(subscriptions -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(subscriptions -> testContext.verify(() -> {
                 assertNotNull(subscriptions);
                 assertEquals(3, subscriptions.size());
                 List<String> groupNames = subscriptions.stream()
@@ -376,18 +366,16 @@ public class SubscriptionManagerCoreTest extends BaseIntegrationTest {
                     .toList();
                 assertEquals(List.of("group-1", "group-2", "group-3"), groupNames);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
     void testGetNonExistentSubscription(VertxTestContext testContext) {
         subscriptionManager.getSubscription("non-existent-topic", "non-existent-group")
-            .onSuccess(subscription -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 assertNull(subscription, "Should return null for non-existent subscription");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test

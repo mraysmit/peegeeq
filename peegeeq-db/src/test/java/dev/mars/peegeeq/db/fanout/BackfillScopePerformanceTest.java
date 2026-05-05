@@ -165,11 +165,10 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
                     });
                     return countTrackingRows(topic, groupName);
                 })
-                .onSuccess(trackingRows -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(trackingRows -> testContext.verify(() -> {
                     assertEquals(messageCount, trackingRows.longValue(), "Should have one tracking row per message");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     // ========================================================================
@@ -214,12 +213,11 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
                     });
                     return countTrackingRows(topic, groupName);
                 })
-                .onSuccess(trackingRows -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(trackingRows -> testContext.verify(() -> {
                     assertEquals(messageCount, trackingRows.longValue(),
                             "Should have one tracking row per message for ALL_RETAINED");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     // ========================================================================
@@ -267,14 +265,13 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
                                     "ALL_RETAINED should increment required_consumer_groups on COMPLETED messages too"));
                     return countPendingMessagesWithRequiredGroups(topic, 2);
                 })
-                .onSuccess(pendingIncremented -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(pendingIncremented -> testContext.verify(() -> {
                     assertEquals(totalMessages - completedMessages, pendingIncremented.longValue(),
                             "PENDING messages should also have required_consumer_groups incremented");
                     logger.info("ALL_RETAINED correctly incremented required_consumer_groups on {} COMPLETED + {} PENDING messages",
                             completedMessages, pendingIncremented);
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     // ========================================================================
@@ -336,7 +333,7 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
                                 return result;
                             });
                 })
-                .onSuccess(retainedResult -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(retainedResult -> testContext.verify(() -> {
                     assertEquals(BackfillResult.Status.COMPLETED, retainedResult.status());
                     assertEquals(messageCount, retainedResult.processedMessages());
 
@@ -356,8 +353,7 @@ public class BackfillScopePerformanceTest extends BaseIntegrationTest {
                     logger.info("Scope throughput parity verified: ratio={}", String.format("%.2f", ratio));
 
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     // ========================================================================

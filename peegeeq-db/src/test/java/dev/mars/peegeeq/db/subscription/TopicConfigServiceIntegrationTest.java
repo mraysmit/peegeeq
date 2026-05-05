@@ -94,7 +94,7 @@ public class TopicConfigServiceIntegrationTest extends BaseIntegrationTest {
 
         topicConfigService.createTopic(config)
             .compose(v -> topicConfigService.getTopic(topicName))
-            .onSuccess(retrieved -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(retrieved -> testContext.verify(() -> {
                 assertNotNull(retrieved, "Topic should be created");
                 assertEquals(topicName, retrieved.getTopic());
                 assertEquals(TopicSemantics.QUEUE, retrieved.getSemantics());
@@ -102,8 +102,7 @@ public class TopicConfigServiceIntegrationTest extends BaseIntegrationTest {
                 assertTrue(retrieved.isQueue());
                 assertFalse(retrieved.isPubSub());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     
     @Test
@@ -120,7 +119,7 @@ public class TopicConfigServiceIntegrationTest extends BaseIntegrationTest {
 
         topicConfigService.createTopic(config)
             .compose(v -> topicConfigService.getTopic(topicName))
-            .onSuccess(retrieved -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(retrieved -> testContext.verify(() -> {
                 assertNotNull(retrieved);
                 assertEquals(topicName, retrieved.getTopic());
                 assertEquals(TopicSemantics.PUB_SUB, retrieved.getSemantics());
@@ -130,8 +129,7 @@ public class TopicConfigServiceIntegrationTest extends BaseIntegrationTest {
                 assertTrue(retrieved.isPubSub());
                 assertFalse(retrieved.isQueue());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     
     @Test
@@ -154,13 +152,12 @@ public class TopicConfigServiceIntegrationTest extends BaseIntegrationTest {
         topicConfigService.createTopic(initialConfig)
             .compose(v -> topicConfigService.updateTopic(updatedConfig))
             .compose(v -> topicConfigService.getTopic(topicName))
-            .onSuccess(retrieved -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(retrieved -> testContext.verify(() -> {
                 assertEquals(TopicSemantics.PUB_SUB, retrieved.getSemantics());
                 assertEquals(72, retrieved.getMessageRetentionHours());
                 assertEquals(6, retrieved.getZeroSubscriptionRetentionHours());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     
     @Test
@@ -172,14 +169,13 @@ public class TopicConfigServiceIntegrationTest extends BaseIntegrationTest {
             .compose(v -> topicConfigService.createTopic(TopicConfig.builder()
                 .topic("list-topic-3").semantics(TopicSemantics.QUEUE).build()))
             .compose(v -> topicConfigService.listTopics())
-            .onSuccess(topics -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(topics -> testContext.verify(() -> {
                 assertTrue(topics.size() >= 3, "Should have at least 3 topics");
                 assertTrue(topics.stream().anyMatch(tc -> tc.getTopic().equals("list-topic-1")));
                 assertTrue(topics.stream().anyMatch(tc -> tc.getTopic().equals("list-topic-2")));
                 assertTrue(topics.stream().anyMatch(tc -> tc.getTopic().equals("list-topic-3")));
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     
     @Test
@@ -202,11 +198,10 @@ public class TopicConfigServiceIntegrationTest extends BaseIntegrationTest {
                 assertFalse(existsAfterDelete, "Topic should not exist after deletion");
                 return topicConfigService.getTopic(topicName);
             })
-            .onSuccess(retrieved -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(retrieved -> testContext.verify(() -> {
                 assertNull(retrieved, "Topic should be deleted");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     
     @Test
@@ -225,11 +220,10 @@ public class TopicConfigServiceIntegrationTest extends BaseIntegrationTest {
                 assertTrue(existsForCreated, "Existing topic should return true");
                 return topicConfigService.topicExists(nonExistingTopic);
             })
-            .onSuccess(existsForNonExisting -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(existsForNonExisting -> testContext.verify(() -> {
                 assertFalse(existsForNonExisting, "Non-existing topic should return false");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     
     @Test
@@ -251,12 +245,11 @@ public class TopicConfigServiceIntegrationTest extends BaseIntegrationTest {
         topicConfigService.createTopic(initialConfig)
             .compose(v -> topicConfigService.createTopic(updatedConfig))
             .compose(v -> topicConfigService.getTopic(topicName))
-            .onSuccess(retrieved -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(retrieved -> testContext.verify(() -> {
                 assertEquals(TopicSemantics.PUB_SUB, retrieved.getSemantics());
                 assertEquals(48, retrieved.getMessageRetentionHours());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 }
 

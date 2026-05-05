@@ -134,7 +134,7 @@ public class PeeGeeQManagerCloseLogLevelTest {
                     logCapture.clear();
                     return manager.closeReactive();
                 })
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
                     List<String> errorMessages = errors.stream()
                             .map(ILoggingEvent::getFormattedMessage)
@@ -155,8 +155,7 @@ public class PeeGeeQManagerCloseLogLevelTest {
                     // Manager reference set to null so tearDown doesn't double-close
                     manager = null;
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -184,7 +183,7 @@ public class PeeGeeQManagerCloseLogLevelTest {
                     logCapture.clear();
                     return manager.closeReactive();
                 })
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     // closeReactive() should complete (via .eventually()) even with failures
                     // The key assertion: failures are logged at ERROR, not WARN
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
@@ -202,8 +201,7 @@ public class PeeGeeQManagerCloseLogLevelTest {
                     // closeReactive() completed successfully (chained recovers)
                     manager = null;
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -214,7 +212,7 @@ public class PeeGeeQManagerCloseLogLevelTest {
 
         logCapture.clear();
         manager.closeReactive()
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
                     boolean hasStopError = errors.stream()
                             .anyMatch(e -> e.getFormattedMessage().contains("stop() failed during close"));
@@ -223,8 +221,7 @@ public class PeeGeeQManagerCloseLogLevelTest {
 
                     manager = null;
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -239,7 +236,7 @@ public class PeeGeeQManagerCloseLogLevelTest {
                     logCapture.clear();
                     return manager.closeReactive();
                 })
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     // If Vert.x close produces a RejectedExecutionException (expected during shutdown),
                     // it should be at DEBUG, not ERROR
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
@@ -250,8 +247,7 @@ public class PeeGeeQManagerCloseLogLevelTest {
 
                     manager = null;
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     // --- Helpers ---

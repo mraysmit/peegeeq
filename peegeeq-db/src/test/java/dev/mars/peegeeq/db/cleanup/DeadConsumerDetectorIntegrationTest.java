@@ -152,13 +152,12 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                     // Verify subscription status
                     return subscriptionManager.getSubscription(topic, groupName);
                 })
-                .onSuccess(subscription -> {
+                .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                     assertNotNull(subscription, "Subscription should exist");
                     assertEquals(SubscriptionState.DEAD, subscription.state(),
                             "Subscription should be marked as DEAD");
                     testContext.completeNow();
-                })
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -198,13 +197,12 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                     // Verify subscription status
                     return subscriptionManager.getSubscription(topic, groupName);
                 })
-                .onSuccess(subscription -> {
+                .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                     assertNotNull(subscription, "Subscription should exist");
                     assertEquals(SubscriptionState.ACTIVE, subscription.state(),
                             "Subscription should remain ACTIVE");
                     testContext.completeNow();
-                })
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -278,12 +276,11 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                             topic1 + "/" + group1 + " should be DEAD");
                     return subscriptionManager.getSubscription(topic2, group2);
                 })
-                .onSuccess(sub2 -> {
+                .onComplete(testContext.succeeding(sub2 -> testContext.verify(() -> {
                     assertEquals(SubscriptionState.DEAD, sub2.state(),
                             topic2 + "/" + group2 + " should be DEAD");
                     testContext.completeNow();
-                })
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -342,12 +339,11 @@ public class DeadConsumerDetectorIntegrationTest extends BaseIntegrationTest {
                     // Count dead subscriptions
                     return detector.countDeadSubscriptions(topic);
                 })
-                .onSuccess(count -> {
+                .onComplete(testContext.succeeding(count -> testContext.verify(() -> {
                     logger.info("Found {} DEAD subscriptions", count);
                     assertEquals(1L, count, "Should find 1 DEAD subscription");
                     testContext.completeNow();
-                })
-                .onFailure(testContext::failNow);
+                })));
     }
 }
 

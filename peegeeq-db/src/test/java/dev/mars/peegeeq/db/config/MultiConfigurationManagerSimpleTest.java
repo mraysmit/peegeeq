@@ -241,12 +241,13 @@ class MultiConfigurationManagerSimpleTest {
 
         configManager.start()
             .onSuccess(v -> {
-                assertTrue(configManager.isStarted());
+                testContext.verify(() -> {
+                    assertTrue(configManager.isStarted());
 
-                IllegalStateException exception = assertThrows(IllegalStateException.class,
-                    () -> configManager.registerConfiguration("late-config", "test"));
-                assertTrue(exception.getMessage().contains("Cannot register configurations while manager is in state"));
-                
+                    IllegalStateException exception = assertThrows(IllegalStateException.class,
+                        () -> configManager.registerConfiguration("late-config", "test"));
+                    assertTrue(exception.getMessage().contains("Cannot register configurations while manager is in state"));
+                });
                 closeManagerAsync(configManager, testContext);
             })
             .onFailure(err -> {

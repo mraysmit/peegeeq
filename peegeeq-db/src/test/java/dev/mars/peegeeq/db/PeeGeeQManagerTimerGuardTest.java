@@ -148,15 +148,14 @@ public class PeeGeeQManagerTimerGuardTest {
                     manager = null; // prevent tearDown double-close
                     return close;
                 })
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     List<ILoggingEvent> timerFailures = captureTimerFailures();
                     assertTrue(timerFailures.isEmpty(),
                             "No timer failure logs expected during clean close; " +
                             "the 'if (closing) return;' guard must prevent new DB calls. Got: " +
                             timerFailures.stream().map(ILoggingEvent::getFormattedMessage).toList());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     // ─────────────────────────────────────────────────────────────────
@@ -193,7 +192,7 @@ public class PeeGeeQManagerTimerGuardTest {
                     // Expected: ticks 1–2 → WARN, tick 3–5 → ERROR
                     return delay(vertx, 5500);
                 })
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     List<ILoggingEvent> warns = logCapture.eventsAtLevel(Level.WARN);
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
 
@@ -228,8 +227,7 @@ public class PeeGeeQManagerTimerGuardTest {
                             "ERROR messages: " + errors.stream().map(ILoggingEvent::getFormattedMessage).toList());
 
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
     }
 
@@ -267,7 +265,7 @@ public class PeeGeeQManagerTimerGuardTest {
                     manager = null;
                     return close;
                 })
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     // With the guard in place: any tick that fires after closing=true returns
                     // before calling refreshDepthCache() or persistMetrics(). No failure log.
                     List<ILoggingEvent> timerFailures = captureTimerFailures();
@@ -277,8 +275,7 @@ public class PeeGeeQManagerTimerGuardTest {
                             "Unexpected failure logs: " +
                             timerFailures.stream().map(ILoggingEvent::getFormattedMessage).toList());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -303,7 +300,7 @@ public class PeeGeeQManagerTimerGuardTest {
                     return close.compose(v2 -> Future.join(depthCache, persist))
                                 .transform(ar -> Future.succeededFuture());
                 })
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     // With the fail-fast guard inside the tasks, no connection 
                     // refused errors should be logged.
                     List<ILoggingEvent> timerFailures = captureTimerFailures();
@@ -311,8 +308,7 @@ public class PeeGeeQManagerTimerGuardTest {
                             "Background tasks should fail-fast without hitting DB when closing. Got: " +
                             timerFailures.stream().map(ILoggingEvent::getFormattedMessage).toList());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -362,15 +358,14 @@ public class PeeGeeQManagerTimerGuardTest {
                     manager = null;
                     return close;
                 })
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     List<ILoggingEvent> timerFailures = captureTimerFailures();
                     assertTrue(timerFailures.isEmpty(),
                             "Fast timers with immediate close should not cause connection refused errors. " +
                             "The markClosing() defense should prevent database queries after shutdown begins. Got: " +
                             timerFailures.stream().map(ILoggingEvent::getFormattedMessage).toList());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     // ─────────────────────────────────────────────────────────────────

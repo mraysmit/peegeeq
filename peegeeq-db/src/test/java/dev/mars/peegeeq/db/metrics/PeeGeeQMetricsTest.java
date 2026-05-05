@@ -270,13 +270,12 @@ class PeeGeeQMetricsTest {
         insertTestOutboxMessage()
             .compose(v -> insertTestQueueMessage())
             .compose(v -> insertTestDeadLetterMessage())
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 assertTrue(meterRegistry.get("peegeeq.queue.depth.outbox").gauge().value() >= 0);
                 assertTrue(meterRegistry.get("peegeeq.queue.depth.native").gauge().value() >= 0);
                 assertTrue(meterRegistry.get("peegeeq.queue.depth.dead_letter").gauge().value() >= 0);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -336,11 +335,10 @@ class PeeGeeQMetricsTest {
                     .execute()
                     .map(rowSet -> rowSet.iterator().next().getInteger(0))
             ))
-            .onSuccess(count -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(count -> testContext.verify(() -> {
                 assertTrue(count > 0);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -351,11 +349,10 @@ class PeeGeeQMetricsTest {
                 PeeGeeQMetrics unboundMetrics = new PeeGeeQMetrics(reactivePool, "test-instance-2");
                 return unboundMetrics.isHealthy();
             })
-            .onSuccess(healthy -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(healthy -> testContext.verify(() -> {
                 assertTrue(healthy);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -433,14 +430,13 @@ class PeeGeeQMetricsTest {
                 });
                 return metrics.isHealthy();
             })
-            .onSuccess(healthy -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(healthy -> testContext.verify(() -> {
                 assertFalse(healthy);
                 assertEquals(0.0, meterRegistry.get("peegeeq.queue.depth.outbox").gauge().value());
                 logger.info("SUCCESS: Metrics system properly handled database failure");
                 logger.info("===== INTENTIONAL FAILURE TEST COMPLETED =====");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     private Future<Void> insertTestOutboxMessage() {
@@ -494,7 +490,7 @@ class PeeGeeQMetricsTest {
         assertNotNull(reactiveMetrics);
 
         reactiveMetrics.isHealthy()
-            .onSuccess(healthy -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(healthy -> testContext.verify(() -> {
                 assertTrue(healthy);
                 assertDoesNotThrow(() -> reactiveMetrics.bindTo(meterRegistry));
                 assertDoesNotThrow(() -> {
@@ -502,7 +498,6 @@ class PeeGeeQMetricsTest {
                     reactiveMetrics.recordMessageReceived("test-topic");
                 });
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 }

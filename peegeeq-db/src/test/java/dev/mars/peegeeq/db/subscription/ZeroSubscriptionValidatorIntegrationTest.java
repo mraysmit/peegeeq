@@ -102,12 +102,11 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
                 .messageRetentionHours(24)
                 .build())
             .compose(v -> validator.isWriteAllowed(topic))
-            .onSuccess(allowed -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(allowed -> testContext.verify(() -> {
                 assertTrue(allowed, "QUEUE topics should always allow writes");
                 logger.info("QUEUE topic write allowed verified");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -124,12 +123,11 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
                 .blockWritesOnZeroSubscriptions(false)
                 .build())
             .compose(v -> validator.isWriteAllowed(topic))
-            .onSuccess(allowed -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(allowed -> testContext.verify(() -> {
                 assertTrue(allowed, "PUB_SUB topics with blocking disabled should allow writes");
                 logger.info("PUB_SUB topic with blocking disabled allows writes verified");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -151,12 +149,11 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
                 .blockWritesOnZeroSubscriptions(true)
                 .build())
             .compose(v -> validator.isWriteAllowed(topic))
-            .onSuccess(allowed -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(allowed -> testContext.verify(() -> {
                 assertFalse(allowed, "PUB_SUB topics with blocking enabled and zero subscriptions should block writes");
                 logger.info("PUB_SUB topic with blocking enabled blocks writes verified");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -174,12 +171,11 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
                 .build())
             .compose(v -> subscriptionManager.subscribe(topic, "group-a", SubscriptionOptions.defaults()))
             .compose(v -> validator.isWriteAllowed(topic))
-            .onSuccess(allowed -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(allowed -> testContext.verify(() -> {
                 assertTrue(allowed, "PUB_SUB topics with blocking enabled and active subscriptions should allow writes");
                 logger.info("PUB_SUB topic with blocking enabled and active subscriptions allows writes verified");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -190,12 +186,11 @@ public class ZeroSubscriptionValidatorIntegrationTest extends BaseIntegrationTes
         String topic = "test-unconfigured-topic";
 
         validator.isWriteAllowed(topic)
-            .onSuccess(allowed -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(allowed -> testContext.verify(() -> {
                 assertTrue(allowed, "Unconfigured topics should default to QUEUE semantics and allow writes");
                 logger.info("Unconfigured topic allows writes verified");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**

@@ -73,45 +73,41 @@ public class ConsumerGroupFetcherCoreTest extends BaseIntegrationTest {
     @Test
     void testFetchMessagesNoMessages(VertxTestContext testContext) {
         fetcher.fetchMessages("non-existent-topic", "test-group", 10)
-            .onSuccess(messages -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(messages -> testContext.verify(() -> {
                 assertNotNull(messages);
                 assertEquals(0, messages.size());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
     void testFetchMessagesWithBatchSize(VertxTestContext testContext) {
         fetcher.fetchMessages("test-topic", "test-group", 5)
-            .onSuccess(messages -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(messages -> testContext.verify(() -> {
                 assertNotNull(messages);
                 assertTrue(messages.size() <= 5);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
     void testFetchMessagesWithLargeBatchSize(VertxTestContext testContext) {
         fetcher.fetchMessages("test-topic", "test-group", 1000)
-            .onSuccess(messages -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(messages -> testContext.verify(() -> {
                 assertNotNull(messages);
                 assertTrue(messages.size() <= 1000);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
     void testFetchMessagesWithZeroBatchSize(VertxTestContext testContext) {
         fetcher.fetchMessages("test-topic", "test-group", 0)
-            .onSuccess(messages -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(messages -> testContext.verify(() -> {
                 assertNotNull(messages);
                 assertEquals(0, messages.size());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -122,11 +118,10 @@ public class ConsumerGroupFetcherCoreTest extends BaseIntegrationTest {
                 assertNotNull(messages1);
                 return fetcher.fetchMessages("test-topic", "test-group", 10);
             })
-            .onSuccess(messages2 -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(messages2 -> testContext.verify(() -> {
                 assertNotNull(messages2);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -136,11 +131,10 @@ public class ConsumerGroupFetcherCoreTest extends BaseIntegrationTest {
                 assertNotNull(messages1);
                 return fetcher.fetchMessages("topic2", "test-group", 10);
             })
-            .onSuccess(messages2 -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(messages2 -> testContext.verify(() -> {
                 assertNotNull(messages2);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -150,11 +144,10 @@ public class ConsumerGroupFetcherCoreTest extends BaseIntegrationTest {
                 assertNotNull(messages1);
                 return fetcher.fetchMessages("test-topic", "group2", 10);
             })
-            .onSuccess(messages2 -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(messages2 -> testContext.verify(() -> {
                 assertNotNull(messages2);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 }
 

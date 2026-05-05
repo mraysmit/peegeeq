@@ -157,12 +157,11 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
                         return name;
                     })
             )
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 assertEquals("schema_a_data", result, "Should query from schema_a");
                 logger.info("getReactiveConnection() correctly applied schema_a");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -194,12 +193,11 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
             conn.query("SELECT name FROM test_table WHERE id = 2").execute()
                 .map(rows -> rows.iterator().next().getString("name"))
         )
-        .onSuccess(result -> testContext.verify(() -> {
+        .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
             assertEquals("schema_b_data", result, "Should query from schema_b");
             logger.info("withConnection() correctly applied schema_b");
             testContext.completeNow();
-        }))
-        .onFailure(testContext::failNow);
+        })));
     }
 
     @Test
@@ -232,12 +230,11 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
                 .compose(v -> conn.query("SELECT name FROM test_table WHERE id = 10").execute())
                 .map(rows -> rows.iterator().next().getString("name"))
         )
-        .onSuccess(result -> testContext.verify(() -> {
+        .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
             assertEquals("txn_test", result, "Should insert and query from schema_a");
             logger.info("withTransaction() correctly applied schema_a");
             testContext.completeNow();
-        }))
-        .onFailure(testContext::failNow);
+        })));
     }
 
     @Test
@@ -269,12 +266,11 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
             conn.query("SELECT name FROM test_table WHERE id = 2").execute()
                 .map(rows -> rows.iterator().next().getString("name"))
         )
-        .onSuccess(result -> testContext.verify(() -> {
+        .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
             assertEquals("schema_b_data", result, "Should query from schema_b");
             logger.info("withTransaction() correctly applied schema_b");
             testContext.completeNow();
-        }))
-        .onFailure(testContext::failNow);
+        })));
     }
 
     @Test
@@ -303,12 +299,11 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
         connectionManager.getOrCreateReactivePool("test-health", config, poolConfig);
 
         connectionManager.checkHealth("test-health")
-            .onSuccess(isHealthy -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(isHealthy -> testContext.verify(() -> {
                 assertTrue(isHealthy, "Health check should pass with valid schema");
                 logger.info("Health check correctly applied schema_a");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -358,13 +353,12 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
                     .map(rows -> rows.iterator().next().getString("name"))
             );
         })
-        .onSuccess(resultB -> testContext.verify(() -> {
+        .onComplete(testContext.succeeding(resultB -> testContext.verify(() -> {
             assertEquals("schema_a_data", resultARef.get(), "Service A should query from schema_a");
             assertEquals("schema_b_data", resultB, "Service B should query from schema_b");
             logger.info("Multiple services correctly isolated by schema");
             testContext.completeNow();
-        }))
-        .onFailure(testContext::failNow);
+        })));
     }
 
     @Test
@@ -444,12 +438,11 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
             conn.query("SELECT 1").execute()
                 .map(rows -> rows.iterator().hasNext())
         )
-        .onSuccess(result -> testContext.verify(() -> {
+        .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
             assertTrue(result, "Should successfully query with default search_path");
             logger.info("No schema configuration correctly uses default search_path");
             testContext.completeNow();
-        }))
-        .onFailure(testContext::failNow);
+        })));
     }
 
     @Test
@@ -480,11 +473,10 @@ public class PgConnectionManagerSchemaIntegrationTest extends BaseIntegrationTes
         assertNotNull(connectionManager.getExistingPool("test-cleanup"), "Pool should exist");
 
         connectionManager.closePool("test-cleanup")
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 assertNull(connectionManager.getExistingPool("test-cleanup"), "Pool should be removed");
                 logger.info("Schema configuration correctly cleaned up on pool close");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 }

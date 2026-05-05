@@ -116,21 +116,18 @@ public class MultiConfigurationExampleTest {
                 configManager.registerConfiguration("reliable", "test");
                 return vertx.timer(100).mapEmpty();
             })
-            .onSuccess(v -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 logger.info("Registering development configuration...");
                 configManager.registerConfiguration("development", "test");
-                testContext.verify(() -> {
-                    Set<String> configNames = configManager.getConfigurationNames();
-                    assertEquals(4, configNames.size());
-                    assertTrue(configNames.contains("high-throughput"));
-                    assertTrue(configNames.contains("low-latency"));
-                    assertTrue(configNames.contains("reliable"));
-                    assertTrue(configNames.contains("development"));
-                    logger.info("✓ Multiple configuration registration validated successfully");
-                    testContext.completeNow();
-                });
-            })
-            .onFailure(testContext::failNow);
+                Set<String> configNames = configManager.getConfigurationNames();
+                assertEquals(4, configNames.size());
+                assertTrue(configNames.contains("high-throughput"));
+                assertTrue(configNames.contains("low-latency"));
+                assertTrue(configNames.contains("reliable"));
+                assertTrue(configNames.contains("development"));
+                logger.info("✓ Multiple configuration registration validated successfully");
+                testContext.completeNow();
+            })));
     }
 
     /**
@@ -145,7 +142,7 @@ public class MultiConfigurationExampleTest {
         configManager.registerConfiguration("config2", "test");
 
         configManager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 assertTrue(configManager.isStarted());
                 assertNotNull(configManager.getConfiguration("config1"));
                 assertNotNull(configManager.getConfiguration("config2"));
@@ -153,8 +150,7 @@ public class MultiConfigurationExampleTest {
                 assertNotNull(configManager.getDatabaseService("config2"));
                 logger.info("✓ Configuration lifecycle management validated successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -167,7 +163,7 @@ public class MultiConfigurationExampleTest {
 
         configManager.registerConfiguration("high-throughput", "test");
         configManager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 DatabaseService databaseService = configManager.getDatabaseService("high-throughput");
                 assertNotNull(databaseService);
                 PeeGeeQConfiguration config = configManager.getConfiguration("high-throughput");
@@ -176,8 +172,7 @@ public class MultiConfigurationExampleTest {
                 logger.info("High-throughput configuration validated - would create queue with batch-size=100, polling-interval=100ms");
                 logger.info("✓ High-throughput configuration validated successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -190,7 +185,7 @@ public class MultiConfigurationExampleTest {
 
         configManager.registerConfiguration("low-latency", "test");
         configManager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 DatabaseService databaseService = configManager.getDatabaseService("low-latency");
                 assertNotNull(databaseService);
                 PeeGeeQConfiguration config = configManager.getConfiguration("low-latency");
@@ -198,8 +193,7 @@ public class MultiConfigurationExampleTest {
                 logger.info("Low-latency configuration validated - would create queue with batch-size=1, polling-interval=10ms");
                 logger.info("✓ Low-latency configuration validated successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -212,7 +206,7 @@ public class MultiConfigurationExampleTest {
 
         configManager.registerConfiguration("reliable", "test");
         configManager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 DatabaseService databaseService = configManager.getDatabaseService("reliable");
                 assertNotNull(databaseService);
                 PeeGeeQConfiguration config = configManager.getConfiguration("reliable");
@@ -220,8 +214,7 @@ public class MultiConfigurationExampleTest {
                 logger.info("Reliable configuration validated - would create queue with max-retries=10, dead-letter-enabled=true");
                 logger.info("✓ Reliable configuration validated successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -234,7 +227,7 @@ public class MultiConfigurationExampleTest {
 
         configManager.registerConfiguration("development", "test");
         configManager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 DatabaseService databaseService = configManager.getDatabaseService("development");
                 assertNotNull(databaseService);
                 Duration pollingInterval = Duration.ofMillis(500);
@@ -244,8 +237,7 @@ public class MultiConfigurationExampleTest {
                 logger.info("  visibility-timeout={}s, dead-letter-enabled=true", visibilityTimeout.getSeconds());
                 logger.info("✓ Custom configuration builder validated successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**

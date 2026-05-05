@@ -264,15 +264,14 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                 .compose(messageId -> tracker.markCompleted(messageId, group1, topic)
                         .compose(v -> tracker.markCompleted(messageId, group1, topic))
                         .compose(v -> getMessageStatus(messageId)))
-                .onSuccess(status -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(status -> testContext.verify(() -> {
                     assertEquals("PENDING", status.getString("status"),
                             "Message must remain PENDING after duplicate completion from same group");
                     assertEquals(1, status.getInteger("completed_consumer_groups"),
                             "Duplicate completion for same group must not increment counter twice");
                     assertEquals(2, status.getInteger("required_consumer_groups"));
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         logger.info("=== TEST: testMarkCompletedIdempotentDoesNotOvercountInMultiGroupTopic COMPLETED ===");
     }
@@ -349,7 +348,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                                         .map(messageStatus -> new JsonObject()
                                                 .put("tracking", trackingStatus)
                                                 .put("message", messageStatus)))))
-                .onSuccess(statuses -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(statuses -> testContext.verify(() -> {
                     JsonObject tracking = statuses.getJsonObject("tracking");
                     JsonObject message = statuses.getJsonObject("message");
 
@@ -358,8 +357,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                     assertEquals("COMPLETED", message.getString("status"));
                     assertEquals(1, message.getInteger("completed_consumer_groups"));
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         logger.info("=== TEST: testMarkFailedDoesNotOverrideCompletedState COMPLETED ===");
     }
@@ -429,7 +427,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                                                         .put("message", messageStatus)
                                                         .put("group1", group1Status)
                                                         .put("group2", group2Status))))))
-                .onSuccess(statuses -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(statuses -> testContext.verify(() -> {
                     JsonObject message = statuses.getJsonObject("message");
                     JsonObject group1Status = statuses.getJsonObject("group1");
                     JsonObject group2Status = statuses.getJsonObject("group2");
@@ -440,8 +438,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                     assertEquals("COMPLETED", group1Status.getString("status"));
                     assertEquals("COMPLETED", group2Status.getString("status"));
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         logger.info("=== TEST: testLateFailureInMultiGroupDoesNotCreateInconsistentState COMPLETED ===");
     }
@@ -476,7 +473,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                                         .map(messageStatus -> new JsonObject()
                                                 .put("tracking", trackingStatus)
                                                 .put("message", messageStatus)))))
-                .onSuccess(statuses -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(statuses -> testContext.verify(() -> {
                     JsonObject tracking = statuses.getJsonObject("tracking");
                     JsonObject message = statuses.getJsonObject("message");
 
@@ -486,8 +483,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                             "Message should be COMPLETED after group recovers");
                     assertEquals(1, message.getInteger("completed_consumer_groups"));
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         logger.info("=== TEST: testMarkFailedThenCompletedRecovery COMPLETED ===");
     }
@@ -527,15 +523,14 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                             return tracker.markFailed(messageId, groupName, topic, "error 3");
                         })
                         .compose(v -> getTrackingRowStatus(messageId, groupName)))
-                .onSuccess(status3 -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(status3 -> testContext.verify(() -> {
                     assertEquals(2, status3.getInteger("retry_count"),
                             "Third failure should increment retry_count to 2");
                     assertEquals("error 3", status3.getString("error_message"),
                             "Error message should be latest");
                     assertEquals("FAILED", status3.getString("status"));
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         logger.info("=== TEST: testMarkFailedRepeatedlyIncrementsRetryCount COMPLETED ===");
     }

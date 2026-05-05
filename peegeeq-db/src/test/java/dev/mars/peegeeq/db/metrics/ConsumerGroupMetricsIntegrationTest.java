@@ -125,7 +125,7 @@ public class ConsumerGroupMetricsIntegrationTest extends BaseIntegrationTest {
                 .compose(v -> subscribeWithDefaults(topic, "group-1"))
                 .compose(v -> subscribeWithDefaults(topic, "group-2"))
                 .compose(v -> consumerGroupMetrics.refresh())
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 double activeCount = getGaugeValue("peegeeq.subscriptions.active");
                         assertTrue(activeCount >= 2,
                                 "Active subscription gauge should be >= 2 after creating 2 subscriptions, but was " + activeCount);
@@ -134,8 +134,7 @@ public class ConsumerGroupMetricsIntegrationTest extends BaseIntegrationTest {
                                 "Total subscription gauge should be >= 2, but was " + totalCount);
                         logger.info("Active subscription gauge verified: active={}, total={}", activeCount, totalCount);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -155,14 +154,13 @@ public class ConsumerGroupMetricsIntegrationTest extends BaseIntegrationTest {
                 .compose(v -> setHeartbeatInPast(topic, "dead-group", 10))
                 .compose(v -> detector.detectDeadSubscriptions(topic))
                 .compose(v -> consumerGroupMetrics.refresh())
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 double deadCount = getGaugeValue("peegeeq.subscriptions.dead");
                         assertTrue(deadCount >= 1,
                                 "Dead subscription gauge should be >= 1 after marking a subscription DEAD, but was " + deadCount);
                         logger.info("Dead subscription gauge verified: dead={}", deadCount);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -176,14 +174,13 @@ public class ConsumerGroupMetricsIntegrationTest extends BaseIntegrationTest {
                 .compose(v -> subscribeWithDefaults(topic, "pause-group"))
                 .compose(v -> subscriptionManager.pause(topic, "pause-group"))
                 .compose(v -> consumerGroupMetrics.refresh())
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 double pausedCount = getGaugeValue("peegeeq.subscriptions.paused");
                         assertTrue(pausedCount >= 1,
                                 "Paused subscription gauge should be >= 1 after pausing a subscription, but was " + pausedCount);
                         logger.info("Paused subscription gauge verified: paused={}", pausedCount);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -199,14 +196,13 @@ public class ConsumerGroupMetricsIntegrationTest extends BaseIntegrationTest {
                 .compose(v -> subscribeWithDefaults(topic1, "group-a"))
                 .compose(v -> subscribeWithDefaults(topic2, "group-b"))
                 .compose(v -> consumerGroupMetrics.refresh())
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 double topicCount = getGaugeValue("peegeeq.subscriptions.topics");
                         assertTrue(topicCount >= 2,
                                 "Topics gauge should be >= 2 after subscribing to 2 topics, but was " + topicCount);
                         logger.info("Topics gauge verified: topics={}", topicCount);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -225,14 +221,13 @@ public class ConsumerGroupMetricsIntegrationTest extends BaseIntegrationTest {
                     return subscribeWithDefaults(topic, "group-2");
                 })
                 .compose(v -> consumerGroupMetrics.refresh())
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 double secondRead = getGaugeValue("peegeeq.subscriptions.active");
                         assertTrue(secondRead > firstReadRef[0],
                                 "Gauge should increase after adding subscription: first=" + firstReadRef[0] + " second=" + secondRead);
                         logger.info("Gauge replacement verified: first={}, second={}", firstReadRef[0], secondRead);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -245,13 +240,12 @@ public class ConsumerGroupMetricsIntegrationTest extends BaseIntegrationTest {
                 .compose(v -> subscribeWithShortTimeout(topic, "run-group"))
                 .compose(v -> detector.detectDeadSubscriptions(topic))
                 .compose(v -> consumerGroupMetrics.refresh())
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 double activeCount = getGaugeValue("peegeeq.subscriptions.active");
                         assertTrue(activeCount >= 0, "Active count should be non-negative");
                         logger.info("Detection-related gauge verified");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     // ========================================================================
