@@ -98,11 +98,10 @@ public class PeeGeeQSelfContainedDemoTest {
 
         manager = createManager();
         manager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 assertTrue(manager.isStarted(), "PeeGeeQ Manager should be started");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -129,14 +128,13 @@ public class PeeGeeQSelfContainedDemoTest {
                 assertTrue(manager.isHealthy(), "System should be healthy");
                 return manager.getSystemStatus();
             })
-            .onSuccess(systemStatus -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(systemStatus -> testContext.verify(() -> {
                 assertNotNull(systemStatus, "System status should not be null");
                 assertNotNull(systemStatus.getMetricsSummary(), "Metrics summary should not be null");
                 assertTrue(systemStatus.isStarted(), "System should be started");
                 assertEquals("demo", systemStatus.getProfile());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -145,12 +143,11 @@ public class PeeGeeQSelfContainedDemoTest {
         manager.start()
             .compose(v -> manager.getVertx().timer(1000).mapEmpty())
             .compose(v -> manager.getSystemStatus())
-            .onSuccess(status -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(status -> testContext.verify(() -> {
                 assertNotNull(status, "System status should be available");
                 assertTrue(manager.isHealthy(), "System should be healthy");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test

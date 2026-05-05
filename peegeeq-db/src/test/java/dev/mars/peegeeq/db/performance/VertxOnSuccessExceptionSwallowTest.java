@@ -326,7 +326,7 @@ class VertxOnSuccessExceptionSwallowTest {
         AtomicBoolean verifyBlockEntered = new AtomicBoolean(false);
 
         vertx.timer(10).mapEmpty()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 // SAFE: any exception thrown inside verify() is caught by VertxTestContext
                 // and automatically calls failNow(e). The test fails FAST with the real cause
                 // instead of timing out.
@@ -334,8 +334,7 @@ class VertxOnSuccessExceptionSwallowTest {
                 assertTrue(true, "Assertions inside verify() are evaluated correctly");
                 // Assertions that throw here will properly fail the test no silent swallow.
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         // Timeout guard: fails clearly if the verify block was somehow never entered.
         vertx.setTimer(500, id -> {

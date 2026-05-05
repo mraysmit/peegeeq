@@ -122,7 +122,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                     return tracker.markCompleted(messageId, groupName, topic)
                             .compose(v -> getMessageStatus(messageId));
                 })
-                .onSuccess(status -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(status -> testContext.verify(() -> {
                         logger.info("Message status: {}", status);
                         assertEquals("COMPLETED", status.getString("status"),
                                 "Message should be COMPLETED after single group completes");
@@ -131,11 +131,7 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                         assertEquals(1, status.getInteger("required_consumer_groups"),
                                 "Required counter should be 1");
                         testContext.completeNow();
-                    }))
-                .onFailure(throwable -> {
-                    logger.error("Test failed", throwable);
-                    testContext.failNow(throwable);
-                });
+                    })));
 
         logger.info("=== TEST: testMarkCompletedSingleGroup COMPLETED ===");
     }
@@ -189,18 +185,14 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                             })
                             .compose(v -> getMessageStatus(messageId));
                 })
-                .onSuccess(status -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(status -> testContext.verify(() -> {
                     logger.info("After group3: {}", status);
                     assertEquals("COMPLETED", status.getString("status"),
                             "Message should be COMPLETED after all 3 groups finish");
                     assertEquals(3, status.getInteger("completed_consumer_groups"));
                     assertEquals(3, status.getInteger("required_consumer_groups"));
                     testContext.completeNow();
-                }))
-                .onFailure(throwable -> {
-                    logger.error("Test failed", throwable);
-                    testContext.failNow(throwable);
-                });
+                })));
 
         logger.info("=== TEST: testMarkCompletedMultipleGroups COMPLETED ===");
     }
@@ -227,17 +219,13 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                             .compose(v -> tracker.markCompleted(messageId, groupName, topic))
                             .compose(v -> getMessageStatus(messageId));
                 })
-                .onSuccess(status -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(status -> testContext.verify(() -> {
                         logger.info("Message status after double completion: {}", status);
                         assertEquals("COMPLETED", status.getString("status"));
                         assertEquals(1, status.getInteger("completed_consumer_groups"),
                                 "Counter should not increment twice (idempotent)");
                         testContext.completeNow();
-                    }))
-                .onFailure(throwable -> {
-                    logger.error("Test failed", throwable);
-                    testContext.failNow(throwable);
-                });
+                    })));
 
         logger.info("=== TEST: testMarkCompletedIdempotent COMPLETED ===");
     }
@@ -307,18 +295,14 @@ public class CompletionTrackerIntegrationTest extends BaseIntegrationTest {
                                 return getMessageStatus(messageId);
                             });
                 })
-                .onSuccess(messageStatus -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(messageStatus -> testContext.verify(() -> {
                     logger.info("Message status: {}", messageStatus);
                     assertEquals("PENDING", messageStatus.getString("status"),
                             "Message should still be PENDING when group fails");
                     assertEquals(0, messageStatus.getInteger("completed_consumer_groups"),
                             "Completed counter should not increment on failure");
                     testContext.completeNow();
-                }))
-                .onFailure(throwable -> {
-                    logger.error("Test failed", throwable);
-                    testContext.failNow(throwable);
-                });
+                })));
 
         logger.info("=== TEST: testMarkFailed COMPLETED ===");
     }

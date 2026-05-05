@@ -409,12 +409,11 @@ public class PgClientFactoryCoreTest extends BaseIntegrationTest {
         factory.createClient("test-client", connectionConfig, poolConfig);
 
         factory.removeClient("test-client")
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     Optional<PgClient> client = factory.getClient("test-client");
                     assertFalse(client.isPresent());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -441,12 +440,11 @@ public class PgClientFactoryCoreTest extends BaseIntegrationTest {
         factory.createClient("test-client", connectionConfig, poolConfig);
 
         factory.closeAsync()
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     Set<String> clients = factory.getAvailableClients();
                     assertEquals(0, clients.size());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 }
 

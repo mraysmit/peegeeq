@@ -372,11 +372,10 @@ public class PeeGeeQMetricsCoreTest extends BaseIntegrationTest {
     @Test
     void testIsHealthy(VertxTestContext testContext) {
         metrics.isHealthy()
-            .onSuccess(healthy -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(healthy -> testContext.verify(() -> {
                     assertNotNull(healthy);
                     testContext.completeNow();
-                }))
-            .onFailure(testContext::failNow);
+                })));
     }
 
     @Test

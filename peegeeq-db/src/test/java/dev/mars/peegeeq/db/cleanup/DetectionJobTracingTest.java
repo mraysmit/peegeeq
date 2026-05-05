@@ -72,11 +72,10 @@ public class DetectionJobTracingTest {
                     assertEquals(0, firstResult, "Healthy run should return 0 dead consumers");
                     return job.runDetectionOnce();
                 })
-                .onSuccess(secondResult -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(secondResult -> testContext.verify(() -> {
                     assertEquals(0, secondResult, "Second healthy run should also return 0");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -89,12 +88,11 @@ public class DetectionJobTracingTest {
                 vertx, stubDetector, stubCleanup, 60_000);
 
         job.runDetectionOnce()
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     assertNull(MDC.get("traceId"), "traceId should not leak into MDC after detection");
                     assertNull(MDC.get("spanId"), "spanId should not leak into MDC after detection");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -113,12 +111,11 @@ public class DetectionJobTracingTest {
                 vertx, stubDetector, stubCleanup, 60_000);
 
         job.runDetectionOnce()
-                .onSuccess(deadCount -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(deadCount -> testContext.verify(() -> {
                     assertEquals(1, deadCount, "Should detect 1 dead consumer");
                     assertTrue(stubCleanup.wasCleanupCalled(), "Cleanup should have been called");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
