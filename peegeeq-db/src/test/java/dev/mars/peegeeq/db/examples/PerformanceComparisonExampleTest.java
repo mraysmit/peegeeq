@@ -115,14 +115,13 @@ public class PerformanceComparisonExampleTest {
                 });
                 return testConfiguration("Multi-Threaded", 2, 1, "PT1S");
             })
-            .onSuccess(multiThreaded -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(multiThreaded -> testContext.verify(() -> {
                 assertNotNull(multiThreaded, "Multi-threaded result should not be null");
                 assertEquals("Multi-Threaded", multiThreaded.configName);
                 assertEquals(2, multiThreaded.threads);
                 logger.info("Configuration testing validated successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -134,15 +133,14 @@ public class PerformanceComparisonExampleTest {
         logger.info("=== Testing Performance Measurement ===");
         
         testConfiguration("Measurement-Test", 2, 5, "PT0.5S")
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 assertNotNull(result, "Performance result should not be null");
                 assertTrue(result.totalTimeMs > 0, "Total time should be positive");
                 assertTrue(result.throughput >= 0, "Throughput should be non-negative");
                 assertTrue(result.processedCount >= 0, "Processed count should be non-negative");
                 logger.info("Performance measurement validated successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -159,15 +157,14 @@ public class PerformanceComparisonExampleTest {
                 results.add(resultA);
                 return testConfiguration("Config-B", 2, 5, "PT0.5S");
             })
-            .onSuccess(resultB -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(resultB -> testContext.verify(() -> {
                 results.add(resultB);
                 assertFalse(results.isEmpty(), "Results list should not be empty");
                 assertEquals(2, results.size(), "Should have 2 results for comparison");
                 displayPerformanceComparison(results.toArray(new PerformanceResult[0]));
                 logger.info("Comparison analysis validated successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**

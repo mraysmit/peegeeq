@@ -129,7 +129,7 @@ public class PeeGeeQMetricsLogLevelTest {
 
         logCapture.clear();
         metrics.persistMetrics(registry)
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
                     boolean hasPersistError = errors.stream()
                             .anyMatch(e -> e.getFormattedMessage().contains("Failed to persist metrics"));
@@ -137,8 +137,7 @@ public class PeeGeeQMetricsLogLevelTest {
                             "Persist with valid table should not produce ERROR, but got: " +
                                     errors.stream().map(ILoggingEvent::getFormattedMessage).toList());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -197,7 +196,7 @@ public class PeeGeeQMetricsLogLevelTest {
         ownMetrics.persistMetrics(registry)
                 .transform(ar -> Future.succeededFuture())
                 .eventually(() -> ownConnMgr.close())
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
                     boolean hasErrorForPersist = errors.stream()
                             .anyMatch(e -> e.getFormattedMessage().contains("Failed to persist metrics"));
@@ -205,8 +204,7 @@ public class PeeGeeQMetricsLogLevelTest {
                     assertFalse(hasErrorForPersist,
                             "Connection error should be at DEBUG level, not ERROR");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     // --- Helpers ---

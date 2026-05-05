@@ -176,13 +176,12 @@ public class BackfillTeardownDeadlockProofTest extends BaseIntegrationTest {
         setupTopicAndMessages(topic, MESSAGE_COUNT)
                 .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
                 .compose(v -> backfillService.startBackfill(topic, groupName, BATCH_SIZE, 0, BackfillScope.PENDING_ONLY))
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     assertEquals(BackfillResult.Status.COMPLETED, result.status());
                     assertEquals(MESSAGE_COUNT, result.processedMessages());
                     logger.info("alpha backfill complete: {} msgs", result.processedMessages());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -196,13 +195,12 @@ public class BackfillTeardownDeadlockProofTest extends BaseIntegrationTest {
         setupTopicAndMessages(topic, MESSAGE_COUNT)
                 .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
                 .compose(v -> backfillService.startBackfill(topic, groupName, BATCH_SIZE, 0, BackfillScope.PENDING_ONLY))
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     assertEquals(BackfillResult.Status.COMPLETED, result.status());
                     assertEquals(MESSAGE_COUNT, result.processedMessages());
                     logger.info("beta backfill complete: {} msgs", result.processedMessages());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -216,13 +214,12 @@ public class BackfillTeardownDeadlockProofTest extends BaseIntegrationTest {
         setupTopicAndMessages(topic, MESSAGE_COUNT)
                 .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
                 .compose(v -> backfillService.startBackfill(topic, groupName, BATCH_SIZE, 0, BackfillScope.PENDING_ONLY))
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     assertEquals(BackfillResult.Status.COMPLETED, result.status());
                     assertEquals(MESSAGE_COUNT, result.processedMessages());
                     logger.info("gamma backfill complete: {} msgs", result.processedMessages());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     // ========================================================================

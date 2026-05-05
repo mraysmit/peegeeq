@@ -149,13 +149,12 @@ public class CancelCleanupIntegrationTest extends BaseIntegrationTest {
                     "After cancel, messages should require 1 consumer group (decremented from 2)");
                 return countConsumerGroupRows(topic, groupB);
             })
-            .onSuccess(groupBRowsAfter -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(groupBRowsAfter -> testContext.verify(() -> {
                 assertEquals(0, groupBRowsAfter,
                     "Cancelled group's outbox_consumer_groups rows should be removed");
                 logger.info("Cancel cleanup test passed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -172,13 +171,12 @@ public class CancelCleanupIntegrationTest extends BaseIntegrationTest {
             .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.defaults()))
             .compose(v -> subscriptionManager.cancel(topic, groupName))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(cancelled -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(cancelled -> testContext.verify(() -> {
                 assertEquals(SubscriptionState.CANCELLED, cancelled.state(),
                     "Cancel should succeed even without cleanup service configured");
                 logger.info("Cancel without cleanup service test passed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -262,13 +260,12 @@ public class CancelCleanupIntegrationTest extends BaseIntegrationTest {
                 assertEquals(SubscriptionState.CANCELLED, removed.state());
                 return countMessagesWithRequiredGroups(topic, 1);
             })
-            .onSuccess(oneGroupMsgs -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(oneGroupMsgs -> testContext.verify(() -> {
                 assertEquals(messageCount, oneGroupMsgs,
                     "forceRemove should still decrement required_consumer_groups");
                 logger.info("forceRemove behaviour unchanged test passed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     // --- Helper methods ---

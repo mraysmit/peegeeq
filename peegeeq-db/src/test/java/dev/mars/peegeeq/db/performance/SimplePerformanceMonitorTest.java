@@ -118,7 +118,7 @@ class SimplePerformanceMonitorTest {
         // When
         // Use 50ms buffer to overcome Windows low-resolution timer jitter (typical 15.6ms ticks)
         vertx.timer(50)
-            .onSuccess(id -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(id -> testContext.verify(() -> {
                 timing.recordAsQuery();
 
                 // Then
@@ -127,8 +127,7 @@ class SimplePerformanceMonitorTest {
                 assertTrue(monitor.getAverageQueryTime() >= 25, "Should record at least 25ms, got: " + monitor.getAverageQueryTime());
                 assertTrue(timing.getElapsed().toMillis() >= 25, "Should track elapsed time, got: " + timing.getElapsed().toMillis());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     
     @Test
