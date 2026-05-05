@@ -2,7 +2,7 @@
 
 Created: 2026-05-05  
 Branch: `feature/offset-watermark-phase1`  
-Status: **PHASE 1 COMPLETE**
+Status: **PHASE 1 COMPLETE — PHASE 2 COMPLETE**
 
 ---
 
@@ -294,6 +294,9 @@ grep -rn "assertEquals\|assertTrue\|assertNotNull" --include="*Test*.java" | \
 - [x] `MultiConfigurationManagerSimpleTest` — 1 bare-assertion `onSuccess` body (testRegisterConfigurationAfterStartFails) wrapped with `testContext.verify()`; 13/13 pass in 0.25 s (2026-05-05)
 - [x] No new `.onSuccess(v -> { body })` introduced without `testContext.verify()` wrapping — verified by sweep of all touched files
 - [x] Full `peegeeq-db` test suite: no new timeouts vs baseline — 721 tests run, 3 failures (all pre-existing in 2026-05-04 baseline); 0 timeouts (2026-05-05)
+- [x] `DeadConsumerDetectorCoreTest` — 4 bare-assertion `onSuccess` bodies wrapped with `ctx.verify()`; 11/11 pass (session 2)
+- [x] `HealthCheckManagerTest.testHealthCheckTimeout` — fixed to exercise actual `TimeoutException` path using never-completing `Promise.promise().future()`; 15/15 pass (session 2)
+- [x] Phase 2 Tier 2 audit — full codebase scan (60-line window) across all 7 modules; **zero genuine Tier 2 gaps found** (session 2, 2026-05-08). All apparent hits were false positives from verify blocks longer than 30 lines; every chain has `.onFailure` or `testContext.failNow` coverage within 60 lines.
 
 ---
 
