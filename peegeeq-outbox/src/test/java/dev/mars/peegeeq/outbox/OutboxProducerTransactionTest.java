@@ -366,11 +366,10 @@ public class OutboxProducerTransactionTest {
                     })
                 );
             })
-            .onSuccess(count -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(count -> testContext.verify(() -> {
                 assertEquals(1, count, "Only one row should exist for duplicate idempotency key");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }

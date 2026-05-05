@@ -52,12 +52,12 @@ public class AsyncRetryBranchCoverageTest {
         Future<AsyncFilterRetryManager.FilterResult> future = 
             retryManager.executeFilterWithRetry(message, failingFilter, circuitBreaker);
 
-        future.onSuccess(result -> testContext.verify(() -> {
+        future.onComplete(testContext.succeeding(result -> testContext.verify(() -> {
             assertEquals(AsyncFilterRetryManager.FilterResult.Status.DEAD_LETTER, result.getStatus());
             assertEquals(1, result.getAttempts());
             assertTrue(fakeDlq.sendCalled);
             testContext.completeNow();
-        })).onFailure(testContext::failNow);
+        })));
 
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
     }
@@ -83,11 +83,11 @@ public class AsyncRetryBranchCoverageTest {
         Future<AsyncFilterRetryManager.FilterResult> future = 
             retryManager.executeFilterWithRetry(message, failingFilter, circuitBreaker);
 
-        future.onSuccess(result -> testContext.verify(() -> {
+        future.onComplete(testContext.succeeding(result -> testContext.verify(() -> {
             assertEquals(AsyncFilterRetryManager.FilterResult.Status.REJECTED, result.getStatus());
             assertEquals(3, result.getAttempts()); // Initial + 2 retries
             testContext.completeNow();
-        })).onFailure(testContext::failNow);
+        })));
 
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
     }
@@ -164,12 +164,12 @@ public class AsyncRetryBranchCoverageTest {
         Future<AsyncFilterRetryManager.FilterResult> future = 
             retryManager.executeFilterWithRetry(message, failingFilter, circuitBreaker);
 
-        future.onSuccess(result -> testContext.verify(() -> {
+        future.onComplete(testContext.succeeding(result -> testContext.verify(() -> {
             // Should still be DEAD_LETTER status, but with error message in reason
             assertEquals(AsyncFilterRetryManager.FilterResult.Status.DEAD_LETTER, result.getStatus());
             assertTrue(result.getReason().contains("DLQ failed"));
             testContext.completeNow();
-        })).onFailure(testContext::failNow);
+        })));
 
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
     }

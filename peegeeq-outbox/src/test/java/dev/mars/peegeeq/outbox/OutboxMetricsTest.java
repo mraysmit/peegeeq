@@ -170,7 +170,7 @@ public class OutboxMetricsTest {
                 }
                 throw new AssertionError("Metrics were not updated within 10 seconds");
             }))
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 var finalMetrics = manager.getMetrics().getSummary();
                 double finalSent = finalMetrics.getMessagesSent();
                 double finalReceived = finalMetrics.getMessagesReceived();
@@ -188,8 +188,7 @@ public class OutboxMetricsTest {
                 assertTrue(finalProcessed > initialProcessed, 
                     "Messages processed count should increase (was " + initialProcessed + ", now " + finalProcessed + ")");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
@@ -212,14 +211,13 @@ public class OutboxMetricsTest {
             }
             throw new AssertionError("Health check did not become healthy within 10 seconds");
         })
-        .onSuccess(healthStatus -> testContext.verify(() -> {
+        .onComplete(testContext.succeeding(healthStatus -> testContext.verify(() -> {
             logger.info("Health check status: {}", healthStatus.status());
             logger.info("Health check components: {}", healthStatus.components());
             assertTrue(healthStatus.isHealthy(),
                 "System should be healthy: " + healthStatus.components());
             testContext.completeNow();
-        }))
-        .onFailure(testContext::failNow);
+        })));
 
         try {
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
@@ -273,7 +271,7 @@ public class OutboxMetricsTest {
                 }
                 throw new AssertionError("Metrics were not updated within 10 seconds");
             }))
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 var finalMetrics = manager.getMetrics().getSummary();
                 double finalSent = finalMetrics.getMessagesSent();
                 double finalReceived = finalMetrics.getMessagesReceived();
@@ -291,8 +289,7 @@ public class OutboxMetricsTest {
                 assertTrue(finalProcessed >= initialProcessed + messageCount, 
                     "Messages processed should increase by at least " + messageCount);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
@@ -328,7 +325,7 @@ public class OutboxMetricsTest {
                 }
                 throw new AssertionError("Error metrics were not updated within 10 seconds");
             }))
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 var finalMetrics = manager.getMetrics().getSummary();
                 double finalErrors = finalMetrics.getMessagesFailed();
 
@@ -337,8 +334,7 @@ public class OutboxMetricsTest {
                 assertTrue(finalErrors > initialErrors, 
                     "Error count should increase (was " + initialErrors + ", now " + finalErrors + ")");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
