@@ -106,7 +106,7 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
         createTopic(topic)
             .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(subscription -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 assertNotNull(subscription.startFromMessageId(),
                     "FROM_BEGINNING must store start_from_message_id (not NULL)");
                 assertEquals(1L, subscription.startFromMessageId().longValue(),
@@ -115,8 +115,7 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
                     "start_from_timestamp should be NULL for FROM_BEGINNING");
                 logger.info("FROM_BEGINNING verified");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -133,7 +132,7 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
         createTopic(topic)
             .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(subscription -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 assertNotNull(subscription.startFromMessageId(),
                     "FROM_NOW must store start_from_message_id (not NULL)");
                 assertTrue(subscription.startFromMessageId() >= 1L,
@@ -142,8 +141,7 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
                 logger.info("FROM_NOW verified: start_from_message_id={}",
                     subscription.startFromMessageId());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -162,15 +160,14 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
         createTopic(topic)
             .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(subscription -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 assertNotNull(subscription.startFromMessageId());
                 assertEquals(explicitMessageId, subscription.startFromMessageId(),
                     "FROM_MESSAGE_ID must store exact provided message ID");
                 assertNull(subscription.startFromTimestamp());
                 logger.info("FROM_MESSAGE_ID(42) verified");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -189,7 +186,7 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
         createTopic(topic)
             .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(subscription -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 assertNull(subscription.startFromMessageId(),
                     "start_from_message_id should be NULL for FROM_TIMESTAMP");
                 assertNotNull(subscription.startFromTimestamp());
@@ -200,8 +197,7 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
                     String.format("Timestamp difference should be < 1 second (was %d ms)", diffMillis));
                 logger.info("FROM_TIMESTAMP verified (diff: {} ms)", diffMillis);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -230,13 +226,12 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
                 return subscriptionManager.subscribe(topic, groupName, updatedOptions);
             })
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(updatedSub -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(updatedSub -> testContext.verify(() -> {
                 assertEquals(1L, updatedSub.startFromMessageId().longValue(),
                     "After update, start_from_message_id should be 1 (FROM_BEGINNING)");
                 logger.info("Update FROM_NOW to FROM_BEGINNING verified");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -254,14 +249,13 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
         createTopic(topic)
             .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(subscription -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 assertNotNull(subscription.startFromMessageId());
                 assertEquals(0L, subscription.startFromMessageId().longValue(),
                     "Should accept and store message ID = 0");
                 logger.info("Edge case verified: message ID = 0 handled correctly");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -273,12 +267,11 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
 
         createTopic(topic)
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(subscription -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 assertNull(subscription, "Non-existent subscription should return null");
                 logger.info("Non-existent subscription returns null correctly");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -301,12 +294,11 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
                         .build());
             })
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(updated -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(updated -> testContext.verify(() -> {
                 assertEquals(100L, updated.startFromMessageId().longValue());
                 logger.info("Update FROM_BEGINNING to FROM_MESSAGE_ID(100) verified");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -330,13 +322,12 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
                     .startFromMessageId(100L)
                     .build()))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(final_sub -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(final_sub -> testContext.verify(() -> {
                 assertEquals(100L, final_sub.startFromMessageId().longValue(),
                     "Last update should win");
                 logger.info("Multiple updates: last write (100) wins");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -364,13 +355,12 @@ public class SubscriptionManagerEdgeCaseTest extends BaseIntegrationTest {
                         .build());
             })
             .compose(v -> subscriptionManager.getSubscription(topic, "group-hb-3600"))
-            .onSuccess(sub3600 -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(sub3600 -> testContext.verify(() -> {
                 assertEquals(3600, sub3600.heartbeatIntervalSeconds());
                 assertEquals(7200, sub3600.heartbeatTimeoutSeconds());
                 logger.info("Heartbeat edge cases: (1s/2s) and (3600s/7200s) verified");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     // Helper method

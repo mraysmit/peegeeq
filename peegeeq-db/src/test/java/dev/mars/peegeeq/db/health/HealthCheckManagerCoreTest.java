@@ -100,30 +100,28 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
                 }
                 return healthCheckManager.stop();
             })
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 assertFalse(healthCheckManager.isRunning());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
     void testDatabaseHealthCheck(VertxTestContext testContext) {
         healthCheckManager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 HealthStatus dbHealth = healthCheckManager.getHealthStatus("database");
                 assertNotNull(dbHealth);
                 assertEquals("database", dbHealth.getComponent());
                 assertTrue(dbHealth.isHealthy(), "Database should be healthy");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
     void testMemoryHealthCheck(VertxTestContext testContext) {
         healthCheckManager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 HealthStatus memoryHealth = healthCheckManager.getHealthStatus("memory");
                 assertNotNull(memoryHealth);
                 assertEquals("memory", memoryHealth.getComponent());
@@ -133,14 +131,13 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
                 assertTrue(memoryHealth.getDetails().containsKey("used_memory_mb"));
                 assertTrue(memoryHealth.getDetails().containsKey("memory_usage_percent"));
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
     void testDiskSpaceHealthCheck(VertxTestContext testContext) {
         healthCheckManager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 HealthStatus diskHealth = healthCheckManager.getHealthStatus("disk-space");
                 assertNotNull(diskHealth);
                 assertEquals("disk-space", diskHealth.getComponent());
@@ -150,14 +147,13 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
                 assertTrue(diskHealth.getDetails().containsKey("free_space_gb"));
                 assertTrue(diskHealth.getDetails().containsKey("disk_usage_percent"));
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
     void testOverallHealthStatus(VertxTestContext testContext) {
         healthCheckManager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 OverallHealthStatus overallHealth = healthCheckManager.getOverallHealthInternal();
                 assertNotNull(overallHealth);
                 assertEquals("UP", overallHealth.getStatus());
@@ -167,18 +163,16 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
                 assertTrue(overallHealth.getComponents().containsKey("disk-space"));
                 assertNotNull(overallHealth.getTimestamp());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
     void testIsHealthy(VertxTestContext testContext) {
         healthCheckManager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 assertTrue(healthCheckManager.isHealthy());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -187,26 +181,24 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
         healthCheckManager.registerHealthCheck("custom-check", customCheck);
 
         healthCheckManager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 HealthStatus customHealth = healthCheckManager.getHealthStatus("custom-check");
                 assertNotNull(customHealth);
                 assertEquals("custom-check", customHealth.getComponent());
                 assertTrue(customHealth.isHealthy());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
     void testQueueHealthChecksDisabled(VertxTestContext testContext) {
         healthCheckManager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 assertNull(healthCheckManager.getHealthStatus("outbox-queue"));
                 assertNull(healthCheckManager.getHealthStatus("native-queue"));
                 assertNull(healthCheckManager.getHealthStatus("dead-letter-queue"));
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -247,21 +239,19 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
                 }
                 return healthCheckManager.start();
             })
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 assertTrue(healthCheckManager.isRunning());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
     void testStopWhenNotRunning(VertxTestContext testContext) {
         healthCheckManager.stop()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 assertFalse(healthCheckManager.isRunning());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -283,11 +273,10 @@ public class HealthCheckManagerCoreTest extends BaseIntegrationTest {
                 }
                 return healthCheckManager.start();
             })
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 assertTrue(healthCheckManager.isRunning());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test

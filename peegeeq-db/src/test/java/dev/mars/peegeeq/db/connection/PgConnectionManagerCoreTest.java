@@ -214,11 +214,10 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
                 .execute()
                 .map(rowSet -> rowSet.iterator().next().getInteger("value"))
         )
-        .onSuccess(result -> testContext.verify(() -> {
+        .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
             assertEquals(42, result);
             testContext.completeNow();
-        }))
-        .onFailure(testContext::failNow);
+        })));
     }
 
     @Test
@@ -253,11 +252,10 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
                 .execute()
                 .map(rowSet -> rowSet.iterator().next().getInteger("value"))
         )
-        .onSuccess(result -> testContext.verify(() -> {
+        .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
             assertEquals(99, result);
             testContext.completeNow();
-        }))
-        .onFailure(testContext::failNow);
+        })));
     }
 
     @Test
@@ -288,21 +286,19 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
         connectionManager.getOrCreateReactivePool("test-service", connectionConfig, poolConfig);
 
         connectionManager.checkHealth("test-service")
-            .onSuccess(healthy -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(healthy -> testContext.verify(() -> {
                 assertTrue(healthy);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
     void testCheckHealthNonExistentService(VertxTestContext testContext) {
         connectionManager.checkHealth("non-existent-service")
-            .onSuccess(healthy -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(healthy -> testContext.verify(() -> {
                 assertFalse(healthy);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -346,11 +342,10 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
         assertNotNull(connectionManager.getExistingPool("test-service"));
 
         connectionManager.closePool("test-service")
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 assertNull(connectionManager.getExistingPool("test-service"));
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -380,12 +375,11 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
         assertNotNull(connectionManager.getExistingPool("test-service-2"));
 
         connectionManager.close()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 assertNull(connectionManager.getExistingPool("test-service-1"));
                 assertNull(connectionManager.getExistingPool("test-service-2"));
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -413,11 +407,10 @@ public class PgConnectionManagerCoreTest extends BaseIntegrationTest {
         assertNotNull(connectionManager.getExistingPool("test-service"));
 
         connectionManager.close()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 assertNull(connectionManager.getExistingPool("test-service"));
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test

@@ -150,7 +150,7 @@ public class BackfillRateLimitingIntegrationTest extends BaseIntegrationTest {
                             return new long[]{noDelayMs, elapsed};
                         });
             })
-            .onSuccess(times -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(times -> testContext.verify(() -> {
                 long noDelayElapsed = times[0];
                 long delayElapsed = times[1];
 
@@ -168,8 +168,7 @@ public class BackfillRateLimitingIntegrationTest extends BaseIntegrationTest {
                                 minimumDifference, noDelayElapsed, delayElapsed, actualDifference));
 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
     }
 
@@ -185,12 +184,11 @@ public class BackfillRateLimitingIntegrationTest extends BaseIntegrationTest {
         createTopicWithSubscriberAndMessages(topic, messageCount)
             .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
             .compose(v -> backfillService.startBackfill(topic, groupName, 5, 0, 0L))
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 assertEquals(BackfillResult.Status.COMPLETED, result.status());
                 assertEquals(messageCount, result.processedMessages());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
     }
 
@@ -222,7 +220,7 @@ public class BackfillRateLimitingIntegrationTest extends BaseIntegrationTest {
 
                 return backfillFuture;
             })
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 assertEquals(BackfillResult.Status.CANCELLED, result.status(),
                         "Backfill should be cancelled");
                 assertTrue(result.processedMessages() > 0,
@@ -232,8 +230,7 @@ public class BackfillRateLimitingIntegrationTest extends BaseIntegrationTest {
                 logger.info("Cancelled after processing {} of {} messages",
                         result.processedMessages(), messageCount);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
     }
 
@@ -250,12 +247,11 @@ public class BackfillRateLimitingIntegrationTest extends BaseIntegrationTest {
         createTopicWithSubscriberAndMessages(topic, messageCount)
             .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
             .compose(v -> backfillService.startBackfill(topic, groupName, 100, 0))
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 assertEquals(BackfillResult.Status.COMPLETED, result.status());
                 assertEquals(messageCount, result.processedMessages());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
     }
 

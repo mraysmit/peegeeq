@@ -104,13 +104,12 @@ public class SecurityConfigurationExampleTest {
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("secure"), new SimpleMeterRegistry());
         manager.start()
             .compose(v -> manager.getVertx().timer(5000).mapEmpty())
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 var healthStatus = manager.getHealthCheckManager().getOverallHealth();
                 assertNotNull(healthStatus);
                 assertTrue(healthStatus.isHealthy());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -131,12 +130,11 @@ public class SecurityConfigurationExampleTest {
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("ssl-test"), new SimpleMeterRegistry());
         manager.start()
             .compose(v -> manager.getVertx().timer(5000).mapEmpty())
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 var healthStatus = manager.getHealthCheckManager().getOverallHealth();
                 assertTrue(healthStatus.isHealthy());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -162,13 +160,12 @@ public class SecurityConfigurationExampleTest {
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("production"), new SimpleMeterRegistry());
         manager.start()
             .compose(v -> manager.getVertx().timer(5000).mapEmpty())
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 var healthStatus = manager.getHealthCheckManager().getOverallHealth();
                 assertTrue(healthStatus.isHealthy());
                 assertNotNull(manager.getMetrics());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -190,7 +187,7 @@ public class SecurityConfigurationExampleTest {
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("monitoring"), new SimpleMeterRegistry());
         manager.start()
             .compose(v -> manager.getVertx().timer(5000).mapEmpty())
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 var healthCheckManager = manager.getHealthCheckManager();
                 assertNotNull(healthCheckManager);
 
@@ -201,8 +198,7 @@ public class SecurityConfigurationExampleTest {
                 var overallHealthComponents = overallHealth.getComponents();
                 assertTrue(overallHealthComponents.size() > 0, "Should have at least one health check");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -224,12 +220,11 @@ public class SecurityConfigurationExampleTest {
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("credentials"), new SimpleMeterRegistry());
         manager.start()
             .compose(v -> manager.getVertx().timer(5000).mapEmpty())
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 var healthStatus = manager.getHealthCheckManager().getOverallHealth();
                 assertTrue(healthStatus.isHealthy());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -252,13 +247,12 @@ public class SecurityConfigurationExampleTest {
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("compliance"), new SimpleMeterRegistry());
         manager.start()
             .compose(v -> manager.getVertx().timer(5000).mapEmpty())
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 var healthStatus = manager.getHealthCheckManager().getOverallHealth();
                 assertTrue(healthStatus.isHealthy());
                 assertNotNull(manager.getMetrics());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 }
 

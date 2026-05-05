@@ -117,7 +117,7 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
         topicConfigService.createTopic(topicConfig)
             .compose(v -> subscriptionManager.subscribe(topic, groupName))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(subscription -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 assertNotNull(subscription, "Subscription should be created");
                 assertEquals(topic, subscription.topic());
                 assertEquals(groupName, subscription.groupName());
@@ -126,8 +126,7 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
                 assertNotNull(subscription.lastHeartbeatAt());
                 logger.info("Subscribe with default options test passed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -151,14 +150,13 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
         topicConfigService.createTopic(topicConfig)
             .compose(v -> subscriptionManager.subscribe(topic, groupName, options))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(subscription -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(subscription -> testContext.verify(() -> {
                 assertNotNull(subscription);
                 assertEquals(30, subscription.heartbeatIntervalSeconds());
                 assertEquals(120, subscription.heartbeatTimeoutSeconds());
                 logger.info("Subscribe with custom options test passed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     
     @Test
@@ -183,13 +181,12 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
                 return subscriptionManager.resume(topic, groupName);
             })
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(resumedSubscription -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(resumedSubscription -> testContext.verify(() -> {
                 assertEquals(SubscriptionState.ACTIVE, resumedSubscription.state());
                 assertTrue(resumedSubscription.isActive());
                 logger.info("Pause and resume subscription test passed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     
     @Test
@@ -208,13 +205,12 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
             .compose(v -> subscriptionManager.subscribe(topic, groupName))
             .compose(v -> subscriptionManager.cancel(topic, groupName))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(cancelledSubscription -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(cancelledSubscription -> testContext.verify(() -> {
                 assertEquals(SubscriptionState.CANCELLED, cancelledSubscription.state());
                 assertFalse(cancelledSubscription.isActive());
                 logger.info("Cancel subscription test passed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -239,13 +235,12 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
             })
             .compose(v -> subscriptionManager.updateHeartbeat(topic, groupName))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(updatedSubscription -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(updatedSubscription -> testContext.verify(() -> {
                 assertTrue(updatedSubscription.lastHeartbeatAt().isAfter(initialHeartbeatRef.get()),
                     "Heartbeat timestamp should be updated");
                 logger.info("Update heartbeat test passed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -264,15 +259,14 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
             .compose(v -> subscriptionManager.subscribe(topic, "group-b"))
             .compose(v -> subscriptionManager.subscribe(topic, "group-c"))
             .compose(v -> subscriptionManager.listSubscriptions(topic))
-            .onSuccess(subscriptions -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(subscriptions -> testContext.verify(() -> {
                 assertEquals(3, subscriptions.size(), "Should have 3 subscriptions");
                 assertTrue(subscriptions.stream().anyMatch(s -> s.groupName().equals("group-a")));
                 assertTrue(subscriptions.stream().anyMatch(s -> s.groupName().equals("group-b")));
                 assertTrue(subscriptions.stream().anyMatch(s -> s.groupName().equals("group-c")));
                 logger.info("List subscriptions test passed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -303,15 +297,14 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
             })
             .compose(v -> subscriptionManager.updateHeartbeat(topic, groupName))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(resurrected -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(resurrected -> testContext.verify(() -> {
                 assertEquals(SubscriptionState.ACTIVE, resurrected.state(),
                     "Should be ACTIVE after heartbeat resurrects DEAD subscription");
                 assertTrue(resurrected.lastHeartbeatAt().isAfter(deadHeartbeatRef.get()),
                     "Heartbeat timestamp should be updated");
                 logger.info("Heartbeat auto-resurrection test passed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -335,13 +328,12 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
                 return subscriptionManager.updateHeartbeat(topic, groupName);
             })
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(stillCancelled -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(stillCancelled -> testContext.verify(() -> {
                 assertEquals(SubscriptionState.CANCELLED, stillCancelled.state(),
                     "CANCELLED subscription should NOT be resurrected by heartbeat");
                 logger.info("Heartbeat does not resurrect CANCELLED test passed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -365,13 +357,12 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
                 return subscriptionManager.updateHeartbeat(topic, groupName);
             })
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(stillPaused -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(stillPaused -> testContext.verify(() -> {
                 assertEquals(SubscriptionState.PAUSED, stillPaused.state(),
                     "PAUSED subscription should remain PAUSED after heartbeat");
                 logger.info("Heartbeat keeps PAUSED subscription PAUSED test passed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     // --- Backfill Lifecycle Integration Tests (H2) ---
 
@@ -413,13 +404,12 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
                     "All " + messageCount + " messages should have been backfilled");
                 return countMessagesWithRequiredGroups(topic, 2);
             })
-            .onSuccess(incrementedCount -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(incrementedCount -> testContext.verify(() -> {
                 assertTrue(incrementedCount > 0,
                     "Messages should have required_consumer_groups incremented to 2");
                 logger.info("Subscribe FROM_BEGINNING auto-triggers backfill test passed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -449,15 +439,14 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
                 return subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.defaults());
             })
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(info -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(info -> testContext.verify(() -> {
                 assertNotNull(info, "Subscription should exist");
                 assertEquals(SubscriptionState.ACTIVE, info.state(), "Subscription should be ACTIVE");
                 assertTrue(info.backfillStatus() == null || "NONE".equals(info.backfillStatus()),
                     "Backfill should NOT have been triggered for FROM_NOW, got: " + info.backfillStatus());
                 logger.info("Subscribe FROM_NOW does not trigger backfill test passed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -473,14 +462,13 @@ public class SubscriptionManagerIntegrationTest extends BaseIntegrationTest {
                 .build())
             .compose(v -> subscriptionManager.subscribe(topic, groupName, SubscriptionOptions.fromBeginning()))
             .compose(v -> subscriptionManager.getSubscription(topic, groupName))
-            .onSuccess(info -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(info -> testContext.verify(() -> {
                 assertNotNull(info, "Subscription should exist");
                 assertEquals(SubscriptionState.ACTIVE, info.state(), "Subscription should be ACTIVE");
                 assertEquals(1L, info.startFromMessageId(), "start_from_message_id should be 1 for FROM_BEGINNING");
                 logger.info("Subscribe FROM_BEGINNING without BackfillService test passed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     // --- Helper methods ---
 

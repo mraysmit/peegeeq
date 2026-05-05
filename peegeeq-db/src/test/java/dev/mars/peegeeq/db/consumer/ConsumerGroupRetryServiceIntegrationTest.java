@@ -144,14 +144,13 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                             assertTrue(retriedCount >= 1, "Should have retried at least 1 message");
                             return getTrackingRowStatus(messageId, groupName);
                         }))
-                .onSuccess(status -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(status -> testContext.verify(() -> {
                     assertEquals("PENDING", status.getString("status"),
                             "Status should be reset to PENDING after retry");
                     assertNull(status.getString("error_message"),
                             "Error message should be cleared on retry");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         logger.info("=== TEST: testRetryResetsFailedToPending COMPLETED ===");
     }
@@ -185,12 +184,11 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                             // This message should NOT have been retried
                             return getTrackingRowStatus(messageId, groupName);
                         }))
-                .onSuccess(status -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(status -> testContext.verify(() -> {
                     assertEquals("FAILED", status.getString("status"),
                             "Status should stay FAILED when retry count exhausted");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         logger.info("=== TEST: testRetryDoesNotResetWhenRetryCountExhausted COMPLETED ===");
     }
@@ -208,13 +206,12 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                     // Mark as completed (not failed)
                     tracker.markCompleted(messageId, groupName, topic)
                         .compose(v -> retryService.retryFailedMessages()))
-                .onSuccess(retriedCount -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(retriedCount -> testContext.verify(() -> {
                     // No FAILED rows from this test; count may include stale data
                     // The key assertion is that we get here without error
                     logger.info("Retry returned count: {}", retriedCount);
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         logger.info("=== TEST: testRetryReturnsZeroWhenNoFailures COMPLETED ===");
     }
@@ -250,7 +247,7 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                                                     .put("group1", g1Status)
                                                     .put("group2", g2Status)));
                         }))
-                .onSuccess(statuses -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(statuses -> testContext.verify(() -> {
                     JsonObject g1 = statuses.getJsonObject("group1");
                     JsonObject g2 = statuses.getJsonObject("group2");
                     assertEquals("COMPLETED", g1.getString("status"),
@@ -258,8 +255,7 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                     assertEquals("PENDING", g2.getString("status"),
                             "group2 should be reset to PENDING");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         logger.info("=== TEST: testRetryDoesNotTouchCompletedMessages COMPLETED ===");
     }
@@ -282,14 +278,13 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                             assertTrue(retriedCount >= 1, "Should have retried");
                             return getTrackingRowStatus(messageId, groupName);
                         }))
-                .onSuccess(status -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(status -> testContext.verify(() -> {
                     assertEquals("PENDING", status.getString("status"),
                             "Should be reset to PENDING");
                     assertEquals(1, status.getInteger("retry_count"),
                             "retry_count should be preserved (not reset)");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         logger.info("=== TEST: testRetryPreservesRetryCount COMPLETED ===");
     }
@@ -321,7 +316,7 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                                                     .put("tracking", trackingStatus)
                                                     .put("dlq", dlqEntry)));
                         }))
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     JsonObject tracking = result.getJsonObject("tracking");
                     JsonObject dlq = result.getJsonObject("dlq");
 
@@ -335,8 +330,7 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                     assertTrue(dlq.getString("failure_reason").contains("final error"),
                             "DLQ failure_reason should include last error message");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         logger.info("=== TEST: testMoveExhaustedToDlq COMPLETED ===");
     }
@@ -354,11 +348,10 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                     // Fail once retry_count=0, well below max_retries=5
                     tracker.markFailed(messageId, groupName, topic, "transient error")
                         .compose(v -> retryService.moveExhaustedToDlq()))
-                .onSuccess(dlqCount -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(dlqCount -> testContext.verify(() -> {
                     assertEquals(0, dlqCount, "Should NOT move retry-eligible message to DLQ");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         logger.info("=== TEST: testDlqDoesNotMoveRetryEligible COMPLETED ===");
     }
@@ -375,11 +368,10 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                 .compose(messageId ->
                     tracker.markCompleted(messageId, groupName, topic)
                         .compose(v -> retryService.moveExhaustedToDlq()))
-                .onSuccess(dlqCount -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(dlqCount -> testContext.verify(() -> {
                     assertEquals(0, dlqCount, "Should NOT move completed messages to DLQ");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         logger.info("=== TEST: testDlqDoesNotMoveCompletedMessages COMPLETED ===");
     }
@@ -405,12 +397,11 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                             // Second DLQ pass already DEAD_LETTER, should not be picked up
                             return retryService.moveExhaustedToDlq();
                         }))
-                .onSuccess(secondDlqCount -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(secondDlqCount -> testContext.verify(() -> {
                     assertEquals(0, secondDlqCount,
                             "Second pass should move 0 (already DEAD_LETTER)");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         logger.info("=== TEST: testDlqDoesNotMoveSameMessageTwice COMPLETED ===");
     }
@@ -455,14 +446,13 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                                                     .put("retry", retryStatus)
                                                     .put("dlq", dlqStatus)));
                         }))
-                .onSuccess(statuses -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(statuses -> testContext.verify(() -> {
                     assertEquals("PENDING", statuses.getJsonObject("retry").getString("status"),
                             "retryGroup should be PENDING");
                     assertEquals("DEAD_LETTER", statuses.getJsonObject("dlq").getString("status"),
                             "dlqGroup should be DEAD_LETTER");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         logger.info("=== TEST: testProcessFailedMessagesRetryAndDlqTogether COMPLETED ===");
     }
@@ -472,13 +462,12 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
         logger.info("=== TEST: testProcessFailedMessagesWithNoFailures STARTED ===");
 
         retryService.processFailedMessages()
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     // Counts may include leftover data; verify no errors
                     logger.info("processFailedMessages with clean DB: retried={}, dlq={}",
                             result.retriedCount(), result.dlqCount());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         logger.info("=== TEST: testProcessFailedMessagesWithNoFailures COMPLETED ===");
     }
@@ -510,11 +499,10 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                                     "Should move to DLQ");
                             return getTrackingRowStatus(messageId, groupName);
                         }))
-                .onSuccess(status -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(status -> testContext.verify(() -> {
                     assertEquals("DEAD_LETTER", status.getString("status"));
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         logger.info("=== TEST: testMaxRetriesOfOneGoesDirectlyToDlq COMPLETED ===");
     }
@@ -561,13 +549,12 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                                             .put("retry", rs)
                                             .put("dlq", ds))));
                         }))
-                .onSuccess(statuses -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(statuses -> testContext.verify(() -> {
                     assertEquals("COMPLETED", statuses.getJsonObject("completed").getString("status"));
                     assertEquals("PENDING", statuses.getJsonObject("retry").getString("status"));
                     assertEquals("DEAD_LETTER", statuses.getJsonObject("dlq").getString("status"));
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         logger.info("=== TEST: testMultipleGroupsOnSameMessageMixedOutcomes COMPLETED ===");
     }
@@ -593,7 +580,7 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                         .compose(v -> tracker.markFailed(messageId, groupName, topic, "final error"))
                         .compose(v -> retryService.moveExhaustedToDlq())
                         .compose(dlqCount -> getDlqEntryForTopic(topic)))
-                .onSuccess(dlq -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(dlq -> testContext.verify(() -> {
                     assertNotNull(dlq, "DLQ entry should exist");
                     assertEquals(topic, dlq.getString("topic"));
                     assertEquals(correlationId, dlq.getString("correlation_id"));
@@ -602,8 +589,7 @@ public class ConsumerGroupRetryServiceIntegrationTest extends BaseIntegrationTes
                     assertTrue(dlq.getInteger("retry_count") >= 2,
                             "DLQ retry_count should reflect exhausted retries");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         logger.info("=== TEST: testDlqEntryContainsOriginalMessageData COMPLETED ===");
     }

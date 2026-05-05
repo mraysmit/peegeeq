@@ -101,7 +101,7 @@ public class SimpleConsumerGroupTestTest {
         
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
         manager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 ConsumerGroupResult result = testBasicConsumerGroupFunctionality();
                 
                 assertNotNull(result, "Consumer group result should not be null");
@@ -114,8 +114,7 @@ public class SimpleConsumerGroupTestTest {
                 logger.info("   Group: {}, Consumers: {}, Messages processed: {}", 
                     result.groupName, result.consumersAdded, result.messagesProcessed);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -128,7 +127,7 @@ public class SimpleConsumerGroupTestTest {
         
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
         manager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 MessageFilteringResult result = testMessageFilteringFunctionality();
                 
                 assertNotNull(result, "Message filtering result should not be null");
@@ -141,8 +140,7 @@ public class SimpleConsumerGroupTestTest {
                 logger.info("   Filters applied: {}, Messages filtered: {}", 
                     result.filtersApplied, result.messagesFiltered);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -155,7 +153,7 @@ public class SimpleConsumerGroupTestTest {
         
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
         manager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 MessageProcessingResult result = testMessageProcessingFunctionality();
                 
                 assertNotNull(result, "Message processing result should not be null");
@@ -167,8 +165,7 @@ public class SimpleConsumerGroupTestTest {
                 logger.info("   Produced: {}, Consumed: {}, Processing time: {}ms", 
                     result.messagesProduced, result.messagesConsumed, result.processingTime);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -181,7 +178,7 @@ public class SimpleConsumerGroupTestTest {
         
         manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
         manager.start()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 ConsumerManagementResult result = testConsumerManagementFunctionality();
                 
                 assertNotNull(result, "Consumer management result should not be null");
@@ -193,8 +190,7 @@ public class SimpleConsumerGroupTestTest {
                 logger.info("   Consumers managed: {}, Groups created: {}, Operations: {}", 
                     result.consumersManaged, result.consumerGroupsCreated, result.managementOperations);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     // Helper methods that replicate the original example's functionality

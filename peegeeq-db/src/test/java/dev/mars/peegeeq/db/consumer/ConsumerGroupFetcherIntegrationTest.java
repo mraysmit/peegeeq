@@ -281,7 +281,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                     Future<List<OutboxMessage>> fetch2 = fetcher.fetchMessages(topic, groupName, 1);
                     return Future.all(fetch1, fetch2);
                 })
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     @SuppressWarnings("unchecked")
                     List<OutboxMessage> messages1 = (List<OutboxMessage>) result.resultAt(0);
                     @SuppressWarnings("unchecked")
@@ -291,8 +291,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                     assertEquals(1, totalClaimed,
                             "Concurrent fetches for same group should claim a message exactly once");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         logger.info("=== TEST: testConcurrentFetchContentionSameGroupOnlyOneFetcherClaimsMessage COMPLETED ===");
     }
@@ -325,14 +324,13 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                                                     .put("secondFetchSize", secondFetch.size())
                                                     .put("secondFetchId", secondFetch.isEmpty() ? null : secondFetch.get(0).getId())));
                         }))
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     assertEquals(1, result.getInteger("secondFetchSize"),
                             "Failed message should be available for refetch");
                     assertEquals(result.getLong("messageId"), result.getLong("secondFetchId"),
                             "Refetched message should match original claimed message");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         logger.info("=== TEST: testFailedMessageIsRefetchableForSameGroup COMPLETED ===");
     }
@@ -374,14 +372,13 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                                                                         ? null : afterRecoveryFetch.get(0).getId())));
                                     });
                         }))
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     assertEquals(1, result.getInteger("afterRecoverySize"),
                             "Message should be reclaimable after recovery transition to FAILED");
                     assertEquals(result.getLong("messageId"), result.getLong("afterRecoveryId"),
                             "Reclaimed message should match the original stuck message");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         logger.info("=== TEST: testStuckProcessingRequiresRecoveryTransitionBeforeRefetch COMPLETED ===");
     }
@@ -440,7 +437,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                                         .compose(x -> queryCrossTableConsistency(topic, groupName, messageCount));
                             });
                 })
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     assertEquals(0, result.getInteger("mismatched_outbox_count"),
                             "No outbox rows should violate completion counters");
                     assertEquals(0, result.getInteger("non_completed_tracking_count"),
@@ -450,8 +447,7 @@ public class ConsumerGroupFetcherIntegrationTest extends BaseIntegrationTest {
                     assertEquals(messageCount, result.getInteger("tracking_row_count"),
                             "Tracking row count should equal message count");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         logger.info("=== TEST: testConcurrentFailRefetchCompleteMaintainsCrossTableConsistency COMPLETED ===");
     }
