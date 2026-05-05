@@ -215,13 +215,12 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
             // Send a message verify the consumer remains active and can process it
             producer.send("New-Message")
                 .compose(v -> vertx.timer(2000))
-                .onSuccess(timerId -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(timerId -> testContext.verify(() -> {
                     assertTrue(group.isActive());
                     assertEquals(1, count.get(), "Consumer should process the newly sent message");
                     group.close();
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
             assertTrue(testContext.awaitCompletion(10, SECONDS));
         }
@@ -303,14 +302,13 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
                 .build();
 
             group.start(options)
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     assertTrue(group.isActive());
                     assertEquals(30, options.getHeartbeatIntervalSeconds());
                     assertEquals(120, options.getHeartbeatTimeoutSeconds());
                     group.close();
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
             assertTrue(testContext.awaitCompletion(10, SECONDS));
         }
@@ -371,12 +369,11 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
                 .build();
 
             group.start(options)
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     assertTrue(group.isActive());
                     group.close();
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
             assertTrue(testContext.awaitCompletion(10, SECONDS));
         }
@@ -458,12 +455,11 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
 
             group.start(options);
             vertx.timer(2000)
-                .onSuccess(timerId -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(timerId -> testContext.verify(() -> {
                     assertTrue(group.isActive(), "Consumer should start successfully with future timestamp");
                     group.close();
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
             assertTrue(testContext.awaitCompletion(30, SECONDS));
         }
 
@@ -517,13 +513,12 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
 
             group.start(options);
             vertx.timer(2000)
-                .onSuccess(timerId -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(timerId -> testContext.verify(() -> {
                     assertTrue(group.isActive());
                     assertEquals(0, count.get(), "Should not receive any messages from empty topic");
                     group.close();
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
             assertTrue(testContext.awaitCompletion(30, SECONDS));
         }
 
@@ -546,13 +541,12 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
 
             group.start(options);
             vertx.timer(2000)
-                .onSuccess(timerId -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(timerId -> testContext.verify(() -> {
                     assertTrue(group.isActive());
                     assertEquals(0, count.get());
                     group.close();
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
             assertTrue(testContext.awaitCompletion(30, SECONDS));
         }
     }
@@ -583,7 +577,7 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
             group.start();
             producer.send("Message")
                 .compose(v -> vertx.timer(500))
-                .onSuccess(timerId -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(timerId -> testContext.verify(() -> {
                     // Try to set handler again while processing
                     assertThrows(IllegalStateException.class, () -> {
                         group.setMessageHandler(msg -> Future.succeededFuture());
@@ -597,8 +591,7 @@ class OutboxConsumerGroupSubscriptionEdgeCasesTest {
                     // in-progress closeAsync() that races with manager.closeReactive() in
                     // tearDown and causes the pool close to hang. The factory.close() in
                     // tearDown calls group.closeAsync() correctly on the main thread.
-                }))
-                .onFailure(testContext::failNow);
+                })));
             assertTrue(testContext.awaitCompletion(30, SECONDS));
         }
 

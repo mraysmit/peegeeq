@@ -284,14 +284,13 @@ public class OutboxConsumerFailureHandlingTest {
                     vertx.setTimer(500, id -> timer.complete());
                     return timer.future();
                 })
-                .onSuccess(ignored -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(ignored -> testContext.verify(() -> {
                     // After manager shutdown, consumer should be cleanly closed
                     AtomicBoolean closedState = getPrivateField(typedConsumer, "closed", AtomicBoolean.class);
                     assertTrue(closedState.get(),
                             "Consumer should be cleanly closed after manager shutdown");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS),
                 "Consumer should handle pool failures gracefully without crashing");

@@ -351,12 +351,11 @@ class OutboxConsumerGroupSubscriptionTest {
                     return group3.start(SubscriptionOptions.defaults())
                         .map(v3 -> group3);
                 })
-                .onSuccess(group3 -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(group3 -> testContext.verify(() -> {
                     assertTrue(group3.isActive());
                     group3.close();
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
             assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
         }

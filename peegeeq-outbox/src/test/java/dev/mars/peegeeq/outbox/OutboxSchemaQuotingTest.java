@@ -214,13 +214,12 @@ class OutboxSchemaQuotingTest {
         var producer = factory.createProducer("test-topic", String.class);
         producer.send("hello")
             .compose(v -> factory.getStatsAsync("test-topic"))
-            .onSuccess(stats -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(stats -> testContext.verify(() -> {
                 assertEquals(1, stats.getPendingMessages(),
                     "Stats query with simple schema name should work");
                 producer.close();
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
@@ -251,7 +250,7 @@ class OutboxSchemaQuotingTest {
         var producer = factory.createProducer("stats-topic", String.class);
         producer.send("hello")
             .compose(v -> factory.getStatsAsync("stats-topic"))
-            .onSuccess(stats -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(stats -> testContext.verify(() -> {
                 // With the old bug: recover() used to swallow the SQL error and return 0.
                 // With the fix: query succeeds and returns 1.
                 // Either way, getting 0 when we inserted 1 is evidence of the bug.
@@ -260,8 +259,7 @@ class OutboxSchemaQuotingTest {
                     "Got 0 because unquoted 'FROM order.outbox' is a SQL syntax error the query fails instead of returning 1.");
                 producer.close();
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
@@ -285,14 +283,13 @@ class OutboxSchemaQuotingTest {
         var producer = factory.createProducer("count-topic", String.class);
         producer.send("hello")
             .compose(v -> factory.countMessagesAsync("count-topic"))
-            .onSuccess(count -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(count -> testContext.verify(() -> {
                 assertEquals(1L, count,
                     "countMessagesAsync with schema 'order' should return 1. " +
                     "Unquoted 'FROM order.outbox' is a SQL syntax error.");
                 producer.close();
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
@@ -316,14 +313,13 @@ class OutboxSchemaQuotingTest {
         var producer = factory.createProducer("purge-topic", String.class);
         producer.send("to-be-purged")
             .compose(v -> factory.purgeMessagesAsync("purge-topic"))
-            .onSuccess(purged -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(purged -> testContext.verify(() -> {
                 assertEquals(1, purged,
                     "purgeMessagesAsync with schema 'order' should purge 1 message. " +
                     "Unquoted 'DELETE FROM order.outbox' is a SQL syntax error.");
                 producer.close();
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
@@ -348,14 +344,13 @@ class OutboxSchemaQuotingTest {
         var producer = factory.createProducer("select-topic", String.class);
         producer.send("hello")
             .compose(v -> factory.countMessagesAsync("select-topic"))
-            .onSuccess(count -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(count -> testContext.verify(() -> {
                 assertEquals(1L, count,
                     "countMessagesAsync with schema 'select' should return 1. " +
                     "Unquoted 'FROM select.outbox' is a SQL syntax error.");
                 producer.close();
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }

@@ -350,12 +350,11 @@ class OutboxConsumerEdgeCasesCoverageTest {
         setPrivateField(typedConsumer, "inflightProcessing", slowHandler.future());
 
         typedConsumer.closeAsync()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 assertEquals(1, messagesProcessed.get(),
                     "In-flight processing should have completed before closeAsync resolved");
                 done.flag();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS),
             "closeAsync should complete after in-flight processing finishes");
@@ -448,7 +447,7 @@ class OutboxConsumerEdgeCasesCoverageTest {
 
         long before = System.currentTimeMillis();
         typedConsumer.closeAsync()
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 long elapsed = System.currentTimeMillis() - before;
                 // closeAsync must complete: after timeout (~1s) + pool close overhead, well under 5s
                 assertTrue(elapsed >= 900, "closeAsync should have waited at least ~1s for timeout, got " + elapsed + "ms");
@@ -456,8 +455,7 @@ class OutboxConsumerEdgeCasesCoverageTest {
                 AtomicBoolean closedField = getPrivateField(typedConsumer, "closed", AtomicBoolean.class);
                 assertTrue(closedField.get(), "Consumer should be marked closed after timeout");
                 done.flag();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS),
             "closeAsync must complete even when in-flight processing stalls indefinitely");

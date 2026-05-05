@@ -156,13 +156,12 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
             // Allow time for markMessageCompleted to execute
             .compose(v -> vertx.timer(1000))
             .compose(timerId -> queryMessageStatusCountsAsync(vertx, testTopic))
-            .onSuccess(statusCounts -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(statusCounts -> testContext.verify(() -> {
                 int completedCount = statusCounts.getOrDefault("COMPLETED", 0);
                 assertTrue(completedCount >= 1,
                         "Accepted message should be marked COMPLETED, but statuses were: " + statusCounts);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
@@ -195,7 +194,7 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
             // Allow time for any status update to execute
             .compose(v -> vertx.timer(1000))
             .compose(timerId -> queryMessageStatusCountsAsync(vertx, testTopic))
-            .onSuccess(statusCounts -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(statusCounts -> testContext.verify(() -> {
                 // Critical assertion: the filtered message must NOT be COMPLETED
                 assertEquals(0, processedCount.get(),
                         "Filtered message should not have reached the handler");
@@ -215,8 +214,7 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
                         "Filtered message should be in PENDING or FILTERED state, but statuses were: " + statusCounts);
 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
@@ -243,7 +241,7 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
             // Allow time for any status update to execute
             .compose(v -> vertx.timer(1000))
             .compose(timerId -> queryMessageStatusCountsAsync(vertx, testTopic))
-            .onSuccess(statusCounts -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(statusCounts -> testContext.verify(() -> {
                 assertEquals(0, processedCount.get(),
                         "No-eligible-consumer message should not reach any handler");
 
@@ -255,8 +253,7 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
                         "Actual statuses: " + statusCounts);
 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(15, TimeUnit.SECONDS));
     }
@@ -304,7 +301,7 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
                 return awaitCondition(vertx, () -> group2Processed.get() >= 1, 10_000,
                         "Group 2 should have processed the TypeB message that group 1 filtered");
             })
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 assertEquals(0, group1Processed.get(),
                         "Group 1 should not have processed TypeB message");
                 assertTrue(group2Processed.get() >= 1,
@@ -313,8 +310,7 @@ class OutboxConsumerGroupFilteredMessageStatusTest {
                 consumerGroup2.stop();
                 consumerGroup2.close();
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }

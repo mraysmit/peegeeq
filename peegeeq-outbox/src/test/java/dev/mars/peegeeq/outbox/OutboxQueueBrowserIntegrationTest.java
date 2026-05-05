@@ -163,13 +163,12 @@ public class OutboxQueueBrowserIntegrationTest {
     void testBrowseEmptyQueue(VertxTestContext testContext) throws InterruptedException {
         // When - browse empty queue
         browser.browse(10, 0)
-            .onSuccess(messages -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(messages -> testContext.verify(() -> {
                 // Then
                 assertNotNull(messages);
                 assertTrue(messages.isEmpty());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
@@ -181,7 +180,7 @@ public class OutboxQueueBrowserIntegrationTest {
             .compose(v -> producer.send("message-3"))
             // When - browse messages
             .compose(v -> browser.browse(10, 0))
-            .onSuccess(messages -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(messages -> testContext.verify(() -> {
                 // Then
                 assertNotNull(messages);
                 assertEquals(3, messages.size());
@@ -191,8 +190,7 @@ public class OutboxQueueBrowserIntegrationTest {
                 assertEquals("message-2", messages.get(1).getPayload());
                 assertEquals("message-1", messages.get(2).getPayload());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
@@ -207,14 +205,13 @@ public class OutboxQueueBrowserIntegrationTest {
 
         // When - browse with limit of 2
         chain.compose(v -> browser.browse(2, 0))
-            .onSuccess(messages -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(messages -> testContext.verify(() -> {
                 // Then - should only return 2 messages (newest first)
                 assertEquals(2, messages.size());
                 assertEquals("message-5", messages.get(0).getPayload());
                 assertEquals("message-4", messages.get(1).getPayload());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
@@ -229,15 +226,14 @@ public class OutboxQueueBrowserIntegrationTest {
 
         // When - browse with offset of 2
         chain.compose(v -> browser.browse(10, 2))
-            .onSuccess(messages -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(messages -> testContext.verify(() -> {
                 // Then - should skip first 2 messages
                 assertEquals(3, messages.size());
                 assertEquals("message-3", messages.get(0).getPayload());
                 assertEquals("message-2", messages.get(1).getPayload());
                 assertEquals("message-1", messages.get(2).getPayload());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
@@ -270,13 +266,12 @@ public class OutboxQueueBrowserIntegrationTest {
                 });
                 return browser.browse(2, 4);
             })
-            .onSuccess(page3 -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(page3 -> testContext.verify(() -> {
                 // Verify last page
                 assertEquals(1, page3.size());
                 assertEquals("message-1", page3.get(0).getPayload());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
@@ -291,20 +286,19 @@ public class OutboxQueueBrowserIntegrationTest {
         producer.send("test-payload", headers)
             // When - browse messages
             .compose(v -> browser.browse(10, 0))
-            .onSuccess(messages -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(messages -> testContext.verify(() -> {
                 // Then
                 assertEquals(1, messages.size());
                 Message<String> msg = messages.get(0);
                 assertEquals("test-payload", msg.getPayload());
-                
+
                 Map<String, String> retrievedHeaders = msg.getHeaders();
                 assertNotNull(retrievedHeaders);
                 assertEquals("test", retrievedHeaders.get("source"));
                 assertEquals("integration-test", retrievedHeaders.get("type"));
                 assertEquals("1.0", retrievedHeaders.get("version"));
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
@@ -315,15 +309,14 @@ public class OutboxQueueBrowserIntegrationTest {
         producer.send("test-payload", null, correlationId)
             // When - browse messages
             .compose(v -> browser.browse(10, 0))
-            .onSuccess(messages -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(messages -> testContext.verify(() -> {
                 // Then
                 assertEquals(1, messages.size());
                 Message<String> msg = messages.get(0);
                 assertInstanceOf(OutboxMessage.class, msg, "Message should be an instance of OutboxMessage");
                 assertEquals(correlationId, ((OutboxMessage<String>) msg).getCorrelationId());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
@@ -384,7 +377,7 @@ public class OutboxQueueBrowserIntegrationTest {
         producer.send("test-message")
             // When - browse messages
             .compose(v -> browser.browse(10, 0))
-            .onSuccess(messages -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(messages -> testContext.verify(() -> {
                 // Then - verify message metadata
                 assertEquals(1, messages.size());
                 Message<String> msg = messages.get(0);
@@ -395,8 +388,7 @@ public class OutboxQueueBrowserIntegrationTest {
                 assertInstanceOf(OutboxMessage.class, msg, "Message should be an instance of OutboxMessage");
                 assertEquals("test-message", msg.getPayload(), "Payload should match");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
 
