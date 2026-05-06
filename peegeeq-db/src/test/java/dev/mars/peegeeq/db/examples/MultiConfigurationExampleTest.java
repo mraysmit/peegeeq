@@ -18,9 +18,11 @@ import org.junit.jupiter.api.TestInstance;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.time.Duration;
+import java.util.Properties;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -43,12 +45,12 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag(TestCategories.INTEGRATION)
 @ExtendWith({SharedPostgresTestExtension.class, VertxExtension.class})
 @TestInstance(TestInstance.Lifecycle.PER_METHOD)
-@org.junit.jupiter.api.parallel.ResourceLock("system-properties")
 public class MultiConfigurationExampleTest {
 
     private static final Logger logger = LoggerFactory.getLogger(MultiConfigurationExampleTest.class);
 
     private MultiConfigurationManager configManager;
+    private Properties testProps;
 
     @BeforeEach
     void setUp() {
@@ -56,26 +58,19 @@ public class MultiConfigurationExampleTest {
 
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
-        // Set database properties from TestContainer
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.database.schema", "public");
-
-        // Set valid pool configuration
-        System.setProperty("peegeeq.database.pool.min-size", "2");
-        System.setProperty("peegeeq.database.pool.max-size", "3");
-        System.setProperty("peegeeq.database.pool.shared", "false");
-        System.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
-        System.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
+        testProps = PeeGeeQTestConfig.builder()
+            .from(postgres)
+            .schema("public")
+            .build();
 
         // Initialize multi-configuration manager
         configManager = new MultiConfigurationManager(new SimpleMeterRegistry());
-        
+
         logger.info("✓ Multi Configuration Example Test setup completed");
+    }
+
+    private PeeGeeQConfiguration testConfig() {
+        return new PeeGeeQConfiguration("default", testProps);
     }
     
     @AfterEach
@@ -88,8 +83,6 @@ public class MultiConfigurationExampleTest {
             : Future.succeededFuture();
 
         close.onSuccess(v -> {
-            System.getProperties().entrySet().removeIf(entry ->
-                entry.getKey().toString().startsWith("peegeeq."));
             logger.info("✓ Multi Configuration Example Test teardown completed");
             testContext.completeNow();
         }).onFailure(testContext::failNow);
@@ -104,21 +97,21 @@ public class MultiConfigurationExampleTest {
         logger.info("=== Testing Multiple Configuration Registration ===");
 
         logger.info("Registering high-throughput configuration...");
-        configManager.registerConfiguration("high-throughput", "test");
+        configManager.registerConfiguration("high-throughput", testConfig());
         vertx.timer(100).mapEmpty()
             .compose(v -> {
                 logger.info("Registering low-latency configuration...");
-                configManager.registerConfiguration("low-latency", "test");
+                configManager.registerConfiguration("low-latency", testConfig());
                 return vertx.timer(100).mapEmpty();
             })
             .compose(v -> {
                 logger.info("Registering reliable configuration...");
-                configManager.registerConfiguration("reliable", "test");
+                configManager.registerConfiguration("reliable", testConfig());
                 return vertx.timer(100).mapEmpty();
             })
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 logger.info("Registering development configuration...");
-                configManager.registerConfiguration("development", "test");
+                configManager.registerConfiguration("development", testConfig());
                 Set<String> configNames = configManager.getConfigurationNames();
                 assertEquals(4, configNames.size());
                 assertTrue(configNames.contains("high-throughput"));
@@ -138,8 +131,8 @@ public class MultiConfigurationExampleTest {
     void testConfigurationLifecycleManagement(VertxTestContext testContext) {
         logger.info("=== Testing Configuration Lifecycle Management ===");
 
-        configManager.registerConfiguration("config1", "test");
-        configManager.registerConfiguration("config2", "test");
+        configManager.registerConfiguration("config1", testConfig());
+        configManager.registerConfiguration("config2", testConfig());
 
         configManager.start()
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
@@ -161,14 +154,14 @@ public class MultiConfigurationExampleTest {
     void testHighThroughputConfiguration(VertxTestContext testContext) {
         logger.info("=== Testing High-Throughput Configuration ===");
 
-        configManager.registerConfiguration("high-throughput", "test");
+        configManager.registerConfiguration("high-throughput", testConfig());
         configManager.start()
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 DatabaseService databaseService = configManager.getDatabaseService("high-throughput");
                 assertNotNull(databaseService);
                 PeeGeeQConfiguration config = configManager.getConfiguration("high-throughput");
                 assertNotNull(config);
-                assertEquals("test", config.getProfile());
+                assertEquals("default", config.getProfile());
                 logger.info("High-throughput configuration validated - would create queue with batch-size=100, polling-interval=100ms");
                 logger.info("✓ High-throughput configuration validated successfully");
                 testContext.completeNow();
@@ -183,7 +176,7 @@ public class MultiConfigurationExampleTest {
     void testLowLatencyConfiguration(VertxTestContext testContext) {
         logger.info("=== Testing Low-Latency Configuration ===");
 
-        configManager.registerConfiguration("low-latency", "test");
+        configManager.registerConfiguration("low-latency", testConfig());
         configManager.start()
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 DatabaseService databaseService = configManager.getDatabaseService("low-latency");
@@ -204,7 +197,7 @@ public class MultiConfigurationExampleTest {
     void testReliableConfiguration(VertxTestContext testContext) {
         logger.info("=== Testing Reliable Configuration ===");
 
-        configManager.registerConfiguration("reliable", "test");
+        configManager.registerConfiguration("reliable", testConfig());
         configManager.start()
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 DatabaseService databaseService = configManager.getDatabaseService("reliable");
@@ -225,7 +218,7 @@ public class MultiConfigurationExampleTest {
     void testCustomConfigurationBuilder(VertxTestContext testContext) {
         logger.info("=== Testing Custom Configuration Builder ===");
 
-        configManager.registerConfiguration("development", "test");
+        configManager.registerConfiguration("development", testConfig());
         configManager.start()
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 DatabaseService databaseService = configManager.getDatabaseService("development");
@@ -249,19 +242,19 @@ public class MultiConfigurationExampleTest {
         logger.info("=== Testing Configuration Error Handling ===");
         
         // Test duplicate configuration registration
-        configManager.registerConfiguration("test-config", "test");
+        configManager.registerConfiguration("test-config", testConfig());
         assertThrows(IllegalStateException.class, () -> {
-            configManager.registerConfiguration("test-config", "test");
+            configManager.registerConfiguration("test-config", testConfig());
         });
-        
+
         // Test null configuration name
         assertThrows(IllegalArgumentException.class, () -> {
-            configManager.registerConfiguration(null, "test");
+            configManager.registerConfiguration(null, testConfig());
         });
-        
+
         // Test empty configuration name
         assertThrows(IllegalArgumentException.class, () -> {
-            configManager.registerConfiguration("", "test");
+            configManager.registerConfiguration("", testConfig());
         });
         
         // Test null configuration

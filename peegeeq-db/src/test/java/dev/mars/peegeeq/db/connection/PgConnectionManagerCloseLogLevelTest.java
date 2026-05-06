@@ -227,9 +227,11 @@ public class PgConnectionManagerCloseLogLevelTest {
         }
 
         List<ILoggingEvent> eventsAtLevel(Level level) {
-            return events.stream()
-                    .filter(e -> e.getLevel().equals(level))
-                    .toList();
+            synchronized (events) {
+                return events.stream()
+                        .filter(e -> e.getLevel().equals(level))
+                        .toList();
+            }
         }
 
         void clear() {
