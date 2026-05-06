@@ -93,12 +93,11 @@ class PeeGeeQRestServerStopTest {
 
         vertx.deployVerticle(new PeeGeeQRestServer(config, spy))
                 .compose(deploymentId -> vertx.undeploy(deploymentId))
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     assertTrue(closeCalled.get(),
                             "PeeGeeQRestServer.stop() must call setupService.close() " +
                             "to cancel background timers (e.g. depth cache) on all active PeeGeeQManager instances");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 }

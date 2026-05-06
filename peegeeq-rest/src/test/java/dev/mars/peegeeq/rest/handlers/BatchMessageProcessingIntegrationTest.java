@@ -147,14 +147,13 @@ class BatchMessageProcessingIntegrationTest {
             .putHeader("content-type", "application/json")
             .timeout(30000)
             .sendJsonObject(setupRequest)
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(201, response.statusCode(), "Setup should return 201 Created");
                 JsonObject body = response.bodyAsJsonObject();
                 assertEquals("ACTIVE", body.getString("status"));
                 logger.info("Database setup with queue created successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -188,7 +187,7 @@ class BatchMessageProcessingIntegrationTest {
             .putHeader("content-type", "application/json")
             .timeout(10000)
             .sendJsonObject(messageRequest)
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 int status = response.statusCode();
                 logger.info("Enhanced single message response status: {}", status);
 
@@ -201,8 +200,7 @@ class BatchMessageProcessingIntegrationTest {
                 logger.info("Response: {}", body.encode());
 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -246,7 +244,7 @@ class BatchMessageProcessingIntegrationTest {
             .putHeader("content-type", "application/json")
             .timeout(15000)
             .sendJsonObject(batchRequest)
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 int status = response.statusCode();
                 logger.info("Batch message response status: {}", status);
 
@@ -259,8 +257,7 @@ class BatchMessageProcessingIntegrationTest {
                 logger.info("Batch response: {}", body.encode());
 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -283,7 +280,7 @@ class BatchMessageProcessingIntegrationTest {
             .putHeader("content-type", "application/json")
             .timeout(10000)
             .sendJsonObject(messageRequest)
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 int status = response.statusCode();
                 logger.info("Message with headers response status: {}", status);
 
@@ -291,8 +288,7 @@ class BatchMessageProcessingIntegrationTest {
                     "Message should be accepted, got: " + status);
 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -311,7 +307,7 @@ class BatchMessageProcessingIntegrationTest {
             .putHeader("content-type", "application/json")
             .timeout(10000)
             .sendJsonObject(messageRequest)
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 int status = response.statusCode();
                 logger.info("Priority message response status: {}", status);
 
@@ -319,8 +315,7 @@ class BatchMessageProcessingIntegrationTest {
                     "Message should be accepted, got: " + status);
 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -341,7 +336,7 @@ class BatchMessageProcessingIntegrationTest {
             .putHeader("content-type", "application/json")
             .timeout(10000)
             .sendJsonObject(messageRequest)
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 int status = response.statusCode();
                 logger.info("Delayed message response status: {}", status);
 
@@ -349,7 +344,6 @@ class BatchMessageProcessingIntegrationTest {
                     "Message should be accepted, got: " + status);
 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 }
