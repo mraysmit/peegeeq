@@ -88,7 +88,7 @@ class PeeGeeQServiceManagerIntegrationTest {
     void testHealthEndpoint(Vertx vertx, VertxTestContext testContext) {
         webClient.get(TEST_PORT, "localhost", "/health")
                 .send()
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     assertEquals(200, response.statusCode());
 
                     JsonObject health = response.bodyAsJsonObject();
@@ -98,8 +98,7 @@ class PeeGeeQServiceManagerIntegrationTest {
 
                     logger.info("Health endpoint test passed: {}", health.encode());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
     
     @Test
@@ -118,7 +117,7 @@ class PeeGeeQServiceManagerIntegrationTest {
         webClient.post(TEST_PORT, "localhost", "/api/v1/instances/register")
                 .putHeader("Content-Type", "application/json")
                 .sendJsonObject(registrationData)
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     if (response.statusCode() != 201) {
                         logger.error("Registration failed with status {}: {}", response.statusCode(), response.bodyAsString());
                     }
@@ -131,8 +130,7 @@ class PeeGeeQServiceManagerIntegrationTest {
 
                     logger.info("Instance registration test passed: {}", result.encode());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
     
     @Test
@@ -210,7 +208,7 @@ class PeeGeeQServiceManagerIntegrationTest {
     void testFederatedOverview(Vertx vertx, VertxTestContext testContext) {
         webClient.get(TEST_PORT, "localhost", "/api/v1/federated/overview")
                 .send()
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     assertEquals(200, response.statusCode());
 
                     JsonObject result = response.bodyAsJsonObject();
@@ -221,15 +219,14 @@ class PeeGeeQServiceManagerIntegrationTest {
 
                     logger.info("Federated overview test passed: {}", result.encode());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
     
     @Test
     void testFederatedQueues(Vertx vertx, VertxTestContext testContext) {
         webClient.get(TEST_PORT, "localhost", "/api/v1/federated/queues")
                 .send()
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     assertEquals(200, response.statusCode());
 
                     JsonObject result = response.bodyAsJsonObject();
@@ -242,15 +239,14 @@ class PeeGeeQServiceManagerIntegrationTest {
                     logger.info("Federated queues test passed: found {} queues across {} instances",
                             result.getInteger("queueCount"), result.getInteger("instanceCount"));
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
     
     @Test
     void testFederatedConsumerGroups(Vertx vertx, VertxTestContext testContext) {
         webClient.get(TEST_PORT, "localhost", "/api/v1/federated/consumer-groups")
                 .send()
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     assertEquals(200, response.statusCode());
 
                     JsonObject result = response.bodyAsJsonObject();
@@ -263,7 +259,6 @@ class PeeGeeQServiceManagerIntegrationTest {
                     logger.info("Federated consumer groups test passed: found {} groups across {} instances",
                             result.getInteger("groupCount"), result.getInteger("instanceCount"));
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 }
