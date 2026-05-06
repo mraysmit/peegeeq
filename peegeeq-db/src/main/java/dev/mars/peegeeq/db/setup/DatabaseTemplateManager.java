@@ -167,8 +167,11 @@ public class DatabaseTemplateManager {
             .compose(rows -> {
                 long remaining = rows.iterator().next().getLong("n");
                 if (remaining == 0) {
-                    // All connections gone safe to drop.
-                    String dropSql = "DROP DATABASE IF EXISTS \"" + dbName + "\"";
+                    // All connections confirmed gone (or nearly so); use WITH (FORCE) to handle
+                    // any connection that appeared between the count check and the DROP.
+                    // WITH (FORCE) is available in PostgreSQL 13+ and terminates remaining
+                    // connections atomically as part of the DROP, eliminating the TOCTOU race.
+                    String dropSql = "DROP DATABASE IF EXISTS \"" + dbName + "\" WITH (FORCE)";
                     logger.info("All connections drained from {}, issuing DROP DATABASE", dbName);
                     return conn.query(dropSql).execute()
                         .map(rs -> {

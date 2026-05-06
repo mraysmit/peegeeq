@@ -39,9 +39,9 @@ public class StuckMessageRecoveryManagerCoreTest extends BaseIntegrationTest {
     private StuckMessageRecoveryManager recoveryManager;
 
     @BeforeEach
-    void setUp() {
+    void setUp(VertxTestContext testContext) {
         connectionManager = new PgConnectionManager(manager.getVertx());
-        
+
         PostgreSQLContainer postgres = getPostgres();
         PgConnectionConfig connectionConfig = new PgConnectionConfig.Builder()
             .host(postgres.getHost())
@@ -53,8 +53,14 @@ public class StuckMessageRecoveryManagerCoreTest extends BaseIntegrationTest {
 
         PgPoolConfig poolConfig = new PgPoolConfig.Builder().maxSize(3).shared(false).idleTimeout(Duration.ofSeconds(2)).connectionTimeout(Duration.ofSeconds(5)).build();
         pool = connectionManager.getOrCreateReactivePool("test-recovery", connectionConfig, poolConfig);
-        
-        recoveryManager = new StuckMessageRecoveryManager(pool, Duration.ofMinutes(5), true);
+
+        // Remove any PROCESSING rows left by previous tests so count assertions start clean
+        pool.withConnection(conn ->
+            conn.preparedQuery("DELETE FROM outbox WHERE status = 'PROCESSING'").execute()
+        ).onSuccess(rows -> {
+            recoveryManager = new StuckMessageRecoveryManager(pool, Duration.ofMinutes(5), true);
+            testContext.completeNow();
+        }).onFailure(testContext::failNow);
     }
 
     @AfterEach

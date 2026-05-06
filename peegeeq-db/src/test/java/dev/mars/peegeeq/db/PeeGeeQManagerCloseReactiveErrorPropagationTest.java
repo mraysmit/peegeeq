@@ -18,11 +18,11 @@ package dev.mars.peegeeq.db;
 
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -32,8 +32,6 @@ import org.slf4j.LoggerFactory;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
-
-import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -69,19 +67,20 @@ class PeeGeeQManagerCloseReactiveErrorPropagationTest {
 
     private PeeGeeQManager manager;
 
-    @AfterEach
-    void tearDown() {
-        clearSystemProperties();
-    }
-
     @Test
     @DisplayName("closeReactive must propagate startup failure when start is in-flight and fails")
     void closeReactive_propagates_startup_failure(VertxTestContext testContext) {
-        logger.info("[propagates_startup_failure] Step 1: Setting system properties for empty database (no schema tables)");
-        setSystemPropertiesFor(postgres);
+        logger.info("[propagates_startup_failure] Step 1: Building isolated config for empty database (no schema tables)");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default",
+            PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .schema("public")
+                .property("peegeeq.migration.enabled", "false")
+                .property("peegeeq.migration.auto-migrate", "false")
+                .build());
 
         logger.info("[propagates_startup_failure] Step 2: Creating PeeGeeQManager");
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
+        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
 
         // Fire-and-forget start() replicates the pattern in 95 test setUp methods.
         // start() will fail asynchronously: validateRequiredTables() finds no tables.
@@ -118,11 +117,17 @@ class PeeGeeQManagerCloseReactiveErrorPropagationTest {
     @Test
     @DisplayName("closeReactive runs full cleanup chain even when propagating startup failure")
     void closeReactive_runs_cleanup_despite_propagating_failure(VertxTestContext testContext) {
-        logger.info("[cleanup_despite_failure] Step 1: Setting system properties for empty database (no schema tables)");
-        setSystemPropertiesFor(postgres);
+        logger.info("[cleanup_despite_failure] Step 1: Building isolated config for empty database (no schema tables)");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default",
+            PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .schema("public")
+                .property("peegeeq.migration.enabled", "false")
+                .property("peegeeq.migration.auto-migrate", "false")
+                .build());
 
         logger.info("[cleanup_despite_failure] Step 2: Creating PeeGeeQManager");
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
+        manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
 
         // Fire-and-forget start will fail (no tables)
         logger.info("[cleanup_despite_failure] Step 3: Fire-and-forget start() will fail asynchronously (no schema tables)");
@@ -150,32 +155,4 @@ class PeeGeeQManagerCloseReactiveErrorPropagationTest {
             .onFailure(testContext::failNow);
     }
 
-    // --- Helpers ---
-
-    @SuppressWarnings("unchecked")
-    private void setSystemPropertiesFor(PostgreSQLContainer container) {
-        Properties props = new Properties();
-        props.setProperty("peegeeq.database.host", container.getHost());
-        props.setProperty("peegeeq.database.port", String.valueOf(container.getFirstMappedPort()));
-        props.setProperty("peegeeq.database.name", container.getDatabaseName());
-        props.setProperty("peegeeq.database.username", container.getUsername());
-        props.setProperty("peegeeq.database.password", container.getPassword());
-        props.setProperty("peegeeq.database.ssl.enabled", "false");
-        props.setProperty("peegeeq.database.schema", "public");
-        props.setProperty("peegeeq.database.pool.min-size", "1");
-        props.setProperty("peegeeq.database.pool.max-size", "3");
-        props.setProperty("peegeeq.database.pool.shared", "false");
-        props.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
-        props.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
-        props.setProperty("peegeeq.health.check-interval", "PT5S");
-        props.setProperty("peegeeq.metrics.reporting-interval", "PT10S");
-        props.setProperty("peegeeq.migration.enabled", "false");
-        props.setProperty("peegeeq.migration.auto-migrate", "false");
-        props.forEach((k, v) -> System.setProperty(k.toString(), v.toString()));
-    }
-
-    private void clearSystemProperties() {
-        System.getProperties().entrySet().removeIf(entry ->
-                entry.getKey().toString().startsWith("peegeeq."));
-    }
 }
