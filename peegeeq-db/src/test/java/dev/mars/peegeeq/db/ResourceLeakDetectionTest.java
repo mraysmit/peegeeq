@@ -2,6 +2,7 @@ package dev.mars.peegeeq.db;
 
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -19,6 +20,7 @@ import java.lang.management.ThreadInfo;
 import java.lang.management.ThreadMXBean;
 import java.util.Arrays;
 import java.util.HashSet;
+import java.util.Properties;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -63,27 +65,23 @@ public class ResourceLeakDetectionTest {
     void setUp() throws Exception {
         logger.info("[SETUP] Configuring database and starting PeeGeeQManager");
 
-        // Set up database connection properties from TestContainers BEFORE creating configuration
-        // Use the correct property names from peegeeq-default.properties
-        System.setProperty("peegeeq.database.host", getPostgres().getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(getPostgres().getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", getPostgres().getDatabaseName());
-        System.setProperty("peegeeq.database.username", getPostgres().getUsername());
-        System.setProperty("peegeeq.database.password", getPostgres().getPassword());
-        System.setProperty("peegeeq.database.pool.min-size", "1");
-        System.setProperty("peegeeq.database.pool.max-size", "3");
-        System.setProperty("peegeeq.database.pool.shared", "false");
-        System.setProperty("peegeeq.database.pool.idle-timeout-ms", "5000");
-        System.setProperty("peegeeq.database.pool.connection-timeout-ms", "30000");
-
-        // CRITICAL: Disable migrations to avoid duplicate key violations with shared TestContainer
-        System.setProperty("peegeeq.migration.enabled", "false");
+        // Build isolated configuration properties — never touch System.setProperty so that
+        // concurrent tests sharing the same JVM fork cannot observe partial state.
+        Properties testProps = PeeGeeQTestConfig.builder()
+            .from(getPostgres())
+            .property("peegeeq.database.pool.min-size", "1")
+            .property("peegeeq.database.pool.max-size", "3")
+            .property("peegeeq.database.pool.shared", "false")
+            .property("peegeeq.database.pool.idle-timeout-ms", "5000")
+            .property("peegeeq.database.pool.connection-timeout-ms", "30000")
+            // CRITICAL: Disable migrations to avoid duplicate key violations with shared TestContainer
+            .property("peegeeq.migration.enabled", "false")
+            .build();
 
         logger.info("TestContainers database: {}:{}/{}",
             getPostgres().getHost(), getPostgres().getFirstMappedPort(), getPostgres().getDatabaseName());
 
-        // Create configuration AFTER setting system properties
-        configuration = new PeeGeeQConfiguration();
+        configuration = new PeeGeeQConfiguration("default", testProps);
 
         // Capture initial thread state BEFORE creating any managers
         captureInitialThreadState();
