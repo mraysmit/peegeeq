@@ -154,14 +154,13 @@ class WebSocketHandlerTest {
             .putHeader("content-type", "application/json")
             .timeout(30000)
             .sendJsonObject(setupRequest)
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(201, response.statusCode(), "Setup should return 201 Created");
                 JsonObject body = response.bodyAsJsonObject();
                 assertEquals("ACTIVE", body.getString("status"));
                 logger.info("Database setup with queue created successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -382,7 +381,7 @@ class WebSocketHandlerTest {
         client.get(TEST_PORT, "localhost", wsPath)
             .timeout(5000)
             .send()
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 // WebSocket endpoints typically return 400 or 426 for non-WebSocket requests
                 // or 404 if not implemented
                 int status = response.statusCode();
@@ -392,7 +391,7 @@ class WebSocketHandlerTest {
                 assertTrue(status >= 200 || status >= 400,
                     "Endpoint should respond with some status code");
                 testContext.completeNow();
-            }))
+            })))
             .onFailure(err -> {
                 logger.warn("HTTP request to WebSocket endpoint failed: {}", err.getMessage());
                 testContext.completeNow();
