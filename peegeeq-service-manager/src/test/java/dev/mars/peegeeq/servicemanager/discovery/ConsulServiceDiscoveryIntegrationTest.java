@@ -122,7 +122,7 @@ class ConsulServiceDiscoveryIntegrationTest {
 
         serviceDiscovery.registerInstance(instance)
                 .compose(v -> vertx.timer(1000).compose(timerId -> serviceDiscovery.discoverInstances()))
-                .onSuccess(instances -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(instances -> testContext.verify(() -> {
                     assertNotNull(instances);
                     assertFalse(instances.isEmpty());
 
@@ -140,8 +140,7 @@ class ConsulServiceDiscoveryIntegrationTest {
 
                     logger.info("Successfully discovered test instance: {}", foundInstance);
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -159,7 +158,7 @@ class ConsulServiceDiscoveryIntegrationTest {
         serviceDiscovery.registerInstance(instance)
                 .compose(v -> vertx.timer(1000).compose(timerId ->
                         serviceDiscovery.getInstance("test-specific-01")))
-                .onSuccess(foundInstance -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(foundInstance -> testContext.verify(() -> {
                     assertNotNull(foundInstance);
                     assertEquals("test-specific-01", foundInstance.getInstanceId());
                     assertEquals("localhost", foundInstance.getHost());
@@ -171,8 +170,7 @@ class ConsulServiceDiscoveryIntegrationTest {
 
                     logger.info("Successfully retrieved specific instance: {}", foundInstance);
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -189,7 +187,7 @@ class ConsulServiceDiscoveryIntegrationTest {
         serviceDiscovery.registerInstance(instance)
                 .compose(v -> serviceDiscovery.deregisterInstance("test-deregister-01"))
                 .compose(v -> vertx.timer(1000).compose(timerId -> serviceDiscovery.discoverInstances()))
-                .onSuccess(instances -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(instances -> testContext.verify(() -> {
                     boolean instanceFound = instances.stream()
                             .anyMatch(inst -> "test-deregister-01".equals(inst.getInstanceId()));
 
@@ -197,8 +195,7 @@ class ConsulServiceDiscoveryIntegrationTest {
 
                     logger.info("Successfully verified instance deregistration");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -215,7 +212,7 @@ class ConsulServiceDiscoveryIntegrationTest {
         serviceDiscovery.registerInstance(instance)
                 .compose(v -> vertx.timer(1000).compose(timerId ->
                         serviceDiscovery.checkInstanceHealth("test-health-01")))
-                .onSuccess(health -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(health -> testContext.verify(() -> {
                     assertNotNull(health);
                     assertTrue(
                             health == ServiceHealth.HEALTHY || health == ServiceHealth.UNHEALTHY || health == ServiceHealth.UNKNOWN,
@@ -223,8 +220,7 @@ class ConsulServiceDiscoveryIntegrationTest {
 
                     logger.info("Health check result for test instance: {}", health);
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -250,7 +246,7 @@ class ConsulServiceDiscoveryIntegrationTest {
         serviceDiscovery.registerInstance(instance1)
                 .compose(v -> serviceDiscovery.registerInstance(instance2))
                 .compose(v -> vertx.timer(2000).compose(timerId -> serviceDiscovery.discoverInstances()))
-                .onSuccess(discoveredInstances -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(discoveredInstances -> testContext.verify(() -> {
                     List<PeeGeeQInstance> cachedInstances = serviceDiscovery.getCachedInstances();
 
                     assertNotNull(cachedInstances);
@@ -265,7 +261,6 @@ class ConsulServiceDiscoveryIntegrationTest {
 
                     logger.info("Successfully verified cached instances: {} total", cachedInstances.size());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 }
