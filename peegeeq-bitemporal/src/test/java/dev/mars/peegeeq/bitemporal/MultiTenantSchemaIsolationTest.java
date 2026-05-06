@@ -178,14 +178,13 @@ class MultiTenantSchemaIsolationTest {
                     testContext.verify(() -> assertTrue(eventsB.isEmpty(), "Tenant B should NOT see tenant A's events"));
                     return eventStoreTenantA.query(EventQuery.all()).map(eventsA -> List.of(eventsB, eventsA));
                 })
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     List<BiTemporalEvent<TestEvent>> eventsA = (List<BiTemporalEvent<TestEvent>>) result.get(1);
                     assertEquals(1, eventsA.size(), "Tenant A should see exactly 1 event");
                     assertEquals("tenant-a-data", eventsA.get(0).getPayload().getData(), "Tenant A should see correct event data");
                     logger.info("Event isolation verified");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -212,7 +211,7 @@ class MultiTenantSchemaIsolationTest {
                 .compose(v -> eventStoreTenantA.query(EventQuery.forEventType("SharedEventType")))
                 .compose(eventsA -> eventStoreTenantB.query(EventQuery.forEventType("SharedEventType"))
                         .map(eventsB -> List.of(eventsA, eventsB)))
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     List<BiTemporalEvent<TestEvent>> eventsA = (List<BiTemporalEvent<TestEvent>>) result.get(0);
                     List<BiTemporalEvent<TestEvent>> eventsB = (List<BiTemporalEvent<TestEvent>>) result.get(1);
                     assertEquals(1, eventsA.size(), "Tenant A should see exactly 1 event");
@@ -221,8 +220,7 @@ class MultiTenantSchemaIsolationTest {
                     assertEquals("tenant-b-data", eventsB.get(0).getPayload().getData(), "Tenant B should see its own data");
                     logger.info("Query isolation verified");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -253,7 +251,7 @@ class MultiTenantSchemaIsolationTest {
                 .compose(v -> eventStoreTenantA.query(EventQuery.forAggregate(sharedAggregateId)))
                 .compose(eventsA -> eventStoreTenantB.query(EventQuery.forAggregate(sharedAggregateId))
                         .map(eventsB -> List.of(eventsA, eventsB)))
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     List<BiTemporalEvent<TestEvent>> eventsA = (List<BiTemporalEvent<TestEvent>>) result.get(0);
                     List<BiTemporalEvent<TestEvent>> eventsB = (List<BiTemporalEvent<TestEvent>>) result.get(1);
                     assertEquals(1, eventsA.size(), "Tenant A should see exactly 1 event for shared aggregate ID");
@@ -262,8 +260,7 @@ class MultiTenantSchemaIsolationTest {
                     assertEquals("tenant-b-data", eventsB.get(0).getPayload().getData(), "Tenant B should see its own data");
                     logger.info("Aggregate ID isolation verified");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 }
 
