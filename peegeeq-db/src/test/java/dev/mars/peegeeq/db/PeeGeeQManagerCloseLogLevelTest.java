@@ -21,8 +21,10 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.AppenderBase;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
-import io.vertx.core.Future;
+import io.vertx.core.Vertx;
+import io.vertx.junit5.Timeout;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.AfterEach;
@@ -45,7 +47,6 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.TimeUnit;
-import io.vertx.junit5.Timeout;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -111,14 +112,9 @@ public class PeeGeeQManagerCloseLogLevelTest {
 
         if (manager != null) {
             manager.closeReactive()
-                    .eventually(() -> {
-                        clearSystemProperties();
-                        return Future.succeededFuture();
-                    })
                     .onSuccess(v -> testContext.completeNow())
                     .onFailure(testContext::failNow);
         } else {
-            clearSystemProperties();
             testContext.completeNow();
         }
     }
@@ -126,8 +122,13 @@ public class PeeGeeQManagerCloseLogLevelTest {
     @Test
     @DisplayName("Negative: clean close with DB alive produces no ERROR from cleanup chain")
     void testCleanCloseNoErrorLogs(VertxTestContext testContext) {
-        setSystemProperties();
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .schema("public")
+                .property("peegeeq.migration.enabled", "false")
+                .property("peegeeq.migration.auto-migrate", "false")
+                .build();
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
 
         manager.start()
                 .compose(v -> {
@@ -159,7 +160,7 @@ public class PeeGeeQManagerCloseLogLevelTest {
     }
 
     @Test
-    @Timeout(value = 5, timeUnit = TimeUnit.SECONDS)
+    @Timeout(value = 60, timeUnit = TimeUnit.SECONDS)
     @DisplayName("Positive: close after DB shutdown logs ERROR for client factory close failure")
     void testCloseAfterDbShutdownLogsErrorForClientFactoryFailure(VertxTestContext testContext) {
         logger.error("===== INTENTIONAL ERROR TEST ===== The next ERROR logs ('Error closing client factory', 'Error closing PeeGeeQManager') are EXPECTED this test deliberately stops the DB container to verify error-level close failure logging");
@@ -173,13 +174,21 @@ public class PeeGeeQManagerCloseLogLevelTest {
         ownContainer.start();
         initializeSchemaFor(ownContainer);
 
-        setSystemPropertiesFor(ownContainer);
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(ownContainer)
+                .schema("public")
+                .property("peegeeq.migration.enabled", "false")
+                .property("peegeeq.migration.auto-migrate", "false")
+                .build();
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
 
         manager.start()
-                .compose(v -> {
-                    // Stop the database to cause close failures
+                .compose(v -> Vertx.currentContext().owner().<Void>executeBlocking(() -> {
+                    // Stop the database off the event loop to avoid blocking it
                     ownContainer.stop();
+                    return null;
+                }))
+                .compose(v -> {
                     logCapture.clear();
                     return manager.closeReactive();
                 })
@@ -207,8 +216,13 @@ public class PeeGeeQManagerCloseLogLevelTest {
     @Test
     @DisplayName("Positive: close without start produces no ERROR (stop() is a no-op when not started)")
     void testCloseWithoutStartNoStopError(VertxTestContext testContext) {
-        setSystemProperties();
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .schema("public")
+                .property("peegeeq.migration.enabled", "false")
+                .property("peegeeq.migration.auto-migrate", "false")
+                .build();
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
 
         logCapture.clear();
         manager.closeReactive()
@@ -227,9 +241,14 @@ public class PeeGeeQManagerCloseLogLevelTest {
     @Test
     @DisplayName("Negative: Vert.x close with RejectedExecutionException stays at WARN/DEBUG, not ERROR")
     void testVertxCloseExpectedExceptionNotLoggedAsError(VertxTestContext testContext) {
-        setSystemProperties();
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .schema("public")
+                .property("peegeeq.migration.enabled", "false")
+                .property("peegeeq.migration.auto-migrate", "false")
+                .build();
         // Manager owns its own Vert.x (default constructor path)
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
 
         manager.start()
                 .compose(v -> {
@@ -251,37 +270,6 @@ public class PeeGeeQManagerCloseLogLevelTest {
     }
 
     // --- Helpers ---
-
-    private void setSystemProperties() {
-        setSystemPropertiesFor(postgres);
-    }
-
-    @SuppressWarnings("unchecked")
-    private void setSystemPropertiesFor(PostgreSQLContainer container) {
-        Properties props = new Properties();
-        props.setProperty("peegeeq.database.host", container.getHost());
-        props.setProperty("peegeeq.database.port", String.valueOf(container.getFirstMappedPort()));
-        props.setProperty("peegeeq.database.name", container.getDatabaseName());
-        props.setProperty("peegeeq.database.username", container.getUsername());
-        props.setProperty("peegeeq.database.password", container.getPassword());
-        props.setProperty("peegeeq.database.ssl.enabled", "false");
-        props.setProperty("peegeeq.database.schema", "public");
-        props.setProperty("peegeeq.database.pool.min-size", "1");
-        props.setProperty("peegeeq.database.pool.max-size", "3");
-        props.setProperty("peegeeq.database.pool.shared", "false");
-        props.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
-        props.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
-        props.setProperty("peegeeq.health.check-interval", "PT5S");
-        props.setProperty("peegeeq.metrics.reporting-interval", "PT10S");
-        props.setProperty("peegeeq.migration.enabled", "false");
-        props.setProperty("peegeeq.migration.auto-migrate", "false");
-        props.forEach((k, v) -> System.setProperty(k.toString(), v.toString()));
-    }
-
-    private void clearSystemProperties() {
-        System.getProperties().entrySet().removeIf(entry ->
-                entry.getKey().toString().startsWith("peegeeq."));
-    }
 
     private void initializeSchema() {
         initializeSchemaFor(postgres);
@@ -432,13 +420,17 @@ public class PeeGeeQManagerCloseLogLevelTest {
         }
 
         List<ILoggingEvent> snapshot() {
-            return new ArrayList<>(events);
+            synchronized (events) {
+                return new ArrayList<>(events);
+            }
         }
 
         List<ILoggingEvent> eventsAtLevel(Level level) {
-            return events.stream()
-                    .filter(e -> e.getLevel().equals(level))
-                    .toList();
+            synchronized (events) {
+                return events.stream()
+                        .filter(e -> e.getLevel().equals(level))
+                        .toList();
+            }
         }
 
         void clear() {
