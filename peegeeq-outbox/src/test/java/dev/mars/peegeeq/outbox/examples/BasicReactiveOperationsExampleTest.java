@@ -148,13 +148,10 @@ public class BasicReactiveOperationsExampleTest {
         
         // Send using reactive API
         orderProducer.send(testOrder)
-            .onSuccess(v -> {
-                testContext.verify(() -> {
-                    logger.info("✓ Simple reactive send completed successfully");
-                    testContext.completeNow();
-                });
-            })
-            .onFailure(testContext::failNow);
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                logger.info("✓ Simple reactive send completed successfully");
+                testContext.completeNow();
+            })));
         
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
@@ -179,13 +176,10 @@ public class BasicReactiveOperationsExampleTest {
         
         // Send using reactive API with headers
         orderProducer.send(testOrder, headers)
-            .onSuccess(v -> {
-                testContext.verify(() -> {
-                    logger.info("✓ Reactive send with headers completed successfully");
-                    testContext.completeNow();
-                });
-            })
-            .onFailure(testContext::failNow);
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                logger.info("✓ Reactive send with headers completed successfully");
+                testContext.completeNow();
+            })));
         
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
@@ -209,13 +203,10 @@ public class BasicReactiveOperationsExampleTest {
         
         // Send using reactive API with correlation ID
         orderProducer.send(testOrder, headers, correlationId)
-            .onSuccess(v -> {
-                testContext.verify(() -> {
-                    logger.info("✓ Reactive send with correlation ID completed successfully");
-                    testContext.completeNow();
-                });
-            })
-            .onFailure(testContext::failNow);
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                logger.info("✓ Reactive send with correlation ID completed successfully");
+                testContext.completeNow();
+            })));
         
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
@@ -244,13 +235,10 @@ public class BasicReactiveOperationsExampleTest {
         
         // Send using reactive API with all parameters
         orderProducer.send(testOrder, headers, correlationId, messageGroup)
-            .onSuccess(v -> {
-                testContext.verify(() -> {
-                    logger.info("✓ Full parameter reactive send completed successfully");
-                    testContext.completeNow();
-                });
-            })
-            .onFailure(testContext::failNow);
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                logger.info("✓ Full parameter reactive send completed successfully");
+                testContext.completeNow();
+            })));
         
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
     }
@@ -280,23 +268,20 @@ public class BasicReactiveOperationsExampleTest {
         
         // Wait for all operations to complete
         Future.all(sendFutures)
-            .onSuccess(v -> {
-                testContext.verify(() -> {
-                    long endTime = System.currentTimeMillis();
-                    long totalTime = endTime - startTime;
-                    double avgTimePerMessage = (double) totalTime / messageCount;
-                    
-                    // Validate performance characteristics
-                    assertTrue(totalTime < 30000, "Total time should be less than 30 seconds");
-                    assertTrue(avgTimePerMessage < 3000, "Average time per message should be less than 3 seconds");
-                    
-                    logger.info("✓ Performance validation completed successfully");
-                    logger.info("Total time: {}ms, Average per message: {}ms", totalTime, String.format("%.2f", avgTimePerMessage));
-                    logger.info("Messages processed: {}, Rate: {} msg/sec", messageCount, String.format("%.2f", (messageCount * 1000.0) / totalTime));
-                    testContext.completeNow();
-                });
-            })
-            .onFailure(testContext::failNow);
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
+                long endTime = System.currentTimeMillis();
+                long totalTime = endTime - startTime;
+                double avgTimePerMessage = (double) totalTime / messageCount;
+                
+                // Validate performance characteristics
+                assertTrue(totalTime < 30000, "Total time should be less than 30 seconds");
+                assertTrue(avgTimePerMessage < 3000, "Average time per message should be less than 3 seconds");
+                
+                logger.info("✓ Performance validation completed successfully");
+                logger.info("Total time: {}ms, Average per message: {}ms", totalTime, String.format("%.2f", avgTimePerMessage));
+                logger.info("Messages processed: {}, Rate: {} msg/sec", messageCount, String.format("%.2f", (messageCount * 1000.0) / totalTime));
+                testContext.completeNow();
+            })));
         
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }

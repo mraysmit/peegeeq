@@ -127,6 +127,10 @@ public class ConsumerTracingTest extends BaseIntegrationTest {
 
     @Test
     void markCompleted_mdcCleanAfterCompletion(VertxTestContext testContext) {
+        // NOTE: onSuccess+onFailure is intentional here — NOT a candidate for testContext.succeeding().
+        // MDC must be clean regardless of whether the operation succeeds or fails.
+        // Both branches assert the same invariant; converting to succeeding() would silently
+        // skip the MDC assertion on the failure path.
         tracker.markCompleted(999L, "nonexistent-group", "nonexistent-topic")
                 .onSuccess(v -> testContext.verify(() -> {
                     assertNull(MDC.get("traceId"), "traceId should not leak after markCompleted");
@@ -143,6 +147,10 @@ public class ConsumerTracingTest extends BaseIntegrationTest {
 
     @Test
     void markFailed_mdcCleanAfterCompletion(VertxTestContext testContext) {
+        // NOTE: onSuccess+onFailure is intentional here — NOT a candidate for testContext.succeeding().
+        // MDC must be clean regardless of whether the operation succeeds or fails.
+        // Both branches assert the same invariant; converting to succeeding() would silently
+        // skip the MDC assertion on the failure path.
         tracker.markFailed(999L, "nonexistent-group", "nonexistent-topic", "test error")
                 .onSuccess(v -> testContext.verify(() -> {
                     assertNull(MDC.get("traceId"), "traceId should not leak after markFailed");

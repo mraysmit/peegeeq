@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.bitemporal;
+﻿package dev.mars.peegeeq.bitemporal;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -291,7 +291,7 @@ class TransactionPropagationHonestyTest {
             String countSql = "SELECT COUNT(*) FROM " + schema + ".bitemporal_event_log WHERE event_type = $1";
             return externalPool.preparedQuery(countSql).execute(Tuple.of(eventType));
         })
-        .onSuccess(rows -> testContext.verify(() -> {
+        .onComplete(testContext.succeeding(rows -> testContext.verify(() -> {
             int count = rows.iterator().next().getInteger(0);
 
             // CORRECT BEHAVIOUR: the event store starts its own independent
@@ -305,8 +305,7 @@ class TransactionPropagationHonestyTest {
                     "appendOwnTransaction() starts an own-transaction on " +
                     "the internal pool it does not join external transactions");
             testContext.completeNow();
-        }))
-        .onFailure(testContext::failNow);
+        })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -351,7 +350,7 @@ class TransactionPropagationHonestyTest {
                     return externalPool.preparedQuery(countSql)
                             .execute(Tuple.of(appendEventType, withTxEventType));
                 })
-                .onSuccess(rows -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(rows -> testContext.verify(() -> {
                     int typesFound = 0;
                     for (var row : rows) {
                         typesFound++;
@@ -362,8 +361,7 @@ class TransactionPropagationHonestyTest {
                             "Both event types should be independently committed " +
                             "append() and appendOwnTransaction() both start own-transactions");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -408,14 +406,13 @@ class TransactionPropagationHonestyTest {
             String countSql = "SELECT COUNT(*) FROM " + schema + ".bitemporal_event_log WHERE event_type = $1";
             return externalPool.preparedQuery(countSql).execute(Tuple.of(eventType));
         })
-        .onSuccess(rows -> testContext.verify(() -> {
+        .onComplete(testContext.succeeding(rows -> testContext.verify(() -> {
             int count = rows.iterator().next().getInteger(0);
             assertEquals(0, count,
                     "Event MUST be rolled back when the connection's transaction is rolled back " +
                     "appendInTransaction genuinely participates in the caller's transaction");
             testContext.completeNow();
-        }))
-        .onFailure(testContext::failNow);
+        })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -450,14 +447,13 @@ class TransactionPropagationHonestyTest {
             String countSql = "SELECT COUNT(*) FROM " + schema + ".bitemporal_event_log WHERE event_type = $1";
             return externalPool.preparedQuery(countSql).execute(Tuple.of(eventType));
         })
-        .onSuccess(rows -> testContext.verify(() -> {
+        .onComplete(testContext.succeeding(rows -> testContext.verify(() -> {
             int count = rows.iterator().next().getInteger(0);
             assertEquals(1, count,
                     "Event should be visible after the external transaction commits " +
                     "appendInTransaction genuinely participates");
             testContext.completeNow();
-        }))
-        .onFailure(testContext::failNow);
+        })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -497,15 +493,14 @@ class TransactionPropagationHonestyTest {
                     ".bitemporal_event_log WHERE event_type = $1";
             return externalPool.preparedQuery(countSql).execute(Tuple.of(eventType));
         })
-        .onSuccess(rows -> testContext.verify(() -> {
+        .onComplete(testContext.succeeding(rows -> testContext.verify(() -> {
             int count = rows.iterator().next().getInteger(0);
             assertEquals(1, count,
                     "Event should survive external rollback because append() starts " +
                     "its own independent transaction it never participates in " +
                     "the caller's transaction");
             testContext.completeNow();
-        }))
-        .onFailure(testContext::failNow);
+        })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -551,14 +546,13 @@ class TransactionPropagationHonestyTest {
                     ".bitemporal_event_log WHERE event_type = $1";
             return externalPool.preparedQuery(countSql).execute(Tuple.of(eventType));
         })
-        .onSuccess(rows -> testContext.verify(() -> {
+        .onComplete(testContext.succeeding(rows -> testContext.verify(() -> {
             int count = rows.iterator().next().getInteger(0);
             assertEquals(1, count,
                     "Builder execute() without inTransaction() starts its own " +
                     "transaction event survives external rollback");
             testContext.completeNow();
-        }))
-        .onFailure(testContext::failNow);
+        })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -608,14 +602,13 @@ class TransactionPropagationHonestyTest {
                     ".bitemporal_event_log WHERE event_type = $1";
             return externalPool.preparedQuery(countSql).execute(Tuple.of(eventType));
         })
-        .onSuccess(rows -> testContext.verify(() -> {
+        .onComplete(testContext.succeeding(rows -> testContext.verify(() -> {
             int count = rows.iterator().next().getInteger(0);
             assertEquals(0, count,
                     "Builder inTransaction(conn) MUST participate rollback " +
                     "removes the event");
             testContext.completeNow();
-        }))
-        .onFailure(testContext::failNow);
+        })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -654,15 +647,14 @@ class TransactionPropagationHonestyTest {
                     ".bitemporal_event_log WHERE event_type = $1";
             return externalPool.preparedQuery(sql).execute(Tuple.of(eventType));
         })
-        .onSuccess(rows -> testContext.verify(() -> {
+        .onComplete(testContext.succeeding(rows -> testContext.verify(() -> {
             var iter = rows.iterator();
             assertTrue(iter.hasNext(), "Event must exist after commit");
             var row = iter.next();
             assertEquals("corr-builder-90", row.getString("correlation_id"),
                     "Correlation ID must be persisted via builder inTransaction path");
             testContext.completeNow();
-        }))
-        .onFailure(testContext::failNow);
+        })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -712,7 +704,7 @@ class TransactionPropagationHonestyTest {
                     "FROM " + schema + ".bitemporal_event_log WHERE event_type = $1";
             return externalPool.preparedQuery(sql).execute(Tuple.of(eventType));
         })
-        .onSuccess(rows -> testContext.verify(() -> {
+        .onComplete(testContext.succeeding(rows -> testContext.verify(() -> {
             var iter = rows.iterator();
             assertTrue(iter.hasNext(), "Event must be persisted");
             var row = iter.next();
@@ -723,8 +715,7 @@ class TransactionPropagationHonestyTest {
             assertTrue(headersJson.contains("\"env\""), "Headers must be persisted");
             assertTrue(headersJson.contains("\"version\""), "Headers must be persisted");
             testContext.completeNow();
-        }))
-        .onFailure(testContext::failNow);
+        })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -764,13 +755,12 @@ class TransactionPropagationHonestyTest {
                     ".bitemporal_event_log WHERE event_type = $1";
             return externalPool.preparedQuery(countSql).execute(Tuple.of(eventType));
         })
-        .onSuccess(rows -> testContext.verify(() -> {
+        .onComplete(testContext.succeeding(rows -> testContext.verify(() -> {
             int count = rows.iterator().next().getInteger(0);
             assertEquals(0, count,
                     "Full-metadata appendInTransaction must leave no trace after rollback");
             testContext.completeNow();
-        }))
-        .onFailure(testContext::failNow);
+        })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -818,7 +808,7 @@ class TransactionPropagationHonestyTest {
                     "FROM " + schema + ".bitemporal_event_log WHERE event_type = $1";
             return externalPool.preparedQuery(sql).execute(Tuple.of(eventType));
         })
-        .onSuccess(rows -> testContext.verify(() -> {
+        .onComplete(testContext.succeeding(rows -> testContext.verify(() -> {
             var iter = rows.iterator();
             assertTrue(iter.hasNext(), "Event must be persisted");
             var row = iter.next();
@@ -829,8 +819,7 @@ class TransactionPropagationHonestyTest {
             assertTrue(headersJson.contains("\"env\""), "Headers key 'env' must be persisted");
             assertTrue(headersJson.contains("\"source\""), "Headers key 'source' must be persisted");
             testContext.completeNow();
-        }))
-        .onFailure(testContext::failNow);
+        })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -1057,15 +1046,14 @@ class TransactionPropagationHonestyTest {
                     ".bitemporal_event_log WHERE event_type = $1 AND is_correction = true";
             return externalPool.preparedQuery(countSql).execute(Tuple.of(correctionEventType));
         })
-        .onSuccess(rows -> testContext.verify(() -> {
+        .onComplete(testContext.succeeding(rows -> testContext.verify(() -> {
             int count = rows.iterator().next().getInteger(0);
             assertEquals(1, count,
                     "Correction event must survive external rollback proving the " +
                     "builder routes to appendCorrection() (own-transaction) when " +
                     "correction() is set, silently ignoring inTransaction(conn)");
             testContext.completeNow();
-        }))
-        .onFailure(testContext::failNow);
+        })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {

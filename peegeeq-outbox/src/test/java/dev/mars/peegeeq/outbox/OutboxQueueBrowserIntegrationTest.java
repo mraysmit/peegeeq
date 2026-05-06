@@ -353,20 +353,20 @@ public class OutboxQueueBrowserIntegrationTest {
             .compose(v -> intProducer.send(100))
             // When - browse messages
             .compose(v -> intBrowser.browse(10, 0))
-            .onSuccess(messages -> {
+            .onComplete(ar -> {
                 intProducer.close();
                 intBrowser.close();
-                testContext.verify(() -> {
-                    assertEquals(2, messages.size());
-                    assertEquals(100, messages.get(0).getPayload());
-                    assertEquals(42, messages.get(1).getPayload());
-                    testContext.completeNow();
-                });
-            })
-            .onFailure(err -> {
-                intProducer.close();
-                intBrowser.close();
-                testContext.failNow(err);
+                if (ar.failed()) {
+                    testContext.failNow(ar.cause());
+                } else {
+                    testContext.verify(() -> {
+                        List<Message<Integer>> messages = ar.result();
+                        assertEquals(2, messages.size());
+                        assertEquals(100, messages.get(0).getPayload());
+                        assertEquals(42, messages.get(1).getPayload());
+                        testContext.completeNow();
+                    });
+                }
             });
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }

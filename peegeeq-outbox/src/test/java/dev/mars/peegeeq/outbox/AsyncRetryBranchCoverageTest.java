@@ -122,16 +122,14 @@ public class AsyncRetryBranchCoverageTest {
         Future<AsyncFilterRetryManager.FilterResult> future = 
             retryManager.executeFilterWithRetry(message, failingFilter, circuitBreaker);
 
-        future.onSuccess(result -> {
+        future.onComplete(testContext.succeeding(result -> testContext.verify(() -> {
             long duration = System.currentTimeMillis() - start;
-            testContext.verify(() -> {
-                // Expected duration: ~10ms (1st retry) + ~15ms (2nd retry) + execution overhead.
-                // If not capped, it would be 10ms + 100ms = 110ms.
-                // So if duration < 100ms, we know capping worked (allowing for system overhead).
-                assertTrue(duration < 100, "Duration " + duration + "ms suggests max delay cap was ignored");
-            });
+            // Expected duration: ~10ms (1st retry) + ~15ms (2nd retry) + execution overhead.
+            // If not capped, it would be 10ms + 100ms = 110ms.
+            // So if duration < 100ms, we know capping worked (allowing for system overhead).
+            assertTrue(duration < 100, "Duration " + duration + "ms suggests max delay cap was ignored");
             testContext.completeNow();
-        }).onFailure(testContext::failNow);
+        })));
 
         assertTrue(testContext.awaitCompletion(5, TimeUnit.SECONDS));
     }

@@ -258,7 +258,7 @@ class PgBiTemporalEventStorePerformanceTest {
                     return results;
                 });
             })
-            .onSuccess(batchResults -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(batchResults -> testContext.verify(() -> {
                 long singleDuration = singleDurationRef.get();
                 long batchDuration = batchDurationRef.get();
                 double singleThroughput = BATCH_SIZE * 1000.0 / singleDuration;
@@ -274,8 +274,7 @@ class PgBiTemporalEventStorePerformanceTest {
                 assertEquals(BATCH_SIZE, batchResults.size(), "Batch should return all events");
                 assertTrue(batchDuration < singleDuration, "Batch should be faster than single appends");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -318,7 +317,7 @@ class PgBiTemporalEventStorePerformanceTest {
             return Future.all(new ArrayList<>(futures));
         })
         .compose(cf -> allExpectedNotifications.future())
-        .onSuccess(v -> testContext.verify(() -> {
+        .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
             logger.info("THROUGHPUT RESULTS:");
             logger.info("  Received {} events", receivedEvents.size());
             logger.info("  Duplicates detected: {}", duplicateCount.get());
@@ -327,8 +326,7 @@ class PgBiTemporalEventStorePerformanceTest {
                 "Should receive exactly " + eventCount + " unique events");
             assertEquals(0, duplicateCount.get(), "Should not receive duplicate events");
             testContext.completeNow();
-        }))
-        .onFailure(testContext::failNow);
+        })));
     }
 
     /**
@@ -354,7 +352,7 @@ class PgBiTemporalEventStorePerformanceTest {
         }
 
         Future.all(new ArrayList<>(allFutures))
-            .onSuccess(cf -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(cf -> testContext.verify(() -> {
                 long duration = System.currentTimeMillis() - start;
                 double throughput = totalEvents * 1000.0 / duration;
                 logger.info("CONCURRENT RESULTS:");
@@ -365,8 +363,7 @@ class PgBiTemporalEventStorePerformanceTest {
                 long successCount = allFutures.stream().filter(f -> !f.failed()).count();
                 assertEquals(totalEvents, successCount, "All events should complete successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -435,7 +432,7 @@ class PgBiTemporalEventStorePerformanceTest {
             }
             return chain.compose(v2 -> wildcardNotificationsDone.future());
         })
-        .onSuccess(v -> testContext.verify(() -> {
+        .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
             long exactTotalTime = exactDurationRef.get();
             long wildcardTotalTime = System.currentTimeMillis() - wildcardStartRef.get();
 
@@ -449,8 +446,7 @@ class PgBiTemporalEventStorePerformanceTest {
             assertTrue(exactTotalTime <= wildcardTotalTime * 2,
                 "Exact match should not be significantly slower than wildcard");
             testContext.completeNow();
-        }))
-        .onFailure(testContext::failNow);
+        })));
     }
 }
 

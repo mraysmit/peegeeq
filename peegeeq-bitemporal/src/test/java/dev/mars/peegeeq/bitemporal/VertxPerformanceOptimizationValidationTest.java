@@ -164,7 +164,7 @@ class VertxPerformanceOptimizationValidationTest {
         
         long startTime = System.currentTimeMillis();
         eventStore.appendBuilder().eventType("test.pipeline").payload(event).validTime(Instant.now()).execute()
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 long duration = System.currentTimeMillis() - startTime;
                 assertNotNull(result);
                 assertEquals("test.pipeline", result.getEventType());
@@ -172,8 +172,7 @@ class VertxPerformanceOptimizationValidationTest {
                 logger.info("Pipelined client validation successful - append completed in {}ms", duration);
                 assertTrue(duration < 1000, "Append should complete quickly with pipelined client");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     
     @Test
@@ -195,7 +194,7 @@ class VertxPerformanceOptimizationValidationTest {
         
         // All operations should complete without pool exhaustion
         io.vertx.core.Future.all(futures)
-            .onSuccess(cf -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(cf -> testContext.verify(() -> {
                 long duration = System.currentTimeMillis() - startTime;
                 double throughput = concurrentOperations * 1000.0 / duration;
                 
@@ -211,8 +210,7 @@ class VertxPerformanceOptimizationValidationTest {
                 // Throughput should be reasonable with optimized pool
                 assertTrue(throughput > 10, "Throughput should be > 10 ops/sec with optimized pool");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     
     @Test
@@ -232,7 +230,7 @@ class VertxPerformanceOptimizationValidationTest {
         
         long startTime = System.currentTimeMillis();
         eventStore.appendBatch(batchEvents)
-            .onSuccess(results -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(results -> testContext.verify(() -> {
                 long duration = System.currentTimeMillis() - startTime;
                 double throughput = batchSize * 1000.0 / duration;
                 
@@ -251,8 +249,7 @@ class VertxPerformanceOptimizationValidationTest {
                     assertEquals("batch-" + i, result.getPayload().getId());
                 }
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     
     @Test
@@ -272,12 +269,11 @@ class VertxPerformanceOptimizationValidationTest {
         }
         
         chain
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 logger.info("Performance monitoring validation completed - metrics should be collected");
                 assertTrue(true, "Performance monitoring integration validated");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     
     @Test
@@ -300,13 +296,12 @@ class VertxPerformanceOptimizationValidationTest {
         // Test that operations work with the configured values
         TestEvent event = new TestEvent("config-test", "Configuration profile test");
         eventStore.appendBuilder().eventType("test.config").payload(event).validTime(Instant.now()).execute()
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 assertNotNull(result);
                 assertEquals("config-test", result.getPayload().getId());
                 logger.info("Configuration profiles operational validation successful");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     
     @Test
@@ -340,7 +335,7 @@ class VertxPerformanceOptimizationValidationTest {
         // Wait for all individual + batch operations to complete
         io.vertx.core.Future.all(futures)
             .compose(cf -> batchFuture)
-            .onSuccess(batchResults -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(batchResults -> testContext.verify(() -> {
                 long duration = System.currentTimeMillis() - startTime;
                 double throughput = totalEvents * 1000.0 / duration;
                 
@@ -360,8 +355,7 @@ class VertxPerformanceOptimizationValidationTest {
                 logger.info("=== Vert.x 5.x Performance Optimization Validation Complete ===");
                 logger.info("All optimizations validated successfully!");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
     
     /**

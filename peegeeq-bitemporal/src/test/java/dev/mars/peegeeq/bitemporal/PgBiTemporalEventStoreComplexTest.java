@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.bitemporal;
+﻿package dev.mars.peegeeq.bitemporal;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -260,11 +260,10 @@ class PgBiTemporalEventStoreComplexTest {
                 });
                 return eventStore.query(EventQuery.forEventType("BatchType1"));
             })
-            .onSuccess(retrieved -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(retrieved -> testContext.verify(() -> {
                 assertEquals(2, retrieved.size());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -277,12 +276,11 @@ class PgBiTemporalEventStoreComplexTest {
         List<PgBiTemporalEventStore.BatchEventData<TestEvent>> empty = Collections.emptyList();
 
         eventStore.appendBatch(empty)
-            .onSuccess(events -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(events -> testContext.verify(() -> {
                 assertNotNull(events);
                 assertTrue(events.isEmpty());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -311,11 +309,10 @@ class PgBiTemporalEventStoreComplexTest {
                 testContext.verify(() -> assertEquals(50, events.size()));
                 return eventStore.query(EventQuery.forEventType("LargeBatch"));
             })
-            .onSuccess(all -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(all -> testContext.verify(() -> {
                 assertEquals(50, all.size());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -347,11 +344,10 @@ class PgBiTemporalEventStoreComplexTest {
             });
             return eventStore.getById(event.getEventId());
         })
-        .onSuccess(retrieved -> testContext.verify(() -> {
+        .onComplete(testContext.succeeding(retrieved -> testContext.verify(() -> {
             assertNotNull(retrieved);
             testContext.completeNow();
-        }))
-        .onFailure(testContext::failNow);
+        })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -472,14 +468,13 @@ class PgBiTemporalEventStoreComplexTest {
                     })
                     .compose(v -> eventStore.getAsOfTransactionTime(event1.getEventId(), afterFirst));
             })
-            .onSuccess(historical -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(historical -> testContext.verify(() -> {
                 assertNotNull(historical);
                 assertEquals("original", historical.getPayload().getData());
                 assertEquals(1L, historical.getVersion());
                 assertFalse(historical.isCorrection());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -497,12 +492,11 @@ class PgBiTemporalEventStoreComplexTest {
                 return eventStore.getAsOfTransactionTime(event.getEventId(), futureTime)
                     .map(result -> Map.entry(event, result));
             })
-            .onSuccess(pair -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(pair -> testContext.verify(() -> {
                 assertNotNull(pair.getValue());
                 assertEquals(pair.getKey().getEventId(), pair.getValue().getEventId());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -518,11 +512,10 @@ class PgBiTemporalEventStoreComplexTest {
             .compose(v -> eventStore.appendBuilder().eventType("BeforeCreateEvent")
                 .payload(new TestEvent("before-create", "data", 1001)).validTime(Instant.now()).execute())
             .compose(event -> eventStore.getAsOfTransactionTime(event.getEventId(), beforeCreate))
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 assertNull(result, "As-of query before event creation should not return the event");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -548,15 +541,14 @@ class PgBiTemporalEventStoreComplexTest {
                             .map(historical -> Map.entry(originalEvent, historical))
                     );
             })
-            .onSuccess(pair -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(pair -> testContext.verify(() -> {
                 BiTemporalEvent<TestEvent> historical = pair.getValue();
                 assertNotNull(historical, "As-of lookup should resolve correction lineage back to root event");
                 assertEquals("original", historical.getPayload().getData());
                 assertEquals(1L, historical.getVersion());
                 assertEquals(pair.getKey().getEventId(), historical.getEventId());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -660,7 +652,7 @@ class PgBiTemporalEventStoreComplexTest {
                             });
                     });
             })
-            .onSuccess(results -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(results -> testContext.verify(() -> {
                 assertNotNull(results.get(0));
                 assertNotNull(results.get(1));
                 assertNotNull(results.get(2));
@@ -674,8 +666,7 @@ class PgBiTemporalEventStoreComplexTest {
                 assertEquals("v4", results.get(3).getPayload().getData());
                 assertEquals(4L, results.get(3).getVersion());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -955,7 +946,7 @@ class PgBiTemporalEventStoreComplexTest {
         String fakeId = UUID.randomUUID().toString();
         
         eventStore.getById(fakeId)
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 assertNull(result);
                 testContext.completeNow();
             }))
@@ -985,7 +976,7 @@ class PgBiTemporalEventStoreComplexTest {
                 .map(e3 -> Map.entry(e1.getEventId(), e3.getEventId())))
             .compose(ids -> eventStore.query(EventQuery.builder().correlationId(uniqueCorr).build())
                 .map(events -> Map.entry(ids, events)))
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 var ids = result.getKey();
                 var events = result.getValue();
                 assertNotNull(events);
@@ -995,8 +986,7 @@ class PgBiTemporalEventStoreComplexTest {
                 assertEquals(2, ourEvents.size(), "Should find exactly 2 events with correlation ID: " + uniqueCorr);
                 assertTrue(ourEvents.stream().allMatch(e -> uniqueCorr.equals(e.getCorrelationId())));
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -1017,12 +1007,11 @@ class PgBiTemporalEventStoreComplexTest {
 
         chain
             .compose(v -> eventStore.query(EventQuery.builder().eventType("LimitEvent").limit(7).build()))
-            .onSuccess(events -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(events -> testContext.verify(() -> {
                 assertNotNull(events);
                 assertTrue(events.size() <= 7);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -1047,7 +1036,7 @@ class PgBiTemporalEventStoreComplexTest {
                     .map(v -> event1);
             })
             .compose(event1 -> eventStore.getAllVersions(event1.getEventId()))
-            .onSuccess(versions -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(versions -> testContext.verify(() -> {
                 assertEquals(3, versions.size());
                 assertEquals(1L, versions.get(0).getVersion());
                 assertEquals(2L, versions.get(1).getVersion());
@@ -1055,8 +1044,7 @@ class PgBiTemporalEventStoreComplexTest {
                 assertTrue(versions.get(1).isCorrection());
                 assertTrue(versions.get(2).isCorrection());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -1111,11 +1099,10 @@ class PgBiTemporalEventStoreComplexTest {
         
         Future.all(futures)
             .compose(v -> eventStore.query(EventQuery.forEventType("ConcurrentEvent")))
-            .onSuccess(all -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(all -> testContext.verify(() -> {
                 assertEquals(10, all.size());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -1146,11 +1133,10 @@ class PgBiTemporalEventStoreComplexTest {
         
         Future.all(batchFuture, single1, single2)
             .compose(v -> eventStore.query(EventQuery.forEventType("MixedEvent")))
-            .onSuccess(all -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(all -> testContext.verify(() -> {
                 assertEquals(4, all.size());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -1172,15 +1158,14 @@ class PgBiTemporalEventStoreComplexTest {
             .compose(v -> eventStore.appendBuilder().eventType(eventType).payload(new TestEvent("e4", "data", 4))
                 .validTime(validTime).headers(Map.of()).correlationId(null).causationId(null).aggregateId("agg-003").execute())
             .compose(v -> eventStore.getUniqueAggregates(eventType))
-            .onSuccess(uniqueAggregates -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(uniqueAggregates -> testContext.verify(() -> {
                 assertNotNull(uniqueAggregates);
                 assertEquals(3, uniqueAggregates.size());
                 assertTrue(uniqueAggregates.contains("agg-001"));
                 assertTrue(uniqueAggregates.contains("agg-002"));
                 assertTrue(uniqueAggregates.contains("agg-003"));
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -1223,11 +1208,10 @@ class PgBiTemporalEventStoreComplexTest {
                 });
                 return eventStore.query(EventQuery.forEventType("OverloadEvent"));
             })
-            .onSuccess(all -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(all -> testContext.verify(() -> {
                 assertTrue(all.size() >= 5, "Should have at least 5 events from overload tests");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -1293,7 +1277,7 @@ class PgBiTemporalEventStoreComplexTest {
             .payload(new TestEvent("reactive-id", "reactive-data", 999)).validTime(validTime).execute()
             .compose(created -> eventStore.getById(created.getEventId())
                 .map(retrieved -> Map.entry(created, retrieved)))
-            .onSuccess(pair -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(pair -> testContext.verify(() -> {
                 var created = pair.getKey();
                 var retrieved = pair.getValue();
                 assertNotNull(retrieved);
@@ -1301,8 +1285,7 @@ class PgBiTemporalEventStoreComplexTest {
                 assertEquals("reactive-id", retrieved.getPayload().id);
                 assertEquals(999, retrieved.getPayload().value);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -1323,12 +1306,11 @@ class PgBiTemporalEventStoreComplexTest {
                 new TestEvent("v3", "correction2", 300), validTime.plus(2, ChronoUnit.DAYS), "Correction 2 reason")
                 .map(v -> original))
             .compose(original -> eventStore.getAllVersions(original.getEventId()))
-            .onSuccess(versions -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(versions -> testContext.verify(() -> {
                 assertNotNull(versions);
                 assertTrue(versions.size() >= 3, "Should have original + 2 corrections = 3 versions");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -1345,12 +1327,11 @@ class PgBiTemporalEventStoreComplexTest {
             .compose(v -> eventStore.appendBuilder().eventType(uniqueType).payload(new TestEvent("rq2", "data", 2)).validTime(validTime).execute())
             .compose(v -> eventStore.appendBuilder().eventType(uniqueType).payload(new TestEvent("rq3", "data", 3)).validTime(validTime).execute())
             .compose(v -> eventStore.query(EventQuery.forEventType(uniqueType)))
-            .onSuccess(results -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(results -> testContext.verify(() -> {
                 assertNotNull(results);
                 assertEquals(3, results.size());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -1365,14 +1346,13 @@ class PgBiTemporalEventStoreComplexTest {
         eventStore.appendBuilder().eventType("StatsTest").payload(new TestEvent("s1", "data", 1)).validTime(validTime).execute()
             .compose(v -> eventStore.appendBuilder().eventType("StatsTest").payload(new TestEvent("s2", "data", 2)).validTime(validTime).execute())
             .compose(v -> eventStore.getStats())
-            .onSuccess(stats -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(stats -> testContext.verify(() -> {
                 assertNotNull(stats);
                 assertTrue(stats.getTotalEvents() >= 2);
                 assertNotNull(stats.getOldestEventTime());
                 assertNotNull(stats.getNewestEventTime());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -1393,7 +1373,7 @@ class PgBiTemporalEventStoreComplexTest {
                 Map.of("correction-header", "value1"),
                 "corr-123", "agg-corrected", "Data quality improvement")
                 .map(correction -> Map.entry(original.getEventId(), correction)))
-            .onSuccess(pair -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(pair -> testContext.verify(() -> {
                 var correction = pair.getValue();
                 assertNotNull(correction);
                 assertEquals(pair.getKey(), correction.getPreviousVersionId());
@@ -1402,8 +1382,7 @@ class PgBiTemporalEventStoreComplexTest {
                 assertEquals("corr-123", correction.getCorrelationId());
                 assertEquals("agg-corrected", correction.getAggregateId());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -1423,13 +1402,12 @@ class PgBiTemporalEventStoreComplexTest {
             .compose(v -> eventStore.appendBuilder().eventType("AggFilterTest").payload(new TestEvent("e3", "data", 3))
                 .validTime(validTime).headers(Map.of()).correlationId(null).causationId(null).aggregateId(uniqueAgg).execute())
             .compose(v -> eventStore.query(EventQuery.builder().eventType("AggFilterTest").aggregateId(uniqueAgg).build()))
-            .onSuccess(results -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(results -> testContext.verify(() -> {
                 assertNotNull(results);
                 assertTrue(results.size() >= 2);
                 assertTrue(results.stream().allMatch(e -> uniqueAgg.equals(e.getAggregateId())));
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -1443,14 +1421,13 @@ class PgBiTemporalEventStoreComplexTest {
         
         eventStore.appendBuilder().eventType("ReactiveAppendTest")
             .payload(new TestEvent("reactive", "reactive-data", 777)).validTime(validTime).execute()
-            .onSuccess(event -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(event -> testContext.verify(() -> {
                 assertNotNull(event);
                 assertEquals("reactive", event.getPayload().id);
                 assertEquals(777, event.getPayload().value);
                 assertEquals("ReactiveAppendTest", event.getEventType());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -1475,12 +1452,11 @@ class PgBiTemporalEventStoreComplexTest {
                 }
                 return chain.compose(v -> eventStore.getAllVersions(original.getEventId()));
             })
-            .onSuccess(versions -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(versions -> testContext.verify(() -> {
                 assertNotNull(versions);
                 assertTrue(versions.size() >= 6, "Should have original + 5 corrections");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -1499,13 +1475,12 @@ class PgBiTemporalEventStoreComplexTest {
                 return eventStore.getAsOfTransactionTime(event.getEventId(), queryTime)
                     .map(retrieved -> Map.entry(event.getEventId(), retrieved));
             })
-            .onSuccess(pair -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(pair -> testContext.verify(() -> {
                 assertNotNull(pair.getValue());
                 assertEquals(pair.getKey(), pair.getValue().getEventId());
                 assertEquals("time-test", pair.getValue().getPayload().id);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -1534,12 +1509,11 @@ class PgBiTemporalEventStoreComplexTest {
                 });
                 return eventStore.getById(event.getEventId());
             })
-            .onSuccess(retrieved -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(retrieved -> testContext.verify(() -> {
                 assertEquals(4, retrieved.getHeaders().size());
                 assertEquals("value-1", retrieved.getHeaders().get("header-1"));
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -1553,12 +1527,11 @@ class PgBiTemporalEventStoreComplexTest {
         
         eventStore.appendBuilder().eventType("EmptyHeaderTest")
             .payload(new TestEvent("no-headers", "data", 222)).validTime(validTime).headers(Map.of()).execute()
-            .onSuccess(event -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(event -> testContext.verify(() -> {
                 assertNotNull(event);
                 assertTrue(event.getHeaders().isEmpty() || event.getHeaders().size() == 0);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -1586,7 +1559,7 @@ class PgBiTemporalEventStoreComplexTest {
         );
         
         eventStore.appendBatch(mixedBatch)
-            .onSuccess(results -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(results -> testContext.verify(() -> {
                 assertNotNull(results);
                 assertEquals(3, results.size());
                 Set<String> types = results.stream().map(BiTemporalEvent::getEventType).collect(java.util.stream.Collectors.toSet());
@@ -1594,8 +1567,7 @@ class PgBiTemporalEventStoreComplexTest {
                 assertTrue(types.contains("TypeB"));
                 assertTrue(types.contains("TypeC"));
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -1649,11 +1621,10 @@ class PgBiTemporalEventStoreComplexTest {
             });
             return eventStore.getById(result.getEventId());
         })
-        .onSuccess(retrieved -> testContext.verify(() -> {
+        .onComplete(testContext.succeeding(retrieved -> testContext.verify(() -> {
             assertNotNull(retrieved);
             testContext.completeNow();
-        }))
-        .onFailure(testContext::failNow);
+        })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -1671,13 +1642,12 @@ class PgBiTemporalEventStoreComplexTest {
             .compose(v -> eventStore.appendBuilder().eventType(uniqueType).payload(new TestEvent("q2", "data", 2)).validTime(validTime).execute())
             .compose(v -> eventStore.appendBuilder().eventType("OtherType").payload(new TestEvent("q3", "data", 3)).validTime(validTime).execute())
             .compose(v -> eventStore.query(EventQuery.builder().eventType(uniqueType).build()))
-            .onSuccess(results -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(results -> testContext.verify(() -> {
                 assertNotNull(results);
                 assertEquals(2, results.size());
                 assertTrue(results.stream().allMatch(e -> e.getEventType().equals(uniqueType)));
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -1700,12 +1670,11 @@ class PgBiTemporalEventStoreComplexTest {
 
         chain
             .compose(v -> eventStore.query(EventQuery.builder().eventType(uniqueType).limit(5).build()))
-            .onSuccess(results -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(results -> testContext.verify(() -> {
                 assertNotNull(results);
                 assertEquals(5, results.size());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -1719,11 +1688,10 @@ class PgBiTemporalEventStoreComplexTest {
         String nonExistentId = UUID.randomUUID().toString();
         
         eventStore.getById(nonExistentId)
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 assertNull(result, "Non-existent ID should return null");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -1738,12 +1706,11 @@ class PgBiTemporalEventStoreComplexTest {
         TestEvent payload = new TestEvent("tx-min", "minimal", 111);
         
         eventStore.append("TxMinTest", payload, validTime)
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 assertNotNull(result);
                 assertEquals("TxMinTest", result.getEventType());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -1759,13 +1726,12 @@ class PgBiTemporalEventStoreComplexTest {
         
         eventStore.append("TxHeadersTest", payload, validTime,
             Map.of("h1", "v1", "h2", "v2"))
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 assertNotNull(result);
                 assertEquals("TxHeadersTest", result.getEventType());
                 assertNotNull(result.getHeaders());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -1781,13 +1747,12 @@ class PgBiTemporalEventStoreComplexTest {
         
         eventStore.append("TxCorrTest", payload, validTime,
             Map.of(), "my-correlation-id", null, null)
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 assertNotNull(result);
                 assertEquals("TxCorrTest", result.getEventType());
                 assertEquals("my-correlation-id", result.getCorrelationId());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -1803,13 +1768,12 @@ class PgBiTemporalEventStoreComplexTest {
         
         eventStore.appendOwnTransaction("TxAggTest", payload, validTime,
             Map.of(), null, null, "my-aggregate-id")
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 assertNotNull(result);
                 assertEquals("TxAggTest", result.getEventType());
                 assertEquals("my-aggregate-id", result.getAggregateId());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -1829,12 +1793,11 @@ class PgBiTemporalEventStoreComplexTest {
                 return eventStore.getAsOfTransactionTime(appended.getEventId(), Instant.now())
                     .map(result -> Map.entry(appended, result));
             })
-            .onSuccess(pair -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(pair -> testContext.verify(() -> {
                 assertNotNull(pair.getValue());
                 assertEquals(pair.getKey().getEventId(), pair.getValue().getEventId());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -1869,7 +1832,7 @@ class PgBiTemporalEventStoreComplexTest {
                 .map(d -> Map.entry(c, d))
             )
             .compose(pair -> eventStore.getAllVersions(pair.getKey().getEventId()))
-            .onSuccess(versions -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(versions -> testContext.verify(() -> {
                 assertEquals(4, versions.size(), "Should have root + 3 chained corrections");
                 assertEquals(1L, versions.get(0).getVersion());
                 assertEquals(2L, versions.get(1).getVersion());
@@ -1885,8 +1848,7 @@ class PgBiTemporalEventStoreComplexTest {
                 assertEquals("corr-of-corr", versions.get(2).getPayload().getData());
                 assertEquals("corr-of-corr-of-corr", versions.get(3).getPayload().getData());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -1926,7 +1888,7 @@ class PgBiTemporalEventStoreComplexTest {
                     (List<BiTemporalEvent<TestEvent>>) cf.resultAt(2)
                 ));
             })
-            .onSuccess(results -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(results -> testContext.verify(() -> {
                 for (int i = 0; i < 3; i++) {
                     List<BiTemporalEvent<TestEvent>> versions = results.get(i);
                     assertEquals(3, versions.size(),
@@ -1936,8 +1898,7 @@ class PgBiTemporalEventStoreComplexTest {
                     assertEquals(3L, versions.get(2).getVersion());
                 }
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -1976,7 +1937,7 @@ class PgBiTemporalEventStoreComplexTest {
                 .map(d -> abc.get(0).getEventId())
             )
             .compose(rootId -> eventStore.getAllVersions(rootId))
-            .onSuccess(versions -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(versions -> testContext.verify(() -> {
                 assertEquals(4, versions.size(), "Family should have 4 members");
                 // Collect version numbers and verify uniqueness
                 Set<Long> versionNumbers = new HashSet<>();
@@ -1987,8 +1948,7 @@ class PgBiTemporalEventStoreComplexTest {
                 // Versions should be 1, 2, 3, 4
                 assertEquals(Set.of(1L, 2L, 3L, 4L), versionNumbers);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -2020,15 +1980,14 @@ class PgBiTemporalEventStoreComplexTest {
                 }
                 return chain.compose(leaf -> eventStore.getAllVersions(leaf.getEventId()));
             })
-            .onSuccess(versions -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(versions -> testContext.verify(() -> {
                 assertEquals(depth, versions.size(), "Should have " + depth + " versions");
                 for (int i = 0; i < depth; i++) {
                     assertEquals(i + 1L, versions.get(i).getVersion(),
                         "Version at index " + i + " should be " + (i + 1));
                 }
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -2074,14 +2033,13 @@ class PgBiTemporalEventStoreComplexTest {
                     return Arrays.asList(beforeResult, nowResult);
                 });
             })
-            .onSuccess(results -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(results -> testContext.verify(() -> {
                 assertNull(results.get(0), "Before any existed, should be null");
                 assertNotNull(results.get(1), "At current time, should find latest");
                 assertEquals("leaf", results.get(1).getPayload().getData());
                 assertEquals(3L, results.get(1).getVersion());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -2182,12 +2140,11 @@ class PgBiTemporalEventStoreComplexTest {
     @Test
     void testGetAllVersionsNonExistentReturnsEmpty(VertxTestContext testContext) throws Exception {
         eventStore.getAllVersions("no-such-event-id")
-            .onSuccess(versions -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(versions -> testContext.verify(() -> {
                 assertNotNull(versions);
                 assertTrue(versions.isEmpty(), "Non-existent event should yield empty list");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -2517,18 +2474,15 @@ class PgBiTemporalEventStoreComplexTest {
         eventStore.appendBuilder().eventType("ComplexObjectTest")
             .payload(original).validTime(validTime).execute()
             .compose(event -> eventStore.getById(event.getEventId()))
-            .onSuccess(fetched -> {
-                testContext.verify(() -> {
-                    assertNotNull(fetched);
-                    TestEvent payload = fetched.getPayload();
-                    assertNotNull(payload);
-                    assertEquals("complex-obj", payload.getId());
-                    assertEquals("nested data with special chars: <>&\"'", payload.getData());
-                    assertEquals(99, payload.getValue());
-                });
+            .onComplete(testContext.succeeding(fetched -> testContext.verify(() -> {
+                assertNotNull(fetched);
+                TestEvent payload = fetched.getPayload();
+                assertNotNull(payload);
+                assertEquals("complex-obj", payload.getId());
+                assertEquals("nested data with special chars: <>&\"'", payload.getData());
+                assertEquals(99, payload.getValue());
                 testContext.completeNow();
-            })
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -2547,16 +2501,13 @@ class PgBiTemporalEventStoreComplexTest {
         eventStore.appendBuilder().eventType("HeaderRoundTrip")
             .payload(new TestEvent("hdr", "data", 1)).validTime(validTime).headers(headers).execute()
             .compose(event -> eventStore.getById(event.getEventId()))
-            .onSuccess(fetched -> {
-                testContext.verify(() -> {
-                    assertNotNull(fetched);
-                    assertEquals("application/json", fetched.getHeaders().get("content-type"));
-                    assertEquals("abc-123-def-456", fetched.getHeaders().get("x-trace-id"));
-                    assertEquals("", fetched.getHeaders().get("empty-value"));
-                });
+            .onComplete(testContext.succeeding(fetched -> testContext.verify(() -> {
+                assertNotNull(fetched);
+                assertEquals("application/json", fetched.getHeaders().get("content-type"));
+                assertEquals("abc-123-def-456", fetched.getHeaders().get("x-trace-id"));
+                assertEquals("", fetched.getHeaders().get("empty-value"));
                 testContext.completeNow();
-            })
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
