@@ -1,0 +1,161 @@
+version: '3.8'
+
+# PeeGeeQ – Local failover environment
+#
+# Simulates an HAProxy + PgBouncer HA topology for manual failover testing.
+#
+# Topology
+# ────────
+#
+#   Application (PeeGeeQ)
+#       │  connects to PgBouncer:6432
+#       ▼
+#   PgBouncer  (connection pooling)
+#       │  proxies to HAProxy:5400
+#       ▼
+#   HAProxy    (TCP load-balancer with active health-checks)
+#       ├──► pg-primary:5432    (active; all traffic goes here)
+#       └──► pg-secondary:5432  (backup; activated only when primary is DOWN)
+#
+# Quick-start
+# ───────────
+#   docker compose -f scripts/docker-compose-failover-local.yml up -d
+#
+# Manual failover simulation
+# ──────────────────────────
+#   # Stop primary – HAProxy detects failure in ~1 s (fall=2 × inter=500ms)
+#   docker compose -f scripts/docker-compose-failover-local.yml stop pg-primary
+#
+#   # Traffic now routes through pg-secondary
+#   # Connect via:  localhost:6432 (PgBouncer) or localhost:5400 (HAProxy direct)
+#
+#   # Restore primary
+#   docker compose -f scripts/docker-compose-failover-local.yml start pg-primary
+#
+# Credentials (both nodes use the same credentials for easy rotation)
+# ────────────────────────────────────────────────────────────────────
+#   host: localhost
+#   port: 6432          (PgBouncer)   OR   5400 (HAProxy direct)
+#   database: peegeeq_dev
+#   user:     peegeeq_dev
+#   password: peegeeq_dev
+#
+# Note: In production, pg-secondary would be a streaming replica of pg-primary.
+#       Here both nodes are independent for local dev convenience.
+
+services:
+
+  # ── Primary PostgreSQL ──────────────────────────────────────────────────────
+  pg-primary:
+    image: postgres:15.13-alpine3.20
+    container_name: peegeeq-pg-primary
+    networks:
+      - peegeeq-ha
+    environment:
+      POSTGRES_DB:       peegeeq_dev
+      POSTGRES_USER:     peegeeq_dev
+      POSTGRES_PASSWORD: peegeeq_dev
+    ports:
+      - "5433:5432"   # exposed on 5433 to avoid clashing with local PostgreSQL
+    volumes:
+      - pg_primary_data:/var/lib/postgresql/data
+    command: >
+      postgres
+      -c max_connections=200
+      -c shared_buffers=128MB
+      -c effective_cache_size=256MB
+      -c wal_level=replica
+      -c max_wal_senders=3
+      -c wal_keep_size=64
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U peegeeq_dev -d peegeeq_dev"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ── Secondary PostgreSQL ────────────────────────────────────────────────────
+  # In production this node would be a streaming replica (pg_basebackup +
+  # recovery.conf / standby.signal).  For local dev it is an independent
+  # node with the same credentials.
+  pg-secondary:
+    image: postgres:15.13-alpine3.20
+    container_name: peegeeq-pg-secondary
+    networks:
+      - peegeeq-ha
+    environment:
+      POSTGRES_DB:       peegeeq_dev
+      POSTGRES_USER:     peegeeq_dev
+      POSTGRES_PASSWORD: peegeeq_dev
+    ports:
+      - "5434:5432"   # exposed on 5434
+    volumes:
+      - pg_secondary_data:/var/lib/postgresql/data
+    command: >
+      postgres
+      -c max_connections=200
+      -c shared_buffers=128MB
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U peegeeq_dev -d peegeeq_dev"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # ── HAProxy ─────────────────────────────────────────────────────────────────
+  # TCP proxy with active health-checks.
+  # - Sends all traffic to pg-primary while it is healthy.
+  # - Fails over to pg-secondary (backup) within ~1 s of primary going down.
+  # - Fails back to pg-primary automatically once it recovers.
+  haproxy:
+    image: haproxy:2.8-alpine
+    container_name: peegeeq-haproxy
+    networks:
+      - peegeeq-ha
+    ports:
+      - "5400:5400"     # PostgreSQL traffic
+      - "8404:8404"     # HAProxy stats page
+    volumes:
+      - ./haproxy-failover-local.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    depends_on:
+      pg-primary:
+        condition: service_healthy
+      pg-secondary:
+        condition: service_healthy
+
+  # ── PgBouncer ───────────────────────────────────────────────────────────────
+  # Connection pooler in front of HAProxy.
+  # In production, PgBouncer handles client-side connection limits and
+  # provides transparent reconnection when the backend (HAProxy) resets
+  # connections during failover.
+  pgbouncer:
+    image: bitnami/pgbouncer:1.22.0
+    container_name: peegeeq-pgbouncer
+    networks:
+      - peegeeq-ha
+    ports:
+      - "6432:6432"
+    environment:
+      # PgBouncer connects to HAProxy, not directly to PostgreSQL.
+      # HAProxy handles the primary/secondary routing transparently.
+      POSTGRESQL_HOST:             haproxy
+      POSTGRESQL_PORT:             "5400"
+      POSTGRESQL_DATABASE:         peegeeq_dev
+      POSTGRESQL_USERNAME:         peegeeq_dev
+      POSTGRESQL_PASSWORD:         peegeeq_dev
+      PGBOUNCER_PORT:              "6432"
+      PGBOUNCER_POOL_MODE:         session
+      PGBOUNCER_MAX_CLIENT_CONN:   200
+      PGBOUNCER_DEFAULT_POOL_SIZE: 20
+      PGBOUNCER_SERVER_IDLE_TIMEOUT: "60"
+      PGBOUNCER_SERVER_CONNECT_TIMEOUT: "10"
+      PGBOUNCER_SERVER_LOGIN_RETRY: "5"
+      PGBOUNCER_AUTH_TYPE:         trust
+    depends_on:
+      - haproxy
+
+networks:
+  peegeeq-ha:
+    driver: bridge
+
+volumes:
+  pg_primary_data:
+  pg_secondary_data:
