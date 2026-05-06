@@ -231,7 +231,7 @@ public class CallPropagationIntegrationTest {
                     "FROM queue_messages WHERE topic = 'orders' ORDER BY created_at DESC LIMIT 1"
                 ).execute();
             })
-            .onSuccess(rows -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(rows -> testContext.verify(() -> {
                 assertTrue(rows.size() > 0, "Message should exist in database");
                 
                 var row = rows.iterator().next();
@@ -271,8 +271,7 @@ public class CallPropagationIntegrationTest {
                 logger.info("  - Headers: {}", headers.encode());
                 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -300,14 +299,13 @@ public class CallPropagationIntegrationTest {
                     "WHERE topic = 'orders' AND payload->>'test' = 'high-priority'"
                 ).execute();
             })
-            .onSuccess(rows -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(rows -> testContext.verify(() -> {
                 assertTrue(rows.size() > 0);
                 assertEquals(10, rows.iterator().next().getInteger("priority"),
                     "Priority 10 should be persisted correctly");
                 logger.info("Priority propagation verified");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -335,7 +333,7 @@ public class CallPropagationIntegrationTest {
                     "WHERE topic = 'orders' AND payload->>'test' = 'delayed'"
                 ).execute();
             })
-            .onSuccess(rows -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(rows -> testContext.verify(() -> {
                 assertTrue(rows.size() > 0);
                 var row = rows.iterator().next();
                 var visibleAt = row.getOffsetDateTime("visible_at");
@@ -350,8 +348,7 @@ public class CallPropagationIntegrationTest {
                 
                 logger.info("Delay propagation verified: {} seconds", delaySeconds);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -588,7 +585,7 @@ public class CallPropagationIntegrationTest {
                     .timeout(10000)
                     .send();
             })
-            .onSuccess(queryResponse -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(queryResponse -> testContext.verify(() -> {
                 assertEquals(200, queryResponse.statusCode(),
                     "Event query should return 200 OK");
                 
@@ -612,8 +609,7 @@ public class CallPropagationIntegrationTest {
 
                 logger.info("All events have proper temporal dimensions");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     // ==================== Messaging Correlation ID and Message Group Tests ====================
@@ -653,15 +649,14 @@ public class CallPropagationIntegrationTest {
                     "WHERE topic = 'orders' AND payload->>'test' = 'correlation-id-test'"
                 ).execute();
             })
-            .onSuccess(rows -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(rows -> testContext.verify(() -> {
                 assertTrue(rows.size() > 0, "Message should exist in database");
                 String dbCorrelationId = rows.iterator().next().getString("correlation_id");
                 assertEquals(customCorrelationId, dbCorrelationId,
                     "Correlation ID should be persisted correctly in database");
                 logger.info("Correlation ID propagation verified: {}", dbCorrelationId);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -700,15 +695,14 @@ public class CallPropagationIntegrationTest {
                     "WHERE topic = 'orders' AND payload->>'test' = 'message-group-test'"
                 ).execute();
             })
-            .onSuccess(rows -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(rows -> testContext.verify(() -> {
                 assertTrue(rows.size() > 0, "Message should exist in database");
                 String dbMessageGroup = rows.iterator().next().getString("message_group");
                 assertEquals(messageGroup, dbMessageGroup,
                     "Message group should be persisted correctly in database");
                 logger.info("Message group propagation verified: {}", dbMessageGroup);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -755,7 +749,7 @@ public class CallPropagationIntegrationTest {
                     "WHERE topic = 'orders' AND payload->>'test' = 'combined-test'"
                 ).execute();
             })
-            .onSuccess(rows -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(rows -> testContext.verify(() -> {
                 assertTrue(rows.size() > 0, "Message should exist in database");
                 var row = rows.iterator().next();
 
@@ -781,8 +775,7 @@ public class CallPropagationIntegrationTest {
                 logger.info("  - Priority: {}", dbPriority);
                 logger.info("  - Headers: {}", dbHeaders.encode());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 }
 
