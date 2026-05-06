@@ -175,7 +175,7 @@ public class EventStoreIntegrationTest {
         webClient.get(TEST_PORT, "localhost", "/api/v1/setups/" + testSetupId)
                 .timeout(10000)
                 .send()
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     logger.info("Status response code: {}", response.statusCode());
                     logger.info("Status response body: {}", response.bodyAsString());
                     
@@ -199,8 +199,7 @@ public class EventStoreIntegrationTest {
                     logger.info("Event store exists verification passed");
                     logger.info("=== TEST METHOD COMPLETED: testEventStoreExists ===");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -221,7 +220,7 @@ public class EventStoreIntegrationTest {
                 .putHeader("content-type", "application/json")
                 .timeout(10000)
                 .sendJsonObject(eventRequest)
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     logger.info("Store event response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     if (response.statusCode() != 200) {
@@ -237,8 +236,7 @@ public class EventStoreIntegrationTest {
                     logger.info("Event stored successfully with ID: {}", responseBody.getString("eventId"));
                     logger.info("=== TEST METHOD COMPLETED: testStoreOneEvent ===");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -292,7 +290,7 @@ public class EventStoreIntegrationTest {
                                         .send();
                             });
                 })
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     logger.info("Get versions response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     assertEquals(200, response.statusCode(), "Should retrieve event versions");
@@ -307,8 +305,7 @@ public class EventStoreIntegrationTest {
                     logger.info("Retrieved {} version(s) of the event", versions.size());
                     logger.info("=== TEST METHOD COMPLETED: testGetAllVersionsOfEvent ===");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -363,7 +360,7 @@ public class EventStoreIntegrationTest {
                                         .send();
                             });
                 })
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     logger.info("Get as-of-time response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     assertEquals(200, response.statusCode(), "Should retrieve event as of transaction time");
@@ -382,8 +379,7 @@ public class EventStoreIntegrationTest {
                     logger.info("Retrieved event as of transaction time: {}", event.encodePrettily());
                     logger.info("=== TEST METHOD COMPLETED: testGetEventAsOfTransactionTime ===");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -416,7 +412,7 @@ public class EventStoreIntegrationTest {
                             .timeout(10000)
                             .send();
                 })
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     logger.info("Stats response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     assertEquals(200, response.statusCode(), "Should retrieve event store stats");
@@ -438,8 +434,7 @@ public class EventStoreIntegrationTest {
                     logger.info("Event store statistics retrieved: {} total events", totalEvents);
                     logger.info("=== TEST METHOD COMPLETED: testGetEventStoreStats ===");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     // ============================================================================
@@ -457,7 +452,7 @@ public class EventStoreIntegrationTest {
                 "/api/v1/eventstores/" + testSetupId + "/test_events/events/" + invalidEventId)
                 .timeout(10000)
                 .send()
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     logger.info("Invalid event ID response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     assertEquals(404, response.statusCode(), 
@@ -470,8 +465,7 @@ public class EventStoreIntegrationTest {
                     logger.info("Invalid event ID properly handled with 404");
                     logger.info("=== TEST METHOD COMPLETED: testGetEventWithInvalidEventId ===");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -485,7 +479,7 @@ public class EventStoreIntegrationTest {
                 "/api/v1/eventstores/" + testSetupId + "/test_events/events/" + invalidEventId + "/versions")
                 .timeout(10000)
                 .send()
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     logger.info("Invalid versions response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     assertEquals(200, response.statusCode(), 
@@ -501,8 +495,7 @@ public class EventStoreIntegrationTest {
                     logger.info("Invalid event ID in getAllVersions returns empty array");
                     logger.info("=== TEST METHOD COMPLETED: testGetAllVersionsWithInvalidEventId ===");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -534,7 +527,7 @@ public class EventStoreIntegrationTest {
                             .timeout(10000)
                             .send();
                 })
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     logger.info("Invalid timestamp response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     assertEquals(400, response.statusCode(), 
@@ -549,8 +542,7 @@ public class EventStoreIntegrationTest {
                     logger.info("Invalid timestamp format properly rejected with 400");
                     logger.info("=== TEST METHOD COMPLETED: testGetAsOfTransactionTimeWithInvalidFormat ===");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -581,7 +573,7 @@ public class EventStoreIntegrationTest {
                             .timeout(10000)
                             .send();
                 })
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     logger.info("Missing parameter response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     assertEquals(400, response.statusCode(), 
@@ -596,8 +588,7 @@ public class EventStoreIntegrationTest {
                     logger.info("Missing transactionTime parameter properly rejected with 400");
                     logger.info("=== TEST METHOD COMPLETED: testGetAsOfTransactionTimeWithMissingParameter ===");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -611,7 +602,7 @@ public class EventStoreIntegrationTest {
                 "/api/v1/eventstores/" + testSetupId + "/" + nonExistentStore + "/events")
                 .timeout(10000)
                 .send()
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     logger.info("Non-existent store response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     assertEquals(500, response.statusCode(), 
@@ -626,8 +617,7 @@ public class EventStoreIntegrationTest {
                     logger.info("Non-existent event store properly rejected");
                     logger.info("=== TEST METHOD COMPLETED: testQueryNonExistentEventStore ===");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -641,7 +631,7 @@ public class EventStoreIntegrationTest {
                 .putHeader("content-type", "application/json")
                 .timeout(10000)
                 .sendBuffer(io.vertx.core.buffer.Buffer.buffer(invalidJson))
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     logger.info("Invalid JSON response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     assertEquals(400, response.statusCode(), 
@@ -654,8 +644,7 @@ public class EventStoreIntegrationTest {
                     logger.info("Invalid JSON payload properly rejected with 400");
                     logger.info("=== TEST METHOD COMPLETED: testStoreEventWithInvalidJsonPayload ===");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -671,7 +660,7 @@ public class EventStoreIntegrationTest {
                 .putHeader("content-type", "application/json")
                 .timeout(10000)
                 .sendJsonObject(incompleteEvent)
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     logger.info("Missing fields response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     // Should return error (400 or 500 depending on validation)
@@ -685,8 +674,7 @@ public class EventStoreIntegrationTest {
                     logger.info("Missing required fields properly rejected");
                     logger.info("=== TEST METHOD COMPLETED: testStoreEventWithMissingRequiredFields ===");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -700,7 +688,7 @@ public class EventStoreIntegrationTest {
                 "/api/v1/eventstores/" + testSetupId + "/" + nonExistentStore + "/stats")
                 .timeout(10000)
                 .send()
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     logger.info("Non-existent store stats response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     assertEquals(500, response.statusCode(), 
@@ -715,8 +703,7 @@ public class EventStoreIntegrationTest {
                     logger.info("Stats request for non-existent store properly rejected");
                     logger.info("=== TEST METHOD COMPLETED: testGetStatsForNonExistentEventStore ===");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -730,7 +717,7 @@ public class EventStoreIntegrationTest {
                 "/api/v1/eventstores/" + invalidSetupId + "/test_events/events")
                 .timeout(10000)
                 .send()
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     logger.info("Invalid setup ID response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     assertEquals(500, response.statusCode(), 
@@ -743,8 +730,7 @@ public class EventStoreIntegrationTest {
                     logger.info("Invalid setup ID properly rejected");
                     logger.info("=== TEST METHOD COMPLETED: testQueryWithInvalidSetupId ===");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -788,7 +774,7 @@ public class EventStoreIntegrationTest {
                 .sendJsonObject(event3);
 
         io.vertx.core.Future.all(future1, future2, future3)
-                .onSuccess(composite -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(composite -> testContext.verify(() -> {
                     logger.info("Concurrent events response status codes: {}, {}, {}",
                             future1.result().statusCode(),
                             future2.result().statusCode(),
@@ -801,8 +787,7 @@ public class EventStoreIntegrationTest {
                     logger.info("Concurrent event storage successful - thread safety validated");
                     logger.info("=== TEST METHOD COMPLETED: testConcurrentEventStores ===");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     // ============================================================================
@@ -853,7 +838,7 @@ public class EventStoreIntegrationTest {
                             .timeout(10000)
                             .sendJsonObject(correctionRequest);
                 })
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     logger.info("Correction response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     assertEquals(201, response.statusCode(), "Correction should be created successfully");
@@ -871,8 +856,7 @@ public class EventStoreIntegrationTest {
                             responseBody.getString("correctionEventId"));
                     logger.info("=== TEST METHOD COMPLETED: testAppendCorrectionToEvent ===");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -908,7 +892,7 @@ public class EventStoreIntegrationTest {
                             .timeout(10000)
                             .sendJsonObject(correctionRequest);
                 })
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     logger.info("Missing reason response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     assertEquals(400, response.statusCode(), "Should return 400 for missing correctionReason");
@@ -922,8 +906,7 @@ public class EventStoreIntegrationTest {
                     logger.info("Missing correctionReason properly rejected with 400");
                     logger.info("=== TEST METHOD COMPLETED: testAppendCorrectionWithMissingReason ===");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -959,7 +942,7 @@ public class EventStoreIntegrationTest {
                             .timeout(10000)
                             .sendJsonObject(correctionRequest);
                 })
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     logger.info("Missing eventData response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     assertEquals(400, response.statusCode(), "Should return 400 for missing eventData");
@@ -973,8 +956,7 @@ public class EventStoreIntegrationTest {
                     logger.info("Missing eventData properly rejected with 400");
                     logger.info("=== TEST METHOD COMPLETED: testAppendCorrectionWithMissingEventData ===");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -993,7 +975,7 @@ public class EventStoreIntegrationTest {
                 .putHeader("content-type", "application/json")
                 .timeout(10000)
                 .sendJsonObject(correctionRequest)
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     logger.info("Non-existent event correction response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     assertEquals(404, response.statusCode(), "Should return 404 for non-existent event");
@@ -1007,8 +989,7 @@ public class EventStoreIntegrationTest {
                     logger.info("Correction to non-existent event properly rejected with 404");
                     logger.info("=== TEST METHOD COMPLETED: testAppendCorrectionToNonExistentEvent ===");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -1062,7 +1043,7 @@ public class EventStoreIntegrationTest {
                                         .send();
                             });
                 })
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     logger.info("Versions response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     assertEquals(200, response.statusCode(), "Should retrieve versions");
@@ -1077,8 +1058,7 @@ public class EventStoreIntegrationTest {
                     logger.info("Audit trail preserved with {} versions", versions.size());
                     logger.info("=== TEST METHOD COMPLETED: testCorrectionPreservesAuditTrail ===");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     // ============================================================================
@@ -1116,7 +1096,7 @@ public class EventStoreIntegrationTest {
                             .timeout(10000)
                             .send();
                 })
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     logger.info("Versions response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     assertEquals(200, response.statusCode(), "Should retrieve versions");
@@ -1129,8 +1109,7 @@ public class EventStoreIntegrationTest {
                     logger.info("Event versions retrieved successfully");
                     logger.info("=== TEST METHOD COMPLETED: testGetEventVersions ===");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -1144,7 +1123,7 @@ public class EventStoreIntegrationTest {
                 "/api/v1/eventstores/" + testSetupId + "/test_events/events/" + nonExistentEventId + "/versions")
                 .timeout(10000)
                 .send()
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     logger.info("Response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     // Should return 404 or empty versions array
@@ -1161,8 +1140,7 @@ public class EventStoreIntegrationTest {
                     logger.info("Non-existent event versions handled correctly");
                     logger.info("=== TEST METHOD COMPLETED: testGetEventVersionsForNonExistentEvent ===");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -1197,7 +1175,7 @@ public class EventStoreIntegrationTest {
                             .timeout(10000)
                             .send();
                 })
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     logger.info("Point-in-time response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     // Should return 200 with the event or 404 if not found at that time
@@ -1214,8 +1192,7 @@ public class EventStoreIntegrationTest {
 
                     logger.info("=== TEST METHOD COMPLETED: testPointInTimeQuery ===");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -1227,7 +1204,7 @@ public class EventStoreIntegrationTest {
                 "/api/v1/eventstores/" + testSetupId + "/test_events/stats")
                 .timeout(10000)
                 .send()
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     logger.info("Stats response: {} - {}", response.statusCode(), response.bodyAsString());
 
                     assertEquals(200, response.statusCode(), "Should retrieve stats");
@@ -1241,8 +1218,7 @@ public class EventStoreIntegrationTest {
 
                     logger.info("=== TEST METHOD COMPLETED: testEventStoreStats ===");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     // ==================== SSE Streaming Tests ====================
@@ -1266,7 +1242,7 @@ public class EventStoreIntegrationTest {
                         "/api/v1/eventstores/" + testSetupId + "/test_events/events/stream")
                 .onSuccess(request -> {
                     request.send()
-                            .onSuccess(response -> testContext.verify(() -> {
+                            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                                 logger.info("SSE response status: {}", response.statusCode());
                                 logger.info("SSE Content-Type: {}", response.getHeader("Content-Type"));
 
@@ -1309,8 +1285,7 @@ public class EventStoreIntegrationTest {
                                                 "Timeout waiting for SSE connection event. Received: " + receivedData));
                                     }
                                 });
-                            }))
-                            .onFailure(testContext::failNow);
+                            })));
                 })
                 .onFailure(testContext::failNow);
     }
@@ -1332,7 +1307,7 @@ public class EventStoreIntegrationTest {
                         "/api/v1/eventstores/" + testSetupId + "/test_events/events/stream?eventType=" + eventTypeFilter)
                 .onSuccess(request -> {
                     request.send()
-                            .onSuccess(response -> testContext.verify(() -> {
+                            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                                 assertEquals(200, response.statusCode(), "SSE endpoint should return 200");
 
                                 StringBuilder receivedData = new StringBuilder();
@@ -1361,8 +1336,7 @@ public class EventStoreIntegrationTest {
                                                 "Timeout waiting for SSE connection event. Received: " + receivedData));
                                     }
                                 });
-                            }))
-                            .onFailure(testContext::failNow);
+                            })));
                 })
                 .onFailure(testContext::failNow);
     }
@@ -1383,7 +1357,7 @@ public class EventStoreIntegrationTest {
                         "/api/v1/eventstores/" + testSetupId + "/test_events/events/stream?aggregateId=" + aggregateIdFilter)
                 .onSuccess(request -> {
                     request.send()
-                            .onSuccess(response -> testContext.verify(() -> {
+                            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                                 assertEquals(200, response.statusCode(), "SSE endpoint should return 200");
 
                                 StringBuilder receivedData = new StringBuilder();
@@ -1410,8 +1384,7 @@ public class EventStoreIntegrationTest {
                                                 "Timeout waiting for SSE connection event. Received: " + receivedData));
                                     }
                                 });
-                            }))
-                            .onFailure(testContext::failNow);
+                            })));
                 })
                 .onFailure(testContext::failNow);
     }
@@ -1430,7 +1403,7 @@ public class EventStoreIntegrationTest {
                         "/api/v1/eventstores/" + testSetupId + "/nonexistent_store/events/stream")
                 .onSuccess(request -> {
                     request.send()
-                            .onSuccess(response -> testContext.verify(() -> {
+                            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                                 // SSE endpoint returns 200 but sends error event
                                 assertEquals(200, response.statusCode(), "SSE endpoint should return 200");
 
@@ -1478,8 +1451,7 @@ public class EventStoreIntegrationTest {
                                         testContext.completeNow();
                                     }
                                 });
-                            }))
-                            .onFailure(testContext::failNow);
+                            })));
                 })
                 .onFailure(testContext::failNow);
     }

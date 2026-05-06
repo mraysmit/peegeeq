@@ -171,14 +171,13 @@ class SystemMonitoringHandlerTest {
             .putHeader("content-type", "application/json")
             .timeout(30000)
             .sendJsonObject(setupRequest)
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(201, response.statusCode(), "Setup should return 201 Created");
                 JsonObject body = response.bodyAsJsonObject();
                 assertEquals("ACTIVE", body.getString("status"));
                 logger.info("Database setup with queues created successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -473,7 +472,7 @@ class SystemMonitoringHandlerTest {
                 request.putHeader("Accept", "text/event-stream");
                 return request.send();
             })
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 int status = response.statusCode();
                 logger.info("SSE endpoint returned status: {}", status);
 
@@ -511,7 +510,7 @@ class SystemMonitoringHandlerTest {
                             "SSE metrics: 'connected' event not received within 5 s"));
                     }
                 });
-            }))
+            })))
             .onFailure(err -> {
                 sseClient.close();
                 testContext.failNow(err);
@@ -533,7 +532,7 @@ class SystemMonitoringHandlerTest {
                 request.putHeader("Accept", "text/event-stream");
                 return request.send();
             })
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(200, response.statusCode(), "SSE endpoint should return 200");
 
                 AtomicBoolean metricsEventReceived = new AtomicBoolean(false);
@@ -561,7 +560,7 @@ class SystemMonitoringHandlerTest {
                             "SSE metrics: 'metrics' event not received within 10 s"));
                     }
                 });
-            }))
+            })))
             .onFailure(err -> {
                 sseClient.close();
                 testContext.failNow(err);

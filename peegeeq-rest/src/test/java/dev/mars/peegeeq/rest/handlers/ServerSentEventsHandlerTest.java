@@ -146,14 +146,13 @@ class ServerSentEventsHandlerTest {
             .putHeader("content-type", "application/json")
             .timeout(30000)
             .sendJsonObject(setupRequest)
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 assertEquals(201, response.statusCode(), "Setup should return 201 Created");
                 JsonObject body = response.bodyAsJsonObject();
                 assertEquals("ACTIVE", body.getString("status"));
                 logger.info("Database setup with queue created successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -170,7 +169,7 @@ class ServerSentEventsHandlerTest {
                 request.putHeader("Accept", "text/event-stream");
                 return request.send();
             })
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 int status = response.statusCode();
                 logger.info("SSE endpoint returned status: {}", status);
 
@@ -191,7 +190,7 @@ class ServerSentEventsHandlerTest {
                 // Close the connection - SSE streams don't end naturally
                 httpClient.close();
                 testContext.completeNow();
-            }))
+            })))
             .onFailure(err -> {
                 logger.warn("SSE endpoint request failed: {}", err.getMessage());
                 httpClient.close();
@@ -214,7 +213,7 @@ class ServerSentEventsHandlerTest {
                 request.putHeader("Accept", "text/event-stream");
                 return request.send();
             })
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 int status = response.statusCode();
                 logger.info("SSE endpoint with params returned status: {}", status);
 
@@ -225,7 +224,7 @@ class ServerSentEventsHandlerTest {
                 // Close the connection - SSE streams don't end naturally
                 httpClient.close();
                 testContext.completeNow();
-            }))
+            })))
             .onFailure(err -> {
                 logger.warn("SSE endpoint request failed: {}", err.getMessage());
                 httpClient.close();
@@ -332,7 +331,7 @@ class ServerSentEventsHandlerTest {
                 request.putHeader("Accept", "text/event-stream");
                 return request.send();
             })
-            .onSuccess(response -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                 int status = response.statusCode();
 
                 if (status == 200) {
@@ -356,7 +355,7 @@ class ServerSentEventsHandlerTest {
                 // Close the connection - SSE streams don't end naturally
                 httpClient.close();
                 testContext.completeNow();
-            }))
+            })))
             .onFailure(err -> {
                 logger.warn("SSE headers test failed: {}", err.getMessage());
                 httpClient.close();

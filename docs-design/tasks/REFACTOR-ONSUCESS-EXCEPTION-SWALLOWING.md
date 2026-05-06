@@ -2,7 +2,7 @@
 
 Created: 2026-05-05  
 Branch: `feature/offset-watermark-phase1`  
-Status: **PHASE 1 COMPLETE — PHASE 2 COMPLETE — PHASE 3 IN PROGRESS (`peegeeq-db` complete, `peegeeq-outbox` complete, `peegeeq-bitemporal` complete)**
+Status: **PHASE 1 COMPLETE — PHASE 2 COMPLETE — PHASE 3 IN PROGRESS (`peegeeq-db` complete, `peegeeq-outbox` complete, `peegeeq-bitemporal` complete, `peegeeq-rest` complete)**
 
 ---
 
@@ -301,6 +301,7 @@ grep -rn "assertEquals\|assertTrue\|assertNotNull" --include="*Test*.java" | \
 - [x] `peegeeq-outbox` Tier 3 — `OutboxConsumerGroupFaultToleranceTest` bare `assertEquals` wrapped in `testContext.verify()`; 5/5 tests pass (2026-05-06).
 - [x] `peegeeq-bitemporal` Tier 3 — `TraceContextPropagationTest.java` 8 bare assertions in 8 test methods — **FIXED — 8/8 tests pass (2026-05-06)**.
 - [x] `peegeeq-bitemporal` Phase 3 Tier 1 — all Tier 1 patterns migrated to `onComplete(testContext.succeeding(...))` across 22 test files; ~170 patterns converted (2026-05-06). One symmetric `onSuccess+onFailure` pattern in `VersionLineageIntegrationTest.appendCorrectionForNonExistentRootIsRejectedByConstraint` intentionally preserved. **340 tests pass (2026-05-06)**.
+- [x] `peegeeq-rest` Phase 3 Tier 1 — all Tier 1 patterns migrated to `onComplete(testContext.succeeding(...))` across 12 test files; 85 patterns converted (2026-05-06). 7 expression-lambda patterns with non-trivial `.onFailure` bodies (SSE/WebSocket client cleanup) required manual `)` fix after bulk regex. **297 tests pass (2026-05-06)**.
 
 ---
 
@@ -357,6 +358,17 @@ Fix: wrap `assertEquals` and `completeNow` in `testContext.verify()`.
 #### Tier 0 — safe
 
 All remaining `onSuccess` uses are: `completeNow()`, `checkpoint.flag()`, logging, timer IDs, or inverted fail-on-success patterns. No action needed.
+
+---
+
+### `peegeeq-rest` — Phase 3 complete (2026-05-06)
+
+40 test files reviewed. All Tier 1 patterns converted. Summary:
+- **Tier 3**: 0 found
+- **Tier 1 converted**: 85 patterns across 12 test files migrated to `onComplete(testContext.succeeding(...))`
+- **Files converted**: `CallPropagationIntegrationTest`, `MultiTenantSchemaIsolationTest`, `PeeGeeQRestServerStopTest`, `PeeGeeQRestServerTest`, `BatchMessageProcessingIntegrationTest`, `EventStoreEnhancementTest`, `EventStoreIntegrationTest`, `ManagementApiHandlerTest`, `RealTimeStreamingIntegrationTest`, `ServerSentEventsHandlerTest`, `SystemMonitoringHandlerTest`, `WebSocketHandlerTest`
+- **Post-regex fix**: 7 expression-lambda patterns in SSE/WebSocket handler tests where `.onFailure(err -> { client.close(); ... })` provided cleanup. Step 2 regex didn't apply (non-trivial onFailure body). Fixed by adding missing `)` to close `onComplete(` — cleanup chains preserved.
+- **Result**: 297 tests pass (2026-05-06)
 
 ---
 
