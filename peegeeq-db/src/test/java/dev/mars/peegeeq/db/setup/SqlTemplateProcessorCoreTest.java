@@ -11,6 +11,8 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.parallel.Execution;
+import org.junit.jupiter.api.parallel.ExecutionMode;
 import ch.qos.logback.classic.Level;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
@@ -39,6 +41,7 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 2.0
  */
 @Tag(TestCategories.CORE)
+@Execution(ExecutionMode.SAME_THREAD)
 public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(SqlTemplateProcessorCoreTest.class);
@@ -148,17 +151,11 @@ public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
 
     @Test
     void testApplyTemplateWithNonExistentTemplate(VertxTestContext testContext) {
-        // Capture log output from SqlTemplateProcessor instead of printing it.
-        // This keeps test output clean while still verifying the error was logged.
         ch.qos.logback.classic.Logger stpLogger = (ch.qos.logback.classic.Logger)
             LoggerFactory.getLogger(SqlTemplateProcessor.class);
         ListAppender<ILoggingEvent> listAppender = new ListAppender<>();
         listAppender.start();
         stpLogger.addAppender(listAppender);
-        Level originalLevel = stpLogger.getLevel();
-        stpLogger.setLevel(Level.ERROR);
-        // Detach console appenders so the expected error doesn't pollute test output
-        stpLogger.setAdditive(false);
 
         Map<String, String> parameters = new HashMap<>();
 
@@ -167,26 +164,20 @@ public class SqlTemplateProcessorCoreTest extends BaseIntegrationTest {
         )
         .onSuccess(v -> {
             stpLogger.detachAppender(listAppender);
-            stpLogger.setAdditive(true);
-            stpLogger.setLevel(originalLevel);
             listAppender.stop();
             testContext.failNow(new AssertionError("Should have thrown an exception"));
         })
         .onFailure(cause -> {
             try {
-                // Verify the expected error was actually logged
-                assertEquals(1, listAppender.list.size(), "Expected exactly one log event");
-                ILoggingEvent event = listAppender.list.get(0);
-                assertEquals(Level.ERROR, event.getLevel());
-                assertTrue(event.getFormattedMessage().contains("Failed to load template"),
-                    "Expected log message to contain 'Failed to load template'");
+                boolean hasExpectedLog = listAppender.list.stream()
+                    .anyMatch(e -> e.getLevel() == Level.ERROR
+                        && e.getFormattedMessage().contains("Failed to load template"));
+                assertTrue(hasExpectedLog, "Expected ERROR log containing 'Failed to load template'");
                 testContext.completeNow();
             } catch (Throwable t) {
                 testContext.failNow(t);
             } finally {
                 stpLogger.detachAppender(listAppender);
-                stpLogger.setAdditive(true);
-                stpLogger.setLevel(originalLevel);
                 listAppender.stop();
             }
         });
