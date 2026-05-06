@@ -9,6 +9,7 @@ import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
+import io.vertx.core.Vertx;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -218,8 +219,10 @@ class OutboxFactoryCloseHookTest {
         @Override
         public Future<Boolean> performHealthCheck() { return Future.succeededFuture(true); }
 
+        private final Vertx vertx = Vertx.vertx();
+
         @Override
-        public io.vertx.core.Vertx getVertx() { return null; }
+        public io.vertx.core.Vertx getVertx() { return vertx; }
 
         @Override
         public io.vertx.sqlclient.Pool getPool() { return null; }

@@ -59,12 +59,10 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
     private CleanupService cleanupService;
     private TopicConfigService topicConfigService;
     private SubscriptionManager subscriptionManager;
-    private String suffix;
 
     @BeforeEach
     public void setUp() {
         // super.setUpBaseIntegration(); // Removed: JUnit 5 automatically executes @BeforeEach from superclasses
-        suffix = UUID.randomUUID().toString().substring(0, 8);
 
         // Create connection manager using the shared Vertx instance
         connectionManager = new PgConnectionManager(manager.getVertx(), null);
@@ -109,7 +107,7 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
     public void testCleanupCompletedQueueMessages(VertxTestContext testContext) {
         logger.info("=== TEST: testCleanupCompletedQueueMessages STARTED ===");
 
-        String topic = "test-cleanup-queue-" + suffix;
+        String topic = "test-cleanup-queue";
 
         // Create topic with QUEUE semantics
         TopicConfig topicConfig = TopicConfig.builder()
@@ -149,7 +147,7 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
     public void testCleanupCompletedPubSubMessages(VertxTestContext testContext) {
         logger.info("=== TEST: testCleanupCompletedPubSubMessages STARTED ===");
 
-        String topic = "test-cleanup-pubsub-" + suffix;
+        String topic = "test-cleanup-pubsub";
         String group1 = "group1";
         String group2 = "group2";
 
@@ -211,7 +209,7 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
     public void testCleanupRespectsRetentionHours(VertxTestContext testContext) {
         logger.info("=== TEST: testCleanupRespectsRetentionHours STARTED ===");
 
-        String topic = "test-cleanup-retention-" + suffix;
+        String topic = "test-cleanup-retention";
 
         // Create topic with 24 hour retention
         TopicConfig topicConfig = TopicConfig.builder()
@@ -251,7 +249,7 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
     public void testCleanupDoesNotDeleteIncompleteMessages(VertxTestContext testContext) {
         logger.info("=== TEST: testCleanupDoesNotDeleteIncompleteMessages STARTED ===");
 
-        String topic = "test-cleanup-incomplete-" + suffix;
+        String topic = "test-cleanup-incomplete";
         String group1 = "group1";
         String group2 = "group2";
 
@@ -312,8 +310,8 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
     public void testCleanupAllTopics(VertxTestContext testContext) {
         logger.info("=== TEST: testCleanupAllTopics STARTED ===");
 
-        String topic1 = "test-cleanup-all-1-" + suffix;
-        String topic2 = "test-cleanup-all-2-" + suffix;
+        String topic1 = "test-cleanup-all-1";
+        String topic2 = "test-cleanup-all-2";
 
         // Create two topics
         TopicConfig topicConfig1 = TopicConfig.builder()
@@ -360,7 +358,7 @@ public class CleanupServiceIntegrationTest extends BaseIntegrationTest {
     public void testCountEligibleForCleanup(VertxTestContext testContext) {
         logger.info("=== TEST: testCountEligibleForCleanup STARTED ===");
 
-        String topic = "test-cleanup-count-" + suffix;
+        String topic = "test-cleanup-count";
 
         // Create topic
         TopicConfig topicConfig = TopicConfig.builder()
