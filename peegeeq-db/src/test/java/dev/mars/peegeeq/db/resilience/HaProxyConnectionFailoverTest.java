@@ -153,14 +153,18 @@ class HaProxyConnectionFailoverTest {
             .withNetworkAliases("pg_primary")
             .withDatabaseName(DB_NAME)
             .withUsername(DB_USER)
-            .withPassword(DB_PASS);
+            .withPassword(DB_PASS)
+            // Creates the 'haproxy_check' user so HAProxy's pgsql-check can probe each node.
+            .withInitScript("haproxy-check-init.sql");
 
         secondary = new PostgreSQLContainer(PgTestImageConstant.POSTGRES_IMAGE)
             .withNetwork(network)
             .withNetworkAliases("pg_secondary")
             .withDatabaseName(DB_NAME)
             .withUsername(DB_USER)
-            .withPassword(DB_PASS);
+            .withPassword(DB_PASS)
+            // Creates the 'haproxy_check' user so HAProxy's pgsql-check can probe each node.
+            .withInitScript("haproxy-check-init.sql");
 
         // Start both PostgreSQL nodes before starting HAProxy, so HAProxy can
         // successfully health-check both backends on startup.
