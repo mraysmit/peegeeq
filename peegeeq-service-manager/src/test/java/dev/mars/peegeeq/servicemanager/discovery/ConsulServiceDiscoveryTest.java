@@ -137,7 +137,7 @@ class ConsulServiceDiscoveryTest {
                     // Wait a moment for Consul to process the registration
                     return vertx.timer(1000).compose(timerId -> serviceDiscovery.discoverInstances());
                 })
-                .onSuccess(instances -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(instances -> testContext.verify(() -> {
                     assertNotNull(instances);
                     assertFalse(instances.isEmpty());
                     
@@ -181,7 +181,7 @@ class ConsulServiceDiscoveryTest {
                     return vertx.timer(1000).compose(timerId -> 
                             serviceDiscovery.getInstance("test-specific-01"));
                 })
-                .onSuccess(foundInstance -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(foundInstance -> testContext.verify(() -> {
                     assertNotNull(foundInstance);
                     assertEquals("test-specific-01", foundInstance.getInstanceId());
                     assertEquals("localhost", foundInstance.getHost());
@@ -220,7 +220,7 @@ class ConsulServiceDiscoveryTest {
                     // Wait for deregistration to propagate
                     return vertx.timer(1000).compose(timerId -> serviceDiscovery.discoverInstances());
                 })
-                .onSuccess(instances -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(instances -> testContext.verify(() -> {
                     // Verify the instance is no longer in the discovered instances
                     boolean instanceFound = instances.stream()
                             .anyMatch(inst -> "test-deregister-01".equals(inst.getInstanceId()));
@@ -253,7 +253,7 @@ class ConsulServiceDiscoveryTest {
                     return vertx.timer(1000).compose(timerId -> 
                             serviceDiscovery.checkInstanceHealth("test-health-01"));
                 })
-                .onSuccess(health -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(health -> testContext.verify(() -> {
                     assertNotNull(health);
                     // Note: Health check might return UNHEALTHY since we don't have a real PeeGeeQ instance running
                     // but the important thing is that we get a response
@@ -294,7 +294,7 @@ class ConsulServiceDiscoveryTest {
                     // Wait for registrations to propagate and cache to update
                     return vertx.timer(2000).compose(timerId -> serviceDiscovery.discoverInstances());
                 })
-                .onSuccess(discoveredInstances -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(discoveredInstances -> testContext.verify(() -> {
                     // Now test cached instances
                     List<PeeGeeQInstance> cachedInstances = serviceDiscovery.getCachedInstances();
                     

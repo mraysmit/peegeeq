@@ -63,7 +63,7 @@ class PeeGeeQServiceManagerTest {
     void testHealthEndpoint(Vertx vertx, VertxTestContext testContext) {
         webClient.get(TEST_PORT, "localhost", "/health")
                 .send()
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     assertEquals(200, response.statusCode());
 
                     JsonObject health = response.bodyAsJsonObject();
@@ -74,8 +74,7 @@ class PeeGeeQServiceManagerTest {
 
                     logger.info("Health check response: {}", health.encodePrettily());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
     
     @Test
@@ -94,7 +93,7 @@ class PeeGeeQServiceManagerTest {
         webClient.post(TEST_PORT, "localhost", "/api/v1/instances/register")
                 .putHeader("Content-Type", "application/json")
                 .sendJsonObject(registrationData)
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     if (response.statusCode() != 201) {
                         logger.error("Registration failed with status {}: {}", response.statusCode(), response.bodyAsString());
                     }
@@ -108,8 +107,7 @@ class PeeGeeQServiceManagerTest {
 
                     logger.info("Registration response: {}", result.encodePrettily());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
     
     @Test
@@ -133,7 +131,7 @@ class PeeGeeQServiceManagerTest {
                     return webClient.get(TEST_PORT, "localhost", "/api/v1/instances")
                             .send();
                 })
-                .onSuccess(listResponse -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(listResponse -> testContext.verify(() -> {
                     assertEquals(200, listResponse.statusCode());
 
                     JsonObject result = listResponse.bodyAsJsonObject();
@@ -144,15 +142,14 @@ class PeeGeeQServiceManagerTest {
 
                     logger.info("List instances response: {}", result.encodePrettily());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
     
     @Test
     void testFederatedOverview(Vertx vertx, VertxTestContext testContext) {
         webClient.get(TEST_PORT, "localhost", "/api/v1/federated/overview")
                 .send()
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     assertEquals(200, response.statusCode());
 
                     JsonObject result = response.bodyAsJsonObject();
@@ -164,15 +161,14 @@ class PeeGeeQServiceManagerTest {
 
                     logger.info("Federated overview response: {}", result.encodePrettily());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
     
     @Test
     void testFederatedQueues(Vertx vertx, VertxTestContext testContext) {
         webClient.get(TEST_PORT, "localhost", "/api/v1/federated/queues")
                 .send()
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     assertEquals(200, response.statusCode());
 
                     JsonObject result = response.bodyAsJsonObject();
@@ -185,8 +181,7 @@ class PeeGeeQServiceManagerTest {
 
                     logger.info("Federated queues response: {}", result.encodePrettily());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
     
     @Test
@@ -199,7 +194,7 @@ class PeeGeeQServiceManagerTest {
         webClient.post(TEST_PORT, "localhost", "/api/v1/instances/register")
                 .putHeader("Content-Type", "application/json")
                 .sendJsonObject(invalidData)
-                .onSuccess(response -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(response -> testContext.verify(() -> {
                     assertEquals(400, response.statusCode());
 
                     JsonObject result = response.bodyAsJsonObject();
@@ -209,8 +204,7 @@ class PeeGeeQServiceManagerTest {
 
                     logger.info("Invalid registration response: {}", result.encodePrettily());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -234,7 +228,7 @@ class PeeGeeQServiceManagerTest {
                     return webClient.delete(TEST_PORT, "localhost", "/api/v1/instances/test-deregister-01/deregister")
                             .send();
                 })
-                .onSuccess(deregisterResponse -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(deregisterResponse -> testContext.verify(() -> {
                     assertEquals(200, deregisterResponse.statusCode());
 
                     JsonObject result = deregisterResponse.bodyAsJsonObject();
@@ -245,8 +239,7 @@ class PeeGeeQServiceManagerTest {
 
                     logger.info("Deregistration response: {}", result.encodePrettily());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -271,7 +264,7 @@ class PeeGeeQServiceManagerTest {
                             .compose(timerId -> webClient.get(TEST_PORT, "localhost", "/api/v1/instances/test-health-01/health")
                                     .send());
                 })
-                .onSuccess(healthResponse -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(healthResponse -> testContext.verify(() -> {
                     assertEquals(200, healthResponse.statusCode());
 
                     JsonObject result = healthResponse.bodyAsJsonObject();
@@ -283,8 +276,7 @@ class PeeGeeQServiceManagerTest {
 
                     logger.info("Health check response: {}", result.encodePrettily());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -323,7 +315,7 @@ class PeeGeeQServiceManagerTest {
                             .compose(timerId -> webClient.get(TEST_PORT, "localhost", "/api/v1/instances?environment=production")
                                     .send());
                 })
-                .onSuccess(listResponse -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(listResponse -> testContext.verify(() -> {
                     assertEquals(200, listResponse.statusCode());
 
                     JsonObject result = listResponse.bodyAsJsonObject();
@@ -333,7 +325,6 @@ class PeeGeeQServiceManagerTest {
 
                     logger.info("Filtered instances response: {}", result.encodePrettily());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 }

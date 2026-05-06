@@ -2,7 +2,7 @@
 
 Created: 2026-05-05  
 Branch: `feature/offset-watermark-phase1`  
-Status: **PHASE 1 COMPLETE — PHASE 2 COMPLETE — PHASE 3 IN PROGRESS (`peegeeq-db` complete, `peegeeq-outbox` complete, `peegeeq-bitemporal` complete, `peegeeq-rest` complete)**
+Status: **PHASE 1 COMPLETE — PHASE 2 COMPLETE — PHASE 3 COMPLETE (2026-05-06)**
 
 ---
 
@@ -302,6 +302,10 @@ grep -rn "assertEquals\|assertTrue\|assertNotNull" --include="*Test*.java" | \
 - [x] `peegeeq-bitemporal` Tier 3 — `TraceContextPropagationTest.java` 8 bare assertions in 8 test methods — **FIXED — 8/8 tests pass (2026-05-06)**.
 - [x] `peegeeq-bitemporal` Phase 3 Tier 1 — all Tier 1 patterns migrated to `onComplete(testContext.succeeding(...))` across 22 test files; ~170 patterns converted (2026-05-06). One symmetric `onSuccess+onFailure` pattern in `VersionLineageIntegrationTest.appendCorrectionForNonExistentRootIsRejectedByConstraint` intentionally preserved. **340 tests pass (2026-05-06)**.
 - [x] `peegeeq-rest` Phase 3 Tier 1 — all Tier 1 patterns migrated to `onComplete(testContext.succeeding(...))` across 12 test files; 85 patterns converted (2026-05-06). 7 expression-lambda patterns with non-trivial `.onFailure` bodies (SSE/WebSocket client cleanup) required manual `)` fix after bulk regex. **297 tests pass (2026-05-06)**.
+- [x] `peegeeq-native` Phase 3 Tier 1 — zero Tier 1 patterns found; no changes needed.
+- [x] `peegeeq-service-manager` Phase 3 Tier 1 — 24 patterns across 4 files converted (2026-05-06). **20 tests pass (2026-05-06)**.
+- [x] `peegeeq-integration-tests` Phase 3 Tier 1 — zero Tier 1 patterns found; no changes needed.
+- [x] **Phase 3 COMPLETE** — all modules audited and converted (2026-05-06).
 
 ---
 
@@ -358,6 +362,30 @@ Fix: wrap `assertEquals` and `completeNow` in `testContext.verify()`.
 #### Tier 0 — safe
 
 All remaining `onSuccess` uses are: `completeNow()`, `checkpoint.flag()`, logging, timer IDs, or inverted fail-on-success patterns. No action needed.
+
+---
+
+### `peegeeq-native` — Phase 3 complete (2026-05-06)
+
+19 test files reviewed. Zero Tier 1 patterns found. All `onSuccess` uses are `completeNow()`, `checkpoint.flag()`, logging, or resource setup. No changes needed.
+
+---
+
+### `peegeeq-service-manager` — Phase 3 complete (2026-05-06)
+
+6 test files reviewed. 24 Tier 1 patterns converted across 4 files:
+- `PeeGeeQServiceManagerTest.java` — 9 patterns
+- `PeeGeeQServiceManagerIntegrationTest.java` — 5 patterns
+- `ConsulServiceDiscoveryTest.java` — 5 patterns
+- `ConsulServiceDiscoveryIntegrationTest.java` — 5 patterns
+
+**Result**: 20 tests pass (2026-05-06)
+
+---
+
+### `peegeeq-integration-tests` — Phase 3 complete (2026-05-06)
+
+23 test files reviewed. Zero Tier 1 patterns found. All test methods already use canonical `onComplete(testContext.succeeding(...))` or plain `failNow`. No changes needed.
 
 ---
 
