@@ -365,6 +365,36 @@ When the primary fails:
 Auto-recovery: when primary returns, HAProxy detects recovery after 1 successful check
 (`rise=1`) and resumes routing to it; the backup reverts to standby.
 
+**Why the same port on both backends is not a problem**: HAProxy distinguishes backends by
+**hostname or IP address**, not by port number.  Port 5432 is the PostgreSQL wire-protocol
+port on each server; the servers themselves are separate hosts (containers, VMs, or physical
+machines) that resolve to different IP addresses on the Docker network.  HAProxy maintains
+independent TCP connections to each backend's `host:port` pair and health-checks them
+separately.  The client connecting to `haproxy:5400` only ever sees the single proxy address;
+the fact that both backends share port 5432 is irrelevant.  This is identical to how an
+HTTP load balancer works with two web servers both listening on port 443 — the LB routes by
+upstream IP, not by upstream port.
+
+**HAProxy does not require Patroni**: the two are independent tools.  HAProxy alone, using
+plain TCP health checks (`check inter 500ms`), is sufficient to detect a dead primary and
+promote the backup — no leader-election daemon needed.  This is exactly how the test and
+local docker-compose stacks in this project work.
+
+Patroni is an optional enhancement.  When Patroni manages the PostgreSQL cluster, it exposes
+a REST API on each node (default port 8008).  HAProxy can use this as a more semantically
+precise health check:
+
+```haproxy
+# Patroni-aware health check — only routes to the Patroni-elected write primary
+server pg1 pg1:5432 check port 8008 httpchk GET /primary
+server pg2 pg2:5432 check port 8008 httpchk GET /primary backup
+```
+
+With this config, HAProxy only routes to the node Patroni has promoted as primary, rather
+than any node that accepts a TCP connection.  This prevents accidentally routing writes to a
+replica that is technically up but not the write primary.  For the current project setup
+(test + local dev), plain TCP checks are sufficient.
+
 ---
 
 ## 5. HAProxy Failover Integration Test
@@ -580,6 +610,41 @@ transactions when connections are multiplexed.  Using transaction mode with PeeG
 `server_reset_query = DISCARD ALL` or an explicit `SET search_path` reset correctly restores
 the configured schema between transactions.
 
+### 7.5 Split-brain consideration with streaming replication and automatic promotion
+
+HAProxy is production-ready and widely deployed in front of PostgreSQL.  It does not require
+Patroni.  The consideration below applies only to a **specific combination** of conditions:
+streaming replication is active **and** an automatic promotion mechanism (script, cloud
+automation, etc.) promotes the secondary without fencing the old primary first.
+
+**The scenario that requires care**:
+
+1. Primary goes down.  HAProxy routes writes to the secondary.
+2. Automated tooling promotes the secondary to accept writes.
+3. The original primary recovers and passes HAProxy's TCP health check (`rise=1`).
+4. HAProxy automatically routes writes back to the original primary — which was never
+   demoted and has no knowledge of the promotion.
+5. Both nodes now accept writes simultaneously.  Data diverges.
+
+**This scenario does not arise when**:
+- Promotion is manual (a DBA promotes explicitly, then updates HAProxy or the DNS entry).
+- Patroni manages the cluster — it fences the old primary before promoting the secondary.
+- A cloud managed service is used (RDS Multi-AZ, Cloud SQL, etc.) — the managed failover
+  endpoint handles the switch atomically.
+- The `backup` keyword in HAProxy config is left as-is and no automatic promotion script
+  runs — HAProxy routes to the secondary for reads/connections but the secondary remains
+  a replica and never becomes a conflicting primary.
+
+**Why this does not affect the current project**: the integration test and local dev
+docker-compose use two independent PostgreSQL instances with no streaming replication.  No
+automatic promotion occurs.  The setup is correct for its purpose (connection-level failover
+testing).
+
+**Recommendation for production with streaming replication and automatic promotion**: add
+Patroni (or repmgr) to manage promotion with fencing, and replace the plain TCP check with
+`httpchk GET /primary` against Patroni's REST port as shown in §4.  For environments that
+use manual promotion or a managed service endpoint, HAProxy alone is sufficient.
+
 ---
 
 ## 8. Implementation Plan
@@ -753,6 +818,7 @@ existing integration suite.
 | 7.1 | No circuit breaker on pool ops | Phase 2 | MEDIUM | `PgConnectionManager` + `PeeGeeQManager` wiring | New `CircuitBreakerPoolIntegrationTest` |
 | 7.3 | No streaming replication test | Phase 3 | LOW | None | New `HaProxyReplicationFailoverTest` |
 | 7.4 | PgBouncer transaction mode untested | Phase 4 | LOW | None | New `PgBouncerTransactionModeTest` |
+| 7.5 | Split-brain with replication + auto-promotion | Ops/infra | LOW–MEDIUM (specific conditions only) | Add Patroni if using auto-promotion with replication | N/A |
 
 Phases 1 and 3 can be worked in parallel (different modules, no shared files).  Phase 2
 depends on Phase 1 being stable (pool changes affect the same `PgConnectionManager`).
