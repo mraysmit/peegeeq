@@ -22,6 +22,7 @@ import dev.mars.peegeeq.api.messaging.ConsumerGroup;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Future;
+import io.vertx.core.Vertx;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -225,7 +226,8 @@ class OutboxConsumerGroupClientIdPropagationTest {
         @Override public dev.mars.peegeeq.api.subscription.SubscriptionService getSubscriptionService() { return null; }
         @Override public io.vertx.core.Future<Void> runMigrations() { return io.vertx.core.Future.succeededFuture(); }
         @Override public io.vertx.core.Future<Boolean> performHealthCheck() { return io.vertx.core.Future.succeededFuture(true); }
-        @Override public io.vertx.core.Vertx getVertx() { return null; }
+        private final Vertx vertx = Vertx.vertx();
+        @Override public io.vertx.core.Vertx getVertx() { return vertx; }
         @Override public io.vertx.sqlclient.Pool getPool() { return null; }
         @Override public io.vertx.pgclient.PgConnectOptions getConnectOptions() { return null; }
         @Override public void close() { }
