@@ -44,6 +44,7 @@ import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -157,7 +158,8 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
             PeeGeeQConfiguration configuration, String clientId, OutboxConsumerConfig consumerConfig) {
         this.clientFactory = null;
         this.databaseService = databaseService;
-        this.vertx = databaseService.getVertx();
+        this.vertx = Objects.requireNonNull(databaseService.getVertx(),
+                "DatabaseService.getVertx() must not return null — provide a running Vertx instance");
         this.objectMapper = objectMapper;
         this.topic = topic;
         this.payloadType = payloadType;
@@ -877,6 +879,7 @@ public class OutboxConsumer<T> implements dev.mars.peegeeq.api.messaging.Message
         // waiting for connections that are still held by in-flight query chains.
         // A timeout guard ensures closeAsync() never hangs indefinitely if the handler stalls.
         final long timeoutMs = closeInflightTimeoutMs;
+
         io.vertx.core.Promise<Void> timeoutSignal = io.vertx.core.Promise.promise();
         long timeoutTimerId = vertx.setTimer(timeoutMs, id -> {
             logger.warn("Timed out ({}ms) waiting for in-flight processing for topic '{}' during close proceeding with pool close",
