@@ -493,12 +493,28 @@ frontend pg_frontend
 backend pg_backends
     balance           leastconn   # good for long-lived PG connections
 
+    # pgsql-check sends a PostgreSQL startup packet to each backend.
+    # The server responds with an authentication challenge; any response
+    # (including "wrong password") proves PostgreSQL is alive and serving
+    # the wire protocol — not just accepting a TCP connection.
+    # tcp-check would pass even if PostgreSQL is still in crash recovery or
+    # max_connections is exhausted.
+    # Requires a 'haproxy_check' user to exist in PostgreSQL (no password needed).
+    option            pgsql-check user haproxy_check
+
     # pg_primary / pg_secondary are Docker network aliases on the test network.
     # fall=2: mark DOWN after 2 consecutive failed checks (~1 s at inter=500ms)
     # rise=1: recover after 1 successful check
     server pg_primary   pg_primary:5432   check inter 500ms fall 2 rise 1
     server pg_secondary pg_secondary:5432 check inter 500ms fall 2 rise 1 backup
 ```
+
+**`haproxy_check` user**: HAProxy sends a PostgreSQL startup message with this username.
+PostgreSQL responds with an authentication challenge (even "role does not exist" is a valid
+protocol-level response).  The user needs no password, no schema access, and no database
+privileges.  It is created by `haproxy-check-init.sql` via `withInitScript()` on each
+Testcontainers node; in the local docker-compose stack it is mounted as
+`/docker-entrypoint-initdb.d/init-haproxy-check.sql`.
 
 ---
 
@@ -512,6 +528,7 @@ For manual failover testing without running a JVM test, a docker-compose stack i
 |---|---|
 | `scripts/docker-compose-failover-local.yml` | Full stack definition |
 | `scripts/haproxy-failover-local.cfg` | HAProxy config with stats page |
+| `scripts/init-haproxy-check.sql` | Creates `haproxy_check` PostgreSQL user on first start |
 
 **Topology:**
 
@@ -621,7 +638,7 @@ automation, etc.) promotes the secondary without fencing the old primary first.
 
 1. Primary goes down.  HAProxy routes writes to the secondary.
 2. Automated tooling promotes the secondary to accept writes.
-3. The original primary recovers and passes HAProxy's TCP health check (`rise=1`).
+3. The original primary recovers and passes HAProxy's `pgsql-check` health check (`rise=1`).
 4. HAProxy automatically routes writes back to the original primary — which was never
    demoted and has no knowledge of the promotion.
 5. Both nodes now accept writes simultaneously.  Data diverges.
