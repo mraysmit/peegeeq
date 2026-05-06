@@ -228,7 +228,7 @@ public class TransactionalBiTemporalExampleTest {
             .compose(v -> Future.all(
                 orderEventStore.query(EventQuery.builder().eventType("OrderCreated").build()),
                 paymentEventStore.query(EventQuery.builder().eventType("PaymentAuthorized").build())))
-            .onSuccess(results -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(results -> testContext.verify(() -> {
                 List<BiTemporalEvent<OrderEvent>> orderEvents = results.resultAt(0);
                 List<BiTemporalEvent<PaymentEvent>> paymentEvents = results.resultAt(1);
 
@@ -240,8 +240,7 @@ public class TransactionalBiTemporalExampleTest {
                 logger.info("Multi-EventStore transactional consistency test completed successfully!");
                 logger.info("   Order and payment events committed atomically in single transaction");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -277,7 +276,7 @@ public class TransactionalBiTemporalExampleTest {
                 orderEventStore.query(EventQuery.forEventType("OrderShipped")),
                 paymentEventStore.query(EventQuery.forEventType("PaymentAuthorized")),
                 paymentEventStore.query(EventQuery.forEventType("PaymentCaptured"))))
-            .onSuccess(results -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(results -> testContext.verify(() -> {
                 List<BiTemporalEvent<OrderEvent>> allOrderEvents = new ArrayList<>();
                 allOrderEvents.addAll(results.resultAt(0));
                 allOrderEvents.addAll(results.resultAt(1));
@@ -302,8 +301,7 @@ public class TransactionalBiTemporalExampleTest {
                 logger.info("   Complete order processing workflow: {} order events, {} payment events",
                     orderEventsByType.size(), allPaymentEvents.size());
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -347,7 +345,7 @@ public class TransactionalBiTemporalExampleTest {
 
         Future.all(new ArrayList<>(batchFutures))
             .compose(v -> orderEventStore.query(EventQuery.forEventType("OrderCreated")))
-            .onSuccess(allEvents -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(allEvents -> testContext.verify(() -> {
                 long concurrentEvents = allEvents.stream()
                     .filter(e -> e.getPayload().getOrderId().startsWith("concurrent-order-"))
                     .count();
@@ -378,8 +376,7 @@ public class TransactionalBiTemporalExampleTest {
                 logger.info("   Processed {} events across {} isolated transactions",
                     concurrentEvents, numberOfBatches);
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -429,11 +426,10 @@ public class TransactionalBiTemporalExampleTest {
                         return (Void) null;
                     });
             })
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 logger.info("Error handling and rollback scenarios test completed successfully!");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -466,7 +462,7 @@ public class TransactionalBiTemporalExampleTest {
         // Wait for all events to be stored
         Future.all(new ArrayList<>(futures))
             .compose(v -> orderEventStore.query(EventQuery.forEventType("OrderCreated")))
-            .onSuccess(allEvents -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(allEvents -> testContext.verify(() -> {
                 long duration = System.currentTimeMillis() - startTime;
                 double eventsPerSecond = (numberOfEvents * 1000.0) / duration;
                 long perfEvents = allEvents.stream()
@@ -483,8 +479,7 @@ public class TransactionalBiTemporalExampleTest {
                 assertTrue(eventsPerSecond >= 10.0,
                     String.format("Performance should be at least 10 events/second, got %.2f", eventsPerSecond));
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     // Event classes for testing
