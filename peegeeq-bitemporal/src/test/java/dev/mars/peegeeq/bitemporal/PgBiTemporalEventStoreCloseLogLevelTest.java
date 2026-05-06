@@ -141,7 +141,7 @@ class PgBiTemporalEventStoreCloseLogLevelTest {
     void testCleanCloseNoErrorLogs(VertxTestContext testContext) throws InterruptedException {
         logCapture.clear();
         eventStore.close()
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
                     boolean hasCloseError = errors.stream().anyMatch(e ->
                             e.getFormattedMessage().contains("Error closing reactive notification handler") ||
@@ -153,8 +153,7 @@ class PgBiTemporalEventStoreCloseLogLevelTest {
                                     errors.stream().map(ILoggingEvent::getFormattedMessage).toList());
                     eventStore = null; // Prevent double-close in tearDown
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }
@@ -221,15 +220,14 @@ class PgBiTemporalEventStoreCloseLogLevelTest {
                     logCapture.clear();
                     return eventStore.close();
                 })
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     List<ILoggingEvent> errors = logCapture.eventsAtLevel(Level.ERROR);
                     assertTrue(errors.isEmpty(),
                             "Double close should not produce ERROR logs (second close is a no-op), but got: " +
                                     errors.stream().map(ILoggingEvent::getFormattedMessage).toList());
                     eventStore = null;
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
     }

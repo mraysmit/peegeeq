@@ -217,12 +217,11 @@ class OutboxConsumerGroupFaultToleranceTest {
                         () -> received.size() == preKillMessages + postKillMessages,
                         15_000,
                         "Post-kill messages should be consumed after polling recovery"))
-                .onSuccess(v -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     assertEquals(preKillMessages + postKillMessages, received.size(),
                             "All messages should be received after recovery");
                     testContext.completeNow();
-                })
-                .onFailure(testContext::failNow);
+                })));
 
             assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS),
                     "Group should recover and process all messages after connection loss");

@@ -279,13 +279,12 @@ class VersionLineageBugSurfacingTest {
                                 return duplicates;
                             });
                 })
-                .onSuccess(duplicates -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(duplicates -> testContext.verify(() -> {
                     assertTrue(duplicates.isEmpty(),
                             "Version numbers must be unique within a correction lineage, "
                                     + "but found duplicates: " + duplicates);
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -351,7 +350,7 @@ class VersionLineageBugSurfacingTest {
                                         });
                             });
                 })
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     long successCount = result.getKey();
                     List<Long> versions = result.getValue();
 
@@ -374,8 +373,7 @@ class VersionLineageBugSurfacingTest {
                     }
 
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(60, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -411,7 +409,7 @@ class VersionLineageBugSurfacingTest {
                     return eventStore.getAllVersions(correction2.getEventId())
                             .map(versions -> Map.entry(allEvents, versions));
                 })
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     List<BiTemporalEvent<TestEvent>> allCreated = result.getKey();
                     List<BiTemporalEvent<TestEvent>> versionsFound = result.getValue();
 
@@ -431,8 +429,7 @@ class VersionLineageBugSurfacingTest {
                     assertEquals(3L, versionsFound.get(2).getVersion());
 
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -463,7 +460,7 @@ class VersionLineageBugSurfacingTest {
                     return eventStore.getAllVersions(correction1.getEventId())
                             .map(versions -> Map.entry(allEvents, versions));
                 })
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     List<BiTemporalEvent<TestEvent>> versionsFound = result.getValue();
 
                     assertEquals(3, versionsFound.size(),
@@ -475,8 +472,7 @@ class VersionLineageBugSurfacingTest {
                                         .collect(Collectors.joining(", ")));
 
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -514,7 +510,7 @@ class VersionLineageBugSurfacingTest {
                         return Map.entry(allVersions, asOfResult);
                     });
                 })
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     List<BiTemporalEvent<TestEvent>> allVersions = result.getKey();
                     BiTemporalEvent<TestEvent> asOfResult = result.getValue();
 
@@ -530,8 +526,7 @@ class VersionLineageBugSurfacingTest {
                                     + asOfResult.getVersion() + " the methods disagree.");
 
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {

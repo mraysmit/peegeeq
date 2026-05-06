@@ -177,7 +177,7 @@ class BiTemporalQueryEdgeCasesTest {
                 .aggregateId("ORDER-003").execute()
                 .map(storedEvent3 -> List.of(storedEvents.get(0), storedEvents.get(1), storedEvent3)))
             .compose(storedEvents -> eventStore.query(EventQuery.all()).map(allEvents -> Map.entry(storedEvents, allEvents)))
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 List<BiTemporalEvent<OrderEvent>> storedEvents = result.getKey();
                 List<BiTemporalEvent<OrderEvent>> allEvents = result.getValue();
                 assertNotNull(storedEvents.get(0));
@@ -192,8 +192,7 @@ class BiTemporalQueryEdgeCasesTest {
                 assertNotNull(IntegrationTestUtils.findEventByCorrelationId(allEvents, "test-corr-3"), "Should find event with correlation ID test-corr-3");
                 logger.info("Multiple event storage test completed successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -208,7 +207,7 @@ class BiTemporalQueryEdgeCasesTest {
             .headers(Map.of("test", "query-retrieval")).correlationId("test-corr-100")
             .causationId(null).aggregateId("ORDER-100").execute()
             .compose(storedEvent -> eventStore.query(EventQuery.all()).map(allEvents -> Map.entry(storedEvent, allEvents)))
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 BiTemporalEvent<OrderEvent> storedEvent = result.getKey();
                 List<BiTemporalEvent<OrderEvent>> allEvents = result.getValue();
                 assertNotNull(storedEvent);
@@ -226,8 +225,7 @@ class BiTemporalQueryEdgeCasesTest {
                     "Transaction time should be >= valid time");
                 logger.info("Event query and retrieval test completed successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 }
 

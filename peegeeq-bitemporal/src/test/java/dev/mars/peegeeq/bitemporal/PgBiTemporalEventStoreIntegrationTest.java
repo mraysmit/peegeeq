@@ -1,4 +1,4 @@
-package dev.mars.peegeeq.bitemporal;
+﻿package dev.mars.peegeeq.bitemporal;
 
 import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.db.PeeGeeQManager;
@@ -247,7 +247,7 @@ class PgBiTemporalEventStoreIntegrationTest {
                 logger.info("Event appended: {}", appended.getEventId());
                 return notificationPromise.future().map(notification -> Map.entry(appended, notification));
             })
-            .onSuccess(result -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                 BiTemporalEvent<Map<String, Object>> appended = result.getKey();
                 BiTemporalEvent<Map<String, Object>> notification = result.getValue();
                 assertNotNull(notification, "Notification event should not be null");
@@ -257,8 +257,7 @@ class PgBiTemporalEventStoreIntegrationTest {
                 assertEquals(payload, notification.getPayload(), "Payload should match");
                 logger.info("ReactiveNotificationHandler integration test completed successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -306,13 +305,12 @@ class PgBiTemporalEventStoreIntegrationTest {
                 return eventStore.appendOwnTransaction(
                     "test.overload4", payload4, Instant.now(), Map.of(), "corr-456", null, "agg-789");
             })
-            .onSuccess(event4 -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(event4 -> testContext.verify(() -> {
                 assertNotNull(event4);
                 assertEquals("agg-789", event4.getAggregateId());
                 logger.info("appendOwnTransaction overloads test completed successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -332,13 +330,12 @@ class PgBiTemporalEventStoreIntegrationTest {
                 Map<String, Object> payload = Map.of("reactive", "test");
                 return eventStore.append("test.reactive", payload, Instant.now());
             })
-            .onSuccess(event -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(event -> testContext.verify(() -> {
                 assertNotNull(event);
                 assertEquals("test.reactive", event.getEventType());
                 logger.info("append test completed successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -365,13 +362,12 @@ class PgBiTemporalEventStoreIntegrationTest {
             .compose(v -> eventStore.appendBuilder().eventType("test.subscribe")
                 .payload(Map.of("subscribe", "test")).validTime(Instant.now()).execute())
             .compose(v -> notificationPromise.future())
-            .onSuccess(received -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(received -> testContext.verify(() -> {
                 assertNotNull(received);
                 eventStore.unsubscribe();
                 logger.info("subscribe and unsubscribe test completed successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -443,7 +439,7 @@ class PgBiTemporalEventStoreIntegrationTest {
                 logger.info("Appended event with type 'my_channel'");
                 return bothSubscribersSatisfied.future();
             })
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 assertEquals(1, dotSubscriberCount.get(),
                     "DOT subscriber should receive exactly 1 event");
                 assertEquals(1, underscoreSubscriberCount.get(),
@@ -459,8 +455,7 @@ class PgBiTemporalEventStoreIntegrationTest {
                 eventStore.unsubscribe();
                 logger.info("Dot/underscore channel collision isolation test completed successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -485,13 +480,12 @@ class PgBiTemporalEventStoreIntegrationTest {
                 return eventStore.getAsOfTransactionTime(event.getEventId(), queryTime)
                     .map(result -> Map.entry(event, result));
             })
-            .onSuccess(pair -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(pair -> testContext.verify(() -> {
                 assertNotNull(pair.getValue());
                 assertEquals(pair.getKey().getEventId(), pair.getValue().getEventId());
                 logger.info("getAsOfTransactionTime test completed successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -516,13 +510,12 @@ class PgBiTemporalEventStoreIntegrationTest {
                 Map<String, Object> payload2 = Map.of("pool", "test2");
                 return eventStore.appendBuilder().eventType("test.pool2").payload(payload2).validTime(Instant.now()).execute();
             })
-            .onSuccess(event -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(event -> testContext.verify(() -> {
                 assertNotNull(event);
                 PgBiTemporalEventStore.clearCachedPools();
                 logger.info("clearCachedPools and clearInstancePools test completed successfully");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -570,14 +563,13 @@ class PgBiTemporalEventStoreIntegrationTest {
             .compose(v -> eventStore.appendBuilder().eventType("order.shipped").payload(Map.of("test", "2")).validTime(Instant.now()).execute())
             .compose(v -> eventStore.appendBuilder().eventType("payment.received").payload(Map.of("test", "3")).validTime(Instant.now()).execute())
             .compose(v -> expectedNotifications.future())
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 assertEquals(1, receivedEventTypes.size(), "Should receive exactly 1 event");
                 assertEquals("order.created", receivedEventTypes.get(0), "Should receive order.created");
                 eventStore.unsubscribe();
                 logger.info("Test 1 completed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -616,7 +608,7 @@ class PgBiTemporalEventStoreIntegrationTest {
             .compose(v -> eventStore.appendBuilder().eventType("order.shipped").payload(Map.of("test", "2")).validTime(Instant.now()).execute())
             .compose(v -> eventStore.appendBuilder().eventType("payment.received").payload(Map.of("test", "3")).validTime(Instant.now()).execute())
             .compose(v -> expectedNotifications.future())
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 assertEquals(3, receivedEventTypes.size(), "Should receive exactly 3 events");
                 assertTrue(receivedEventTypes.contains("order.created"));
                 assertTrue(receivedEventTypes.contains("order.shipped"));
@@ -624,8 +616,7 @@ class PgBiTemporalEventStoreIntegrationTest {
                 eventStore.unsubscribe();
                 logger.info("Test 2 completed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -674,7 +665,7 @@ class PgBiTemporalEventStoreIntegrationTest {
             .compose(v -> eventStore.appendBuilder().eventType("order.shipped").payload(Map.of("test", "2")).validTime(Instant.now()).execute())
             .compose(v -> eventStore.appendBuilder().eventType("payment.received").payload(Map.of("test", "3")).validTime(Instant.now()).execute())
             .compose(v -> bothSubscriptionsSatisfied.future())
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 assertEquals(1, orderCreatedEvents.size(), "order.created subscriber should receive 1 event");
                 assertEquals("order.created", orderCreatedEvents.get(0));
                 assertEquals(1, paymentReceivedEvents.size(), "payment.received subscriber should receive 1 event");
@@ -682,8 +673,7 @@ class PgBiTemporalEventStoreIntegrationTest {
                 eventStore.unsubscribe();
                 logger.info("Test 3 completed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -722,15 +712,14 @@ class PgBiTemporalEventStoreIntegrationTest {
             .compose(v -> eventStore.appendBuilder().eventType("test.event")
                 .payload(Map.of("test", "no-duplicates")).validTime(Instant.now()).execute())
             .compose(appended -> expectedNotification.future().map(x -> appended))
-            .onSuccess(appended -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(appended -> testContext.verify(() -> {
                 assertEquals(1, eventCount.get(), "Should receive exactly 1 event (not duplicated)");
                 assertEquals(1, receivedEventIds.size());
                 assertEquals(appended.getEventId(), receivedEventIds.get(0));
                 eventStore.unsubscribe();
                 logger.info("Test 5 completed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -773,7 +762,7 @@ class PgBiTemporalEventStoreIntegrationTest {
             .compose(v -> eventStore.appendBuilder().eventType("order.shipped").payload(Map.of("test", "2")).validTime(Instant.now()).execute())
             .compose(v -> eventStore.appendBuilder().eventType("payment.received").payload(Map.of("test", "3")).validTime(Instant.now()).execute())
             .compose(v -> expectedNotifications.future())
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 assertEquals(2, receivedEventTypes.size(), "Should receive exactly 2 events");
                 assertTrue(receivedEventTypes.contains("order.created"));
                 assertTrue(receivedEventTypes.contains("order.shipped"));
@@ -781,8 +770,7 @@ class PgBiTemporalEventStoreIntegrationTest {
                 eventStore.unsubscribe();
                 logger.info("Test 6 completed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -821,7 +809,7 @@ class PgBiTemporalEventStoreIntegrationTest {
             .compose(v -> eventStore.appendBuilder().eventType("payment.created").payload(Map.of("test", "2")).validTime(Instant.now()).execute())
             .compose(v -> eventStore.appendBuilder().eventType("order.shipped").payload(Map.of("test", "3")).validTime(Instant.now()).execute())
             .compose(v -> expectedNotifications.future())
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 assertEquals(2, receivedEventTypes.size(), "Should receive exactly 2 events");
                 assertTrue(receivedEventTypes.contains("order.created"));
                 assertTrue(receivedEventTypes.contains("payment.created"));
@@ -829,8 +817,7 @@ class PgBiTemporalEventStoreIntegrationTest {
                 eventStore.unsubscribe();
                 logger.info("Test 7 completed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -869,7 +856,7 @@ class PgBiTemporalEventStoreIntegrationTest {
             .compose(v -> eventStore.appendBuilder().eventType("order.shipping.completed").payload(Map.of("test", "2")).validTime(Instant.now()).execute())
             .compose(v -> eventStore.appendBuilder().eventType("order.created").payload(Map.of("test", "3")).validTime(Instant.now()).execute())
             .compose(v -> expectedNotifications.future())
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 assertEquals(2, receivedEventTypes.size(), "Should receive exactly 2 events");
                 assertTrue(receivedEventTypes.contains("order.payment.completed"));
                 assertTrue(receivedEventTypes.contains("order.shipping.completed"));
@@ -877,8 +864,7 @@ class PgBiTemporalEventStoreIntegrationTest {
                 eventStore.unsubscribe();
                 logger.info("Test 8 completed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -918,14 +904,13 @@ class PgBiTemporalEventStoreIntegrationTest {
             .compose(v -> eventStore.appendBuilder().eventType("orders.created").payload(Map.of("test", "2")).validTime(Instant.now()).execute())
             .compose(v -> eventStore.appendBuilder().eventType("order").payload(Map.of("test", "3")).validTime(Instant.now()).execute())
             .compose(v -> expectedNotifications.future())
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 assertEquals(1, receivedEventTypes.size(), "Should receive exactly 1 event");
                 assertEquals("order.created", receivedEventTypes.get(0));
                 eventStore.unsubscribe();
                 logger.info("Test 9 completed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {
@@ -964,7 +949,7 @@ class PgBiTemporalEventStoreIntegrationTest {
             .compose(v -> eventStore.appendBuilder().eventType("abc.order.xyz").payload(Map.of("test", "2")).validTime(Instant.now()).execute())
             .compose(v -> eventStore.appendBuilder().eventType("order.created").payload(Map.of("test", "3")).validTime(Instant.now()).execute())
             .compose(v -> expectedNotifications.future())
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 assertEquals(2, receivedEventTypes.size(), "Should receive exactly 2 events");
                 assertTrue(receivedEventTypes.contains("foo.order.bar"));
                 assertTrue(receivedEventTypes.contains("abc.order.xyz"));
@@ -972,8 +957,7 @@ class PgBiTemporalEventStoreIntegrationTest {
                 eventStore.unsubscribe();
                 logger.info("Test 10 completed");
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
 
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
         if (testContext.failed()) {

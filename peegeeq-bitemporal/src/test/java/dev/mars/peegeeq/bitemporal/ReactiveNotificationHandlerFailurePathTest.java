@@ -101,15 +101,14 @@ class ReactiveNotificationHandlerFailurePathTest {
                     connectPromise.complete(connection);
                     return startFuture.compose(v -> handler.stop());
                 })
-                .onSuccess(v -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                     assertEquals(1, connectCalls.get(), "Expected a single connect attempt");
                     assertTrue(listenChannels.contains("public_bitemporal_events_bitemporal_event_log_order_created"),
                             "Existing subscriptions should re-issue LISTEN commands after connect");
                     assertFalse(handler.listeningChannelsView().contains("stale_channel_state_should_be_cleared"),
                             "Reconnect replay should discard stale in-memory LISTEN state");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test

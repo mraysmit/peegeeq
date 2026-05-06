@@ -206,7 +206,7 @@ class BiTemporalEventStoreExampleTest {
                 .compose(v -> eventStore.appendBuilder().eventType("OrderCreated").payload(event2).validTime(validTime2).execute())
                 .compose(v -> eventStore.appendBuilder().eventType("OrderCreated").payload(event3).validTime(validTime3).execute())
                 .compose(v -> eventStore.query(EventQuery.all()))
-                .onSuccess(allEvents -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(allEvents -> testContext.verify(() -> {
                     logger.info("Successfully appended 3 events with bi-temporal dimensions");
                     List<BiTemporalEvent<OrderEvent>> matchingEvents = allEvents.stream()
                             .filter(event -> List.of("order-001", "order-002", "order-003").contains(event.getPayload().getOrderId()))
@@ -221,8 +221,7 @@ class BiTemporalEventStoreExampleTest {
                     }
                     logger.info("Append-only event storage test completed successfully!");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
     
     @Test
@@ -249,7 +248,7 @@ class BiTemporalEventStoreExampleTest {
                             .execute();
                 })
                 .compose(v -> eventStore.query(EventQuery.all()))
-                .onSuccess(allVersions -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(allVersions -> testContext.verify(() -> {
                     logger.info("📋 Corrected event stored: {}", correctedEvent);
                     List<BiTemporalEvent<OrderEvent>> order004Events = allVersions.stream()
                             .filter(event -> "order-004".equals(event.getPayload().getOrderId()))
@@ -264,8 +263,7 @@ class BiTemporalEventStoreExampleTest {
                     logger.info("Event corrections and versioning test completed successfully!");
                     logger.info("   📊 Preserved audit trail with {} versions", order004Events.size());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
     
     @Test
@@ -293,7 +291,7 @@ class BiTemporalEventStoreExampleTest {
                 .compose(pointInTimeView -> eventStore.query(
                                 EventQuery.builder().validTimeRange(new TemporalRange(rangeStart, rangeEnd)).build())
                         .map(rangeView -> Map.entry(pointInTimeView, rangeView)))
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     List<BiTemporalEvent<OrderEvent>> pointInTimeView = result.getKey();
                     List<BiTemporalEvent<OrderEvent>> rangeView = result.getValue();
                     assertEquals(2, pointInTimeView.size(), "Point-in-time view should show 2 events");
@@ -303,8 +301,7 @@ class BiTemporalEventStoreExampleTest {
                     logger.info("   📊 Point-in-time view: {} events, Range view: {} events",
                             pointInTimeView.size(), rangeView.size());
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -326,7 +323,7 @@ class BiTemporalEventStoreExampleTest {
                 .compose(v -> eventStore.appendBuilder().eventType("OrderCreated").payload(event1).validTime(Instant.now()).execute())
                 .compose(storedEvent1 -> eventStore.appendBuilder().eventType("OrderCreated").payload(event2).validTime(Instant.now()).execute()
                         .map(storedEvent2 -> Map.entry(storedEvent1, storedEvent2)))
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     BiTemporalEvent<OrderEvent> storedEvent1 = result.getKey();
                     BiTemporalEvent<OrderEvent> storedEvent2 = result.getValue();
                     assertNotNull(storedEvent1, "First event should be stored");
@@ -336,8 +333,7 @@ class BiTemporalEventStoreExampleTest {
                     logger.info("Real-time event subscriptions test completed successfully!");
                     logger.info("   📊 Subscription setup and event storage verified");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     @Test
@@ -353,7 +349,7 @@ class BiTemporalEventStoreExampleTest {
                 .validTime(Instant.now())
                 .execute()
                 .compose(v -> eventStore.query(EventQuery.all()))
-                .onSuccess(events -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(events -> testContext.verify(() -> {
                     BiTemporalEvent<OrderEvent> testEvent = events.stream()
                             .filter(event -> "order-010".equals(event.getPayload().getOrderId()))
                             .findFirst()
@@ -368,8 +364,7 @@ class BiTemporalEventStoreExampleTest {
                     logger.info("Type-safe event handling test completed successfully!");
                     logger.info("   📋 Event details: {}", payload);
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     /**

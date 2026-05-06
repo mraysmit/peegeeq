@@ -191,21 +191,20 @@ class HealthCheckManagerTest {
     void testHealthCheckManagerStartStop(VertxTestContext testContext) {
         startManagerAsync(healthCheckManager)
             .compose(v -> vertx.timer(500).mapEmpty()) // Wait for health checks to run
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 assertTrue(healthCheckManager.isHealthy());
                 
                 stopManagerAsync(healthCheckManager)
                     .onSuccess(v2 -> testContext.completeNow())
                     .onFailure(testContext::failNow);
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
     void testOverallHealthStatus(VertxTestContext testContext) {
         startManagerAsync(healthCheckManager)
             .compose(v -> vertx.timer(500).mapEmpty()) // Wait for health checks to run
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 OverallHealthStatus status = healthCheckManager.getOverallHealthInternal();
                 assertNotNull(status);
                 assertEquals("UP", status.getStatus());
@@ -221,15 +220,14 @@ class HealthCheckManagerTest {
                 assertTrue(status.getComponents().containsKey("disk-space"));
                 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
     void testDatabaseHealthCheck(VertxTestContext testContext) {
         startManagerAsync(healthCheckManager)
             .compose(v -> vertx.timer(500).mapEmpty()) // Wait for health checks to run
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 HealthStatus dbHealth = healthCheckManager.getHealthStatus("database");
                 assertNotNull(dbHealth);
                 assertTrue(dbHealth.isHealthy());
@@ -237,8 +235,7 @@ class HealthCheckManagerTest {
                 assertEquals(HealthStatus.Status.HEALTHY, dbHealth.getStatus());
                 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -247,7 +244,7 @@ class HealthCheckManagerTest {
         insertTestData()
             .compose(v -> startManagerAsync(healthCheckManager))
             .compose(v -> vertx.timer(500).mapEmpty()) // Wait for health checks to run
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 // Test outbox queue health
                 HealthStatus outboxHealth = healthCheckManager.getHealthStatus("outbox-queue");
                 assertNotNull(outboxHealth);
@@ -270,15 +267,14 @@ class HealthCheckManagerTest {
                 assertTrue(dlqHealth.getDetails().containsKey("recent_failures"));
                 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
     void testMemoryHealthCheck(VertxTestContext testContext) {
         startManagerAsync(healthCheckManager)
             .compose(v -> vertx.timer(500).mapEmpty()) // Wait for health checks to run
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 HealthStatus memoryHealth = healthCheckManager.getHealthStatus("memory");
                 assertNotNull(memoryHealth);
                 assertTrue(memoryHealth.isHealthy() || memoryHealth.isDegraded()); // Could be degraded under load
@@ -288,15 +284,14 @@ class HealthCheckManagerTest {
                 assertTrue(memoryHealth.getDetails().containsKey("memory_usage_percent"));
                 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
     void testDiskSpaceHealthCheck(VertxTestContext testContext) {
         startManagerAsync(healthCheckManager)
             .compose(v -> vertx.timer(500).mapEmpty()) // Wait for health checks to run
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 HealthStatus diskHealth = healthCheckManager.getHealthStatus("disk-space");
                 assertNotNull(diskHealth);
                 assertTrue(diskHealth.isHealthy() || diskHealth.isDegraded()); // Could be degraded if disk is full
@@ -306,8 +301,7 @@ class HealthCheckManagerTest {
                 assertTrue(diskHealth.getDetails().containsKey("disk_usage_percent"));
                 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -323,7 +317,7 @@ class HealthCheckManagerTest {
         
         startManagerAsync(healthCheckManager)
             .compose(v -> vertx.timer(500).mapEmpty()) // Wait for health checks to run
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 assertTrue(customCheckCalled.get());
                 
                 HealthStatus customHealth = healthCheckManager.getHealthStatus("custom");
@@ -332,8 +326,7 @@ class HealthCheckManagerTest {
                 assertEquals("custom-check", customHealth.getComponent());
                 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -357,7 +350,7 @@ class HealthCheckManagerTest {
         
         startManagerAsync(healthCheckManager)
             .compose(v -> vertx.timer(500).mapEmpty()) // Wait for health checks to run
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 HealthStatus failingHealth = healthCheckManager.getHealthStatus("failing");
                 assertNotNull(failingHealth);
                 assertFalse(failingHealth.isHealthy());
@@ -366,8 +359,7 @@ class HealthCheckManagerTest {
                 assertTrue(failingHealth.getMessage().contains("Health check threw exception"));
                 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     @Test
@@ -384,7 +376,7 @@ class HealthCheckManagerTest {
             // Wait for: immediate first check (0ms) + slow check timeout (300ms) + margin.
             // checkInterval is 500ms so one full cycle completes well within 1200ms.
             .compose(v -> vertx.timer(1200).mapEmpty())
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 HealthStatus slowHealth = healthCheckManager.getHealthStatus("slow");
                 assertNotNull(slowHealth, "Health check 'slow' should have a status after timeout period");
                 assertFalse(slowHealth.isHealthy());
@@ -392,8 +384,7 @@ class HealthCheckManagerTest {
                     "Expected timeout message but got: " + slowHealth.getMessage());
                 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     /**
@@ -410,7 +401,7 @@ class HealthCheckManagerTest {
 
         startManagerAsync(healthCheckManager)
             .compose(v -> vertx.timer(500).mapEmpty()) // Wait for initial healthy state
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 assertTrue(healthCheckManager.isHealthy());
                 logger.info("Initial state: Health checks are healthy");
 
@@ -419,7 +410,7 @@ class HealthCheckManagerTest {
                 
                 connectionManager.close()
                     .compose(v2 -> vertx.timer(1000).mapEmpty()) // Wait for health checks to detect failure
-                    .onSuccess(v2 -> testContext.verify(() -> {
+                    .onComplete(testContext.succeeding(v2 -> testContext.verify(() -> {
                         assertFalse(healthCheckManager.isHealthy());
 
                         HealthStatus dbHealth = healthCheckManager.getHealthStatus("database");
@@ -430,10 +421,8 @@ class HealthCheckManagerTest {
                         logger.info("===== INTENTIONAL FAILURE TEST COMPLETED =====");
                         
                         testContext.completeNow();
-                    }))
-                    .onFailure(testContext::failNow);
-            }))
-            .onFailure(testContext::failNow);
+                    })));
+            })));
     }
 
     @Test
@@ -514,7 +503,7 @@ class HealthCheckManagerTest {
         insertLargeAmountOfTestData()
             .compose(v -> startManagerAsync(healthCheckManager))
             .compose(v -> vertx.timer(500).mapEmpty()) // Wait for health checks to run
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 OverallHealthStatus status = healthCheckManager.getOverallHealthInternal();
 
                 long totalComponents = status.getHealthyCount() + status.getDegradedCount() + status.getUnhealthyCount();
@@ -522,8 +511,7 @@ class HealthCheckManagerTest {
                 assertEquals(status.getComponents().size(), totalComponents);
                 
                 testContext.completeNow();
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     private Future<Void> insertTestData() {
@@ -598,7 +586,7 @@ class HealthCheckManagerTest {
             // Health checks include database, memory, disk-space checks
             // Need to wait for initial delay (100ms) + execution time
             .compose(v -> vertx.timer(500).mapEmpty())
-            .onSuccess(v -> testContext.verify(() -> {
+            .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 // Test that health checks work
                 assertTrue(reactiveHealthCheckManager.isHealthy());
 
@@ -615,8 +603,7 @@ class HealthCheckManagerTest {
                 stopManagerAsync(reactiveHealthCheckManager)
                     .onSuccess(v2 -> testContext.completeNow())
                     .onFailure(testContext::failNow);
-            }))
-            .onFailure(testContext::failNow);
+            })));
     }
 
     private Future<Void> startManagerAsync(HealthCheckManager manager) {

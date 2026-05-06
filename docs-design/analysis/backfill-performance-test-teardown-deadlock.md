@@ -1,8 +1,8 @@
-# Deadlock in BackfillScopePerformanceTest teardown scope too broad
+# Deadlock in BackfillScopePerformanceTest — teardown scope too broad
 
 ## Problem
 
-`BackfillScopePerformanceTest.testAllRetainedScope_50kMessages_Throughput` fails intermittently with PostgreSQL error `40P01 deadlock detected`.
+`BackfillScopePerformanceTest.testAllRetainedScope_50kMessages_Throughput` fails intermittently with PostgreSQL error `40P01 — deadlock detected`.
 
 The four test methods in this class run in parallel (JUnit ForkJoinPool, 4 workers). Each method creates its own UUID-based topic, so there is no direct topic collision. The deadlock is caused by the `@AfterEach tearDown()` method, not by the backfill logic itself.
 
@@ -26,7 +26,7 @@ PostgreSQL detects the cycle and kills one of the two transactions with `40P01`.
 
 Track the exact topic names created by each test instance. In `@AfterEach`, delete only those specific topics rather than all rows matching a shared prefix.
 
-**Changes to `BackfillScopePerformanceTest`** (test code only no production change):
+**Changes to `BackfillScopePerformanceTest`** (test code only — no production change):
 
 1. Add an instance field: `private final List<String> testTopics = new ArrayList<>();`
 2. In `setupTopicAndMessages`, register the topic before the Future chain: `testTopics.add(topic);`

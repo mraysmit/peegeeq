@@ -154,14 +154,13 @@ public class CausationIdSchemaValidationTest {
                   AND column_name = $2
                 """,
                 Tuple.of("bitemporal_event_log", "causation_id"))
-                .onSuccess(row -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(row -> testContext.verify(() -> {
                     assertEquals("causation_id", row.getString("column_name"), "Column name should be causation_id");
                     assertEquals("character varying", row.getString("data_type"), "Data type should be VARCHAR");
                     assertEquals(255, row.getInteger("character_maximum_length"), "Max length should be 255");
                     logger.info("causation_id column exists with correct schema: VARCHAR(255)");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
     
     @Test
@@ -187,7 +186,7 @@ public class CausationIdSchemaValidationTest {
                         "SELECT causation_id FROM bitemporal_event_log WHERE event_id = $1",
                         Tuple.of(event.getEventId()))
                         .map(row -> Map.entry(event, row.getString("causation_id"))))
-                .onSuccess(result -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(result -> testContext.verify(() -> {
                     BiTemporalEvent<Map<String, Object>> event = result.getKey();
                     String storedCausationId = result.getValue();
                     assertNotNull(event, "Event should be successfully appended");
@@ -195,8 +194,7 @@ public class CausationIdSchemaValidationTest {
                     assertEquals(causationId, storedCausationId, "Stored causation_id should match");
                     logger.info("Trigger executed successfully and causation_id was stored: {}", storedCausationId);
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
     
     @Test
@@ -220,13 +218,12 @@ public class CausationIdSchemaValidationTest {
                         "CORR-123",
                         causationId,
                         "AGG-123")
-                .onSuccess(event -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(event -> testContext.verify(() -> {
                     assertNotNull(event, "Event should be successfully appended");
                     assertEquals(causationId, event.getCausationId(), "Causation ID should match");
                     logger.info("appendOwnTransaction method signature validated with causation_id parameter");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
     
     @Test
@@ -235,7 +232,7 @@ public class CausationIdSchemaValidationTest {
         logger.info("🧪 Validating test schema has all expected columns matching production");
 
         listColumnNames("bitemporal_event_log")
-                .onSuccess(actualColumns -> testContext.verify(() -> {
+                .onComplete(testContext.succeeding(actualColumns -> testContext.verify(() -> {
                     String[] expectedColumns = {
                             "id", "event_id", "event_type", "valid_time", "transaction_time",
                             "payload", "headers", "version", "previous_version_id", "is_correction",
@@ -251,8 +248,7 @@ public class CausationIdSchemaValidationTest {
                     }
                     logger.info("Test schema has all required columns matching production");
                     testContext.completeNow();
-                }))
-                .onFailure(testContext::failNow);
+                })));
     }
 
     private Future<Row> querySingleRow(String sql, Tuple params) {
