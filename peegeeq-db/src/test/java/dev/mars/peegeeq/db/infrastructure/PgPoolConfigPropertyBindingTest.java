@@ -6,6 +6,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
+import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.MethodSource;
@@ -33,6 +34,7 @@ import static org.junit.jupiter.params.provider.Arguments.arguments;
  */
 @Tag(TestCategories.CORE)
 @Execution(ExecutionMode.SAME_THREAD)
+@ResourceLock("system-properties")
 class PgPoolConfigPropertyBindingTest {
 
     @ParameterizedTest(name = "[{index}] {0} = {1}")

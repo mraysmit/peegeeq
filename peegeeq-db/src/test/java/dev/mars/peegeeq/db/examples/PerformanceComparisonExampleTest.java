@@ -29,7 +29,6 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.junit.jupiter.api.parallel.ResourceLock;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -38,6 +37,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -55,13 +55,13 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.PERFORMANCE)
 @ExtendWith({SharedPostgresTestExtension.class, VertxExtension.class})
-@ResourceLock("system-properties")
 public class PerformanceComparisonExampleTest {
 
     private static final Logger logger = LoggerFactory.getLogger(PerformanceComparisonExampleTest.class);
     private static final int TEST_MESSAGE_COUNT = 10; // Reduced for faster tests
 
     private PeeGeeQManager manager;
+    private Properties containerProps;
 
     @BeforeEach
     void setUp() {
@@ -69,8 +69,7 @@ public class PerformanceComparisonExampleTest {
 
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
-        // Configure system properties for container
-        configureSystemPropertiesForContainer(postgres);
+        containerProps = buildContainerProperties(postgres);
         
         logger.info("✓ Performance Comparison Example Test setup completed");
     }
@@ -82,17 +81,11 @@ public class PerformanceComparisonExampleTest {
         if (manager != null) {
             manager.closeReactive()
                 .onSuccess(v -> {
-                    System.getProperties().entrySet().removeIf(entry ->
-                        entry.getKey().toString().startsWith("peegeeq.") &&
-                        !entry.getKey().toString().equals("peegeeq.performance.tests"));
                     logger.info("✓ Performance Comparison Example Test teardown completed");
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
         } else {
-            System.getProperties().entrySet().removeIf(entry ->
-                entry.getKey().toString().startsWith("peegeeq.") &&
-                !entry.getKey().toString().equals("peegeeq.performance.tests"));
             logger.info("✓ Performance Comparison Example Test teardown completed");
             testContext.completeNow();
         }
@@ -175,13 +168,13 @@ public class PerformanceComparisonExampleTest {
     void testSystemPropertyManagement() {
         logger.info("=== Testing System Property Management ===");
         
-        // Test system property configuration
-        configureSystemProperties(4, 10, "PT0.2S");
+        // Test Properties-based configuration
+        Properties perfProps = buildPerformanceProperties(4, 10, "PT0.2S");
         
-        // Validate system properties were set
-        assertEquals("4", System.getProperty("peegeeq.consumer.threads"));
-        assertEquals("10", System.getProperty("peegeeq.queue.batch-size"));
-        assertEquals("PT0.2S", System.getProperty("peegeeq.queue.polling-interval"));
+        // Validate properties were set
+        assertEquals("4", perfProps.getProperty("peegeeq.consumer.threads"));
+        assertEquals("10", perfProps.getProperty("peegeeq.queue.batch-size"));
+        assertEquals("PT0.2S", perfProps.getProperty("peegeeq.queue.polling-interval"));
         
         logger.info("System property management validated successfully");
     }
@@ -195,13 +188,14 @@ public class PerformanceComparisonExampleTest {
         logger.info("\n=== Testing Configuration: {} ===", configName);
         logger.info("🔧 Threads: {}, Batch Size: {}, Polling Interval: {}", threads, batchSize, pollingInterval);
 
-        PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
-        configureSystemPropertiesForContainer(postgres);
-        configureSystemProperties(threads, batchSize, pollingInterval);
+        Properties perfProps = buildPerformanceProperties(threads, batchSize, pollingInterval);
+        Properties merged = new Properties();
+        containerProps.forEach((k, v) -> merged.setProperty(k.toString(), v.toString()));
+        perfProps.forEach((k, v) -> merged.setProperty(k.toString(), v.toString()));
 
         Instant startTime = Instant.now();
 
-        PeeGeeQManager mgr = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
+        PeeGeeQManager mgr = new PeeGeeQManager(new PeeGeeQConfiguration("test", merged), new SimpleMeterRegistry());
         return mgr.start()
             .compose(v -> {
                 Instant endTime = Instant.now();
@@ -227,34 +221,35 @@ public class PerformanceComparisonExampleTest {
      * Configures system properties for performance testing.
      * Note: This only sets performance-related properties, database properties are preserved from setUp().
      */
-    private void configureSystemProperties(int threads, int batchSize, String pollingInterval) {
-        // Only set performance-related properties, don't touch database connection properties
-        System.setProperty("peegeeq.queue.max-retries", "3");
-        System.setProperty("peegeeq.consumer.threads", String.valueOf(threads));
-        System.setProperty("peegeeq.queue.batch-size", String.valueOf(batchSize));
-        System.setProperty("peegeeq.queue.polling-interval", pollingInterval);
+    private Properties buildPerformanceProperties(int threads, int batchSize, String pollingInterval) {
+        Properties props = new Properties();
+        // Only performance-related properties; database connection properties come from containerProps
+        props.setProperty("peegeeq.queue.max-retries", "3");
+        props.setProperty("peegeeq.consumer.threads", String.valueOf(threads));
+        props.setProperty("peegeeq.queue.batch-size", String.valueOf(batchSize));
+        props.setProperty("peegeeq.queue.polling-interval", pollingInterval);
+        return props;
     }
     
-    /**
-     * Configures system properties to use the TestContainer database.
-     */
-    private void configureSystemPropertiesForContainer(PostgreSQLContainer postgres) {
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.schema", "public");
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.metrics.enabled", "true");
-        System.setProperty("peegeeq.health.enabled", "true");
-        System.setProperty("peegeeq.database.pool.max-size", "3");
-        System.setProperty("peegeeq.database.pool.shared", "false");
-        System.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
-        System.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
+    private Properties buildContainerProperties(PostgreSQLContainer postgres) {
+        Properties props = new Properties();
+        props.setProperty("peegeeq.database.host", postgres.getHost());
+        props.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        props.setProperty("peegeeq.database.name", postgres.getDatabaseName());
+        props.setProperty("peegeeq.database.username", postgres.getUsername());
+        props.setProperty("peegeeq.database.password", postgres.getPassword());
+        props.setProperty("peegeeq.database.schema", "public");
+        props.setProperty("peegeeq.database.ssl.enabled", "false");
+        props.setProperty("peegeeq.metrics.enabled", "true");
+        props.setProperty("peegeeq.health.enabled", "true");
+        props.setProperty("peegeeq.database.pool.max-size", "3");
+        props.setProperty("peegeeq.database.pool.shared", "false");
+        props.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
+        props.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
         // Disable auto-migration since schema is already initialized by SharedPostgresTestExtension
-        System.setProperty("peegeeq.migration.enabled", "false");
-        System.setProperty("peegeeq.migration.auto-migrate", "false");
+        props.setProperty("peegeeq.migration.enabled", "false");
+        props.setProperty("peegeeq.migration.auto-migrate", "false");
+        return props;
     }
     
     /**

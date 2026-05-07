@@ -33,6 +33,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -55,6 +56,7 @@ public class PeeGeeQExampleTest {
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQExampleTest.class);
 
     private PeeGeeQManager manager;
+    private Properties containerProps;
 
     @BeforeEach
     void setUp() {
@@ -62,7 +64,7 @@ public class PeeGeeQExampleTest {
 
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
-        configureSystemPropertiesForContainer(postgres);
+        containerProps = buildContainerProperties(postgres);
         
         logger.info("✓ PeeGeeQ Example Test setup completed");
     }
@@ -92,7 +94,7 @@ public class PeeGeeQExampleTest {
     void testProductionReadinessFeatures(VertxTestContext testContext) {
         logger.info("=== Testing Production Readiness Features ===");
         
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("test", containerProps), new SimpleMeterRegistry());
         manager.start()
             .compose(v -> manager.getSystemStatus())
             .onComplete(testContext.succeeding(systemStatus -> testContext.verify(() -> {
@@ -176,7 +178,7 @@ public class PeeGeeQExampleTest {
     void testFeatureDemonstrations(VertxTestContext testContext) {
         logger.info("=== Testing Feature Demonstrations ===");
         
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("test"), new SimpleMeterRegistry());
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("test", containerProps), new SimpleMeterRegistry());
         manager.start()
             .compose(v -> manager.getSystemStatus())
             .onComplete(testContext.succeeding(systemStatus -> testContext.verify(() -> {
@@ -203,32 +205,33 @@ public class PeeGeeQExampleTest {
     /**
      * Configures system properties to use the TestContainer database.
      */
-    private void configureSystemPropertiesForContainer(PostgreSQLContainer postgres) {
+    private Properties buildContainerProperties(PostgreSQLContainer postgres) {
         logger.info("Configuring PeeGeeQ to use container database...");
 
+        Properties props = new Properties();
         // Set database connection properties
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.schema", "public");
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-
+        props.setProperty("peegeeq.database.host", postgres.getHost());
+        props.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        props.setProperty("peegeeq.database.name", postgres.getDatabaseName());
+        props.setProperty("peegeeq.database.username", postgres.getUsername());
+        props.setProperty("peegeeq.database.password", postgres.getPassword());
+        props.setProperty("peegeeq.database.schema", "public");
+        props.setProperty("peegeeq.database.ssl.enabled", "false");
         // Configure for test environment
-        System.setProperty("peegeeq.database.pool.min-size", "2");
-        System.setProperty("peegeeq.database.pool.max-size", "3");
-        System.setProperty("peegeeq.database.pool.shared", "false");
-        System.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
-        System.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
-        System.setProperty("peegeeq.metrics.enabled", "true");
-        System.setProperty("peegeeq.health.enabled", "true");
-        System.setProperty("peegeeq.circuit-breaker.enabled", "true");
+        props.setProperty("peegeeq.database.pool.min-size", "2");
+        props.setProperty("peegeeq.database.pool.max-size", "3");
+        props.setProperty("peegeeq.database.pool.shared", "false");
+        props.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
+        props.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
+        props.setProperty("peegeeq.metrics.enabled", "true");
+        props.setProperty("peegeeq.health.enabled", "true");
+        props.setProperty("peegeeq.circuit-breaker.enabled", "true");
         // Disable auto-migration since schema is already initialized by SharedPostgresTestExtension
-        System.setProperty("peegeeq.migration.enabled", "false");
-        System.setProperty("peegeeq.migration.auto-migrate", "false");
+        props.setProperty("peegeeq.migration.enabled", "false");
+        props.setProperty("peegeeq.migration.auto-migrate", "false");
 
         logger.info("Configuration complete");
+        return props;
     }
     
     /**
@@ -247,11 +250,11 @@ public class PeeGeeQExampleTest {
      * Validates system properties configuration.
      */
     private void validateSystemPropertiesConfiguration() {
-        assertNotNull(System.getProperty("peegeeq.database.host"));
-        assertNotNull(System.getProperty("peegeeq.database.port"));
-        assertNotNull(System.getProperty("peegeeq.database.name"));
-        assertEquals("true", System.getProperty("peegeeq.metrics.enabled"));
-        assertEquals("true", System.getProperty("peegeeq.health.enabled"));
+        assertNotNull(containerProps.getProperty("peegeeq.database.host"));
+        assertNotNull(containerProps.getProperty("peegeeq.database.port"));
+        assertNotNull(containerProps.getProperty("peegeeq.database.name"));
+        assertEquals("true", containerProps.getProperty("peegeeq.metrics.enabled"));
+        assertEquals("true", containerProps.getProperty("peegeeq.health.enabled"));
     }
 }
 

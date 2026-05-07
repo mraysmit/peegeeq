@@ -17,6 +17,7 @@ package dev.mars.peegeeq.db;
  */
 
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import io.vertx.core.Future;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxTestContext;
@@ -31,6 +32,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.junit.jupiter.api.Tag;
 import dev.mars.peegeeq.test.categories.TestCategories;
 
+import java.util.Properties;
 import java.util.UUID;
 
 /**
@@ -80,20 +82,29 @@ public abstract class BaseIntegrationTest {
 
         logger.info("Setting up integration test with profile: {}", testProfile);
 
-        // Set up test-specific configuration (non-database system properties)
-        setupTestConfiguration();
-
-        // Create configuration with explicit database settings from the shared container
-        // to avoid System.setProperty race conditions under parallel execution.
+        // Build isolated per-test configuration — no System.setProperty writes.
         PostgreSQLContainer postgres = getPostgres();
-        configuration = new PeeGeeQConfiguration(
-                testProfile,
-                postgres.getHost(),
-                postgres.getFirstMappedPort(),
-                postgres.getDatabaseName(),
-                postgres.getUsername(),
-                postgres.getPassword(),
-                "public");
+        Properties props = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .schema("public")
+                .property("peegeeq.database.pool.min-size", "1")
+                .property("peegeeq.database.pool.max-size", "3")
+                .property("peegeeq.database.pool.connection-timeout-ms", "30000")
+                .property("peegeeq.database.pool.idle-timeout-ms", "5000")
+                .property("peegeeq.database.pool.shared", "false")
+                .property("peegeeq.health.check-interval", "PT10S")
+                .property("peegeeq.health.timeout", "PT5S")
+                .property("peegeeq.metrics.reporting-interval", "PT30S")
+                .property("peegeeq.metrics.enabled", "true")
+                .property("peegeeq.circuit-breaker.enabled", "true")
+                .property("peegeeq.circuit-breaker.failure-rate-threshold", "50.0")
+                .property("peegeeq.circuit-breaker.minimum-number-of-calls", "3")
+                .property("peegeeq.migration.enabled", "false")
+                .property("peegeeq.migration.auto-migrate", "false")
+                .property("peegeeq.queue.dead-consumer-detection.enabled", "false")
+                .property("peegeeq.queue.consumer-group-retry.enabled", "false")
+                .build();
+        configuration = new PeeGeeQConfiguration(testProfile, props);
         manager = new PeeGeeQManager(configuration, new SimpleMeterRegistry());
 
         manager.start()
@@ -149,77 +160,6 @@ public abstract class BaseIntegrationTest {
                 testContext.completeNow();
             })
             .onFailure(testContext::failNow);
-    }
-    
-    /**
-     * Set up database connection properties from TestContainer
-     */
-    private void setupDatabaseProperties() {
-        PostgreSQLContainer postgres = getPostgres();
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-
-        // CRITICAL: Disable migrations - tables are created once by SharedPostgresTestExtension
-        // Running migrations on every test causes duplicate key violations with shared TestContainer
-        System.setProperty("peegeeq.migration.enabled", "false");
-
-        logger.debug("Database properties set: {}:{}/{} (migrations disabled)",
-            postgres.getHost(), postgres.getFirstMappedPort(), postgres.getDatabaseName());
-    }
-    
-    /**
-     * Set up test-specific configuration with conservative settings.
-     *
-     * <p>Pool size is kept small (max 3) to avoid exhausting PostgreSQL connections
-     * when tests run in parallel. With 4 parallel test threads and multiple test classes,
-     * connection usage can spike quickly.</p>
-     */
-    private void setupTestConfiguration() {
-        // Use the keys the loader actually reads (millisecond longs, not Duration strings).
-        // NOTE: PgConnectionManager truncates these to whole seconds via Duration.toSeconds(),
-        // so values must be >= 1000 ms. A value < 1000 ms truncates to 0 = "no timeout".
-        System.setProperty("peegeeq.database.pool.min-size", "1");  // needed for validation (max >= min)
-        System.setProperty("peegeeq.database.pool.max-size", "3");
-        System.setProperty("peegeeq.database.pool.connection-timeout-ms", "30000");   // 30 s - generous for parallel test runs
-        System.setProperty("peegeeq.database.pool.idle-timeout-ms", "5000");          // 5 s
-
-        // Force non-shared pools in tests so pool.close() drops the underlying connections
-        // deterministically, without reference-counting deferral (see §3b).
-        System.setProperty("peegeeq.database.pool.shared", "false");
-
-        // Health check settings - faster for tests
-        System.setProperty("peegeeq.health.check-interval", "PT10S");
-        System.setProperty("peegeeq.health.timeout", "PT5S");
-
-        // Metrics settings - faster for tests
-        System.setProperty("peegeeq.metrics.reporting-interval", "PT30S");
-        System.setProperty("peegeeq.metrics.enabled", "true");
-
-        // Circuit breaker settings
-        System.setProperty("peegeeq.circuit-breaker.enabled", "true");
-        System.setProperty("peegeeq.circuit-breaker.failure-rate-threshold", "50.0");
-        System.setProperty("peegeeq.circuit-breaker.minimum-number-of-calls", "3");
-
-        // Migration settings - keep disabled because schema is created once by SharedPostgresTestExtension
-        // Avoid enabling migrations here to prevent duplicate DDL when tests run in parallel
-        System.setProperty("peegeeq.migration.enabled", "false");
-        System.setProperty("peegeeq.migration.auto-migrate", "false");
-
-        // Disable background dead consumer detection to prevent the PeeGeeQManager's
-        // periodic job from interfering with tests that explicitly test dead consumer
-        // detection. Without this, a background job from a parallel test's PeeGeeQManager
-        // can mark subscriptions DEAD before the test's own detector call runs.
-        System.setProperty("peegeeq.queue.dead-consumer-detection.enabled", "false");
-
-        // Disable background consumer group retry job to prevent the PeeGeeQManager's
-        // periodic job from resetting FAILED→PENDING rows during tests that assert on
-        // FAILED status. Tests for retry behaviour create their own RetryService directly.
-        System.setProperty("peegeeq.queue.consumer-group-retry.enabled", "false");
-
-        logger.debug("Test configuration properties set");
     }
     
     /**

@@ -6,7 +6,6 @@ import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
-import org.junit.jupiter.api.parallel.ResourceLock;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,7 +29,6 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.CORE)
-@ResourceLock("system-properties")
 @ExtendWith(VertxExtension.class)
 class MultiConfigurationManagerSimpleTest {
 
@@ -38,24 +36,12 @@ class MultiConfigurationManagerSimpleTest {
 
     @BeforeEach
     void setUp() {
-        // Set minimal valid configuration properties
-        System.setProperty("peegeeq.database.host", "localhost");
-        System.setProperty("peegeeq.database.port", "5432");
-        System.setProperty("peegeeq.database.name", "test_db");
-        System.setProperty("peegeeq.database.username", "test_user");
-        System.setProperty("peegeeq.database.password", "test_pass");
-        System.setProperty("peegeeq.database.pool.min-size", "2");
-        System.setProperty("peegeeq.database.pool.max-size", "3");
-        System.setProperty("peegeeq.database.pool.shared", "false");
-        System.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
-        System.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
+        // No System properties needed — configurations are loaded from properties files
     }
 
     @AfterEach
     void tearDown() {
-        // Clean up system properties
-        System.getProperties().entrySet().removeIf(entry ->
-            entry.getKey().toString().startsWith("peegeeq."));
+        // No System properties to clean up
     }
     
     @Test
