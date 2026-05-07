@@ -75,6 +75,7 @@ This guide takes you from complete beginner to production-ready implementation w
 40. [Common Issues & Solutions](#common-issues--solutions)
 41. [Best Practices Checklist](#best-practices-checklist)
 42. [Anti-patterns to Avoid](#anti-patterns-to-avoid)
+43. [Admin Operations, Data Deletion, and Recovery](#admin-operations-data-deletion-and-recovery)
 
 ---
 
@@ -12923,6 +12924,197 @@ for (int i = 0; i < 10000; i++) {
     producer.send(new LogEvent("Log message " + i));
 }
 ```
+
+---
+
+## Admin Operations, Data Deletion, and Recovery
+
+This section covers what happens when an administrator directly modifies the PeeGeeQ tables, when such operations are safe, and how to recover when something goes wrong.
+
+### Why Direct Deletion Is Dangerous
+
+PeeGeeQ stores messaging state across three related tables:
+
+| Table | Purpose |
+|---|---|
+| `outbox` | The message store — every published message lives here until all consumer groups have acknowledged it |
+| `outbox_topic_subscriptions` | Per-topic, per-consumer-group subscription state, including backfill progress checkpoints |
+| `outbox_consumer_groups` | Per-message, per-consumer-group tracking rows that record whether a group has acknowledged a specific message |
+
+These tables are tightly coupled. A row in `outbox_consumer_groups` references `outbox` via a foreign key with `ON DELETE CASCADE`. A row in `outbox_topic_subscriptions` records counters and checkpoint IDs that point into `outbox`.
+
+Directly deleting rows from `outbox` while the system is running can cause two classes of failure:
+
+#### 1. Silent Message Undercount (Backfill)
+
+If a backfill is in progress for a consumer group on a topic, and you delete rows from `outbox` that the backfill has not yet processed:
+
+- The backfill's next batch fetch returns fewer rows than expected, or an empty result.
+- An empty result triggers `markBackfillCompleted` — the backfill records `COMPLETED` status with whatever count it reached.
+- The consumer group's `outbox_consumer_groups` table is now missing tracking rows for the deleted messages.
+- Those messages are permanently invisible to that consumer group. There is no error, no log warning, and no automatic recovery.
+
+This is silent data loss at the consumer-group level. The messages may still exist in `outbox` for other consumer groups, but the affected group will never receive them.
+
+#### 2. PostgreSQL Deadlock (40P01)
+
+If the DELETE uses a predicate broad enough to match rows that a concurrent backfill transaction has locked:
+
+- The backfill transaction holds a `FOR UPDATE` lock on a row in `outbox_topic_subscriptions`, then attempts to `UPDATE outbox` and `INSERT INTO outbox_consumer_groups` for the batch.
+- The DELETE transaction acquires row locks on those same `outbox` rows, then cascades to `outbox_consumer_groups` via the foreign key.
+- PostgreSQL detects the lock cycle and kills one of the two transactions with error code `40P01` (deadlock detected).
+- `BackfillService` does not retry on `40P01`. If selected as the deadlock victim, `startBackfill()` returns a failed Future. The backfill is resumable from its checkpoint, but only if the caller detects the failure and explicitly restarts.
+
+### When Admin Deletions Are Safe
+
+Admin deletion of `outbox` rows is safe only when **all** of the following conditions hold:
+
+1. **No backfill is `IN_PROGRESS`** for any consumer group on the affected topics.
+   ```sql
+   -- Check before deleting
+   SELECT topic, group_name, backfill_status
+   FROM outbox_topic_subscriptions
+   WHERE topic = $1
+     AND backfill_status = 'IN_PROGRESS';
+   -- Must return 0 rows before proceeding
+   ```
+
+2. **All consumer groups have acknowledged the messages** you intend to delete.
+   ```sql
+   -- Verify no outstanding tracking rows for the messages
+   SELECT o.id, o.topic, cg.group_name, cg.status
+   FROM outbox o
+   JOIN outbox_consumer_groups cg ON cg.message_id = o.id
+   WHERE o.topic = $1
+     AND o.id = ANY($2::bigint[])
+     AND cg.status != 'ACKNOWLEDGED';
+   -- Must return 0 rows before proceeding
+   ```
+
+3. **Use exact predicates only** — `WHERE topic = $1` or `WHERE id = ANY($2::bigint[])`. Never use `LIKE` predicates on topic names. A broad `LIKE 'orders-%'` predicate can match topics belonging to concurrently running operations on adjacent topics.
+
+4. **Perform deletions inside a short transaction** and check the row count matches your expectation before committing.
+
+### What Not to Do
+
+```sql
+-- ❌ Never do this while any backfill or consumer is running:
+DELETE FROM outbox WHERE topic LIKE 'orders-%';
+
+-- ❌ Never delete subscription state while the system is live:
+DELETE FROM outbox_topic_subscriptions WHERE topic = 'orders';
+
+-- ❌ Never truncate consumer group tracking during operations:
+TRUNCATE outbox_consumer_groups;
+```
+
+### Safe Retention Pattern
+
+If you need to clean up old messages (retention policy), the correct approach is:
+
+```sql
+-- Step 1: Find messages safe to delete (all groups acknowledged, no active backfill)
+WITH safe_to_delete AS (
+    SELECT o.id
+    FROM outbox o
+    WHERE o.topic = $1
+      AND o.created_at < NOW() - INTERVAL '30 days'
+      -- Only delete if all consumer groups have acknowledged
+      AND NOT EXISTS (
+          SELECT 1 FROM outbox_consumer_groups cg
+          WHERE cg.message_id = o.id
+            AND cg.status != 'ACKNOWLEDGED'
+      )
+)
+-- Step 2: Delete in bounded batches to limit lock contention
+DELETE FROM outbox
+WHERE id IN (SELECT id FROM safe_to_delete LIMIT 1000);
+```
+
+Run this in a loop during off-peak hours. Check that no backfill is `IN_PROGRESS` before starting each batch.
+
+### Recovery Procedures
+
+#### Detecting a Partially Completed Backfill
+
+If you suspect a backfill completed with fewer messages than expected:
+
+```sql
+-- Compare processed vs total for all subscriptions
+SELECT topic, group_name,
+       backfill_status,
+       backfill_processed_messages,
+       backfill_total_messages,
+       backfill_total_messages - backfill_processed_messages AS gap
+FROM outbox_topic_subscriptions
+WHERE backfill_status = 'COMPLETED'
+  AND backfill_total_messages > backfill_processed_messages;
+```
+
+A non-zero `gap` indicates messages that existed when backfill started but were not processed. This is most commonly caused by rows being deleted between the initial count and the batch processing steps.
+
+> **Note:** A small gap is possible without data loss if messages were deleted by normal consumer acknowledgement during the backfill window. A gap larger than a few rows warrants investigation.
+
+#### Resetting a Backfill for Replay
+
+If a backfill must be re-run from scratch (for example, after discovering a gap):
+
+```sql
+-- Step 1: Remove the consumer group tracking rows for the affected topic
+DELETE FROM outbox_consumer_groups
+WHERE group_name = $1
+  AND message_id IN (
+      SELECT id FROM outbox WHERE topic = $2
+  );
+
+-- Step 2: Decrement required_consumer_groups for messages that were incremented
+UPDATE outbox
+SET required_consumer_groups = GREATEST(0, required_consumer_groups - 1)
+WHERE topic = $2
+  AND status IN ('PENDING', 'PROCESSING', 'COMPLETED');
+
+-- Step 3: Reset backfill state for the subscription
+UPDATE outbox_topic_subscriptions
+SET backfill_status       = 'PENDING',
+    backfill_checkpoint_id        = NULL,
+    backfill_processed_messages   = 0,
+    backfill_total_messages       = 0,
+    backfill_started_at           = NULL,
+    backfill_completed_at         = NULL
+WHERE topic = $2
+  AND group_name = $1;
+```
+
+After these steps, call `BackfillService.startBackfill()` again. The service will restart from the beginning of the topic.
+
+> **Warning:** Steps 1–3 must be executed together as a single transaction, and only when the consumer group is not actively consuming. Use an application-level quiesce or maintenance window.
+
+#### Recovering from a Failed (40P01) Backfill
+
+If `startBackfill()` returned a failure and the backfill status is still `IN_PROGRESS`:
+
+```sql
+-- Reset stuck IN_PROGRESS backfill to allow retry
+UPDATE outbox_topic_subscriptions
+SET backfill_status = 'PENDING'
+WHERE topic = $1
+  AND group_name = $2
+  AND backfill_status = 'IN_PROGRESS';
+```
+
+The checkpoint (`backfill_checkpoint_id`) is preserved, so the retry will resume from where the deadlocked transaction left off rather than reprocessing from the beginning.
+
+After resetting the status, call `BackfillService.startBackfill()` again.
+
+### Summary Table
+
+| Scenario | Risk | Safe approach |
+|---|---|---|
+| Delete old messages during active backfill | Silent undercount; possible 40P01 deadlock | Wait for backfill COMPLETED before deleting |
+| Delete messages with outstanding consumer groups | Those groups never receive the messages | Verify all groups ACKNOWLEDGED before deleting |
+| Use LIKE predicate across topic namespace | Deadlock with concurrent operations on adjacent topics | Use exact topic equality or `ANY($1::text[])` with an explicit list |
+| Truncate subscription or consumer-group tables | Total loss of all consumer group state | Only acceptable on a fully quiesced system with no active consumers |
+| Reset a partially completed backfill | Double-counting if tracking rows exist | Always delete tracking rows and decrement counters first |
 
 ---
 

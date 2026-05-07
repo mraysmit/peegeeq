@@ -43,41 +43,39 @@ public class SecurityConfigurationExampleTest {
     private static final Logger logger = LoggerFactory.getLogger(SecurityConfigurationExampleTest.class);
 
     private PeeGeeQManager manager;
+    private Properties containerProps;
 
     @BeforeEach
     void setUp() {
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.database.schema", "public");
-        System.setProperty("peegeeq.database.pool.min-size", "1");
-        System.setProperty("peegeeq.database.pool.max-size", "3");
-        System.setProperty("peegeeq.database.pool.shared", "false");
-        System.setProperty("peegeeq.database.pool.idle-timeout-ms", "5000");
-        System.setProperty("peegeeq.database.pool.connection-timeout-ms", "30000");
-        System.setProperty("peegeeq.health.check-interval", "PT5S");
-        System.setProperty("peegeeq.health.timeout", "PT10S");
-        System.setProperty("peegeeq.health-check.queue-checks-enabled", "false");
+        containerProps = new Properties();
+        containerProps.setProperty("peegeeq.database.host", postgres.getHost());
+        containerProps.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        containerProps.setProperty("peegeeq.database.name", postgres.getDatabaseName());
+        containerProps.setProperty("peegeeq.database.username", postgres.getUsername());
+        containerProps.setProperty("peegeeq.database.password", postgres.getPassword());
+        containerProps.setProperty("peegeeq.database.ssl.enabled", "false");
+        containerProps.setProperty("peegeeq.database.schema", "public");
+        containerProps.setProperty("peegeeq.database.pool.min-size", "1");
+        containerProps.setProperty("peegeeq.database.pool.max-size", "3");
+        containerProps.setProperty("peegeeq.database.pool.shared", "false");
+        containerProps.setProperty("peegeeq.database.pool.idle-timeout-ms", "5000");
+        containerProps.setProperty("peegeeq.database.pool.connection-timeout-ms", "30000");
+        containerProps.setProperty("peegeeq.health.check-interval", "PT5S");
+        containerProps.setProperty("peegeeq.health.timeout", "PT10S");
+        containerProps.setProperty("peegeeq.health-check.queue-checks-enabled", "false");
+        containerProps.setProperty("peegeeq.migration.enabled", "false");
+        containerProps.setProperty("peegeeq.migration.auto-migrate", "false");
     }
     
     @AfterEach
     void tearDown(VertxTestContext testContext) {
         if (manager != null) {
             manager.closeReactive()
-                .onSuccess(v -> {
-                    System.getProperties().entrySet().removeIf(e ->
-                        e.getKey().toString().startsWith("peegeeq."));
-                    testContext.completeNow();
-                })
+                .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
         } else {
-            System.getProperties().entrySet().removeIf(e ->
-                e.getKey().toString().startsWith("peegeeq."));
             testContext.completeNow();
         }
     }
@@ -97,11 +95,8 @@ public class SecurityConfigurationExampleTest {
         securityProps.setProperty("peegeeq.database.username.encrypted", "false");
         securityProps.setProperty("peegeeq.database.password.encrypted", "false");
 
-        for (String key : securityProps.stringPropertyNames()) {
-            System.setProperty(key, securityProps.getProperty(key));
-        }
-
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("secure"), new SimpleMeterRegistry());
+        Properties mergedProps = mergeProps(securityProps);
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("secure", mergedProps), new SimpleMeterRegistry());
         manager.start()
             .compose(v -> manager.getVertx().timer(5000).mapEmpty())
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
@@ -123,11 +118,8 @@ public class SecurityConfigurationExampleTest {
         sslProps.setProperty("peegeeq.database.ssl.mode", "disable");
         sslProps.setProperty("peegeeq.database.ssl.cert.validation", "none");
 
-        for (String key : sslProps.stringPropertyNames()) {
-            System.setProperty(key, sslProps.getProperty(key));
-        }
-
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("ssl-test"), new SimpleMeterRegistry());
+        Properties mergedProps = mergeProps(sslProps);
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("ssl-test", mergedProps), new SimpleMeterRegistry());
         manager.start()
             .compose(v -> manager.getVertx().timer(5000).mapEmpty())
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
@@ -153,11 +145,8 @@ public class SecurityConfigurationExampleTest {
         prodProps.setProperty("peegeeq.security.audit.enabled", "true");
         prodProps.setProperty("peegeeq.security.connection.validation", "true");
 
-        for (String key : prodProps.stringPropertyNames()) {
-            System.setProperty(key, prodProps.getProperty(key));
-        }
-
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("production"), new SimpleMeterRegistry());
+        Properties mergedProps = mergeProps(prodProps);
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("production", mergedProps), new SimpleMeterRegistry());
         manager.start()
             .compose(v -> manager.getVertx().timer(5000).mapEmpty())
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
@@ -180,11 +169,8 @@ public class SecurityConfigurationExampleTest {
         monitoringProps.setProperty("peegeeq.monitoring.metrics.enabled", "true");
         monitoringProps.setProperty("peegeeq.monitoring.security.audit", "true");
 
-        for (String key : monitoringProps.stringPropertyNames()) {
-            System.setProperty(key, monitoringProps.getProperty(key));
-        }
-
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("monitoring"), new SimpleMeterRegistry());
+        Properties mergedProps = mergeProps(monitoringProps);
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("monitoring", mergedProps), new SimpleMeterRegistry());
         manager.start()
             .compose(v -> manager.getVertx().timer(5000).mapEmpty())
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
@@ -213,11 +199,8 @@ public class SecurityConfigurationExampleTest {
         credProps.setProperty("peegeeq.credentials.rotation.enabled", "false");
         credProps.setProperty("peegeeq.credentials.validation.enabled", "true");
 
-        for (String key : credProps.stringPropertyNames()) {
-            System.setProperty(key, credProps.getProperty(key));
-        }
-
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("credentials"), new SimpleMeterRegistry());
+        Properties mergedProps = mergeProps(credProps);
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("credentials", mergedProps), new SimpleMeterRegistry());
         manager.start()
             .compose(v -> manager.getVertx().timer(5000).mapEmpty())
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
@@ -240,11 +223,8 @@ public class SecurityConfigurationExampleTest {
         complianceProps.setProperty("peegeeq.compliance.data.retention", "P90D");
         complianceProps.setProperty("peegeeq.compliance.access.logging", "true");
 
-        for (String key : complianceProps.stringPropertyNames()) {
-            System.setProperty(key, complianceProps.getProperty(key));
-        }
-
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("compliance"), new SimpleMeterRegistry());
+        Properties mergedProps = mergeProps(complianceProps);
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("compliance", mergedProps), new SimpleMeterRegistry());
         manager.start()
             .compose(v -> manager.getVertx().timer(5000).mapEmpty())
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
@@ -253,6 +233,13 @@ public class SecurityConfigurationExampleTest {
                 assertNotNull(manager.getMetrics());
                 testContext.completeNow();
             })));
+    }
+
+    private Properties mergeProps(Properties overrides) {
+        Properties merged = new Properties();
+        containerProps.forEach((k, v) -> merged.setProperty(k.toString(), v.toString()));
+        overrides.forEach((k, v) -> merged.setProperty(k.toString(), v.toString()));
+        return merged;
     }
 }
 

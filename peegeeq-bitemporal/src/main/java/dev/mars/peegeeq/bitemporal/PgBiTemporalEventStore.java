@@ -459,8 +459,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
             OffsetDateTime transactionTime = OffsetDateTime.now();
 
             // Check if Event Bus distribution is enabled
-            boolean useEventBusDistribution = Boolean.parseBoolean(
-                    System.getProperty("peegeeq.database.use.event.bus.distribution", "false"));
+            boolean useEventBusDistribution = peeGeeQManager.getConfiguration()
+                    .getBoolean("peegeeq.database.use.event.bus.distribution", false);
 
             if (useEventBusDistribution) {
                 // Use Event Bus to distribute database operations across multiple event loops
@@ -1525,13 +1525,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 PgConnectOptions connectOptions = createConnectOptionsFromPeeGeeQManager();
 
                 // Enable command pipelining (default limit: 1024)
-                int pipeliningLimit;
-                try {
-                    pipeliningLimit = Integer.parseInt(System.getProperty("peegeeq.database.pipelining.limit", "1024"));
-                } catch (NumberFormatException e) {
-                    logger.warn("Invalid peegeeq.database.pipelining.limit value, using default 1024");
-                    pipeliningLimit = 1024;
-                }
+                int pipeliningLimit = peeGeeQManager.getConfiguration()
+                        .getInt("peegeeq.database.pipelining.limit", 1024);
                 connectOptions.setPipeliningLimit(pipeliningLimit);
 
                 logger.info("Configured PostgreSQL pipelining limit: {}", pipeliningLimit);
@@ -1556,14 +1551,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 // : Set wait queue size to 10x pool size to handle high-concurrency
                 // scenarios
                 // Wait queue sized as a multiple of pool size
-                int waitQueueMultiplier;
-                try {
-                    waitQueueMultiplier = Integer
-                            .parseInt(System.getProperty("peegeeq.database.pool.wait-queue-multiplier", "10"));
-                } catch (NumberFormatException e) {
-                    logger.warn("Invalid peegeeq.database.pool.wait-queue-multiplier value, using default 10");
-                    waitQueueMultiplier = 10;
-                }
+                int waitQueueMultiplier = peeGeeQManager.getConfiguration()
+                        .getInt("peegeeq.database.pool.wait-queue-multiplier", 10);
                 poolOptions.setMaxWaitQueueSize(maxPoolSize * waitQueueMultiplier);
 
                 // Connection timeout and idle timeout for reliability
@@ -1571,13 +1560,8 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
                 poolOptions.setIdleTimeout(600000); // 10 minutes
 
                 // Optional event loop size override (0 = Vert.x default: 2 * CPU cores)
-                int eventLoopSize;
-                try {
-                    eventLoopSize = Integer.parseInt(System.getProperty("peegeeq.database.event.loop.size", "0"));
-                } catch (NumberFormatException e) {
-                    logger.warn("Invalid peegeeq.database.event.loop.size value, using default 0");
-                    eventLoopSize = 0;
-                }
+                int eventLoopSize = peeGeeQManager.getConfiguration()
+                        .getInt("peegeeq.database.event.loop.size", 0);
                 if (eventLoopSize > 0) {
                     poolOptions.setEventLoopSize(eventLoopSize);
                     logger.info("Configured event loop size: {}", eventLoopSize);
@@ -1640,18 +1624,6 @@ public class PgBiTemporalEventStore<T> implements EventStore<T> {
      * @return The maximum pool size to use
      */
     private int getConfiguredPoolSize() {
-        // Check system property first (allows runtime tuning)
-        String systemPoolSize = System.getProperty("peegeeq.database.pool.max-size");
-        if (systemPoolSize != null) {
-            try {
-                int size = Integer.parseInt(systemPoolSize);
-                logger.info("Using system property pool size: {}", size);
-                return size;
-            } catch (NumberFormatException e) {
-                logger.warn("Invalid peegeeq.database.pool.max-size value '{}', falling back to configuration/default", systemPoolSize);
-            }
-        }
-
         try {
             if (peeGeeQManager != null && peeGeeQManager.getConfiguration() != null) {
                 var poolConfig = peeGeeQManager.getConfiguration().getPoolConfig();

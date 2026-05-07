@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.db.performance;
 
+import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -7,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Map;
+import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -18,7 +20,6 @@ import static org.junit.jupiter.api.Assertions.*;
  * @version 1.0
  */
 @Tag(TestCategories.CORE)
-@org.junit.jupiter.api.parallel.ResourceLock("system-properties")
 class SystemInfoCollectorTest {
     private static final Logger logger = LoggerFactory.getLogger(SystemInfoCollectorTest.class);
     
@@ -158,35 +159,27 @@ class SystemInfoCollectorTest {
     @Test
     void testSystemInfoWithCustomProperties() {
         logger.info("Testing system info with custom PeeGeeQ properties...");
-        
-        // Set some test properties
-        System.setProperty("peegeeq.test.property", "test-value");
-        System.setProperty("peegeeq.database.pool.max-size", "100");
-        System.setProperty("peegeeq.database.pipelining.limit", "1024");
-        
-        try {
-            SystemInfoCollector.SystemInfoSnapshot systemInfo = SystemInfoCollector.collectSystemInfo();
-            
-            Map<String, String> peeGeeQConfig = systemInfo.peeGeeQConfiguration();
-            
-            assertNotNull(peeGeeQConfig, "PeeGeeQ configuration should not be null");
-            assertTrue(peeGeeQConfig.containsKey("peegeeq.test.property"), "Should contain test property");
-            assertEquals("test-value", peeGeeQConfig.get("peegeeq.test.property"), "Should have correct test value");
-            
-            logger.info("PeeGeeQ properties found: {}", peeGeeQConfig.size());
-            for (Map.Entry<String, String> entry : peeGeeQConfig.entrySet()) {
-                logger.info("  {}: {}", entry.getKey(), entry.getValue());
-            }
-            
-            logger.info("Custom properties validation passed");
 
-        } finally {
-            // Clean up test properties
-            System.clearProperty("peegeeq.test.property");
-            System.clearProperty("peegeeq.database.pool.max-size");
-            System.clearProperty("peegeeq.database.pipelining.limit");
+        // Build a configuration with custom properties using the 2-arg constructor
+        Properties props = new Properties();
+        props.setProperty("peegeeq.test.property", "test-value");
+        props.setProperty("peegeeq.database.pool.max-size", "100");
+        props.setProperty("peegeeq.database.pipelining.limit", "1024");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test", props);
 
-            logger.info("Cleaned up test properties");
+        SystemInfoCollector.SystemInfoSnapshot systemInfo = SystemInfoCollector.collectSystemInfo(config);
+
+        Map<String, String> peeGeeQConfig = systemInfo.peeGeeQConfiguration();
+
+        assertNotNull(peeGeeQConfig, "PeeGeeQ configuration should not be null");
+        assertTrue(peeGeeQConfig.containsKey("peegeeq.test.property"), "Should contain test property");
+        assertEquals("test-value", peeGeeQConfig.get("peegeeq.test.property"), "Should have correct test value");
+
+        logger.info("PeeGeeQ properties found: {}", peeGeeQConfig.size());
+        for (Map.Entry<String, String> entry : peeGeeQConfig.entrySet()) {
+            logger.info("  {}: {}", entry.getKey(), entry.getValue());
         }
+
+        logger.info("Custom properties validation passed");
     }
 }
