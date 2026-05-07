@@ -2,7 +2,7 @@
 
 Created: 2026-05-07  
 Branch: `feature/offset-watermark-phase1`  
-Status: **PENDING**
+Status: **IN PROGRESS** — Phases 0a–4 ✅ complete; Phase 5 next
 
 ---
 
@@ -386,7 +386,7 @@ and a **negative test** (must return nothing — confirms the anti-pattern is go
 
 ---
 
-### Phase 0a — Fix `PgBiTemporalEventStore` System.getProperty bypass [Problem A1]
+### Phase 0a — Fix `PgBiTemporalEventStore` System.getProperty bypass [Problem A1] ✅ COMPLETE
 
 **Change:** Replace all five `System.getProperty("peegeeq.*")` calls with
 `peeGeeQManager.getConfiguration()` getter calls. Add the five keys to
@@ -406,7 +406,7 @@ Select-String 'System\.getProperty' peegeeq-bitemporal\src\main\java\dev\mars\pe
 
 ---
 
-### Phase 0b — Fix `VertxPerformanceOptimizer` System.getProperty bypass [Problem A2]
+### Phase 0b — Fix `VertxPerformanceOptimizer` System.getProperty bypass [Problem A2] ✅ COMPLETE
 
 **Change:** Add a `PeeGeeQConfiguration` parameter (or overload) to the three public static
 methods. Thread it to the private helpers. Fall back to CPU-count defaults when null.
@@ -425,7 +425,7 @@ Select-String 'System\.getProperty' peegeeq-db\src\main\java\dev\mars\peegeeq\db
 
 ---
 
-### Phase 0c — Fix `SystemInfoCollector` System.getProperty bypass [Problem A3]
+### Phase 0c — Fix `SystemInfoCollector` System.getProperty bypass [Problem A3] ✅ COMPLETE
 
 **Change:** Add an optional `PeeGeeQConfiguration` parameter to `collectSystemInfo()` and the
 private helpers `collectDatabaseConfiguration()` and `collectPeeGeeQConfiguration()`. When
@@ -446,7 +446,7 @@ Select-String 'System\.getProperty' peegeeq-db\src\main\java\dev\mars\peegeeq\db
 
 ---
 
-### Phase 1 — `peegeeq-db` BaseIntegrationTest [Problem B]
+### Phase 1 — `peegeeq-db` BaseIntegrationTest [Problem B] ✅ COMPLETE
 
 **Change:** Replace `setupTestConfiguration()` / `setupDatabaseProperties()` in
 `BaseIntegrationTest` with a single `PeeGeeQTestConfig.builder().from(container)...build()`
@@ -467,7 +467,7 @@ Select-String 'System\.(set|clear)Property' peegeeq-db\src\test\java\dev\mars\pe
 
 ---
 
-### Phase 2 — `peegeeq-db` remaining integration tests [Problem B]
+### Phase 2 — `peegeeq-db` remaining integration tests [Problem B] ✅ COMPLETE
 
 **Change:** Migrate all other `peegeeq-db` integration test classes that are NOT
 `PgPoolConfigPropertyBindingTest` or `PeeGeeQConfigurationTest`.
@@ -491,7 +491,7 @@ Get-ChildItem -Recurse -Filter *.java peegeeq-db\src\test |
 
 ---
 
-### Phase 3 — `peegeeq-db` CORE (non-container) tests [Problem B]
+### Phase 3 — `peegeeq-db` CORE (non-container) tests [Problem B] ✅ COMPLETE
 
 **Change:** Migrate CORE unit tests that set `peegeeq.*` System properties. Most will simply
 construct `PeeGeeQConfiguration` with explicit `Properties` rather than relying on System state.
@@ -506,11 +506,16 @@ Select-String "BUILD" logs\phase3.txt   # must show SUCCESS
 
 ---
 
-### Phase 4 — `peegeeq-db` System-property tests: add `@ResourceLock` [Problem B]
+### Phase 4 — `peegeeq-db` System-property tests: add `@ResourceLock` [Problem B] ✅ COMPLETE
 
 **Change:** Add `@ResourceLock("system-properties")` to `PgPoolConfigPropertyBindingTest` and
 any other test that legitimately tests the System property reading path. Do NOT migrate these
 tests — they are testing the current `loadProperties()` behaviour intentionally.
+
+Also fixed `QueueConfigurationBuilderSimpleTest.testIntegrationWithConfigurationSystem` which
+called the 1-arg `PeeGeeQConfiguration("test")` constructor and was exposed to System property
+contamination from `PeeGeeQConfigurationTest` once `@ResourceLock` changed parallel scheduling.
+Migrated to `new PeeGeeQConfiguration("test", new Properties())` so the test is fully isolated.
 
 Note: after Phase 11 removes the System sweep, these tests will be testing behaviour that no
 longer exists. They must be updated in Phase 11: either inverted to assert the sweep is absent,
@@ -518,13 +523,13 @@ or removed if they no longer test live behaviour.
 
 **Positive test:**
 ```powershell
-mvn test -pl peegeeq-db -Pintegration-tests 2>&1 | Tee-Object -FilePath logs\phase4.txt
-Select-String "PgPoolConfigPropertyBindingTest" logs\phase4.txt   # must show PASSED
+mvn test -pl peegeeq-db 2>&1 | Tee-Object -FilePath logs\phase4.txt
+Select-String "BUILD" logs\phase4.txt   # must show SUCCESS — 327 tests, 0 failures
 ```
 
 **Negative test** — `@ResourceLock` annotation is present:
 ```powershell
-Select-String 'ResourceLock' peegeeq-db\src\test\java\dev\mars\peegeeq\db\config\PgPoolConfigPropertyBindingTest.java
+Select-String 'ResourceLock' peegeeq-db\src\test\java\dev\mars\peegeeq\db\infrastructure\PgPoolConfigPropertyBindingTest.java
 # must return a match
 ```
 

@@ -9,9 +9,9 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.parallel.Execution;
 import org.junit.jupiter.api.parallel.ExecutionMode;
-import org.junit.jupiter.api.parallel.ResourceLock;
 
 import java.time.Duration;
+import java.util.Properties;
 import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -33,36 +33,28 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  */
 @Tag(TestCategories.CORE)
 @Execution(ExecutionMode.SAME_THREAD)
-@ResourceLock("system-properties")
 class BaseIntegrationTestPoolConfigContractCoreTest {
 
-    /**
-     * Replicate the exact pool-related properties that
-     * BaseIntegrationTest.setupTestConfiguration() sets.
-     */
+    private Properties testProps;
+
     @BeforeEach
     void setUp() {
-        // Replicate the EXACT pool properties from BaseIntegrationTest.setupTestConfiguration()
-        // (after Tier 1 fix correct keys with millisecond longs).
-        System.setProperty("peegeeq.database.pool.min-size", "1");  // needed for validation (max >= min)
-        System.setProperty("peegeeq.database.pool.max-size", "3");
-        System.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
-        System.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
-        System.setProperty("peegeeq.database.pool.shared", "false");
+        testProps = new Properties();
+        testProps.setProperty("peegeeq.database.pool.min-size", "1");
+        testProps.setProperty("peegeeq.database.pool.max-size", "3");
+        testProps.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
+        testProps.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
+        testProps.setProperty("peegeeq.database.pool.shared", "false");
     }
 
     @AfterEach
     void tearDown() {
-        System.clearProperty("peegeeq.database.pool.min-size");
-        System.clearProperty("peegeeq.database.pool.max-size");
-        System.clearProperty("peegeeq.database.pool.connection-timeout-ms");
-        System.clearProperty("peegeeq.database.pool.idle-timeout-ms");
-        System.clearProperty("peegeeq.database.pool.shared");
+        // No System properties to clean up
     }
 
     @Test
     void poolConfigUsesShortIdleTimeoutForFastTeardown() {
-        PeeGeeQConfiguration cfg = new PeeGeeQConfiguration("test-t2b-" + UUID.randomUUID());
+        PeeGeeQConfiguration cfg = new PeeGeeQConfiguration("test-t2b-" + UUID.randomUUID(), testProps);
         Duration idleTimeout = cfg.getPoolConfig().getIdleTimeout();
         assertEquals(Duration.ofMillis(2000), idleTimeout,
             "idle timeout must match the 2000 ms set by setupTestConfiguration()");
@@ -70,7 +62,7 @@ class BaseIntegrationTestPoolConfigContractCoreTest {
 
     @Test
     void poolConfigUsesShortConnectionTimeoutForFastFailure() {
-        PeeGeeQConfiguration cfg = new PeeGeeQConfiguration("test-t2b-" + UUID.randomUUID());
+        PeeGeeQConfiguration cfg = new PeeGeeQConfiguration("test-t2b-" + UUID.randomUUID(), testProps);
         Duration connTimeout = cfg.getPoolConfig().getConnectionTimeout();
         assertEquals(Duration.ofMillis(5000), connTimeout,
             "connection timeout must match the 5000 ms set by setupTestConfiguration()");
@@ -78,14 +70,14 @@ class BaseIntegrationTestPoolConfigContractCoreTest {
 
     @Test
     void poolConfigUsesNonSharedPoolsForDeterministicCleanup() {
-        PeeGeeQConfiguration cfg = new PeeGeeQConfiguration("test-t2b-" + UUID.randomUUID());
+        PeeGeeQConfiguration cfg = new PeeGeeQConfiguration("test-t2b-" + UUID.randomUUID(), testProps);
         assertFalse(cfg.getPoolConfig().isShared(),
             "shared pools defer connection close via reference counting; tests need deterministic close");
     }
 
     @Test
     void poolConfigUsesSmallMaxSizeForParallelExecutionHeadroom() {
-        PeeGeeQConfiguration cfg = new PeeGeeQConfiguration("test-t2b-" + UUID.randomUUID());
+        PeeGeeQConfiguration cfg = new PeeGeeQConfiguration("test-t2b-" + UUID.randomUUID(), testProps);
         int maxSize = cfg.getPoolConfig().getMaxSize();
         assertTrue(maxSize <= 3,
             "test pool max-size must be <= 3 for parallel execution headroom; actual: " + maxSize);

@@ -35,7 +35,6 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.INTEGRATION)
 @ExtendWith({SharedPostgresTestExtension.class, VertxExtension.class})
-@ResourceLock(value = "system-properties")
 @ResourceLock(value = "dead-consumer-detection", mode = ResourceAccessMode.READ_WRITE)
 @Execution(ExecutionMode.SAME_THREAD)
 public class DeadConsumerDetectionJobLifecycleTest {
@@ -43,12 +42,13 @@ public class DeadConsumerDetectionJobLifecycleTest {
     private static final Logger logger = LoggerFactory.getLogger(DeadConsumerDetectionJobLifecycleTest.class);
 
     private PeeGeeQManager manager;
+    private Properties testProps;
 
     @BeforeEach
     void setUp() {
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
-        Properties testProps = new Properties();
+        testProps = new Properties();
         testProps.setProperty("peegeeq.database.host", postgres.getHost());
         testProps.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
         testProps.setProperty("peegeeq.database.name", postgres.getDatabaseName());
@@ -70,9 +70,7 @@ public class DeadConsumerDetectionJobLifecycleTest {
         testProps.setProperty("peegeeq.queue.dead-consumer-detection.enabled", "true");
         testProps.setProperty("peegeeq.queue.dead-consumer-detection.interval", "PT10S");
 
-        testProps.forEach((key, value) -> System.setProperty(key.toString(), value.toString()));
-
-        PeeGeeQConfiguration configuration = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration configuration = new PeeGeeQConfiguration("test", testProps);
         manager = new PeeGeeQManager(configuration, new SimpleMeterRegistry());
 
         logger.info("DeadConsumerDetectionJobLifecycleTest setup complete");
@@ -88,8 +86,6 @@ public class DeadConsumerDetectionJobLifecycleTest {
                 logger.warn("Exception during tearDown: {}", e.getMessage());
             }
         }
-        System.getProperties().entrySet().removeIf(entry ->
-            entry.getKey().toString().startsWith("peegeeq."));
     }
 
     @Test
@@ -141,8 +137,10 @@ public class DeadConsumerDetectionJobLifecycleTest {
         logger.info("=== Testing detection job disabled by config ===");
 
         // Override to disable detection
-        System.setProperty("peegeeq.queue.dead-consumer-detection.enabled", "false");
-        PeeGeeQConfiguration disabledConfig = new PeeGeeQConfiguration("test");
+        Properties disabledProps = new Properties();
+        testProps.forEach((k, v) -> disabledProps.setProperty(k.toString(), v.toString()));
+        disabledProps.setProperty("peegeeq.queue.dead-consumer-detection.enabled", "false");
+        PeeGeeQConfiguration disabledConfig = new PeeGeeQConfiguration("test", disabledProps);
 
         // Close the manager from setUp and create a new one with detection disabled
         manager.closeReactive()
