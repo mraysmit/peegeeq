@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.time.Duration;
+import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -95,9 +96,10 @@ class QueueConfigurationBuilderSimpleTest {
         
         // Should be able to work with different configuration profiles
         assertDoesNotThrow(() -> {
-            // Test that we can create configurations that would be used by the builder
-            PeeGeeQConfiguration config1 = new PeeGeeQConfiguration("test");
-            PeeGeeQConfiguration config2 = new PeeGeeQConfiguration("development");
+            // Test that we can create configurations that would be used by the builder.
+            // Use explicit empty Properties so this test is isolated from System property state.
+            PeeGeeQConfiguration config1 = new PeeGeeQConfiguration("test", new Properties());
+            PeeGeeQConfiguration config2 = new PeeGeeQConfiguration("development", new Properties());
             
             assertNotNull(config1);
             assertNotNull(config2);

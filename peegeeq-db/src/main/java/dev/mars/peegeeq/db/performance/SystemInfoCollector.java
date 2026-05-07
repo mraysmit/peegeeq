@@ -1,5 +1,6 @@
 package dev.mars.peegeeq.db.performance;
 
+import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -55,11 +56,23 @@ public class SystemInfoCollector {
      * @return Typed system information snapshot organized by category
      */
     public static SystemInfoSnapshot collectSystemInfo() {
+        return collectSystemInfo(null);
+    }
+
+    /**
+     * Collects comprehensive system information, reading peegeeq.* values from
+     * the supplied configuration when non-null, falling back to System properties
+     * when null (acceptable for diagnostics invoked outside a manager context).
+     *
+     * @param config optional PeeGeeQConfiguration; null enables System-property fallback
+     * @return Typed system information snapshot organized by category
+     */
+    public static SystemInfoSnapshot collectSystemInfo(PeeGeeQConfiguration config) {
         return new SystemInfoSnapshot(
             LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME),
             collectSystemConfiguration(),
-            collectDatabaseConfiguration(),
-            collectPeeGeeQConfiguration()
+            collectDatabaseConfiguration(config),
+            collectPeeGeeQConfiguration(config)
         );
     }
     
@@ -182,51 +195,59 @@ public class SystemInfoCollector {
     /**
      * Collects database configuration information.
      */
-    private static Map<String, String> collectDatabaseConfiguration() {
-        Map<String, String> config = new LinkedHashMap<>();
+    private static Map<String, String> collectDatabaseConfiguration(PeeGeeQConfiguration config) {
+        Map<String, String> info = new LinkedHashMap<>();
 
         try {
-            // Try to get database information from system properties or environment
-            String dbUrl = System.getProperty("peegeeq.database.url",
-                          System.getenv("PEEGEEQ_DATABASE_URL"));
+            // Try to get database information from configuration, system properties, or environment
+            String dbUrl = (config != null)
+                    ? config.getString("peegeeq.database.url", null)
+                    : System.getProperty("peegeeq.database.url",
+                      System.getenv("PEEGEEQ_DATABASE_URL"));
 
             if (dbUrl != null) {
                 if (dbUrl.contains("postgresql")) {
-                    config.put("Database", "PostgreSQL");
+                    info.put("Database", "PostgreSQL");
 
                     // Extract host and port from URL
                     if (dbUrl.contains("://")) {
                         String[] parts = dbUrl.split("://")[1].split("/")[0].split(":");
-                        config.put("Host", parts[0]);
+                        info.put("Host", parts[0]);
                         if (parts.length > 1) {
-                            config.put("Port", parts[1]);
+                            info.put("Port", parts[1]);
                         }
                     }
                 } else {
-                    config.put("Database", "Unknown database type");
+                    info.put("Database", "Unknown database type");
                 }
 
-                config.put("Connection Status", "Configuration available");
+                info.put("Connection Status", "Configuration available");
             } else {
-                config.put("Database", "PostgreSQL (default)");
-                config.put("Connection Status", "Not available during test execution");
+                info.put("Database", "PostgreSQL (default)");
+                info.put("Connection Status", "Not available during test execution");
             }
 
-            // Pool configuration from system properties
-            String poolSize = System.getProperty("peegeeq.database.pool.max-size", "100");
-            String waitQueue = System.getProperty("peegeeq.database.pool.wait-queue-multiplier", "10");
-            String pipelining = System.getProperty("peegeeq.database.pipelining.limit", "1024");
+            // Pool configuration
+            String poolSize = (config != null)
+                    ? String.valueOf(config.getInt("peegeeq.database.pool.max-size", 100))
+                    : System.getProperty("peegeeq.database.pool.max-size", "100");
+            String waitQueue = (config != null)
+                    ? String.valueOf(config.getInt("peegeeq.database.pool.wait-queue-multiplier", 10))
+                    : System.getProperty("peegeeq.database.pool.wait-queue-multiplier", "10");
+            String pipelining = (config != null)
+                    ? String.valueOf(config.getInt("peegeeq.database.pipelining.limit", 1024))
+                    : System.getProperty("peegeeq.database.pipelining.limit", "1024");
 
-            config.put("Pool Configuration", String.format("Optimized (%s connections, %s wait queue)",
+            info.put("Pool Configuration", String.format("Optimized (%s connections, %s wait queue)",
                 poolSize, Integer.parseInt(poolSize) * Integer.parseInt(waitQueue)));
-            config.put("Pipelining", String.format("Enabled (%s limit)", pipelining));
+            info.put("Pipelining", String.format("Enabled (%s limit)", pipelining));
 
         } catch (Exception e) {
             logger.warn("Error collecting database configuration: {}", e.getMessage());
-            config.put("Error", "Failed to collect database information: " + e.getMessage());
+            info.put("Error", "Failed to collect database information: " + e.getMessage());
         }
 
-        return config;
+        return info;
     }
 
 
@@ -234,31 +255,40 @@ public class SystemInfoCollector {
     /**
      * Collects PeeGeeQ-specific configuration information.
      */
-    private static Map<String, String> collectPeeGeeQConfiguration() {
-        Map<String, String> config = new LinkedHashMap<>();
+    private static Map<String, String> collectPeeGeeQConfiguration(PeeGeeQConfiguration config) {
+        Map<String, String> info = new LinkedHashMap<>();
 
         try {
-            // Collect relevant PeeGeeQ system properties
-            Properties systemProps = System.getProperties();
-
-            for (String key : systemProps.stringPropertyNames()) {
-                if (key.startsWith("peegeeq.")) {
-                    config.put(key, systemProps.getProperty(key));
+            if (config != null) {
+                // Read from the isolated configuration instance
+                Properties configProps = config.getProperties();
+                for (String key : configProps.stringPropertyNames()) {
+                    if (key.startsWith("peegeeq.")) {
+                        info.put(key, configProps.getProperty(key));
+                    }
+                }
+            } else {
+                // Fallback: sweep System properties (acceptable outside a manager context)
+                Properties systemProps = System.getProperties();
+                for (String key : systemProps.stringPropertyNames()) {
+                    if (key.startsWith("peegeeq.")) {
+                        info.put(key, systemProps.getProperty(key));
+                    }
                 }
             }
 
             // If no PeeGeeQ properties found, add defaults
-            if (config.isEmpty()) {
-                config.put("Configuration", "Default settings");
-                config.put("Profile", "Not specified");
+            if (info.isEmpty()) {
+                info.put("Configuration", "Default settings");
+                info.put("Profile", "Not specified");
             }
 
         } catch (Exception e) {
             logger.warn("Error collecting PeeGeeQ configuration: {}", e.getMessage());
-            config.put("Error", "Failed to collect PeeGeeQ configuration: " + e.getMessage());
+            info.put("Error", "Failed to collect PeeGeeQ configuration: " + e.getMessage());
         }
 
-        return config;
+        return info;
     }
 
     /**

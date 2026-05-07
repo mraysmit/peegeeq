@@ -56,20 +56,20 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag(TestCategories.INTEGRATION)
 @ExtendWith({SharedPostgresTestExtension.class, VertxExtension.class})
 @ResourceLock(value = "dead-letter-queue-database", mode = org.junit.jupiter.api.parallel.ResourceAccessMode.READ_WRITE)
-@ResourceLock(value = "system-properties")
 public class PeeGeeQManagerIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(PeeGeeQManagerIntegrationTest.class);
 
     private PeeGeeQManager manager;
     private PeeGeeQConfiguration configuration;
+    private Properties testProps;
 
     @BeforeEach
     void setUp() {
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
         // Create test configuration
-        Properties testProps = new Properties();
+        testProps = new Properties();
         testProps.setProperty("peegeeq.database.host", postgres.getHost());
         testProps.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
         testProps.setProperty("peegeeq.database.name", postgres.getDatabaseName());
@@ -93,10 +93,7 @@ public class PeeGeeQManagerIntegrationTest {
         testProps.setProperty("peegeeq.migration.enabled", "false");
         testProps.setProperty("peegeeq.migration.auto-migrate", "false");
 
-        // Override system properties for test
-        testProps.forEach((key, value) -> System.setProperty(key.toString(), value.toString()));
-
-        configuration = new PeeGeeQConfiguration("test");
+        configuration = new PeeGeeQConfiguration("test", testProps);
         manager = new PeeGeeQManager(configuration, new SimpleMeterRegistry());
     }
 
@@ -105,16 +102,9 @@ public class PeeGeeQManagerIntegrationTest {
         if (manager != null) {
             manager.closeReactive()
                 .onFailure(t -> logger.warn("Error during manager teardown: {}", t.getMessage()))
-                .eventually(() -> {
-                    System.getProperties().entrySet().removeIf(entry ->
-                        entry.getKey().toString().startsWith("peegeeq."));
-                    return Future.succeededFuture();
-                })
                 .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
         } else {
-            System.getProperties().entrySet().removeIf(entry ->
-                entry.getKey().toString().startsWith("peegeeq."));
             testContext.completeNow();
         }
     }

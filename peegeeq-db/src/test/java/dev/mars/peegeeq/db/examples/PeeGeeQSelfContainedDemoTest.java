@@ -33,6 +33,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -57,33 +58,31 @@ public class PeeGeeQSelfContainedDemoTest {
     void tearDown(VertxTestContext testContext) {
         if (manager != null) {
             manager.closeReactive()
-                .onSuccess(v -> {
-                    System.getProperties().entrySet().removeIf(e ->
-                        e.getKey().toString().startsWith("peegeeq."));
-                    testContext.completeNow();
-                })
+                .onSuccess(v -> testContext.completeNow())
                 .onFailure(testContext::failNow);
         } else {
-            System.getProperties().entrySet().removeIf(e ->
-                e.getKey().toString().startsWith("peegeeq."));
             testContext.completeNow();
         }
     }
 
     private PeeGeeQManager createManager() {
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
-        System.setProperty("peegeeq.database.pool.min-size", "1");
-        System.setProperty("peegeeq.database.pool.max-size", "3");
-        System.setProperty("peegeeq.database.pool.shared", "false");
-        System.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
-        System.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("demo",
-            postgres.getHost(),
-            postgres.getFirstMappedPort(),
-            postgres.getDatabaseName(),
-            postgres.getUsername(),
-            postgres.getPassword(),
-            "public");
+        Properties props = new Properties();
+        props.setProperty("peegeeq.database.host", postgres.getHost());
+        props.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        props.setProperty("peegeeq.database.name", postgres.getDatabaseName());
+        props.setProperty("peegeeq.database.username", postgres.getUsername());
+        props.setProperty("peegeeq.database.password", postgres.getPassword());
+        props.setProperty("peegeeq.database.schema", "public");
+        props.setProperty("peegeeq.database.ssl.enabled", "false");
+        props.setProperty("peegeeq.database.pool.min-size", "1");
+        props.setProperty("peegeeq.database.pool.max-size", "3");
+        props.setProperty("peegeeq.database.pool.shared", "false");
+        props.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
+        props.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
+        props.setProperty("peegeeq.migration.enabled", "false");
+        props.setProperty("peegeeq.migration.auto-migrate", "false");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("demo", props);
         return new PeeGeeQManager(config, new SimpleMeterRegistry());
     }
 

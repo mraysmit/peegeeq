@@ -39,6 +39,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Properties;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -65,6 +66,7 @@ public class PerformanceTuningExampleTest {
     private static final Logger logger = LoggerFactory.getLogger(PerformanceTuningExampleTest.class);
 
     private PeeGeeQManager manager;
+    private Properties containerProps;
 
     @BeforeEach
     void setUp() {
@@ -72,8 +74,8 @@ public class PerformanceTuningExampleTest {
 
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
-        // Configure system properties for optimized performance
-        configurePerformanceProperties(postgres);
+        // Configure properties for optimized performance
+        containerProps = buildPerformanceProperties(postgres);
         
         logger.info("✓ Performance Tuning Example Test setup completed");
     }
@@ -103,7 +105,7 @@ public class PerformanceTuningExampleTest {
     void testConnectionPoolOptimization(VertxTestContext testContext) {
         logger.info("=== Testing Connection Pool Optimization ===");
         
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance"), new SimpleMeterRegistry());
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance", containerProps), new SimpleMeterRegistry());
         manager.start()
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 demonstrateConnectionPoolOptimization(manager);
@@ -124,7 +126,7 @@ public class PerformanceTuningExampleTest {
     void testThroughputOptimization(VertxTestContext testContext) {
         logger.info("=== Testing Throughput Optimization ===");
         
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance"), new SimpleMeterRegistry());
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance", containerProps), new SimpleMeterRegistry());
         manager.start()
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 PerformanceMetrics metrics = demonstrateThroughputOptimization();
@@ -146,7 +148,7 @@ public class PerformanceTuningExampleTest {
     void testLatencyOptimization(VertxTestContext testContext) {
         logger.info("=== Testing Latency Optimization ===");
         
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance"), new SimpleMeterRegistry());
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance", containerProps), new SimpleMeterRegistry());
         manager.start()
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 PerformanceMetrics metrics = demonstrateLatencyOptimization();
@@ -169,7 +171,7 @@ public class PerformanceTuningExampleTest {
     void testBatchProcessingOptimization(VertxTestContext testContext) {
         logger.info("=== Testing Batch Processing Optimization ===");
         
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance"), new SimpleMeterRegistry());
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance", containerProps), new SimpleMeterRegistry());
         manager.start()
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 PerformanceMetrics metrics = demonstrateBatchProcessingOptimization();
@@ -190,7 +192,7 @@ public class PerformanceTuningExampleTest {
     void testConcurrentProcessingOptimization(VertxTestContext testContext) {
         logger.info("=== Testing Concurrent Processing Optimization ===");
         
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance"), new SimpleMeterRegistry());
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance", containerProps), new SimpleMeterRegistry());
         manager.start()
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 PerformanceMetrics metrics = demonstrateConcurrentProcessingOptimization();
@@ -211,7 +213,7 @@ public class PerformanceTuningExampleTest {
     void testMemoryOptimization(VertxTestContext testContext) {
         logger.info("=== Testing Memory Optimization ===");
         
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance"), new SimpleMeterRegistry());
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("performance", containerProps), new SimpleMeterRegistry());
         manager.start()
             .onComplete(testContext.succeeding(v -> testContext.verify(() -> {
                 long initialMemory = Runtime.getRuntime().totalMemory() - Runtime.getRuntime().freeMemory();
@@ -233,31 +235,33 @@ public class PerformanceTuningExampleTest {
     /**
      * Configures performance properties for optimization.
      */
-    private void configurePerformanceProperties(PostgreSQLContainer postgres) {
+    private Properties buildPerformanceProperties(PostgreSQLContainer postgres) {
+        Properties props = new Properties();
         // Database connection properties
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.schema", "public");
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
+        props.setProperty("peegeeq.database.host", postgres.getHost());
+        props.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
+        props.setProperty("peegeeq.database.name", postgres.getDatabaseName());
+        props.setProperty("peegeeq.database.username", postgres.getUsername());
+        props.setProperty("peegeeq.database.password", postgres.getPassword());
+        props.setProperty("peegeeq.database.schema", "public");
+        props.setProperty("peegeeq.database.ssl.enabled", "false");
         
         // Performance optimization properties
-        System.setProperty("peegeeq.database.pool.min-size", "1");
-        System.setProperty("peegeeq.database.pool.max-size", "3");
-        System.setProperty("peegeeq.database.pool.shared", "false");
-        System.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
-        System.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
-        System.setProperty("peegeeq.database.pool.max-wait-queue-size", "1000");
-        System.setProperty("peegeeq.consumer.threads", "8");
-        System.setProperty("peegeeq.queue.batch-size", "100");
-        System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
-        System.setProperty("peegeeq.metrics.enabled", "true");
-        System.setProperty("peegeeq.health.enabled", "true");
+        props.setProperty("peegeeq.database.pool.min-size", "1");
+        props.setProperty("peegeeq.database.pool.max-size", "3");
+        props.setProperty("peegeeq.database.pool.shared", "false");
+        props.setProperty("peegeeq.database.pool.idle-timeout-ms", "2000");
+        props.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
+        props.setProperty("peegeeq.database.pool.max-wait-queue-size", "1000");
+        props.setProperty("peegeeq.consumer.threads", "8");
+        props.setProperty("peegeeq.queue.batch-size", "100");
+        props.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
+        props.setProperty("peegeeq.metrics.enabled", "true");
+        props.setProperty("peegeeq.health.enabled", "true");
         // Disable auto-migration since schema is already initialized by SharedPostgresTestExtension
-        System.setProperty("peegeeq.migration.enabled", "false");
-        System.setProperty("peegeeq.migration.auto-migrate", "false");
+        props.setProperty("peegeeq.migration.enabled", "false");
+        props.setProperty("peegeeq.migration.auto-migrate", "false");
+        return props;
     }
     
     /**

@@ -36,7 +36,6 @@ import static org.junit.jupiter.api.Assertions.*;
  */
 @Tag(TestCategories.INTEGRATION)
 @ExtendWith({SharedPostgresTestExtension.class, VertxExtension.class})
-@ResourceLock(value = "system-properties")
 @ResourceLock(value = "consumer-group-retry-job", mode = ResourceAccessMode.READ_WRITE)
 @Execution(ExecutionMode.SAME_THREAD)
 public class ConsumerGroupRetryJobLifecycleTest {
@@ -44,12 +43,13 @@ public class ConsumerGroupRetryJobLifecycleTest {
     private static final Logger logger = LoggerFactory.getLogger(ConsumerGroupRetryJobLifecycleTest.class);
 
     private PeeGeeQManager manager;
+    private Properties testProps;
 
     @BeforeEach
     void setUp() {
         PostgreSQLContainer postgres = SharedPostgresTestExtension.getContainer();
 
-        Properties testProps = new Properties();
+        testProps = new Properties();
         testProps.setProperty("peegeeq.database.host", postgres.getHost());
         testProps.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
         testProps.setProperty("peegeeq.database.name", postgres.getDatabaseName());
@@ -71,9 +71,7 @@ public class ConsumerGroupRetryJobLifecycleTest {
         testProps.setProperty("peegeeq.queue.consumer-group-retry.enabled", "true");
         testProps.setProperty("peegeeq.queue.consumer-group-retry.interval", "PT10S");
 
-        testProps.forEach((key, value) -> System.setProperty(key.toString(), value.toString()));
-
-        PeeGeeQConfiguration configuration = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration configuration = new PeeGeeQConfiguration("test", testProps);
         manager = new PeeGeeQManager(configuration, new SimpleMeterRegistry());
 
         logger.info("ConsumerGroupRetryJobLifecycleTest setup complete");
@@ -83,20 +81,12 @@ public class ConsumerGroupRetryJobLifecycleTest {
     void tearDown(VertxTestContext testContext) {
         if (manager != null) {
             manager.closeReactive()
-                .onSuccess(v -> {
-                    System.getProperties().entrySet().removeIf(entry ->
-                        entry.getKey().toString().startsWith("peegeeq."));
-                    testContext.completeNow();
-                })
+                .onSuccess(v -> testContext.completeNow())
                 .onFailure(e -> {
                     logger.warn("Exception during tearDown: {}", e.getMessage());
-                    System.getProperties().entrySet().removeIf(entry ->
-                        entry.getKey().toString().startsWith("peegeeq."));
                     testContext.completeNow();
                 });
         } else {
-            System.getProperties().entrySet().removeIf(entry ->
-                entry.getKey().toString().startsWith("peegeeq."));
             testContext.completeNow();
         }
     }
@@ -148,8 +138,10 @@ public class ConsumerGroupRetryJobLifecycleTest {
         logger.info("=== Testing retry job disabled by config ===");
 
         // Override to disable retry job
-        System.setProperty("peegeeq.queue.consumer-group-retry.enabled", "false");
-        PeeGeeQConfiguration disabledConfig = new PeeGeeQConfiguration("test");
+        Properties disabledProps = new Properties();
+        testProps.forEach((k, v) -> disabledProps.setProperty(k.toString(), v.toString()));
+        disabledProps.setProperty("peegeeq.queue.consumer-group-retry.enabled", "false");
+        PeeGeeQConfiguration disabledConfig = new PeeGeeQConfiguration("test", disabledProps);
 
         // Close the manager from setUp and create a new one with retry disabled
         manager.closeReactive()
