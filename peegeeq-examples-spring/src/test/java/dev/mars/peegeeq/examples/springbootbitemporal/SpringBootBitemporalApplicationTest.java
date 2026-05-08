@@ -17,6 +17,7 @@ package dev.mars.peegeeq.examples.springbootbitemporal;
  */
 
 import dev.mars.peegeeq.api.BiTemporalEvent;
+import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.examples.springbootbitemporal.events.TransactionEvent;
 import dev.mars.peegeeq.examples.springbootbitemporal.events.TransactionEvent.TransactionType;
@@ -27,6 +28,8 @@ import dev.mars.peegeeq.examples.springbootbitemporal.service.TransactionService
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -84,6 +87,21 @@ class SpringBootBitemporalApplicationTest {
 
     @Autowired
     private TransactionService transactionService;
+    @Autowired(required = false)
+    private PeeGeeQManager peeGeeQManager;
+    private static PeeGeeQManager peeGeeQManagerRef;
+
+    @AfterEach
+    void captureManager() {
+        peeGeeQManagerRef = peeGeeQManager;
+    }
+
+    @AfterAll
+    static void closeManager() {
+        if (peeGeeQManagerRef != null) {
+            peeGeeQManagerRef.closeReactive().await();
+        }
+    }
 
     @BeforeAll
     static void initializeSchema() throws Exception {

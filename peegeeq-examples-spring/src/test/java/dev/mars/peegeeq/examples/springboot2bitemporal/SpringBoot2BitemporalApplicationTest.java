@@ -16,11 +16,14 @@ package dev.mars.peegeeq.examples.springboot2bitemporal;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.examples.springboot2bitemporal.service.SettlementService;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -75,6 +78,21 @@ class SpringBoot2BitemporalApplicationTest {
 
     @Autowired
     private SettlementService settlementService;
+    @Autowired(required = false)
+    private PeeGeeQManager peeGeeQManager;
+    private static PeeGeeQManager peeGeeQManagerRef;
+
+    @AfterEach
+    void captureManager() {
+        peeGeeQManagerRef = peeGeeQManager;
+    }
+
+    @AfterAll
+    static void closeManager() {
+        if (peeGeeQManagerRef != null) {
+            peeGeeQManagerRef.closeReactive().await();
+        }
+    }
 
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {

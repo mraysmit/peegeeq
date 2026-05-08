@@ -31,6 +31,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -84,6 +85,7 @@ class OutboxMetricsSpringBootTest {
 
     @Autowired
     private PeeGeeQManager manager;
+    private static PeeGeeQManager managerRef;
 
     private final List<MessageProducer<?>> activeProducers = new ArrayList<>();
     private final List<MessageConsumer<?>> activeConsumers = new ArrayList<>();
@@ -116,6 +118,15 @@ class OutboxMetricsSpringBootTest {
         Promise<Void> delay = Promise.promise();
         vertx.setTimer(2000, id -> delay.complete(null));
         delay.future().await();
+
+        managerRef = manager;
+    }
+
+    @AfterAll
+    static void closeManager() {
+        if (managerRef != null) {
+            managerRef.closeReactive().await();
+        }
     }
 
     @Test
@@ -205,10 +216,15 @@ class OutboxMetricsSpringBootTest {
         logger.info("Initial error count: {}", initialErrors);
         
         // Set up consumer that always fails
-        Checkpoint errorCheckpoint = testContext.checkpoint(errorCount);
+        // Use AtomicInteger + Promise instead of strict Checkpoint because failed messages
+        // are retried by the outbox, causing the handler to be invoked more than errorCount times.
+        AtomicInteger errorsSeen = new AtomicInteger(0);
+        Promise<Void> errorsComplete = Promise.promise();
         consumer.subscribe(message -> {
             logger.info("INTENTIONAL FAILURE: Processing message that will fail: {}", message.getPayload());
-            errorCheckpoint.flag();
+            if (errorsSeen.incrementAndGet() == errorCount) {
+                errorsComplete.complete();
+            }
             return Future.failedFuture(
                 new RuntimeException("Intentional error for metrics testing"));
         });
@@ -218,9 +234,8 @@ class OutboxMetricsSpringBootTest {
             producer.send("Error test message " + i).await();
         }
         
-        // Wait for errors to occur
-        assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS), 
-            "All errors should occur within timeout");
+        // Wait for first errorCount errors to occur
+        errorsComplete.future().await();
         
         // Allow time for error metrics to be updated
         Promise<Void> errorDelay = Promise.promise();
@@ -237,6 +252,7 @@ class OutboxMetricsSpringBootTest {
             "Error count should increase (was " + initialErrors + ", now " + finalErrors + ")");
         
         logger.info("Error rate metrics verified successfully");
+        testContext.completeNow();
     }
 
     @Test
