@@ -18,7 +18,6 @@ package dev.mars.peegeeq.examples.springbootdlq;
 
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
-import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.springbootdlq.events.PaymentEvent;
 import dev.mars.peegeeq.examples.springbootdlq.service.DlqManagementService;
 import dev.mars.peegeeq.examples.springbootdlq.service.PaymentProcessorService;
@@ -30,7 +29,6 @@ import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.VertxExtension;
 import io.vertx.sqlclient.Row;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
@@ -80,15 +78,6 @@ public class PaymentProcessorServiceTest {
     private static final Logger log = LoggerFactory.getLogger(PaymentProcessorServiceTest.class);
     @Container
     static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
-
-    @org.junit.jupiter.api.AfterAll
-    static void tearDown() {
-        log.info("🧹 Cleaning up Payment Processor Service Test resources");
-        if (peeGeeQManagerRef != null) {
-            peeGeeQManagerRef.closeReactive().await();
-        }
-        log.info("Payment Processor Service Test cleanup complete");
-    }
 
     @DynamicPropertySource
     static void configureProperties(DynamicPropertyRegistry registry) {
@@ -149,15 +138,6 @@ public class PaymentProcessorServiceTest {
     
     @Autowired
     private TestRestTemplate restTemplate;
-
-    @Autowired(required = false)
-    private PeeGeeQManager peeGeeQManager;
-    private static PeeGeeQManager peeGeeQManagerRef;
-
-    @AfterEach
-    void captureManager() {
-        peeGeeQManagerRef = peeGeeQManager;
-    }
 
     @Test
     public void testSuccessfulPaymentProcessing(Vertx vertx) throws Exception {
