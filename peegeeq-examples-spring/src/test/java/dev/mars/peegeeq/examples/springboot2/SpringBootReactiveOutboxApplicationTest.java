@@ -16,13 +16,10 @@ package dev.mars.peegeeq.examples.springboot2;
  * limitations under the License.
  */
 
-import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -82,16 +79,6 @@ class SpringBootReactiveOutboxApplicationTest {
     static void configureProperties(DynamicPropertyRegistry registry) {
         logger.info("Configuring Spring Boot Reactive properties for TestContainer");
         SharedTestContainers.configureSharedProperties(registry);
-
-        // Configure R2DBC properties (Spring Data R2DBC)
-        String r2dbcUrl = String.format("r2dbc:postgresql://%s:%d/%s",
-            postgres.getHost(),
-            postgres.getFirstMappedPort(),
-            postgres.getDatabaseName());
-        registry.add("spring.r2dbc.url", () -> r2dbcUrl);
-        registry.add("spring.r2dbc.username", postgres::getUsername);
-        registry.add("spring.r2dbc.password", postgres::getPassword);
-
         logger.info("Spring Boot Reactive properties configured successfully");
     }
 
@@ -100,22 +87,6 @@ class SpringBootReactiveOutboxApplicationTest {
         logger.info("Initializing database schema for Spring Boot 2 Reactive application test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
         logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
-    }
-
-    @Autowired(required = false)
-    private PeeGeeQManager peeGeeQManager;
-    private static PeeGeeQManager peeGeeQManagerRef;
-
-    @AfterEach
-    void captureManager() {
-        peeGeeQManagerRef = peeGeeQManager;
-    }
-
-    @AfterAll
-    static void closeManager() {
-        if (peeGeeQManagerRef != null) {
-            peeGeeQManagerRef.closeReactive().await();
-        }
     }
 
     /**
