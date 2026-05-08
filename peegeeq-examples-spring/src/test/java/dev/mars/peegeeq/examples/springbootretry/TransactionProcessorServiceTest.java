@@ -18,6 +18,7 @@ package dev.mars.peegeeq.examples.springbootretry;
 
 import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
+import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.springbootretry.events.TransactionEvent;
 import dev.mars.peegeeq.examples.springbootretry.service.CircuitBreakerService;
 import dev.mars.peegeeq.examples.springbootretry.service.TransactionProcessorService;
@@ -70,8 +71,8 @@ import org.junit.jupiter.api.AfterAll;
         "peegeeq.retry.circuit-breaker-threshold=10"
     }
 )
-@ActiveProfiles("test")
 @Testcontainers
+@ActiveProfiles("test")
 @DirtiesContext(classMode = DirtiesContext.ClassMode.AFTER_CLASS)
 @ExtendWith(VertxExtension.class)
 public class TransactionProcessorServiceTest {
@@ -139,10 +140,21 @@ public class TransactionProcessorServiceTest {
     @Autowired
     private TestRestTemplate restTemplate;
 
+    @Autowired(required = false)
+    private PeeGeeQManager peeGeeQManager;
+    private static PeeGeeQManager peeGeeQManagerRef;
+
+    @AfterEach
+    void captureManager() {
+        peeGeeQManagerRef = peeGeeQManager;
+    }
+
     @AfterAll
     static void tearDown() {
         log.info("🧹 Cleaning up Transaction Processor Service Test resources");
-        // Container cleanup is handled by SharedTestContainers
+        if (peeGeeQManagerRef != null) {
+            peeGeeQManagerRef.closeReactive().await();
+        }
         log.info("Transaction Processor Service Test cleanup complete");
     }
 
