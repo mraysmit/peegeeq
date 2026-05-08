@@ -584,7 +584,7 @@ class ConsumerGroupFaultIntegrationTest {
     }
 
     private Future<Long> insertOutboxMessage(String topic, String messageGroup, String payload) {
-        JsonObject payloadJson = new JsonObject().put("data", payload);
+        JsonObject payloadJson = new JsonObject().put("value", payload);
         return connectionManager.withConnection(SERVICE_ID, conn ->
                 conn.preparedQuery(
                         "INSERT INTO outbox (topic, payload, status, message_group, created_at) " +
