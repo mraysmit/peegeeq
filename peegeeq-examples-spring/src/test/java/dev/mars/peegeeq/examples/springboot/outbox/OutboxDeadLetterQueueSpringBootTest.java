@@ -101,6 +101,7 @@ class OutboxDeadLetterQueueSpringBootTest {
     
     @Autowired
     private PeeGeeQManager manager;
+    private static PeeGeeQManager managerRef;
     @Container
     static PostgreSQLContainer postgres = SharedTestContainers.getSharedPostgreSQLContainer();
 
@@ -151,10 +152,18 @@ class OutboxDeadLetterQueueSpringBootTest {
         Promise<Void> delay = Promise.promise();
         vertx.setTimer(2000, id -> delay.complete());
         delay.future().await();
-        
+
+        managerRef = manager;
         logger.info("Cleanup complete");
     }
-    
+
+    @AfterAll
+    static void closeManager() {
+        if (managerRef != null) {
+            managerRef.closeReactive().await();
+        }
+    }
+
     /**
      * Test that messages move to DLQ after exceeding max retries.
      *

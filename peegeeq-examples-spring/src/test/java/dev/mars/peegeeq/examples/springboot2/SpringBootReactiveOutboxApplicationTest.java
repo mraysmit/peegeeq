@@ -16,10 +16,13 @@ package dev.mars.peegeeq.examples.springboot2;
  * limitations under the License.
  */
 
+import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -97,6 +100,22 @@ class SpringBootReactiveOutboxApplicationTest {
         logger.info("Initializing database schema for Spring Boot 2 Reactive application test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
         logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
+    }
+
+    @Autowired(required = false)
+    private PeeGeeQManager peeGeeQManager;
+    private static PeeGeeQManager peeGeeQManagerRef;
+
+    @AfterEach
+    void captureManager() {
+        peeGeeQManagerRef = peeGeeQManager;
+    }
+
+    @AfterAll
+    static void closeManager() {
+        if (peeGeeQManagerRef != null) {
+            peeGeeQManagerRef.closeReactive().await();
+        }
     }
 
     /**
