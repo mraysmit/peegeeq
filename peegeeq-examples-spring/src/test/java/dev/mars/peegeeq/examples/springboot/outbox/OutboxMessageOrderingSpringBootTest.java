@@ -8,7 +8,7 @@ import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.slf4j.Logger;
@@ -73,11 +73,8 @@ public class OutboxMessageOrderingSpringBootTest {
     private final List<MessageConsumer<?>> activeConsumers = new ArrayList<>();
     private final List<MessageProducer<?>> activeProducers = new ArrayList<>();
 
-    @BeforeEach
-    void setUp() {
-        logger.info("🚀 Setting up Message Ordering Spring Boot Test");
-
-        // Initialize database schema for outbox tests
+    @BeforeAll
+    static void initializeSchema() {
         logger.info("Initializing database schema for Spring Boot message ordering test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
         logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");

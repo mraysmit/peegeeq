@@ -24,7 +24,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
-import io.vertx.core.Future;
+import org.springframework.web.context.request.async.DeferredResult;
 
 
 
@@ -72,24 +72,26 @@ public class OrderController {
      * @return CompletableFuture containing the response entity
      */
     @PostMapping
-    public Future<ResponseEntity<CreateOrderResponse>> createOrder(
+    public DeferredResult<ResponseEntity<CreateOrderResponse>> createOrder(
             @RequestBody CreateOrderRequest request) {
-        
+
         log.info("Received order creation request for customer: {}", request.getCustomerId());
         log.debug("Order details: {}", request);
 
-        return orderService.createOrder(request)
+        DeferredResult<ResponseEntity<CreateOrderResponse>> result = new DeferredResult<>();
+        orderService.createOrder(request)
             .map(orderId -> {
                 log.info("Order created successfully: {}", orderId);
-                CreateOrderResponse response = new CreateOrderResponse(orderId);
-                return ResponseEntity.ok(response);
+                return (ResponseEntity<CreateOrderResponse>) ResponseEntity.ok(new CreateOrderResponse(orderId));
             })
             .otherwise(error -> {
                 log.error("Order creation failed for customer {}: {}", request.getCustomerId(), error.getMessage(), error);
-                CreateOrderResponse response = new CreateOrderResponse(null, 
-                    "Order creation failed: " + error.getMessage());
-                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
-            });
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .<CreateOrderResponse>body(new CreateOrderResponse(null, "Order creation failed: " + error.getMessage()));
+            })
+            .onSuccess(result::setResult)
+            .onFailure(result::setErrorResult);
+        return result;
     }
 
     /**
@@ -127,24 +129,21 @@ public class OrderController {
      * @return CompletableFuture containing the response entity
      */
     @PostMapping("/with-validation")
-    public Future<ResponseEntity<CreateOrderResponse>> createOrderWithValidation(
+    public DeferredResult<ResponseEntity<CreateOrderResponse>> createOrderWithValidation(
             @RequestBody CreateOrderRequest request) {
 
         log.info("Received order creation request with validation for customer: {}", request.getCustomerId());
         log.debug("Order details: {}", request);
 
-        return orderService.createOrderWithBusinessValidation(request)
+        DeferredResult<ResponseEntity<CreateOrderResponse>> result = new DeferredResult<>();
+        orderService.createOrderWithBusinessValidation(request)
             .map(orderId -> {
                 log.info("TRANSACTION SUCCESS: Order {} created and committed with all events", orderId);
-                CreateOrderResponse response = new CreateOrderResponse(orderId,
-                    "Order created successfully with business validation");
-                return ResponseEntity.ok(response);
+                return (ResponseEntity<CreateOrderResponse>) ResponseEntity.ok(
+                        new CreateOrderResponse(orderId, "Order created successfully with business validation"));
             })
             .otherwise(error -> {
-                // Extract the root cause message
                 String errorMessage = error.getCause() != null ? error.getCause().getMessage() : error.getMessage();
-
-                // Check if this is an intentional test failure
                 if (errorMessage != null && errorMessage.contains("🧪 INTENTIONAL TEST FAILURE:")) {
                     log.info("❌ TRANSACTION ROLLBACK: Order creation with validation failed for customer {}: {}",
                         request.getCustomerId(), errorMessage);
@@ -152,10 +151,13 @@ public class OrderController {
                     log.error("❌ TRANSACTION ROLLBACK: Order creation with validation failed for customer {}: {}",
                         request.getCustomerId(), errorMessage, error);
                 }
-                CreateOrderResponse response = new CreateOrderResponse(null,
-                    "Order creation failed and was rolled back: " + errorMessage);
-                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
-            });
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .<CreateOrderResponse>body(new CreateOrderResponse(null,
+                                "Order creation failed and was rolled back: " + errorMessage));
+            })
+            .onSuccess(result::setResult)
+            .onFailure(result::setErrorResult);
+        return result;
     }
 
     /**
@@ -169,26 +171,29 @@ public class OrderController {
      * @return CompletableFuture containing the response entity
      */
     @PostMapping("/with-constraints")
-    public Future<ResponseEntity<CreateOrderResponse>> createOrderWithConstraints(
+    public DeferredResult<ResponseEntity<CreateOrderResponse>> createOrderWithConstraints(
             @RequestBody CreateOrderRequest request) {
 
         log.info("Received order creation request with constraints for customer: {}", request.getCustomerId());
         log.debug("Order details: {}", request);
 
-        return orderService.createOrderWithDatabaseConstraints(request)
+        DeferredResult<ResponseEntity<CreateOrderResponse>> result = new DeferredResult<>();
+        orderService.createOrderWithDatabaseConstraints(request)
             .map(orderId -> {
                 log.info("TRANSACTION SUCCESS: Order {} created and committed with database constraints", orderId);
-                CreateOrderResponse response = new CreateOrderResponse(orderId,
-                    "Order created successfully with database constraints");
-                return ResponseEntity.ok(response);
+                return (ResponseEntity<CreateOrderResponse>) ResponseEntity.ok(
+                        new CreateOrderResponse(orderId, "Order created successfully with database constraints"));
             })
             .otherwise(error -> {
-                log.error("❌ TRANSACTION ROLLBACK: Order creation with constraints failed for customer {}: {}",
+                log.error("\u274C TRANSACTION ROLLBACK: Order creation with constraints failed for customer {}: {}",
                     request.getCustomerId(), error.getMessage());
-                CreateOrderResponse response = new CreateOrderResponse(null,
-                    "Database operation failed and was rolled back: " + error.getMessage());
-                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
-            });
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .<CreateOrderResponse>body(new CreateOrderResponse(null,
+                                "Database operation failed and was rolled back: " + error.getMessage()));
+            })
+            .onSuccess(result::setResult)
+            .onFailure(result::setErrorResult);
+        return result;
     }
 
     /**
@@ -205,26 +210,29 @@ public class OrderController {
      * @return CompletableFuture containing the response entity
      */
     @PostMapping("/with-multiple-events")
-    public Future<ResponseEntity<CreateOrderResponse>> createOrderWithMultipleEvents(
+    public DeferredResult<ResponseEntity<CreateOrderResponse>> createOrderWithMultipleEvents(
             @RequestBody CreateOrderRequest request) {
 
         log.info("Received order creation request with multiple events for customer: {}", request.getCustomerId());
         log.debug("Order details: {}", request);
 
-        return orderService.createOrderWithMultipleEvents(request)
+        DeferredResult<ResponseEntity<CreateOrderResponse>> result = new DeferredResult<>();
+        orderService.createOrderWithMultipleEvents(request)
             .map(orderId -> {
                 log.info("TRANSACTION SUCCESS: Order {} and all events committed together", orderId);
-                CreateOrderResponse response = new CreateOrderResponse(orderId,
-                    "Order created successfully with multiple events");
-                return ResponseEntity.ok(response);
+                return (ResponseEntity<CreateOrderResponse>) ResponseEntity.ok(
+                        new CreateOrderResponse(orderId, "Order created successfully with multiple events"));
             })
             .otherwise(error -> {
-                log.error("❌ TRANSACTION ROLLBACK: Order creation with multiple events failed for customer {}: {}",
+                log.error("\u274C TRANSACTION ROLLBACK: Order creation with multiple events failed for customer {}: {}",
                     request.getCustomerId(), error.getMessage());
-                CreateOrderResponse response = new CreateOrderResponse(null,
-                    "Order creation with multiple events failed and was rolled back: " + error.getMessage());
-                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(response);
-            });
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
+                        .<CreateOrderResponse>body(new CreateOrderResponse(null,
+                                "Order creation with multiple events failed and was rolled back: " + error.getMessage()));
+            })
+            .onSuccess(result::setResult)
+            .onFailure(result::setErrorResult);
+        return result;
     }
 
     /**

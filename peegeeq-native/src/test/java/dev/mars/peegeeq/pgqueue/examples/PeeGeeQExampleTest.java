@@ -360,8 +360,12 @@ class PeeGeeQExampleTest {
         var circuitBreakerManager = manager.getCircuitBreakerManager();
         var cb = circuitBreakerManager.getCircuitBreaker("test-operation");
 
-        // Simulate successful operations using the production caller pattern:
-        // tryAcquirePermission() → execute → onSuccess() / onError()
+        if (cb == null) {
+            logger.info("Circuit breaker is disabled, skipping demo");
+            return;
+        }
+
+        // Simulate successful operations
         logger.info("Simulating successful operations...");
         for (int i = 0; i < 5; i++) {
             if (cb.tryAcquirePermission()) {

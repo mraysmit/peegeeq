@@ -285,7 +285,8 @@ class SystemPropertiesConfigurationDemoTest {
         producer.send(new ConfigurationEvent("config-3", "development", null, null, true, "enabled_debug"));
 
         // Wait for all configuration updates
-        assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS), "Should receive all configuration updates");
+        // Development profile uses batch-size=2 with ~5s polling interval; 3 messages need 2 poll cycles
+        assertTrue(testContext.awaitCompletion(20, TimeUnit.SECONDS), "Should receive all configuration updates");
 
         // Verify configuration updates
         assertEquals(3, receivedEvents.size(), "Should receive exactly 3 configuration updates");
