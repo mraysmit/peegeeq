@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.outbox;
 
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -53,6 +54,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.junit.jupiter.api.Disabled;
 
 import java.lang.reflect.Field;
+import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.TimeUnit;
@@ -76,12 +78,6 @@ public class OutboxConsumerFailureHandlingTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxConsumerFailureHandlingTest.class);
 
-    private static final String[] SYSTEM_PROPERTIES = {
-        "peegeeq.database.host", "peegeeq.database.port", "peegeeq.database.name",
-        "peegeeq.database.username", "peegeeq.database.password", "peegeeq.database.ssl.enabled",
-        "peegeeq.queue.max-retries", "peegeeq.queue.retry-delay-ms", "peegeeq.queue.polling-interval"
-    };
-
     @Container
     private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
@@ -100,15 +96,12 @@ public class OutboxConsumerFailureHandlingTest {
 
         testTopic = "failure-test-" + UUID.randomUUID().toString().substring(0, 8);
 
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.queue.polling-interval", "PT0.5S");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT0.5S")
+                .build();
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("failure-test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 
@@ -150,9 +143,6 @@ public class OutboxConsumerFailureHandlingTest {
         }
         if (manager != null) {
             manager.closeReactive().await();
-        }
-        for (String prop : SYSTEM_PROPERTIES) {
-            System.clearProperty(prop);
         }
     }
 
@@ -369,10 +359,12 @@ public class OutboxConsumerFailureHandlingTest {
     @Test
     void testDLQConnectionFailure(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
         // Configure for fast DLQ transition
-        System.setProperty("peegeeq.queue.max-retries", "1");
-        System.setProperty("peegeeq.queue.retry-delay-ms", "100");
-        
-        PeeGeeQConfiguration dlqConfig = new PeeGeeQConfiguration("dlq-fail-test");
+        Properties dlqProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.queue.max-retries", "1")
+                .property("peegeeq.queue.retry-delay-ms", "100")
+                .build();
+        PeeGeeQConfiguration dlqConfig = new PeeGeeQConfiguration("default", dlqProps);
         PeeGeeQManager dlqManager = new PeeGeeQManager(dlqConfig, new SimpleMeterRegistry());
         dlqManager.start().await();
         
@@ -425,8 +417,6 @@ public class OutboxConsumerFailureHandlingTest {
             
         } finally {
             dlqManager.close();
-            System.clearProperty("peegeeq.queue.max-retries");
-            System.clearProperty("peegeeq.queue.retry-delay-ms");
         }
     }
 
@@ -441,10 +431,12 @@ public class OutboxConsumerFailureHandlingTest {
     @Test
     void testRetryIncrementConnectionFailure(io.vertx.core.Vertx vertx, VertxTestContext testContext) throws Exception {
         // Configure for retries
-        System.setProperty("peegeeq.queue.max-retries", "3");
-        System.setProperty("peegeeq.queue.retry-delay-ms", "500");
-        
-        PeeGeeQConfiguration retryConfig = new PeeGeeQConfiguration("retry-fail-test");
+        Properties retryProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.queue.max-retries", "3")
+                .property("peegeeq.queue.retry-delay-ms", "500")
+                .build();
+        PeeGeeQConfiguration retryConfig = new PeeGeeQConfiguration("default", retryProps);
         PeeGeeQManager retryManager = new PeeGeeQManager(retryConfig, new SimpleMeterRegistry());
         retryManager.start().await();
         
@@ -496,8 +488,6 @@ public class OutboxConsumerFailureHandlingTest {
             
         } finally {
             retryManager.close();
-            System.clearProperty("peegeeq.queue.max-retries");
-            System.clearProperty("peegeeq.queue.retry-delay-ms");
         }
     }
 

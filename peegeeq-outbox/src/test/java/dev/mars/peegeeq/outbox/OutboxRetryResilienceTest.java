@@ -2,6 +2,7 @@ package dev.mars.peegeeq.outbox;
 
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -50,6 +51,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 
 import java.util.UUID;
+import java.util.Properties;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -97,21 +99,17 @@ public class OutboxRetryResilienceTest {
         logger.info("🔧 Setting up OutboxRetryResilienceTest");
         
         // Set up database connection properties
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        
-        // Configure for faster testing
-        System.setProperty("peegeeq.queue.max-retries", "3");
-        System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
-        System.setProperty("peegeeq.database.pool.min-size", "1");
-        System.setProperty("peegeeq.database.pool.max-size", "5");
-        System.setProperty("peegeeq.database.pool.connection-timeout-ms", "2000");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.queue.max-retries", "3")
+                .property("peegeeq.queue.polling-interval", "PT0.1S")
+                .property("peegeeq.database.pool.min-size", "1")
+                .property("peegeeq.database.pool.max-size", "5")
+                .property("peegeeq.database.pool.connection-timeout-ms", "2000")
+                .build();
 
         // Initialize manager and components
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("basic-test"), new SimpleMeterRegistry());
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
         manager.start().await();
 
         // Create queue factory using the standard pattern
@@ -185,16 +183,6 @@ public class OutboxRetryResilienceTest {
             testContext.completeNow();
         }
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-        System.clearProperty("peegeeq.queue.max-retries");
-        System.clearProperty("peegeeq.queue.polling-interval");
-        System.clearProperty("peegeeq.database.pool.min-size");
-        System.clearProperty("peegeeq.database.pool.max-size");
-        System.clearProperty("peegeeq.database.pool.connection-timeout-ms");
         logger.info("OutboxRetryResilienceTest cleanup completed");
     }
 

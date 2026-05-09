@@ -24,6 +24,7 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Future;
@@ -40,6 +41,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.postgresql.PostgreSQLContainer;
 
+import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -62,12 +64,6 @@ class OutboxConfigurationIntegrationTest {
     @Container
     private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
-    private static final String[] SYSTEM_PROPERTIES = {
-        "peegeeq.database.host", "peegeeq.database.port", "peegeeq.database.name",
-        "peegeeq.database.username", "peegeeq.database.password", "peegeeq.database.ssl.enabled",
-        "peegeeq.queue.max-retries", "peegeeq.queue.polling-interval"
-    };
-
     private PeeGeeQManager manager;
     private OutboxFactory outboxFactory;
     private MessageProducer<String> producer;
@@ -77,16 +73,6 @@ class OutboxConfigurationIntegrationTest {
     void setUp() throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
-
-        System.clearProperty("peegeeq.queue.max-retries");
-
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
     }
 
     @AfterEach
@@ -104,18 +90,17 @@ class OutboxConfigurationIntegrationTest {
         if (manager != null) {
             manager.closeReactive().await();
         }
-        for (String prop : SYSTEM_PROPERTIES) {
-            System.clearProperty(prop);
-        }
     }
 
 
     @Test
     void testOutboxRespectsMaxRetriesConfiguration(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Test: outbox respects max retries configuration");
-        System.setProperty("peegeeq.queue.max-retries", "2");
-
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("basic-test"), new SimpleMeterRegistry());
+        Properties configProps = PeeGeeQTestConfig.builder().from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT0.1S")
+                .property("peegeeq.queue.max-retries", "2")
+                .build();
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", configProps), new SimpleMeterRegistry());
         manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
@@ -148,7 +133,10 @@ class OutboxConfigurationIntegrationTest {
     @Test
     void testOutboxUsesDefaultWhenNoConfigurationSet(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Test: outbox uses default when no configuration set");
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("basic-test"), new SimpleMeterRegistry());
+        Properties defaultProps = PeeGeeQTestConfig.builder().from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT0.1S")
+                .build();
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", defaultProps), new SimpleMeterRegistry());
         manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
@@ -181,7 +169,10 @@ class OutboxConfigurationIntegrationTest {
     @Test
     void testBasicOutboxMessageProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Test: basic outbox message processing");
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("basic-test"), new SimpleMeterRegistry());
+        Properties basicProps = PeeGeeQTestConfig.builder().from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT0.1S")
+                .build();
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", basicProps), new SimpleMeterRegistry());
         manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);

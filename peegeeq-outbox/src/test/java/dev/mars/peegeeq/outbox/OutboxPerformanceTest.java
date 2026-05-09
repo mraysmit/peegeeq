@@ -1,6 +1,7 @@
 package dev.mars.peegeeq.outbox;
 
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -89,24 +90,16 @@ public class OutboxPerformanceTest {
         testTopic = "perf-test-topic-" + UUID.randomUUID().toString().substring(0, 8);
         
         // Set up database connection
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-
-        // Configure for performance
-        Properties perfProps = new Properties();
-        perfProps.setProperty("peegeeq.consumer.threads", "8");
-        perfProps.setProperty("peegeeq.queue.batch-size", "50");
-        perfProps.setProperty("peegeeq.queue.polling-interval", "PT0.1S");
-        perfProps.setProperty("peegeeq.connection.pool.size", "20");
-        
-        // Apply the properties
-        perfProps.forEach((key, value) -> System.setProperty(key.toString(), value.toString()));
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.consumer.threads", "8")
+                .property("peegeeq.queue.batch-size", "50")
+                .property("peegeeq.queue.polling-interval", "PT0.1S")
+                .property("peegeeq.connection.pool.size", "20")
+                .build();
 
         // Create and start manager
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("perf-test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 
@@ -137,17 +130,6 @@ public class OutboxPerformanceTest {
             testContext.completeNow();
         }
         assertTrue(testContext.awaitCompletion(10, TimeUnit.SECONDS));
-        
-        // Clear system properties
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-        System.clearProperty("peegeeq.consumer.threads");
-        System.clearProperty("peegeeq.queue.batch-size");
-        System.clearProperty("peegeeq.queue.polling-interval");
-        System.clearProperty("peegeeq.connection.pool.size");
     }
 
     @Test
