@@ -26,6 +26,8 @@ import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import java.util.Properties;
 import io.vertx.core.Future;
 import io.vertx.core.Promise;
 import io.vertx.core.Vertx;
@@ -59,11 +61,6 @@ class JsonbConversionValidationTest {
     private static final Logger logger = LoggerFactory.getLogger(JsonbConversionValidationTest.class);
 
 
-    private static final String[] SYSTEM_PROPERTIES = {
-        "peegeeq.database.host", "peegeeq.database.port", "peegeeq.database.name",
-        "peegeeq.database.username", "peegeeq.database.password", "peegeeq.database.ssl.enabled"
-    };
-
     @Container
     private static final PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
 
@@ -76,16 +73,9 @@ class JsonbConversionValidationTest {
     @BeforeEach
     void setUp() throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.QUEUE_ALL);
-
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("jsonb-test");
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 
@@ -119,9 +109,7 @@ class JsonbConversionValidationTest {
         if (manager != null) {
             manager.closeReactive().await();
         }
-        for (String prop : SYSTEM_PROPERTIES) {
-            System.clearProperty(prop);
-        }
+
     }
 
     /**

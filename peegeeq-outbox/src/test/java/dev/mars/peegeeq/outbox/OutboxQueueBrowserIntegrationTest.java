@@ -23,6 +23,7 @@ import dev.mars.peegeeq.db.client.PgClientFactory;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -40,6 +41,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import org.slf4j.MDC;
@@ -57,12 +59,6 @@ import static org.junit.jupiter.api.Assertions.*;
 public class OutboxQueueBrowserIntegrationTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxQueueBrowserIntegrationTest.class);
-
-    private static final String[] SYSTEM_PROPERTIES = {
-        "peegeeq.database.host", "peegeeq.database.port", "peegeeq.database.name",
-        "peegeeq.database.username", "peegeeq.database.password", "peegeeq.database.ssl.enabled",
-        "peegeeq.queue.polling-interval", "peegeeq.database.schema"
-    };
 
     @Container
     static PostgreSQLContainer postgres = PostgreSQLTestConstants.createStandardContainer();
@@ -94,17 +90,12 @@ public class OutboxQueueBrowserIntegrationTest {
         logger.info("Database schema initialized successfully using centralized schema initializer");
 
         // Configure system properties for TestContainer
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.database.schema", "public");
-        System.setProperty("peegeeq.queue.polling-interval", "PT0.5S");
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT0.5S")
+                .build();
 
         // Initialize PeeGeeQ manager
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 
@@ -150,10 +141,6 @@ public class OutboxQueueBrowserIntegrationTest {
             testContext.completeNow();
         }
         assertTrue(testContext.awaitCompletion(30, TimeUnit.SECONDS));
-
-        for (String prop : SYSTEM_PROPERTIES) {
-            System.clearProperty(prop);
-        }
 
         // Clear trace context
         MDC.clear();

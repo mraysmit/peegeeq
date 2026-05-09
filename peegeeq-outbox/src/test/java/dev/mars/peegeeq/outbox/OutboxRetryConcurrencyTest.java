@@ -2,6 +2,7 @@ package dev.mars.peegeeq.outbox;
 
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 
 /*
  * Copyright 2025 Mark Andrew Ray-Smith Cityline Ltd
@@ -52,6 +53,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -101,21 +103,17 @@ public class OutboxRetryConcurrencyTest {
         logger.info("🔧 Setting up OutboxRetryConcurrencyTest");
         
         // Set up database connection properties
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        
-        // Configure for concurrency testing
-        System.setProperty("peegeeq.queue.max-retries", "3");
-        System.setProperty("peegeeq.queue.polling-interval", "PT0.05S"); // Very fast polling
-        System.setProperty("peegeeq.database.pool.max-size", "20"); // Larger pool for concurrency
-        System.setProperty("peegeeq.database.pool.connection-timeout-ms", "5000");
-        System.setProperty("peegeeq.consumer.threads", "10"); // Multiple consumer threads
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.queue.max-retries", "3")
+                .property("peegeeq.queue.polling-interval", "PT0.05S")
+                .property("peegeeq.database.pool.max-size", "20")
+                .property("peegeeq.database.pool.connection-timeout-ms", "5000")
+                .property("peegeeq.consumer.threads", "10")
+                .build();
 
         // Initialize manager and components
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("basic-test"), new SimpleMeterRegistry());
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
         manager.start().await();
 
         DatabaseService databaseService = new PgDatabaseService(manager);
@@ -206,17 +204,6 @@ public class OutboxRetryConcurrencyTest {
                 logger.warn("Error closing connection manager: {}", e.getMessage());
             }
         }
-
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-        System.clearProperty("peegeeq.queue.max-retries");
-        System.clearProperty("peegeeq.queue.polling-interval");
-        System.clearProperty("peegeeq.database.pool.max-size");
-        System.clearProperty("peegeeq.database.pool.connection-timeout-ms");
-        System.clearProperty("peegeeq.consumer.threads");
 
         logger.info("OutboxRetryConcurrencyTest cleanup completed");
     }
