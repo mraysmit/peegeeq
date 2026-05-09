@@ -26,6 +26,7 @@ import dev.mars.peegeeq.db.config.PgPoolConfig;
 import dev.mars.peegeeq.db.connection.PgConnectionManager;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -46,6 +47,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
 import static dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile.BASIC;
@@ -77,11 +79,6 @@ class ConsumerGroupSubscriptionIntegrationTest {
 
     private static final String SERVICE_ID = "sub-test";
 
-    private static final String[] SYSTEM_PROPERTIES = {
-        "peegeeq.database.host", "peegeeq.database.port", "peegeeq.database.name",
-        "peegeeq.database.username", "peegeeq.database.password", "peegeeq.database.ssl.enabled"
-    };
-
     @Container
     static final PostgreSQLContainer postgres =
             PeeGeeQTestContainerFactory.createContainer(BASIC);
@@ -101,14 +98,10 @@ class ConsumerGroupSubscriptionIntegrationTest {
     @BeforeEach
     void setUp() {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .build();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 
@@ -144,9 +137,6 @@ class ConsumerGroupSubscriptionIntegrationTest {
         }
         if (manager != null) {
             manager.closeReactive().await();
-        }
-        for (String prop : SYSTEM_PROPERTIES) {
-            System.clearProperty(prop);
         }
     }
 
