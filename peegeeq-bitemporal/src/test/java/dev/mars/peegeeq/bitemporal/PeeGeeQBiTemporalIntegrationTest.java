@@ -32,6 +32,7 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -106,20 +107,16 @@ class PeeGeeQBiTemporalIntegrationTest {
         this.vertx = vertx;
         logger.info("Setting up integration test...");
         
-        // Set system properties for PeeGeeQ configuration
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.migration.enabled", "true");
-        System.setProperty("peegeeq.metrics.enabled", "true");
-
-        // High-performance configuration for integration tests
-        System.setProperty("peegeeq.queue.batch-size", "50");
-        System.setProperty("peegeeq.queue.polling-interval", "PT0.2S");
-        System.setProperty("peegeeq.consumer.threads", "4");
-        System.setProperty("peegeeq.database.pool.max-size", "15");
+        // Set configuration properties for PeeGeeQ
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.migration.enabled", "true")
+                .property("peegeeq.metrics.enabled", "true")
+                .property("peegeeq.queue.batch-size", "50")
+                .property("peegeeq.queue.polling-interval", "PT0.2S")
+                .property("peegeeq.consumer.threads", "4")
+                .property("peegeeq.database.pool.max-size", "15")
+                .build();
 
         logger.info("🚀 Using optimized configuration for integration test: batch-size=50, polling=200ms, threads=4");
 
@@ -129,7 +126,7 @@ class PeeGeeQBiTemporalIntegrationTest {
         logger.info("ALL database tables created successfully");
 
         // Configure PeeGeeQ
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
@@ -205,19 +202,6 @@ class PeeGeeQBiTemporalIntegrationTest {
         if (manager != null) {
             manager.closeReactive().toCompletionStage().toCompletableFuture().join();
         }
-
-        // Clean up system properties
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-        System.clearProperty("peegeeq.migration.enabled");
-        System.clearProperty("peegeeq.metrics.enabled");
-        System.clearProperty("peegeeq.queue.batch-size");
-        System.clearProperty("peegeeq.queue.polling-interval");
-        System.clearProperty("peegeeq.consumer.threads");
-        System.clearProperty("peegeeq.database.pool.max-size");
 
         logger.info("Integration test teardown completed");
     }
