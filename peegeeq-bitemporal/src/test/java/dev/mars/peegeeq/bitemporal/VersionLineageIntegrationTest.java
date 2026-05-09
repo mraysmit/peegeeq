@@ -1,4 +1,4 @@
-﻿package dev.mars.peegeeq.bitemporal;
+package dev.mars.peegeeq.bitemporal;
 
 import dev.mars.peegeeq.api.BiTemporalEvent;
 import dev.mars.peegeeq.db.PeeGeeQManager;
