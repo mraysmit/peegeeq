@@ -5,6 +5,7 @@ import dev.mars.peegeeq.api.QueueFactoryProvider;
 import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.outbox.OutboxFactoryRegistrar;
@@ -53,7 +54,6 @@ import org.slf4j.LoggerFactory;
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class EventSourcingCQRSDemoTest {
     private static final Logger logger = LoggerFactory.getLogger(EventSourcingCQRSDemoTest.class);
 
@@ -481,21 +481,13 @@ class EventSourcingCQRSDemoTest {
     /**
      * Configure system properties for TestContainers PostgreSQL connection
      */
-    private void configureSystemPropertiesForContainer() {
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-    }
-
     @BeforeEach
     void setUp() {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("Setting up Event Sourcing & CQRS Demo Test");
 
-        // Configure system properties for TestContainers
-        configureSystemPropertiesForContainer();
+        // Configure database connection properties
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
 
         // Initialize database schema for event sourcing CQRS test
         logger.info("Initializing database schema for event sourcing CQRS test");
@@ -503,7 +495,7 @@ class EventSourcingCQRSDemoTest {
         logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
         // Initialize PeeGeeQ with event sourcing configuration
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 
@@ -546,11 +538,6 @@ class EventSourcingCQRSDemoTest {
             }
         }
 
-        // Clean up system properties
-        System.clearProperty("peegeeq.database.url");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-
         logger.info("Cleanup complete");
     }
 
@@ -576,7 +563,6 @@ class EventSourcingCQRSDemoTest {
      * - CountDownLatch for test coordination (production would use proper async handling)
      */
     @Test
-    @Order(1)
     @DisplayName("Event Sourcing - Storing State Changes as Events")
     void testEventSourcing(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Test: event sourcing");
@@ -829,7 +815,6 @@ class EventSourcingCQRSDemoTest {
      * for detailed explanations of these workarounds.
      */
     @Test
-    @Order(2)
     @DisplayName("CQRS - Command Query Responsibility Segregation (per-account ordering via OFFSET_WATERMARK)")
     void testCQRS(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Test: c q r s");
@@ -1059,7 +1044,6 @@ class EventSourcingCQRSDemoTest {
      * After GREEN, this test must pass 10/10 consecutive runs.</p>
      */
     @Test
-    @Order(3)
     @DisplayName("CQRS - Per-account ordering across multiple aggregates (OFFSET_WATERMARK)")
     void testCQRS_multipleAccounts_perAccountOrdering(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== TEST METHOD STARTED: testCQRS_multipleAccounts_perAccountOrdering ===");

@@ -11,6 +11,7 @@ import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -29,6 +30,7 @@ import io.vertx.core.Promise;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Properties;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
@@ -53,7 +55,6 @@ import org.slf4j.LoggerFactory;
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class SystemPropertiesConfigurationDemoTest {
     private static final Logger logger = LoggerFactory.getLogger(SystemPropertiesConfigurationDemoTest.class);
 
@@ -143,23 +144,12 @@ class SystemPropertiesConfigurationDemoTest {
         }
     }
 
-    /**
-     * Configure system properties for TestContainers PostgreSQL connection
-     */
-    private void configureSystemPropertiesForContainer() {
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-    }
-
     @BeforeEach
     void setUp() {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
 
-        // Configure system properties for TestContainers
-        configureSystemPropertiesForContainer();
+        // Configure database connection properties
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
 
         // Initialize database schema for system properties configuration test
         logger.info("Initializing database schema for system properties configuration test");
@@ -167,7 +157,7 @@ class SystemPropertiesConfigurationDemoTest {
         logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
         // Initialize PeeGeeQ with development configuration
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("development", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 
@@ -228,19 +218,16 @@ class SystemPropertiesConfigurationDemoTest {
             }
         }
 
-        // Clean up system properties
-        System.clearProperty("peegeeq.database.url");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
+        // Clear system properties set during tests to avoid leaking to subsequent tests
         System.clearProperty("peegeeq.batch.size");
         System.clearProperty("peegeeq.timeout.ms");
         System.clearProperty("peegeeq.debug.enabled");
+        System.clearProperty("peegeeq.environment");
 
         logger.info("Cleanup complete");
     }
 
     @Test
-    @Order(1)
     @DisplayName("Dynamic Configuration Management - Runtime Property Updates")
     void testDynamicConfigurationManagement(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Test: dynamic configuration management");
@@ -328,7 +315,6 @@ class SystemPropertiesConfigurationDemoTest {
     }
 
     @Test
-    @Order(2)
     @DisplayName("Environment-Specific Settings - DEV/STAGING/PROD Configurations")
     void testEnvironmentSpecificSettings(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Test: environment specific settings");
@@ -397,7 +383,6 @@ class SystemPropertiesConfigurationDemoTest {
     }
 
     @Test
-    @Order(3)
     @DisplayName("Configuration Validation - Property Validation and Error Handling")
     void testConfigurationValidation(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Test: configuration validation");
@@ -476,7 +461,6 @@ class SystemPropertiesConfigurationDemoTest {
     }
 
     @Test
-    @Order(4)
     @DisplayName("Hot Configuration Reload - Live Configuration Updates")
     void testHotConfigurationReload(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Test: hot configuration reload");

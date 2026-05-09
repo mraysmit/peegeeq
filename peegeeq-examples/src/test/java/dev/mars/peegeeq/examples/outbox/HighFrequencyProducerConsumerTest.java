@@ -21,6 +21,8 @@ import dev.mars.peegeeq.api.database.DatabaseService;
 import dev.mars.peegeeq.api.messaging.*;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import java.util.Properties;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
@@ -93,29 +95,6 @@ class HighFrequencyProducerConsumerTest {
     private String testQueueName;
 
     /**
-     * Configure system properties for TestContainers PostgreSQL connection
-     */
-    private void configureSystemPropertiesForContainer() {
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        // Increase wait queue to avoid backpressure failures under high-concurrency test load
-        System.setProperty("peegeeq.database.pool.max-wait-queue-size", "4096");
-    }
-    /**
-     * Clear system properties after test completion
-     */
-    private void clearSystemProperties() {
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-    }
-
-    /**
      * Generate unique queue name for test independence
      */
     private String getUniqueQueueName(String baseName) {
@@ -132,8 +111,10 @@ class HighFrequencyProducerConsumerTest {
     @BeforeEach
     void setUp() throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        // Configure system properties for TestContainers
-        configureSystemPropertiesForContainer();
+        // Configure database connection properties
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .property("peegeeq.database.pool.max-wait-queue-size", "4096")
+                .build();
 
         // Initialize database schema for outbox tests
         logger.info("Initializing database schema for outbox test");
@@ -144,7 +125,7 @@ class HighFrequencyProducerConsumerTest {
         testQueueName = getUniqueQueueName("order-events");
 
         // Initialize PeeGeeQ Manager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration("development"), new SimpleMeterRegistry());
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
         manager.start().await();
 
         // Create queue factory and producer
@@ -188,9 +169,6 @@ class HighFrequencyProducerConsumerTest {
         } catch (Exception e) {
             // ignore
         }
-
-        // Clear system properties
-        clearSystemProperties();
 
         logger.info("Performance test teardown completed");
     }

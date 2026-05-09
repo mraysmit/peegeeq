@@ -28,6 +28,7 @@ import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import org.junit.jupiter.api.*;
 import org.slf4j.Logger;
@@ -45,6 +46,7 @@ import io.vertx.core.Future;
 import io.vertx.core.Promise;
 
 import java.util.concurrent.TimeUnit;
+import java.util.Properties;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.List;
 import java.util.ArrayList;
@@ -58,7 +60,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class SimpleNativeQueueTest {
 
     private static final Logger logger = LoggerFactory.getLogger(SimpleNativeQueueTest.class);
@@ -73,24 +74,13 @@ public class SimpleNativeQueueTest {
     private PeeGeeQManager manager;
     private QueueFactory nativeFactory;
 
-    /**
-     * Configure system properties for TestContainers PostgreSQL connection
-     */
-    private void configureSystemPropertiesForContainer() {
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-    }
-
     @BeforeEach
     void setUp() throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("=== Setting up SimpleNativeQueueTest ===");
 
-        // Configure system properties for TestContainers
-        configureSystemPropertiesForContainer();
+        // Configure database connection properties
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
 
         // Initialize database schema for simple native queue test
         logger.info("🔧 Initializing database schema for simple native queue test");
@@ -98,7 +88,7 @@ public class SimpleNativeQueueTest {
         logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
         
         // Create manager
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("simple-test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
         
@@ -145,18 +135,10 @@ public class SimpleNativeQueueTest {
             }
         }
 
-        // Clear system properties
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-
         logger.info("Simple native queue test teardown completed");
     }
 
     @Test
-    @Order(1)
     void testSingleMessageSendAndReceive(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Single Message Send and Receive ===");
 
@@ -210,7 +192,6 @@ public class SimpleNativeQueueTest {
     }
 
     @Test
-    @Order(2)
     void testConcurrentMessageProcessing(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Concurrent Message Processing ===");
 

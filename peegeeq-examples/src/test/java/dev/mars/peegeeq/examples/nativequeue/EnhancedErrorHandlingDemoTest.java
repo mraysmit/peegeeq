@@ -11,6 +11,7 @@ import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
@@ -49,7 +50,6 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class EnhancedErrorHandlingDemoTest {
 
     private static final Logger logger = LoggerFactory.getLogger(EnhancedErrorHandlingDemoTest.class);
@@ -84,20 +84,6 @@ class EnhancedErrorHandlingDemoTest {
     private final Map<ErrorType, AtomicInteger> errorCounters = new ConcurrentHashMap<>();
     private final List<ErrorEvent> errorEvents = Collections.synchronizedList(new ArrayList<>());
 
-    // System properties backup for cleanup
-    private final Map<String, String> originalProperties = new HashMap<>();
-
-    /**
-     * Configure system properties for TestContainers PostgreSQL connection
-     */
-    private void configureSystemPropertiesForContainer() {
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-    }
-
     @BeforeEach
     void setUp() {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
@@ -109,35 +95,27 @@ class EnhancedErrorHandlingDemoTest {
         }
 
         // Backup system properties
-        backupSystemProperties();
+        // (not needed - using instance-scoped Properties instead of System properties)
 
-        // Configure system properties for TestContainers
-        configureSystemPropertiesForContainer();
+        // Configure database connection properties with extra error handling config
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .property("peegeeq.retry.enabled", "true")
+                .property("peegeeq.retry.max.attempts", "3")
+                .property("peegeeq.retry.backoff.initial", "100")
+                .property("peegeeq.retry.backoff.multiplier", "2.0")
+                .property("peegeeq.dlq.enabled", "true")
+                .property("peegeeq.circuit.breaker.enabled", "true")
+                .property("peegeeq.circuit.breaker.failure.threshold", "5")
+                .property("peegeeq.circuit.breaker.timeout", "5000")
+                .build();
 
         // Initialize database schema for enhanced error handling test
         logger.info("🔧 Initializing database schema for enhanced error handling test");
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
         logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
-        // Configure system properties for error handling
-        System.setProperty("peegeeq.retry.enabled", "true");
-        System.setProperty("peegeeq.retry.max.attempts", "3");
-        System.setProperty("peegeeq.retry.backoff.initial", "100");
-        System.setProperty("peegeeq.retry.backoff.multiplier", "2.0");
-        System.setProperty("peegeeq.dlq.enabled", "true");
-        System.setProperty("peegeeq.circuit.breaker.enabled", "true");
-        System.setProperty("peegeeq.circuit.breaker.failure.threshold", "5");
-        System.setProperty("peegeeq.circuit.breaker.timeout", "5000");
-        
-        // Configure system properties for TestContainers
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-
         // Initialize PeeGeeQ manager
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("error-handling-test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 
@@ -161,13 +139,9 @@ class EnhancedErrorHandlingDemoTest {
         if (manager != null) {
             manager.closeReactive().await();
         }
-        
-        // Restore original properties
-        originalProperties.forEach(System::setProperty);
     }
 
     @Test
-    @Order(1)
     @DisplayName("Demonstrate Enhanced Error Handling with Retry and DLQ")
     void demonstrateEnhancedErrorHandling(Vertx vertx) throws Exception {
         logger.info("🚀 Step 1: Demonstrating enhanced error handling patterns");
@@ -305,7 +279,9 @@ class EnhancedErrorHandlingDemoTest {
         // Verify error handling behavior
         assertTrue(totalRetries.get() > 0, "Should have performed retries");
         // Note: DLQ messages may be 0 if all errors are handled by retry mechanisms
-        assertTrue(dlqMessages.get() >= 0, "DLQ message count should be non-negative");
+        // DLQ count may be 0 if all errors are handled by retry; verify this is a plausible outcome
+        assertTrue(dlqMessages.get() > 0 || successfulRecoveries.get() > 0,
+                "Either DLQ should have messages or recoveries should have occurred");
         assertTrue(successfulRecoveries.get() > 0, "Should have successful recoveries");
         
         logger.info("Enhanced error handling demonstration complete");
@@ -369,26 +345,6 @@ class EnhancedErrorHandlingDemoTest {
             }
         } catch (Exception e) {
             return Future.failedFuture(e);
-        }
-    }
-
-    private void backupSystemProperties() {
-        String[] propertiesToBackup = {
-            "peegeeq.retry.enabled",
-            "peegeeq.retry.max.attempts",
-            "peegeeq.retry.backoff.initial",
-            "peegeeq.retry.backoff.multiplier",
-            "peegeeq.dlq.enabled",
-            "peegeeq.circuit.breaker.enabled",
-            "peegeeq.circuit.breaker.failure.threshold",
-            "peegeeq.circuit.breaker.timeout"
-        };
-        
-        for (String property : propertiesToBackup) {
-            String value = System.getProperty(property);
-            if (value != null) {
-                originalProperties.put(property, value);
-            }
         }
     }
 

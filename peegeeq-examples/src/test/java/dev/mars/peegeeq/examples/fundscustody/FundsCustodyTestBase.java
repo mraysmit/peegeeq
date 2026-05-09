@@ -4,6 +4,8 @@ import dev.mars.peegeeq.api.EventStore;
 import dev.mars.peegeeq.bitemporal.BiTemporalEventStoreFactory;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import java.util.Properties;
 import dev.mars.peegeeq.examples.fundscustody.events.NAVEvent;
 import dev.mars.peegeeq.examples.fundscustody.events.TradeCancelledEvent;
 import dev.mars.peegeeq.examples.fundscustody.events.TradeEvent;
@@ -162,17 +164,12 @@ public abstract class FundsCustodyTestBase {
         System.setProperty("db.password", postgres.getPassword());
 
         // Configure PeeGeeQ to use the TestContainer
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-
-        // Disable queue health checks since we only have bitemporal_event_log table
-        System.setProperty("peegeeq.health-check.queue-checks-enabled", "false");
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres)
+                .property("peegeeq.health-check.queue-checks-enabled", "false")
+                .build();
 
         // Initialize PeeGeeQ manager
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 
@@ -245,12 +242,6 @@ public abstract class FundsCustodyTestBase {
         System.clearProperty("db.database");
         System.clearProperty("db.username");
         System.clearProperty("db.password");
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-        System.clearProperty("peegeeq.health-check.queue-checks-enabled");
     }
 }
 

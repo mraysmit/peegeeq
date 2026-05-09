@@ -21,6 +21,7 @@ import dev.mars.peegeeq.api.QueueFactoryRegistrar;
 import dev.mars.peegeeq.api.messaging.*;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.outbox.OutboxConsumerConfig;
@@ -57,7 +58,6 @@ import org.junit.jupiter.api.extension.ExtendWith;
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class OutboxServerSideFilteringTest {
 
     private static final Logger logger = LoggerFactory.getLogger(OutboxServerSideFilteringTest.class);
@@ -72,24 +72,16 @@ public class OutboxServerSideFilteringTest {
     private PeeGeeQManager manager;
     private OutboxFactory outboxFactory;
 
-    private void configureSystemPropertiesForContainer() {
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-    }
-
     @BeforeEach
     void setUp() throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("=== Setting up OutboxServerSideFilteringTest ===");
-        configureSystemPropertiesForContainer();
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
 
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
         logger.info("Database schema initialized successfully");
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("outbox-filter-test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 
@@ -122,16 +114,10 @@ public class OutboxServerSideFilteringTest {
                 logger.error("Error during manager cleanup", e);
             }
         }
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
         logger.info("Outbox server-side filtering test teardown completed");
     }
 
     @Test
-    @Order(1)
     void testOutboxServerSideFilterEquals(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Outbox Server-Side Filter EQUALS ===");
         String topic = "outbox-filter-equals-" + System.currentTimeMillis();
@@ -182,7 +168,6 @@ public class OutboxServerSideFilteringTest {
     }
 
     @Test
-    @Order(2)
     void testOutboxServerSideFilterIn(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Outbox Server-Side Filter IN ===");
         String topic = "outbox-filter-in-" + System.currentTimeMillis();
@@ -230,7 +215,6 @@ public class OutboxServerSideFilteringTest {
     }
 
     @Test
-    @Order(3)
     void testOutboxServerSideFilterAnd(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Outbox Server-Side Filter AND ===");
         String topic = "outbox-filter-and-" + System.currentTimeMillis();
@@ -281,7 +265,6 @@ public class OutboxServerSideFilteringTest {
     }
 
     @Test
-    @Order(4)
     void testOutboxServerSideFilterMissingHeader(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Outbox Server-Side Filter with Missing Headers ===");
         String topic = "outbox-filter-missing-" + System.currentTimeMillis();
