@@ -22,6 +22,7 @@ import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -44,6 +45,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.Properties;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -100,21 +102,18 @@ class TraceContextPropagationTest {
 
     @BeforeEach
     void setUp(Vertx vertx, VertxTestContext testContext) throws Exception {
-        System.clearProperty("peegeeq.database.use.event.bus.distribution");
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.health-check.enabled", "false");
-        System.setProperty("peegeeq.health-check.queue-checks-enabled", "false");
-        System.setProperty("peegeeq.queue.dead-consumer-detection.enabled", "false");
-        System.setProperty("peegeeq.queue.recovery.enabled", "false");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.health-check.enabled", "false")
+                .property("peegeeq.health-check.queue-checks-enabled", "false")
+                .property("peegeeq.queue.dead-consumer-detection.enabled", "false")
+                .property("peegeeq.queue.recovery.enabled", "false")
+                .build();
 
         String schema = resolveSchema();
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, schema, SchemaComponent.BITEMPORAL);
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
 
         manager.start()
@@ -135,7 +134,6 @@ class TraceContextPropagationTest {
 
     @AfterEach
     void tearDown(VertxTestContext testContext) throws Exception {
-        System.clearProperty("peegeeq.database.use.event.bus.distribution");
 
         if (eventStore != null) {
             eventStore.close();
@@ -148,15 +146,6 @@ class TraceContextPropagationTest {
 
         closeFuture
                 .onSuccess(v -> {
-                    System.clearProperty("peegeeq.database.host");
-                    System.clearProperty("peegeeq.database.port");
-                    System.clearProperty("peegeeq.database.name");
-                    System.clearProperty("peegeeq.database.username");
-                    System.clearProperty("peegeeq.database.password");
-                    System.clearProperty("peegeeq.health-check.enabled");
-                    System.clearProperty("peegeeq.health-check.queue-checks-enabled");
-                    System.clearProperty("peegeeq.queue.dead-consumer-detection.enabled");
-                    System.clearProperty("peegeeq.queue.recovery.enabled");
                     testContext.completeNow();
                 })
                 .onFailure(testContext::failNow);
@@ -184,7 +173,7 @@ class TraceContextPropagationTest {
         MDC.put(TraceContextUtil.MDC_SPAN_ID, callerSpanId);
 
         try {
-            System.setProperty("peegeeq.database.use.event.bus.distribution", "true");
+            // Event-bus distribution configured at manager construction time
 
             eventStore.append("trace.propagation.positive", new TestEvent("tp1", "trace-test", 1), Instant.now())
                     .onComplete(testContext.succeeding(event -> testContext.verify(() -> {
@@ -301,7 +290,7 @@ class TraceContextPropagationTest {
         MDC.put(TraceContextUtil.MDC_SPAN_ID, callerSpanId);
 
         try {
-            System.setProperty("peegeeq.database.use.event.bus.distribution", "true");
+            // Event-bus distribution configured at manager construction time
 
             eventStore.append("trace.context.positive", new TestEvent("ctx1", "context-test", 10), Instant.now())
                     .onComplete(testContext.succeeding(event -> testContext.verify(() -> {
@@ -386,7 +375,7 @@ class TraceContextPropagationTest {
         MDC.put(TraceContextUtil.MDC_SPAN_ID, callerSpanId);
 
         try {
-            System.setProperty("peegeeq.database.use.event.bus.distribution", "true");
+            // Event-bus distribution configured at manager construction time
 
             eventStore.append("trace.mdc.positive", new TestEvent("mdc1", "mdc-test", 100), Instant.now())
                     .onComplete(testContext.succeeding(event -> testContext.verify(() -> {
@@ -411,7 +400,7 @@ class TraceContextPropagationTest {
         MDC.remove(TraceContextUtil.MDC_TRACE_ID);
         MDC.remove(TraceContextUtil.MDC_SPAN_ID);
 
-        System.setProperty("peegeeq.database.use.event.bus.distribution", "true");
+        // Event-bus distribution configured at manager construction time
 
         eventStore.append("trace.mdc.negative", new TestEvent("mdc2", "no-mdc-test", 200), Instant.now())
                 .onComplete(testContext.succeeding(event -> testContext.verify(() -> {

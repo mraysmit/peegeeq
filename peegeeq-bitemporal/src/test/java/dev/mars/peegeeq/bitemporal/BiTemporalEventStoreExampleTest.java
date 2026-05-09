@@ -22,6 +22,7 @@ import dev.mars.peegeeq.api.*;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -48,6 +49,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Properties;
 
 import static org.junit.jupiter.api.Assertions.*;
 
@@ -113,15 +115,11 @@ class BiTemporalEventStoreExampleTest {
         logger.info("=== Setting up Bi-Temporal Event Store Example Test ===");
 
         // Configure PeeGeeQ to use container database
-        System.setProperty("peegeeq.database.host", sharedPostgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(sharedPostgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", sharedPostgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", sharedPostgres.getUsername());
-        System.setProperty("peegeeq.database.password", sharedPostgres.getPassword());
-        System.setProperty("peegeeq.database.schema", "public");
-
-        // Disable queue health checks since we only have bitemporal_event_log table
-        System.setProperty("peegeeq.health-check.queue-checks-enabled", "false");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(sharedPostgres)
+                .schema("public")
+                .property("peegeeq.health-check.queue-checks-enabled", "false")
+                .build();
 
         // Initialize database schema using centralized schema initializer
         logger.info("Creating bitemporal_event_log table using PeeGeeQTestSchemaInitializer...");
@@ -129,7 +127,7 @@ class BiTemporalEventStoreExampleTest {
         logger.info("bitemporal_event_log table created successfully");
 
         // Initialize PeeGeeQ Manager
-        manager = new PeeGeeQManager(new PeeGeeQConfiguration(), new SimpleMeterRegistry());
+        manager = new PeeGeeQManager(new PeeGeeQConfiguration("default", testProps), new SimpleMeterRegistry());
         manager.start()
                 .compose(v -> {
                     logger.info("PeeGeeQ Manager started successfully");
@@ -160,13 +158,6 @@ class BiTemporalEventStoreExampleTest {
         closeChain
                 .onFailure(error -> logger.warn("Bi-Temporal Event Store Example Test cleanup encountered an error: {}", error.getMessage()))
                 .onSuccess(v -> {
-                    System.clearProperty("peegeeq.database.host");
-                    System.clearProperty("peegeeq.database.port");
-                    System.clearProperty("peegeeq.database.name");
-                    System.clearProperty("peegeeq.database.username");
-                    System.clearProperty("peegeeq.database.password");
-                    System.clearProperty("peegeeq.database.schema");
-                    System.clearProperty("peegeeq.health-check.queue-checks-enabled");
                     logger.info("Bi-Temporal Event Store Example Test cleanup completed");
                     testContext.completeNow();
                 })

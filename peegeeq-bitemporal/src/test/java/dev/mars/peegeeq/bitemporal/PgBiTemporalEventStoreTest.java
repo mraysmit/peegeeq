@@ -23,6 +23,8 @@ import dev.mars.peegeeq.api.*;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -45,6 +47,7 @@ import java.time.temporal.ChronoUnit;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 import java.util.concurrent.CountDownLatch;
 import java.util.Objects;
 import java.util.concurrent.TimeUnit;
@@ -243,22 +246,18 @@ class PgBiTemporalEventStoreTest {
         // Clean database before starting each test to ensure isolation
         cleanupDatabase();
 
-        // Set system properties for PeeGeeQ configuration
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-
-        // Disable queue health checks since we only have bitemporal_event_log table
-        System.setProperty("peegeeq.health-check.queue-checks-enabled", "false");
+        // Set configuration properties for PeeGeeQ
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.health-check.queue-checks-enabled", "false")
+                .build();
 
         logger.info("Initializing bitemporal schema and starting PeeGeeQManager");
         // Initialize database schema using centralized schema initializer
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.BITEMPORAL);
 
         // Configure PeeGeeQ
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
 
         // Initialize PeeGeeQ
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
@@ -305,13 +304,6 @@ class PgBiTemporalEventStoreTest {
 
         // Additional wait to ensure cleanup is complete
         awaitAsyncDelay(100);
-
-        // Clean up system properties
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
     }
     
     @Test
