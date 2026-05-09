@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <configuration>
     <conversionRule conversionWord="vxTrace" 
-                    converterClass="dev.mars.peegeeq.api.logging.VertxTraceIdConverter" />
+                    class="dev.mars.peegeeq.api.logging.VertxTraceIdConverter" />
     <conversionRule conversionWord="vxSpan" 
-                    converterClass="dev.mars.peegeeq.api.logging.VertxSpanIdConverter" />
+                    class="dev.mars.peegeeq.api.logging.VertxSpanIdConverter" />
 
     <!-- Test-specific console appender with simplified pattern -->
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
