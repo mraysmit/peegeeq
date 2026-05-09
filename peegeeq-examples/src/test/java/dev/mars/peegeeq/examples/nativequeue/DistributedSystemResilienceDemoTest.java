@@ -11,6 +11,7 @@ import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -53,7 +54,6 @@ import org.slf4j.LoggerFactory;
  */
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @ExtendWith(VertxExtension.class)
 class DistributedSystemResilienceDemoTest {
     private static final Logger logger = LoggerFactory.getLogger(DistributedSystemResilienceDemoTest.class);
@@ -346,24 +346,13 @@ class DistributedSystemResilienceDemoTest {
         }
     }
 
-    /**
-     * Configure system properties for TestContainers PostgreSQL connection
-     */
-    private void configureSystemPropertiesForContainer() {
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-    }
-
     @BeforeEach
     void setUp() {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("Setting up Distributed System Resilience Demo Test");
 
-        // Configure system properties for TestContainers
-        configureSystemPropertiesForContainer();
+        // Configure database connection properties
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
 
         // Initialize database schema for distributed system resilience test
         logger.info("Initializing database schema for distributed system resilience test");
@@ -371,7 +360,7 @@ class DistributedSystemResilienceDemoTest {
         logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
         // Initialize PeeGeeQ with resilience configuration
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 
@@ -401,17 +390,10 @@ class DistributedSystemResilienceDemoTest {
         }
 
         // Clean up system properties
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-
         logger.info("Cleanup complete");
     }
 
     @Test
-    @Order(1)
     @DisplayName("Circuit Breaker Pattern - Preventing Cascade Failures")
     void testCircuitBreakerPattern(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Test: circuit breaker pattern");

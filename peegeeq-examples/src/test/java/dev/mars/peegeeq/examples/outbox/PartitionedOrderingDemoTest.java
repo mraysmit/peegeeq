@@ -25,6 +25,8 @@ import dev.mars.peegeeq.api.messaging.QueueFactory;
 import dev.mars.peegeeq.api.messaging.SubscriptionOptions;
 import dev.mars.peegeeq.db.PeeGeeQManager;
 import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
+import java.util.Properties;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
@@ -141,13 +143,9 @@ class PartitionedOrderingDemoTest {
         // ALL covers outbox + consumer-group/fanout subscription tables.
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
 
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 
@@ -170,9 +168,6 @@ class PartitionedOrderingDemoTest {
             vertx.setTimer(2000, id -> delay.complete());
             delay.future().await();
         }
-        System.clearProperty("peegeeq.database.url");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
     }
 
     // ------------------------------------------------------------------

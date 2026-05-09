@@ -30,6 +30,7 @@ import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.categories.TestCategories;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
 import io.vertx.core.Vertx;
 import io.vertx.junit5.Checkpoint;
@@ -47,6 +48,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 
 import java.util.concurrent.TimeUnit;
@@ -61,7 +63,6 @@ import java.util.Collections;
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 public class ServerSideFilteringTest {
 
     private static final Logger logger = LoggerFactory.getLogger(ServerSideFilteringTest.class);
@@ -76,24 +77,16 @@ public class ServerSideFilteringTest {
     private PeeGeeQManager manager;
     private PgNativeQueueFactory nativeFactory;
 
-    private void configureSystemPropertiesForContainer() {
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-    }
-
     @BeforeEach
     void setUp() throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("=== Setting up ServerSideFilteringTest ===");
-        configureSystemPropertiesForContainer();
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
 
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
         logger.info("Database schema initialized successfully");
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("filter-test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 
@@ -126,16 +119,10 @@ public class ServerSideFilteringTest {
                 logger.error("Error during manager cleanup", e);
             }
         }
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
         logger.info("Server-side filtering test teardown completed");
     }
 
     @Test
-    @Order(1)
     void testServerSideFilterEquals(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Server-Side Filter EQUALS ===");
         String topic = "filter-equals-test-" + System.currentTimeMillis();
@@ -186,7 +173,6 @@ public class ServerSideFilteringTest {
     }
 
     @Test
-    @Order(2)
     void testServerSideFilterIn(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Server-Side Filter IN ===");
         String topic = "filter-in-test-" + System.currentTimeMillis();
@@ -232,7 +218,6 @@ public class ServerSideFilteringTest {
     }
 
     @Test
-    @Order(3)
     void testServerSideFilterAnd(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Server-Side Filter AND ===");
         String topic = "filter-and-test-" + System.currentTimeMillis();
@@ -281,7 +266,6 @@ public class ServerSideFilteringTest {
     }
 
     @Test
-    @Order(4)
     void testServerSideFilterNotEquals(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Server-Side Filter NOT_EQUALS ===");
         String topic = "filter-not-equals-test-" + System.currentTimeMillis();
@@ -329,7 +313,6 @@ public class ServerSideFilteringTest {
     }
 
     @Test
-    @Order(5)
     void testServerSideFilterOr(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Server-Side Filter OR ===");
         String topic = "filter-or-test-" + System.currentTimeMillis();
@@ -379,7 +362,6 @@ public class ServerSideFilteringTest {
     }
 
     @Test
-    @Order(6)
     void testServerSideFilterLike(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Server-Side Filter LIKE ===");
         String topic = "filter-like-test-" + System.currentTimeMillis();
@@ -426,7 +408,6 @@ public class ServerSideFilteringTest {
     }
 
     @Test
-    @Order(7)
     void testServerSideFilterMissingHeader(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("=== Testing Server-Side Filter with Missing Headers ===");
         String topic = "filter-missing-header-test-" + System.currentTimeMillis();
