@@ -2,9 +2,9 @@
 <configuration>
     <!-- Special test configuration to show distributed tracing in action -->
     <conversionRule conversionWord="vxTrace" 
-                    converterClass="dev.mars.peegeeq.api.logging.VertxTraceIdConverter" />
+                    class="dev.mars.peegeeq.api.logging.VertxTraceIdConverter" />
     <conversionRule conversionWord="vxSpan" 
-                    converterClass="dev.mars.peegeeq.api.logging.VertxSpanIdConverter" />
+                    class="dev.mars.peegeeq.api.logging.VertxSpanIdConverter" />
 
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
