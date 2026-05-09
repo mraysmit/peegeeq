@@ -9,6 +9,7 @@ import dev.mars.peegeeq.db.config.PeeGeeQConfiguration;
 import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.consumer.ConsumerModePerformanceTestBase;
 import dev.mars.peegeeq.test.consumer.ConsumerModeTestScenario;
 import dev.mars.peegeeq.test.containers.PeeGeeQTestContainerFactory.PerformanceProfile;
@@ -29,6 +30,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Map;
 
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -91,14 +93,12 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
 
     private void initializeManagerAndFactory() throws Exception {
         // Configure test properties using container from base class
-        System.setProperty("peegeeq.database.host", container.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(container.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", container.getDatabaseName());
-        System.setProperty("peegeeq.database.username", container.getUsername());
-        System.setProperty("peegeeq.database.password", container.getPassword());
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(container)
+                .build();
 
         // Initialize PeeGeeQ with test configuration
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 
@@ -226,12 +226,10 @@ public class ConsumerModePerformanceStandardizedTest extends ConsumerModePerform
                 SchemaComponent.NATIVE_QUEUE,
                 SchemaComponent.OUTBOX,
                 SchemaComponent.DEAD_LETTER_QUEUE);
-        System.setProperty("peegeeq.database.host", container.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(container.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", container.getDatabaseName());
-        System.setProperty("peegeeq.database.username", container.getUsername());
-        System.setProperty("peegeeq.database.password", container.getPassword());
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(container)
+                .build();
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
         PgDatabaseService databaseService = new PgDatabaseService(manager);
