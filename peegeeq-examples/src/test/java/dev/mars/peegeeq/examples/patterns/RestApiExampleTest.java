@@ -90,13 +90,6 @@ public class RestApiExampleTest {
         // Initialize schema
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres, SchemaComponent.ALL);
 
-        // Configure database connection
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-
         // Initialize Vert.x
         vertx = Vertx.vertx();
         
@@ -152,13 +145,6 @@ public class RestApiExampleTest {
                 logger.warn("⚠ Error during Vert.x cleanup", e);
             }
         }
-
-        // Clear system properties
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
 
         logger.info("✓ REST API Example Test teardown completed");
     }

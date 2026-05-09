@@ -11,6 +11,7 @@ import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.examples.shared.SharedTestContainers;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.api.messaging.MessageConsumer;
 import dev.mars.peegeeq.api.messaging.MessageProducer;
 import dev.mars.peegeeq.test.categories.TestCategories;
@@ -53,7 +54,6 @@ import org.slf4j.LoggerFactory;
 @Tag(TestCategories.INTEGRATION)
 @Testcontainers
 @ExtendWith(VertxExtension.class)
-@TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 class ConsumerGroupLoadBalancingDemoTest {
     private static final Logger logger = LoggerFactory.getLogger(ConsumerGroupLoadBalancingDemoTest.class);
 
@@ -142,24 +142,13 @@ class ConsumerGroupLoadBalancingDemoTest {
         }
     }
 
-    /**
-     * Configure system properties for TestContainers PostgreSQL connection
-     */
-    private void configureSystemPropertiesForContainer() {
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-    }
-
     @BeforeEach
     void setUp() {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("Setting up Consumer Group Load Balancing Demo Test");
 
-        // Configure system properties for TestContainers
-        configureSystemPropertiesForContainer();
+        // Configure database connection properties
+        Properties testProps = PeeGeeQTestConfig.builder().from(postgres).build();
 
         // Initialize database schema for consumer group load balancing test
         logger.info("Initializing database schema for consumer group load balancing test");
@@ -167,7 +156,7 @@ class ConsumerGroupLoadBalancingDemoTest {
         logger.info("Database schema initialized successfully using centralized schema initializer (ALL components)");
 
         // Initialize PeeGeeQ with load balancing configuration
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("development");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("development", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 
@@ -196,11 +185,6 @@ class ConsumerGroupLoadBalancingDemoTest {
             }
         }
 
-        // Clean up system properties
-        System.clearProperty("peegeeq.database.url");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-        
         logger.info("Cleanup complete");
     }
 
@@ -224,7 +208,6 @@ class ConsumerGroupLoadBalancingDemoTest {
      * health checks, and dynamic scaling.
      */
     @Test
-    @Order(1)
     @DisplayName("Round Robin Load Balancing - Even Distribution Across Consumers")
     void testRoundRobinLoadBalancing(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Test: round robin load balancing");
@@ -323,7 +306,6 @@ class ConsumerGroupLoadBalancingDemoTest {
     }
 
     @Test
-    @Order(2)
     @DisplayName("Weighted Load Balancing - Distribution Based on Consumer Capacity")
     void testWeightedLoadBalancing(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Test: weighted load balancing");
@@ -435,7 +417,6 @@ class ConsumerGroupLoadBalancingDemoTest {
      * session assignment with proper failover handling.
      */
     @Test
-    @Order(3)
     @DisplayName("Sticky Session Load Balancing - Session Affinity for Stateful Processing")
     void testStickySessionLoadBalancing(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Test: sticky session load balancing");
@@ -561,7 +542,6 @@ class ConsumerGroupLoadBalancingDemoTest {
     }
 
     @Test
-    @Order(4)
     @DisplayName("Dynamic Load Balancing - Adaptive Distribution Based on Performance")
     void testDynamicLoadBalancing(Vertx vertx, VertxTestContext testContext) throws Exception {
         logger.info("Test: dynamic load balancing");
