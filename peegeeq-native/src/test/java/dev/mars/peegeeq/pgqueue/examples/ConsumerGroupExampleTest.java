@@ -26,6 +26,7 @@ import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.pgqueue.PgNativeFactoryRegistrar;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -48,6 +49,7 @@ import io.vertx.junit5.VertxTestContext;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import java.util.Map;
+import java.util.Properties;
 import java.util.Set;
 
 import java.util.concurrent.TimeUnit;
@@ -94,11 +96,9 @@ class ConsumerGroupExampleTest {
         logger.info("=== Setting up Consumer Group Example Test ===");
 
         // Configure PeeGeeQ to use container database
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .build();
 
         // Ensure required schema exists before starting PeeGeeQ
         PeeGeeQTestSchemaInitializer.initializeSchema(
@@ -110,7 +110,7 @@ class ConsumerGroupExampleTest {
 
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(
-                new PeeGeeQConfiguration("development"),
+                new PeeGeeQConfiguration("default", testProps),
                 new SimpleMeterRegistry());
 
         manager.start().await();
@@ -140,13 +140,6 @@ class ConsumerGroupExampleTest {
         if (manager != null) {
             manager.closeReactive().await();
         }
-        
-        // Clear system properties
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
         
         logger.info("Consumer Group Example Test cleanup completed");
     }

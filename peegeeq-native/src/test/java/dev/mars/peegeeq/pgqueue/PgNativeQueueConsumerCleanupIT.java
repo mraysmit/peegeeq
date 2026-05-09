@@ -21,8 +21,10 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 
 import java.time.Duration;
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 
 import io.vertx.core.Future;
@@ -61,15 +63,12 @@ class PgNativeQueueConsumerCleanupIT {
     void setUp() {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         // Configure system properties for TestContainers
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .build();
 
         // Initialize PeeGeeQ Manager
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 

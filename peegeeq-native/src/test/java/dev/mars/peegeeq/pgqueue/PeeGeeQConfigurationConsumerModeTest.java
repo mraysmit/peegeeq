@@ -10,6 +10,7 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -25,6 +26,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.time.Duration;
 
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -74,12 +76,9 @@ class PeeGeeQConfigurationConsumerModeTest {
         logger.info("Setting up PeeGeeQConfiguration consumer mode integration test");
 
         // Configure database connection from container
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.schema", "public");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .build();
 
         // Ensure required schema exists before starting PeeGeeQ
         PeeGeeQTestSchemaInitializer.initializeSchema(
@@ -90,7 +89,7 @@ class PeeGeeQConfigurationConsumerModeTest {
         );
 
         // Initialize PeeGeeQ with test configuration
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 
@@ -115,18 +114,6 @@ class PeeGeeQConfigurationConsumerModeTest {
             manager.closeReactive().await();
         }
 
-        // Clear system properties to avoid test interference
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-        System.clearProperty("peegeeq.database.schema");
-        System.clearProperty("peegeeq.queue.batch-size");
-        System.clearProperty("peegeeq.queue.polling-interval");
-        System.clearProperty("peegeeq.queue.visibility-timeout");
-        System.clearProperty("peegeeq.consumer.threads");
-
         logger.info("Test teardown completed");
     }
 
@@ -134,11 +121,14 @@ class PeeGeeQConfigurationConsumerModeTest {
     void testConfigurationBatchSizeIntegrationWithConsumerModes() throws Exception {
         logger.info("🧪 Testing PeeGeeQConfiguration batch size integration with consumer modes");
 
-        // Set custom batch size via system property (simulating configuration file)
-        System.setProperty("peegeeq.queue.batch-size", "5");
+        // Recreate configuration with custom batch size
+        Properties testMethodProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.queue.batch-size", "5")
+                .build();
 
         // Recreate configuration to pick up new property
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testMethodProps);
         assertEquals(5, config.getQueueConfig().getBatchSize(), "Configuration should reflect custom batch size");
 
         String topicName = "test-config-batch-size-integration";
@@ -185,11 +175,14 @@ class PeeGeeQConfigurationConsumerModeTest {
     void testConfigurationPollingIntervalIntegrationWithConsumerModes() throws Exception {
         logger.info("🧪 Testing PeeGeeQConfiguration polling interval integration with consumer modes");
 
-        // Set custom polling interval via system property (simulating configuration file)
-        System.setProperty("peegeeq.queue.polling-interval", "PT3S");
+        // Recreate configuration with custom polling interval
+        Properties testMethodProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT3S")
+                .build();
 
         // Recreate configuration to pick up new property
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testMethodProps);
         assertEquals(Duration.ofSeconds(3), config.getQueueConfig().getPollingInterval(), 
             "Configuration should reflect custom polling interval");
 
@@ -235,11 +228,14 @@ class PeeGeeQConfigurationConsumerModeTest {
     void testConfigurationVisibilityTimeoutIntegrationWithConsumerModes() throws Exception {
         logger.info("🧪 Testing PeeGeeQConfiguration visibility timeout integration with consumer modes");
 
-        // Set custom visibility timeout via system property (simulating configuration file)
-        System.setProperty("peegeeq.queue.visibility-timeout", "PT15S");
+        // Recreate configuration with custom visibility timeout
+        Properties testMethodProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.queue.visibility-timeout", "PT15S")
+                .build();
 
         // Recreate configuration to pick up new property
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testMethodProps);
         assertEquals(Duration.ofSeconds(15), config.getQueueConfig().getVisibilityTimeout(), 
             "Configuration should reflect custom visibility timeout");
 
@@ -284,11 +280,14 @@ class PeeGeeQConfigurationConsumerModeTest {
     void testConfigurationConsumerThreadsIntegrationWithConsumerModes() throws Exception {
         logger.info("🧪 Testing PeeGeeQConfiguration consumer threads integration with consumer modes");
 
-        // Set custom consumer threads via system property (simulating configuration file)
-        System.setProperty("peegeeq.consumer.threads", "2");
+        // Recreate configuration with custom consumer threads
+        Properties testMethodProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.consumer.threads", "2")
+                .build();
 
         // Recreate configuration to pick up new property
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testMethodProps);
         assertEquals(2, config.getQueueConfig().getConsumerThreads(), 
             "Configuration should reflect custom consumer threads");
 
@@ -337,14 +336,17 @@ class PeeGeeQConfigurationConsumerModeTest {
     void testMultipleConfigurationPropertiesIntegrationWithConsumerModes() throws Exception {
         logger.info("🧪 Testing multiple PeeGeeQConfiguration properties integration with consumer modes");
 
-        // Set multiple custom properties via system properties (simulating configuration file)
-        System.setProperty("peegeeq.queue.batch-size", "8");
-        System.setProperty("peegeeq.queue.polling-interval", "PT2S");
-        System.setProperty("peegeeq.queue.visibility-timeout", "PT20S");
-        System.setProperty("peegeeq.consumer.threads", "3");
+        // Recreate configuration with multiple custom properties
+        Properties testMethodProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.queue.batch-size", "8")
+                .property("peegeeq.queue.polling-interval", "PT2S")
+                .property("peegeeq.queue.visibility-timeout", "PT20S")
+                .property("peegeeq.consumer.threads", "3")
+                .build();
 
         // Recreate configuration to pick up new properties
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testMethodProps);
 
         // Verify all configuration values are loaded correctly
         assertEquals(8, config.getQueueConfig().getBatchSize(), "Configuration should reflect custom batch size");
@@ -401,14 +403,10 @@ class PeeGeeQConfigurationConsumerModeTest {
     void testConfigurationDefaultValuesWithConsumerModes() throws Exception {
         logger.info("🧪 Testing PeeGeeQConfiguration default values with consumer modes");
 
-        // Clear any custom properties to test defaults
-        System.clearProperty("peegeeq.queue.batch-size");
-        System.clearProperty("peegeeq.queue.polling-interval");
-        System.clearProperty("peegeeq.queue.visibility-timeout");
-        System.clearProperty("peegeeq.consumer.threads");
-
         // Create configuration with defaults
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .build());
 
         // Verify default configuration values
         assertEquals(10, config.getQueueConfig().getBatchSize(), "Should use default batch size");

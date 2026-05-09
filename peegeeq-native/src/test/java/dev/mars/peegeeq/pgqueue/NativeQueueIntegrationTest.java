@@ -47,6 +47,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.testcontainers.postgresql.PostgreSQLContainer;
@@ -105,32 +106,22 @@ class NativeQueueIntegrationTest {
         logger.info("Database schema initialized successfully using centralized schema initializer");
 
         // Configure test properties with smaller connection pools to avoid exhaustion
-        Properties testProps = new Properties();
-        testProps.setProperty("peegeeq.database.host", postgres.getHost());
-        testProps.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        testProps.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        testProps.setProperty("peegeeq.database.username", postgres.getUsername());
-        testProps.setProperty("peegeeq.database.password", postgres.getPassword());
-        testProps.setProperty("peegeeq.database.ssl.enabled", "false");
-
-        // Use smaller connection pools for testing to avoid PostgreSQL connection limits
-        testProps.setProperty("peegeeq.database.pool.min-size", "2");
-        testProps.setProperty("peegeeq.database.pool.max-size", "5");
-        testProps.setProperty("peegeeq.database.pool.connection-timeout-ms", "10000");
-        testProps.setProperty("peegeeq.database.pool.idle-timeout-ms", "60000");
-
-        testProps.setProperty("peegeeq.queue.polling-interval", "PT1S");
-        testProps.setProperty("peegeeq.queue.visibility-timeout", "PT30S");
-        testProps.setProperty("peegeeq.metrics.enabled", "true");
-        testProps.setProperty("peegeeq.circuit-breaker.enabled", "true");
-
-        // Set system properties
-        testProps.forEach((key, value) -> System.setProperty(key.toString(), value.toString()));
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.database.pool.min-size", "2")
+                .property("peegeeq.database.pool.max-size", "5")
+                .property("peegeeq.database.pool.connection-timeout-ms", "10000")
+                .property("peegeeq.database.pool.idle-timeout-ms", "60000")
+                .property("peegeeq.queue.polling-interval", "PT1S")
+                .property("peegeeq.queue.visibility-timeout", "PT30S")
+                .property("peegeeq.metrics.enabled", "true")
+                .property("peegeeq.circuit-breaker.enabled", "true")
+                .build();
 
         // Clear any existing messages BEFORE initializing components
         clearQueueBeforeSetup();
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 
@@ -195,19 +186,6 @@ class NativeQueueIntegrationTest {
             }
             manager = null;
         }
-
-        // Clear system properties to avoid interference between tests
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-        System.clearProperty("peegeeq.database.pool.min-size");
-        System.clearProperty("peegeeq.database.pool.max-size");
-
-        // Clean up system properties
-        System.getProperties().entrySet().removeIf(entry ->
-            entry.getKey().toString().startsWith("peegeeq."));
     }
 
     private void clearQueueBeforeSetup() {

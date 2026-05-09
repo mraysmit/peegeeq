@@ -10,6 +10,7 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 
@@ -31,6 +32,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Properties;
 
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
@@ -67,33 +69,23 @@ class ConsumerModeTypeSafetyTest {
     private PeeGeeQManager manager;
     private QueueFactory factory;
 
-    private static final String[] SYSTEM_PROPERTIES = {
-        "peegeeq.database.host", "peegeeq.database.port", "peegeeq.database.name",
-        "peegeeq.database.username", "peegeeq.database.password", "peegeeq.database.ssl.enabled",
-        "peegeeq.queue.polling-interval", "peegeeq.queue.visibility-timeout",
-        "peegeeq.metrics.enabled", "peegeeq.circuit-breaker.enabled"
-    };
-
     @BeforeEach
     void setUp() throws Exception {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.queue.polling-interval", "PT2S");
-        System.setProperty("peegeeq.queue.visibility-timeout", "PT30S");
-        System.setProperty("peegeeq.metrics.enabled", "true");
-        System.setProperty("peegeeq.circuit-breaker.enabled", "true");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT2S")
+                .property("peegeeq.queue.visibility-timeout", "PT30S")
+                .property("peegeeq.metrics.enabled", "true")
+                .property("peegeeq.circuit-breaker.enabled", "true")
+                .build();
 
         PeeGeeQTestSchemaInitializer.initializeSchema(postgres,
                 SchemaComponent.NATIVE_QUEUE,
                 SchemaComponent.OUTBOX,
                 SchemaComponent.DEAD_LETTER_QUEUE);
 
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 
@@ -111,9 +103,6 @@ class ConsumerModeTypeSafetyTest {
         }
         if (manager != null) {
             manager.closeReactive().await();
-        }
-        for (String prop : SYSTEM_PROPERTIES) {
-            System.clearProperty(prop);
         }
     }
 

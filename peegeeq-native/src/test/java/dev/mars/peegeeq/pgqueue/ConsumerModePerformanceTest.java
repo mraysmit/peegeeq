@@ -10,6 +10,8 @@ import dev.mars.peegeeq.db.provider.PgDatabaseService;
 import dev.mars.peegeeq.db.performance.SystemInfoCollector;
 import dev.mars.peegeeq.db.provider.PgQueueFactoryProvider;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
+import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -23,7 +25,6 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 
-import dev.mars.peegeeq.test.categories.TestCategories;
 import io.vertx.core.Vertx;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,6 +38,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -80,12 +82,6 @@ public class ConsumerModePerformanceTest {
         logger.info("Setting up: configuring database and starting PeeGeeQManager");
         logger.info("🔧 Setting up ConsumerModePerformanceTest");
 
-        // Clear any existing system properties
-        System.clearProperty("peegeeq.queue.polling-interval");
-        System.clearProperty("peegeeq.queue.visibility-timeout");
-        System.clearProperty("peegeeq.queue.batch-size");
-        System.clearProperty("peegeeq.consumer.threads");
-
         // Ensure required schema exists before starting PeeGeeQ
         PeeGeeQTestSchemaInitializer.initializeSchema(
             postgres,
@@ -112,19 +108,16 @@ public class ConsumerModePerformanceTest {
 
     private void initializeManagerAndFactory() throws Exception {
         // Configure test properties using TestContainer pattern (following established patterns)
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-        System.setProperty("peegeeq.queue.polling-interval", "PT0.1S"); // Fast polling for performance tests
-        System.setProperty("peegeeq.queue.visibility-timeout", "PT30S");
-        System.setProperty("peegeeq.metrics.enabled", "true");
-        System.setProperty("peegeeq.circuit-breaker.enabled", "true");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.queue.polling-interval", "PT0.1S")
+                .property("peegeeq.queue.visibility-timeout", "PT30S")
+                .property("peegeeq.metrics.enabled", "true")
+                .property("peegeeq.circuit-breaker.enabled", "true")
+                .build();
 
         // Initialize PeeGeeQ with test configuration
-        PeeGeeQConfiguration config = new PeeGeeQConfiguration("test");
+        PeeGeeQConfiguration config = new PeeGeeQConfiguration("default", testProps);
         manager = new PeeGeeQManager(config, new SimpleMeterRegistry());
         manager.start().await();
 

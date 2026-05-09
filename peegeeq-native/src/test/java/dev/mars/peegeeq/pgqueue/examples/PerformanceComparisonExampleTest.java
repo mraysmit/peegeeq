@@ -31,6 +31,7 @@ import dev.mars.peegeeq.pgqueue.ConsumerConfig;
 import dev.mars.peegeeq.pgqueue.ConsumerMode;
 import dev.mars.peegeeq.test.PostgreSQLTestConstants;
 import dev.mars.peegeeq.test.categories.TestCategories;
+import dev.mars.peegeeq.test.config.PeeGeeQTestConfig;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer;
 import dev.mars.peegeeq.test.schema.PeeGeeQTestSchemaInitializer.SchemaComponent;
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry;
@@ -53,6 +54,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 import java.time.Duration;
 import java.time.Instant;
 
+import java.util.Properties;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
@@ -105,20 +107,14 @@ class PerformanceComparisonExampleTest {
         logger.info("=== Setting up Performance Comparison Test ===");
 
         // Configure PeeGeeQ to use container database
-        System.setProperty("peegeeq.database.host", postgres.getHost());
-        System.setProperty("peegeeq.database.port", String.valueOf(postgres.getFirstMappedPort()));
-        System.setProperty("peegeeq.database.name", postgres.getDatabaseName());
-        System.setProperty("peegeeq.database.username", postgres.getUsername());
-        System.setProperty("peegeeq.database.password", postgres.getPassword());
-        System.setProperty("peegeeq.database.schema", "public");
-        System.setProperty("peegeeq.database.ssl.enabled", "false");
-
-        // Configure for performance testing
-        System.setProperty("peegeeq.database.pool.min-size", "5");
-        System.setProperty("peegeeq.database.pool.max-size", "20");
-        System.setProperty("peegeeq.metrics.enabled", "true");
-        System.setProperty("peegeeq.migration.enabled", "true");
-        System.setProperty("peegeeq.migration.auto-migrate", "true");
+        Properties testProps = PeeGeeQTestConfig.builder()
+                .from(postgres)
+                .property("peegeeq.database.pool.min-size", "5")
+                .property("peegeeq.database.pool.max-size", "20")
+                .property("peegeeq.metrics.enabled", "true")
+                .property("peegeeq.migration.enabled", "true")
+                .property("peegeeq.migration.auto-migrate", "true")
+                .build();
 
         // Ensure required schema exists before starting PeeGeeQ
         PeeGeeQTestSchemaInitializer.initializeSchema(
@@ -130,7 +126,7 @@ class PerformanceComparisonExampleTest {
 
         // Initialize PeeGeeQ Manager
         manager = new PeeGeeQManager(
-                new PeeGeeQConfiguration("development"),
+                new PeeGeeQConfiguration("default", testProps),
                 new SimpleMeterRegistry());
 
         manager.start().await();
@@ -162,9 +158,6 @@ class PerformanceComparisonExampleTest {
         if (manager != null) {
             manager.closeReactive().await();
         }
-
-        // Clear system properties
-        clearSystemProperties();
 
         logger.info("Performance Comparison Test cleanup completed");
     }
@@ -300,39 +293,11 @@ class PerformanceComparisonExampleTest {
     }
 
     /**
-     * Clears all system properties set for testing.
-     */
-    private void clearSystemProperties() {
-        System.clearProperty("peegeeq.database.host");
-        System.clearProperty("peegeeq.database.port");
-        System.clearProperty("peegeeq.database.name");
-        System.clearProperty("peegeeq.database.username");
-        System.clearProperty("peegeeq.database.password");
-        System.clearProperty("peegeeq.database.schema");
-        System.clearProperty("peegeeq.database.ssl.enabled");
-        System.clearProperty("peegeeq.database.pool.min-size");
-        System.clearProperty("peegeeq.database.pool.max-size");
-        System.clearProperty("peegeeq.metrics.enabled");
-        System.clearProperty("peegeeq.migration.enabled");
-        System.clearProperty("peegeeq.migration.auto-migrate");
-        System.clearProperty("peegeeq.queue.max-retries");
-        System.clearProperty("peegeeq.consumer.threads");
-        System.clearProperty("peegeeq.queue.batch-size");
-        System.clearProperty("peegeeq.queue.polling-interval");
-    }
-
-    /**
      * Tests a specific configuration and measures performance.
      */
     private PerformanceResult testConfiguration(String configName, int threads, int batchSize, String pollingInterval, Vertx vertx) throws Exception {
         logger.info("\n=== Testing Configuration: {} ===", configName);
         logger.info("🔧 Threads: {}, Batch Size: {}, Polling Interval: {}", threads, batchSize, pollingInterval);
-
-        // Set system properties for this configuration
-        System.setProperty("peegeeq.queue.max-retries", "3");
-        System.setProperty("peegeeq.consumer.threads", String.valueOf(threads));
-        System.setProperty("peegeeq.queue.batch-size", String.valueOf(batchSize));
-        System.setProperty("peegeeq.queue.polling-interval", pollingInterval);
 
         Instant startTime = Instant.now();
 
