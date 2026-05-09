@@ -1,0 +1,11 @@
+A few practical things that genuinely help:
+
+1. **Be explicit about method, not just goal.** "Read both files fully side by side before suggesting anything" works better than "compare them" — I tend to start suggesting before I've actually done the work.
+
+2. **Stop me early.** If my first response doesn't show evidence of having done the actual work (e.g. showing the actual file contents), call it out immediately rather than letting me keep going down a wrong path.
+
+3. **Use the copilot instructions file** (copilot-instructions.md). You already have rules in there. You could add something like: *"When asked to compare files, read both files completely before making any claims. Do not propose a plan — show the actual diff."*
+
+4. **The model itself is a factor.** I am Claude Sonnet 4.6. Some tasks benefit from a different model selection in VS Code — you can switch models in the chat dropdown.
+
+The honest answer though: the core failure here was me generating plausible-sounding analysis without first doing the actual reading. That's a pattern I should catch myself on — if I haven't read the file, I shouldn't be making claims about it. When I do that, cutting me off and saying "read the file first" is the fastest correction.
