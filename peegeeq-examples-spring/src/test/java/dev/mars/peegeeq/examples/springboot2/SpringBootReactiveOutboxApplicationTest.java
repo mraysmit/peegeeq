@@ -56,7 +56,6 @@ import static org.junit.jupiter.api.Assertions.*;
 @Tag(TestCategories.INTEGRATION)
 @SpringBootTest(
     classes = SpringBootReactiveOutboxApplication.class,
-    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = {
         "spring.profiles.active=test",
         "logging.level.dev.mars.peegeeq=DEBUG",
